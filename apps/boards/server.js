@@ -15,13 +15,66 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 // open (name-only), which is fine for local/classroom-network use.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const AUTH_ENABLED = !!GOOGLE_CLIENT_ID;
-const ALLOWED_DOMAINS = (process.env.ALLOWED_DOMAINS || '')
-  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const TEACHER_EMAILS = (process.env.TEACHER_EMAILS || '')
+const SUPER_ADMINS = (process.env.SUPER_ADMINS || 'desmond@signify.one')
   .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_HOURS = 12;
 const oauthClient = AUTH_ENABLED ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// ---------- admin store ----------
+// Persistent access control, managed from the admin portal:
+//   users:   email -> { name, role: student|teacher|admin, status: approved|pending|blocked, firstSeen, lastSeen }
+//   domains: approved email domains (accounts on them are auto-approved)
+
+const STORE_FILE = path.join(DATA_DIR, 'admin.json');
+let store = { users: {}, domains: [] };
+try {
+  if (fs.existsSync(STORE_FILE)) store = Object.assign(store, JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')));
+} catch (e) {
+  console.error('Could not read admin store:', e.message);
+}
+
+let storeTimer = null;
+function saveStore() {
+  if (storeTimer) return;
+  storeTimer = setTimeout(() => {
+    storeTimer = null;
+    fs.writeFile(STORE_FILE, JSON.stringify(store, null, 2), (err) => {
+      if (err) console.error('Admin store save failed:', err.message);
+    });
+  }, 300);
+}
+
+function isSuperAdmin(email) {
+  return SUPER_ADMINS.includes(email);
+}
+
+function effectiveRole(email) {
+  if (isSuperAdmin(email)) return 'superadmin';
+  return (store.users[email] && store.users[email].role) || 'student';
+}
+
+function canTeach(role) {
+  return role === 'teacher' || role === 'admin' || role === 'superadmin';
+}
+
+function isAdminRole(role) {
+  return role === 'admin' || role === 'superadmin';
+}
+
+function domainApproved(email) {
+  return store.domains.includes(email.split('@')[1] || '');
+}
+
+function accessStatus(email) {
+  if (isSuperAdmin(email)) return 'approved';
+  const rec = store.users[email];
+  if (rec && rec.status === 'blocked') return 'blocked';
+  if (rec && rec.status === 'approved') return 'approved';
+  return domainApproved(email) ? 'approved' : 'pending';
+}
+
+// ---------- sessions ----------
 
 function signSession(user) {
   const body = Buffer.from(JSON.stringify(user)).toString('base64url');
@@ -43,11 +96,6 @@ function verifySession(token) {
   } catch {
     return null;
   }
-}
-
-function roleFor(email) {
-  if (!TEACHER_EMAILS.length) return 'choose'; // no list configured: user picks
-  return TEACHER_EMAILS.includes(email) ? 'teacher' : 'student';
 }
 
 // ---------- http ----------
@@ -72,45 +120,186 @@ app.post('/api/auth/google', async (req, res) => {
     });
     const p = ticket.getPayload();
     const email = (p.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
     if (!p.email_verified) return res.status(403).json({ error: 'This Google account has no verified email.' });
-    if (ALLOWED_DOMAINS.length && !ALLOWED_DOMAINS.includes(domain) && !ALLOWED_DOMAINS.includes((p.hd || '').toLowerCase())) {
-      return res.status(403).json({ error: `Only ${ALLOWED_DOMAINS.join(', ')} accounts can use this whiteboard.` });
+
+    // Every real sign-in gets a user record so admins can see and approve it
+    const now = Date.now();
+    let rec = store.users[email];
+    if (!rec) {
+      rec = store.users[email] = { name: p.name || email, role: 'student', status: 'pending', firstSeen: now, lastSeen: now };
     }
-    const user = {
-      email,
-      name: p.name || email,
-      role: roleFor(email),
-      exp: Date.now() + SESSION_HOURS * 3600 * 1000,
-    };
-    res.json({ token: signSession(user), email: user.email, name: user.name, role: user.role, exp: user.exp });
+    rec.name = p.name || rec.name;
+    rec.lastSeen = now;
+    const status = accessStatus(email);
+    if (rec.status === 'pending' && status === 'approved') rec.status = 'approved';
+    saveStore();
+
+    if (status === 'blocked') return res.status(403).json({ error: 'Your access has been disabled by an administrator.' });
+    if (status === 'pending') return res.status(403).json({ error: 'Your account is waiting for administrator approval. Ask your teacher or admin to approve it.' });
+
+    const role = effectiveRole(email);
+    const user = { email, name: rec.name, role, exp: now + SESSION_HOURS * 3600 * 1000 };
+    res.json({ token: signSession(user), email, name: rec.name, role, exp: user.exp });
   } catch (e) {
     res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.' });
   }
 });
 
+function sessionFromReq(req) {
+  return verifySession((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+}
+
 app.get('/api/rooms', (req, res) => {
   if (AUTH_ENABLED) {
-    const user = verifySession((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
-    if (!user || user.role === 'student') return res.status(401).json([]);
+    const user = sessionFromReq(req);
+    if (!user || !canTeach(effectiveRole(user.email)) || accessStatus(user.email) !== 'approved') {
+      return res.status(401).json([]);
+    }
   }
-  const list = fs.readdirSync(DATA_DIR)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => {
-      try {
-        const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
-        return {
-          code: f.replace(/\.json$/, ''),
-          updatedAt: d.updatedAt || 0,
-          students: Object.keys(d.boards || {}).length,
-        };
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-  res.json(list);
+  res.json(listRooms());
+});
+
+// ---------- admin api ----------
+
+function requireAdmin(req, res) {
+  if (!AUTH_ENABLED) {
+    res.status(400).json({ error: 'The admin portal requires Google sign-in to be enabled.' });
+    return null;
+  }
+  const user = sessionFromReq(req);
+  if (!user) {
+    res.status(401).json({ error: 'Please sign in again.' });
+    return null;
+  }
+  const role = effectiveRole(user.email);
+  if (!isAdminRole(role) || accessStatus(user.email) !== 'approved') {
+    res.status(403).json({ error: 'This page is for administrators.' });
+    return null;
+  }
+  return { email: user.email, name: user.name, role };
+}
+
+function kickUser(email) {
+  for (const s of io.of('/').sockets.values()) {
+    if (s.data && s.data.user && s.data.user.email === email) s.disconnect(true);
+  }
+}
+
+app.get('/api/admin/state', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+
+  const users = Object.entries(store.users).map(([email, r]) => ({
+    email,
+    name: r.name,
+    role: effectiveRole(email),
+    status: accessStatus(email),
+    isSuper: isSuperAdmin(email),
+    firstSeen: r.firstSeen || null,
+    lastSeen: r.lastSeen || null,
+  }));
+  for (const email of SUPER_ADMINS) {
+    if (!store.users[email]) {
+      users.push({ email, name: email, role: 'superadmin', status: 'approved', isSuper: true, firstSeen: null, lastSeen: null });
+    }
+  }
+  users.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+
+  const sessions = [];
+  for (const s of io.of('/').sockets.values()) {
+    if (!s.data || !s.data.code) continue;
+    sessions.push({
+      room: s.data.code,
+      name: s.data.name,
+      email: (s.data.user && s.data.user.email) || null,
+      role: s.data.role,
+      since: s.data.connectedAt || null,
+    });
+  }
+  sessions.sort((a, b) => (a.room < b.room ? -1 : 1));
+
+  res.json({ me: admin, users, domains: store.domains, rooms: listRooms(), sessions });
+});
+
+app.post('/api/admin/user', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const { role, status } = req.body;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'That is not a valid email address.' });
+  if (isSuperAdmin(email)) return res.status(403).json({ error: 'Super admin accounts cannot be modified.' });
+
+  const targetIsAdmin = store.users[email] && store.users[email].role === 'admin';
+  if ((targetIsAdmin || role === 'admin') && admin.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Only the super admin can manage admin accounts.' });
+  }
+  if (role && !['student', 'teacher', 'admin'].includes(role)) return res.status(400).json({ error: 'Unknown role.' });
+  if (status && !['approved', 'pending', 'blocked'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
+
+  const now = Date.now();
+  let rec = store.users[email];
+  if (!rec) rec = store.users[email] = { name: email, role: 'student', status: 'approved', firstSeen: now, lastSeen: null };
+  if (role) rec.role = role;
+  if (status) {
+    rec.status = status;
+    if (status === 'blocked') kickUser(email);
+  }
+  saveStore();
+  res.json({ email, name: rec.name, role: effectiveRole(email), status: accessStatus(email), isSuper: false, firstSeen: rec.firstSeen, lastSeen: rec.lastSeen });
+});
+
+app.post('/api/admin/domains', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  if (admin.role !== 'superadmin') return res.status(403).json({ error: 'Only the super admin can manage approved domains.' });
+  const domain = String(req.body.domain || '').trim().toLowerCase().replace(/^@/, '');
+  const action = req.body.action;
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(domain)) return res.status(400).json({ error: 'That is not a valid domain.' });
+  if (action === 'add') {
+    if (!store.domains.includes(domain)) store.domains.push(domain);
+  } else if (action === 'remove') {
+    store.domains = store.domains.filter((d) => d !== domain);
+  } else {
+    return res.status(400).json({ error: 'Unknown action.' });
+  }
+  saveStore();
+  res.json({ domains: store.domains });
+});
+
+app.get('/api/admin/room/:code', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const code = sanitizeCode(req.params.code);
+  const room = getRoom(code, false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  res.json({ code, data: room.data });
+});
+
+app.delete('/api/admin/room/:code', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const code = sanitizeCode(req.params.code);
+  io.in(code).disconnectSockets(true);
+  rooms.delete(code);
+  fs.unlink(roomFile(code), () => {});
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/room/:code/board/:id', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const code = sanitizeCode(req.params.code);
+  const room = getRoom(code, false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  const id = req.params.id;
+  if (id === '__teacher__') {
+    room.data.teacherBoard = null;
+  } else {
+    delete room.data.boards[id];
+    delete room.data.thumbs[id];
+  }
+  scheduleSave(room);
+  res.json({ ok: true });
 });
 
 // ---------- rooms ----------
@@ -124,7 +313,30 @@ function sanitizeCode(code) {
 }
 
 function roomFile(code) {
-  return path.join(DATA_DIR, code + '.json');
+  return path.join(DATA_DIR, `room-${code}.json`);
+}
+
+function listRooms() {
+  return fs.readdirSync(DATA_DIR)
+    .filter((f) => /^room-.+\.json$/.test(f))
+    .map((f) => {
+      const code = f.replace(/^room-/, '').replace(/\.json$/, '');
+      try {
+        const live = rooms.get(code);
+        const d = live ? live.data : JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+        return {
+          code,
+          updatedAt: d.updatedAt || 0,
+          students: Object.keys(d.boards || {}).length,
+          online: live ? live.students.size : 0,
+          teacherOnline: !!(live && live.teacher),
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 function getRoom(code, createIfMissing) {
@@ -173,7 +385,8 @@ io.use((socket, next) => {
   if (!AUTH_ENABLED) return next();
   const user = verifySession(socket.handshake.auth && socket.handshake.auth.token);
   if (!user) return next(new Error('unauthorized'));
-  socket.data.user = user;
+  if (accessStatus(user.email) !== 'approved') return next(new Error('unauthorized'));
+  socket.data.user = { email: user.email, name: user.name };
   next();
 });
 
@@ -186,10 +399,10 @@ io.on('connection', (socket) => {
       if (AUTH_ENABLED) {
         const u = socket.data.user;
         id = u.email;
-        name = u.name;
+        name = (store.users[u.email] && store.users[u.email].name) || u.name;
         role = payload.role === 'teacher' ? 'teacher' : 'student';
-        if (role === 'teacher' && u.role === 'student') {
-          return ack({ error: 'Your account is not registered as a teacher for this whiteboard.' });
+        if (role === 'teacher' && !canTeach(effectiveRole(u.email))) {
+          return ack({ error: 'Your account is not registered as a teacher. Ask your admin to change your role.' });
         }
       } else {
         name = String(payload.name || '').trim().slice(0, 30);
@@ -205,6 +418,7 @@ io.on('connection', (socket) => {
       socket.data.id = id;
       socket.data.name = name;
       socket.data.role = role;
+      socket.data.connectedAt = Date.now();
       socket.join(code);
 
       if (role === 'teacher') {
@@ -317,8 +531,8 @@ server.listen(PORT, () => {
   console.log(`Classroom Whiteboard running on port ${PORT}`);
   console.log(`Google sign-in: ${AUTH_ENABLED ? 'ENABLED' : 'disabled (open mode)'}`);
   if (AUTH_ENABLED) {
-    console.log(`  Allowed domains: ${ALLOWED_DOMAINS.join(', ') || '(any Google account!)'}`);
-    console.log(`  Teachers: ${TEACHER_EMAILS.join(', ') || '(anyone may join as teacher!)'}`);
+    console.log(`  Super admins: ${SUPER_ADMINS.join(', ')}`);
+    console.log(`  Approved domains: ${store.domains.join(', ') || '(none yet — approve them in the admin portal)'}`);
     if (!process.env.SESSION_SECRET) console.log('  Note: set SESSION_SECRET so sign-ins survive server restarts.');
   }
 });

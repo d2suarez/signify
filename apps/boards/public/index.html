@@ -18,6 +18,7 @@
         <span id="signed-in-label"></span>
         <button id="signout-btn" type="button">Sign out</button>
       </div>
+      <a id="admin-portal-link" href="/admin.html" hidden>🛠 Open admin portal</a>
     </div>
 
     <div id="join-section">
@@ -161,6 +162,7 @@
         gsiButton.hidden = true;
         signedIn.hidden = false;
         document.getElementById('signed-in-label').textContent = `Signed in as ${session.name} (${session.email})`;
+        document.getElementById('admin-portal-link').hidden = !(session.role === 'admin' || session.role === 'superadmin');
         joinSection.hidden = false;
         if (session.role === 'student') {
           setRole('student');
@@ -171,6 +173,7 @@
         }
         loadRooms();
       } else {
+        document.getElementById('admin-portal-link').hidden = true;
         gsiButton.hidden = false;
         signedIn.hidden = true;
         joinSection.hidden = true;

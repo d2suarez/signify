@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Classroom Whiteboard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="admin">
+  <header id="admin-header">
+    <h1>🛠 Whiteboard Admin</h1>
+    <div id="admin-me"></div>
+    <div class="admin-header-actions">
+      <a href="/" class="admin-link">← Whiteboard</a>
+      <button id="admin-refresh" class="action-btn">↻ Refresh</button>
+    </div>
+  </header>
+
+  <nav id="admin-nav">
+    <button class="nav-pill active" data-section="users">Users <span id="pending-badge" class="count-badge" hidden></span></button>
+    <button class="nav-pill" data-section="domains">Domains</button>
+    <button class="nav-pill" data-section="sessions">Live sessions <span id="session-count" class="count-badge">0</span></button>
+    <button class="nav-pill" data-section="boards">Boards</button>
+  </nav>
+
+  <main id="admin-main">
+    <section id="section-users" class="admin-section">
+      <div class="admin-card">
+        <h2>Add a user</h2>
+        <p class="hint">Pre-approve someone or assign a role before their first sign-in.</p>
+        <div class="add-user-row">
+          <input id="add-email" type="email" placeholder="person@school.edu" />
+          <select id="add-role">
+            <option value="student">Student</option>
+            <option value="teacher">Teacher</option>
+            <option value="admin">Local admin</option>
+          </select>
+          <button id="add-user-btn" class="primary-sm">Add</button>
+        </div>
+      </div>
+      <div class="admin-card">
+        <h2>All users</h2>
+        <table class="admin-table" id="users-table">
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="section-domains" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Approved domains</h2>
+        <p class="hint">Anyone signing in with a Google account on these domains is admitted automatically (as a student, until you change their role). Accounts outside these domains wait in the Users list for approval.</p>
+        <div class="add-user-row">
+          <input id="add-domain" type="text" placeholder="school.edu" />
+          <button id="add-domain-btn" class="primary-sm">Approve domain</button>
+        </div>
+        <ul id="domains-list" class="domain-list"></ul>
+      </div>
+    </section>
+
+    <section id="section-sessions" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Who's connected right now</h2>
+        <table class="admin-table" id="sessions-table">
+          <thead><tr><th>Room</th><th>Name</th><th>Email</th><th>Role</th><th>Connected</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint" id="sessions-empty" hidden>Nobody is connected.</p>
+      </div>
+    </section>
+
+    <section id="section-boards" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Rooms &amp; boards</h2>
+        <div id="rooms-admin-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="board-viewer-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="viewer-title"></span>
+        <div><button id="viewer-close">✕ Close</button></div>
+      </div>
+      <div class="overlay-canvas-wrap"><canvas id="viewer-canvas"></canvas></div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <script src="/vendor/fabric.min.js"></script>
+  <script src="/js/whiteboard.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
