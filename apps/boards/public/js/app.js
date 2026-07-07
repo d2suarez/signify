@@ -11,7 +11,7 @@ if (!room && !soloBoardId) location.href = '/';
 
 const isSolo = !room;
 document.title = `${room || 'My board'} — Whiteboard`;
-document.getElementById('room-badge').textContent = room || '🗂 My board';
+document.getElementById('room-badge').textContent = room || 'My board';
 
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
 
@@ -35,7 +35,7 @@ let boardsList = [];
 
 function setCurrentBoard(meta) {
   currentBoard = { id: meta.id, title: meta.title };
-  document.getElementById('board-title').textContent = `🗂 ${meta.title} ▾`;
+  document.getElementById('board-title').textContent = `${meta.title} ▾`;
   if (isSolo) document.title = `${meta.title} — Whiteboard`;
 }
 
@@ -199,7 +199,7 @@ async function switchBoard(id) {
     setCurrentBoard(b);
     if (b.json) wb.loadJSON(b.json, updatePageNav);
     else { wb.clear(); updatePageNav(); }
-    toast(`🗂 Opened "${b.title}"`);
+    toast(`Opened "${b.title}"`);
   } catch (e) {
     toast(e.message);
   }
@@ -274,7 +274,7 @@ function renderBoardsGrid(list) {
       try {
         if (isSolo) await authedFetch(`/api/boards/${b.id}/transfer`, { method: 'POST', body: JSON.stringify({ room: null, mode: 'copy' }) });
         else await new Promise((res, rej) => socket.emit('board:duplicate', { boardId: b.id }, (r) => (r && r.ok ? res() : rej(new Error((r && r.error) || 'Duplicate failed.')))));
-        toast('⧉ Board duplicated');
+        toast('Board duplicated');
         renderBoardsGrid(await fetchBoardsList());
       } catch (e) { toast(e.message); }
     };
@@ -290,7 +290,7 @@ function renderBoardsGrid(list) {
           else await createBoardAndSwitch();
         }
         renderBoardsGrid(await fetchBoardsList());
-        toast('🗑 Board deleted');
+        toast('Board deleted');
       } catch (e) { toast(e.message); }
     };
     grid.appendChild(card);
@@ -316,7 +316,7 @@ async function openTransferModal(board) {
   const sel = document.getElementById('transfer-dest');
   sel.innerHTML = '';
   if (authToken) {
-    sel.appendChild(new Option('🗂 My boards (no class)', ''));
+    sel.appendChild(new Option('My boards (no class)', ''));
     try {
       const mine = await authedFetch('/api/my/rooms');
       const seen = new Set();
@@ -332,7 +332,7 @@ async function openTransferModal(board) {
     const code = prompt('Room code to copy this board to:');
     if (!code) return;
     socket.emit('board:transfer', { boardId: board.id, room: code, mode: 'copy' }, (r) => {
-      toast(r && r.ok ? `⧉ Copied to ${code.toUpperCase()}` : (r && r.error) || 'Copy failed.');
+      toast(r && r.ok ? `Copied to ${code.toUpperCase()}` : (r && r.error) || 'Copy failed.');
     });
   }
 }
@@ -351,7 +351,7 @@ async function doTransfer(mode) {
     }
     void res;
     const destLabel = dest || 'My boards';
-    toast(mode === 'move' ? `➜ Moved to ${destLabel}` : `⧉ Copied to ${destLabel}`);
+    toast(mode === 'move' ? `Moved to ${destLabel}` : `Copied to ${destLabel}`);
     document.getElementById('transfer-modal').hidden = true;
     const list = await fetchBoardsList();
     if (mode === 'move' && currentBoard && currentBoard.id === transferBoard.id) {
@@ -379,7 +379,7 @@ function wireDocuments() {
       if (ext === 'pdf') {
         pdfData = await file.arrayBuffer();
       } else {
-        toast(`⏳ Converting ${file.name}…`);
+        toast(`Converting ${file.name}…`);
         const res = await fetch(`/api/convert?ext=${ext}`, {
           method: 'POST',
           headers: authToken ? { Authorization: 'Bearer ' + authToken } : {},
@@ -393,7 +393,7 @@ function wireDocuments() {
       }
       await insertPdf(pdfData);
     } catch (e) {
-      toast('📄 ' + e.message);
+      toast(e.message);
     }
   });
 
@@ -409,7 +409,7 @@ async function insertPdf(arrayBuffer) {
   const pages = Math.min(doc.numPages, MAX_DOC_PAGES);
   const urls = [];
   for (let i = 1; i <= pages; i++) {
-    toast(`📄 Rendering page ${i}/${pages}…`);
+    toast(`Rendering page ${i}/${pages}…`);
     const page = await doc.getPage(i);
     const viewport = page.getViewport({ scale: 1.5 });
     const c = document.createElement('canvas');
@@ -424,7 +424,7 @@ async function insertPdf(arrayBuffer) {
     urls.push(c.toDataURL('image/jpeg', 0.85));
   }
   wb.addDocumentPages(urls, (n) => {
-    toast(`📄 Added ${n} page${n === 1 ? '' : 's'}${doc.numPages > pages ? ` (of ${doc.numPages} — capped)` : ''}. Scroll or use ◀ ▶ to move through them.`);
+    toast(`Added ${n} page${n === 1 ? '' : 's'}${doc.numPages > pages ? ` (of ${doc.numPages} — capped)` : ''}. Scroll or use ◀ ▶ to move through them.`);
     updatePageNav();
   });
 }
@@ -572,7 +572,7 @@ function wireStudent() {
       wb.fitContent();
       updatePageNav();
       sendBoard(wb.getJSON(), wb.getThumb());
-      toast('📥 Your teacher sent you a new board');
+      toast('Your teacher sent you a new board');
     });
   });
 }
@@ -626,7 +626,7 @@ function updateStudentCount() {
 function setSharing(on) {
   const btn = document.getElementById('share-btn');
   btn.classList.toggle('sharing', on);
-  btn.textContent = on ? '⏹ Stop sharing' : '📺 Share my board';
+  btn.textContent = on ? 'Stop sharing' : 'Share my board';
   btn.dataset.on = on ? '1' : '';
 }
 
@@ -694,13 +694,13 @@ function wireTeacher() {
     if (!modalStudent) return;
     if (confirm(`Replace ${modalStudent.name}'s current board with your board?`)) {
       socket.emit('template:push', { json: wb.getJSON(), target: modalStudent.id });
-      toast(`📤 Board sent to ${modalStudent.name}`);
+      toast(`Board sent to ${modalStudent.name}`);
     }
   });
 
   socket.on('student:joined', (s) => {
     upsertStudent({ ...s, online: true });
-    toast(`👋 ${s.name} joined`);
+    toast(`${s.name} joined`);
   });
 
   socket.on('student:left', ({ id }) => {
@@ -729,13 +729,13 @@ function wireTeacher() {
     const on = !e.currentTarget.dataset.on;
     socket.emit(on ? 'share:start' : 'share:stop');
     setSharing(on);
-    toast(on ? '📺 Students now see your board' : 'Stopped sharing');
+    toast(on ? 'Students now see your board' : 'Stopped sharing');
   });
 
   document.getElementById('push-btn').addEventListener('click', () => {
     if (confirm('Send your board to every student? This replaces their current board (they can undo).')) {
       socket.emit('template:push', { json: wb.getJSON() });
-      toast('📤 Board pushed to the class');
+      toast('Board pushed to the class');
     }
   });
 
@@ -813,7 +813,7 @@ function wireRoster() {
       if (d.pendingApproval.length) parts.push(`${d.pendingApproval.length} awaiting admin approval`);
       if (d.skipped.length) parts.push(`${d.skipped.length} already enrolled/skipped`);
       if (d.invalid.length) parts.push(`${d.invalid.length} invalid`);
-      toast('👥 ' + (parts.join(', ') || 'No changes'));
+      toast(parts.join(', ') || 'No changes');
       runSearch();
     } catch (e) {
       toast(e.message);

@@ -282,17 +282,17 @@ class Whiteboard {
     const parts = [
       new fabric.Rect({
         left: 0, top: 0, width: w, height: h,
-        fill: 'rgba(253, 246, 227, 0.95)', stroke: '#c8b273', strokeWidth: 1.5, rx: 6, ry: 6,
+        fill: 'rgba(255, 255, 255, 0.96)', stroke: '#0A7C6E', strokeWidth: 1.5, rx: 3, ry: 3,
       }),
     ];
     for (let i = 0; i <= units; i++) {
       const x = pad + i * unit;
-      parts.push(new fabric.Line([x, 0, x, 16], { stroke: '#7a6a3a', strokeWidth: 1.4 }));
+      parts.push(new fabric.Line([x, 0, x, 16], { stroke: '#1F2937', strokeWidth: 1.4 }));
       parts.push(new fabric.Text(String(i), {
-        left: x, top: 20, fontSize: 12, fill: '#7a6a3a', originX: 'center', fontFamily: 'Arial',
+        left: x, top: 20, fontSize: 12, fill: '#1F2937', originX: 'center', fontFamily: 'Bricolage Grotesque, Arial',
       }));
       if (i < units) {
-        parts.push(new fabric.Line([x + unit / 2, 0, x + unit / 2, 10], { stroke: '#7a6a3a', strokeWidth: 1 }));
+        parts.push(new fabric.Line([x + unit / 2, 0, x + unit / 2, 10], { stroke: '#6F7680', strokeWidth: 1 }));
       }
     }
     const c = this.canvas.getVpCenter();

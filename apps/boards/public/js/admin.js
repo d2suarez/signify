@@ -19,7 +19,7 @@ const toastEl = document.getElementById('toast');
 
 function toast(msg, isError) {
   toastEl.textContent = msg;
-  toastEl.style.borderColor = isError ? '#dc2626' : '#4f46e5';
+  toastEl.style.borderColor = isError ? '#FF6B35' : '#0A7C6E';
   toastEl.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { toastEl.hidden = true; }, 3500);
@@ -164,7 +164,7 @@ function renderUsers() {
       if (u.status !== 'blocked') {
         const b = document.createElement('button');
         b.className = 'btn-block';
-        b.textContent = '⛔ Block';
+        b.textContent = 'Block';
         b.onclick = () => { if (confirm(`Block ${u.email}? They will be disconnected and unable to sign in.`)) updateUser(u.email, { status: 'blocked' }); };
         tdActions.appendChild(b);
       }
@@ -206,7 +206,7 @@ document.getElementById('bulk-add-btn').addEventListener('click', async () => {
     const parts = [`added ${d.added.length}`];
     if (d.skipped.length) parts.push(`${d.skipped.length} already existed`);
     if (d.invalid.length) parts.push(`${d.invalid.length} invalid`);
-    toast('👥 ' + parts.join(', '));
+    toast(parts.join(', '));
     refresh();
   } catch (e) {
     toast(e.message, true);
@@ -519,7 +519,7 @@ async function toggleRoomBoards(card, code) {
       item.className = 'board-item';
       const img = b.thumb ? `<img src="${b.thumb}" alt="" />` : '<div class="tile-empty">No preview</div>';
       item.innerHTML = `${img}<div class="board-item-foot"><span class="board-item-name"></span><span><button class="btn-view">View</button><button class="btn-block">Delete</button></span></div>`;
-      item.querySelector('.board-item-name').textContent = `${b.isTeacher ? '👩‍🏫 ' : ''}${b.ownerName} — ${b.title}`;
+      item.querySelector('.board-item-name').textContent = `${b.isTeacher ? 'Teacher · ' : ''}${b.ownerName} — ${b.title}`;
       item.querySelector('.btn-view').onclick = async () => {
         try {
           const full = await api(`/api/boards/${b.id}`);
