@@ -45,10 +45,10 @@ function downloadDataURL(url, filename) {
 const SHAPE_TOOLS = ['line', 'arrow', 'rect', 'ellipse', 'triangle'];
 
 // Custom/state props that must survive serialization (document pages are locked images)
-const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor'];
+const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor', 'isCurve', 'cropX', 'cropY'];
 
 class Whiteboard {
-  constructor(canvasId, container, { onChange, onViewChange } = {}) {
+  constructor(canvasId, container, { onChange, onViewChange, onSelection, onModeChange } = {}) {
     this.container = container;
     this.canvas = new fabric.Canvas(canvasId, {
       backgroundColor: '#ffffff',
@@ -57,11 +57,16 @@ class Whiteboard {
     });
     this.onChange = onChange || (() => {});
     this.onViewChange = onViewChange || (() => {});
+    this.onSelection = onSelection || (() => {});
+    this.onModeChange = onModeChange || (() => {});
 
     this.tool = 'select';
+    this.handMode = 'board'; // 'board' pans, 'objects' manipulates
     this.color = '#1e293b';
     this.strokeWidth = 4;
     this.fillShapes = false;
+    this._crop = null;      // active crop session { img, rect }
+    this._curveEdit = null; // active curve-edit session
 
     this._undo = [];
     this._redo = [];
@@ -156,8 +161,21 @@ class Whiteboard {
   // ---------- tools ----------
 
   setTool(t) {
+    this.finishCurveEdit(true);
+    this.applyCrop();
     this._cancelCurve();
     this.tool = t;
+    this._applyToolConfig();
+  }
+
+  // The hand tool's two modes: 'board' pans the viewport, 'objects' selects/manipulates
+  setHandMode(mode) {
+    this.handMode = mode === 'objects' ? 'objects' : 'board';
+    if (this.tool === 'pan') this._applyToolConfig();
+  }
+
+  _applyToolConfig() {
+    const t = this.tool;
     const c = this.canvas;
     c.isDrawingMode = t === 'pen' || t === 'highlighter';
     if (c.isDrawingMode) {
@@ -171,10 +189,11 @@ class Whiteboard {
       }
       c.freeDrawingBrush = brush;
     }
-    c.selection = t === 'select';
-    c.skipTargetFind = !(t === 'select' || t === 'eraser' || t === 'text');
-    c.defaultCursor = t === 'pan' ? 'grab' : t === 'select' ? 'default' : 'crosshair';
-    if (t !== 'select') {
+    const objectsMode = t === 'select' || (t === 'pan' && this.handMode === 'objects');
+    c.selection = objectsMode;
+    c.skipTargetFind = !(objectsMode || t === 'eraser' || t === 'text');
+    c.defaultCursor = t === 'pan' && this.handMode === 'board' ? 'grab' : objectsMode ? 'default' : 'crosshair';
+    if (!objectsMode) {
       c.discardActiveObject();
       c.requestRenderAll();
     }
@@ -211,6 +230,7 @@ class Whiteboard {
   }
 
   deleteSelection() {
+    if (this._crop || this._curveEdit) return;
     const c = this.canvas;
     const objs = c.getActiveObjects();
     if (!objs.length) return;
@@ -223,6 +243,8 @@ class Whiteboard {
   }
 
   clear() {
+    this.cancelCrop();
+    this.finishCurveEdit(false);
     this._internal = true;
     this.canvas.clear();
     this.canvas.backgroundColor = '#ffffff';
@@ -433,19 +455,47 @@ class Whiteboard {
     c.on('object:modified', () => this.commit());
     c.on('object:removed', () => this.commit());
     c.on('text:changed', () => this._emitChange());
+
+    c.on('object:moving', (e) => {
+      if (this._curveEdit && e.target && e.target.isEditHandle) this._updateCurveEditPreview();
+    });
+
+    c.on('mouse:dblclick', (opt) => {
+      const target = opt.target;
+      if (!target || this._crop || this._curveEdit) return;
+      if (target.type === 'image' && !target.docPage) this.startCrop(target);
+      else if (this._isEditableCurve(target)) this.startCurveEdit(target);
+    });
+
+    const sel = () => this.onSelection(this.getActiveKind());
+    c.on('selection:created', sel);
+    c.on('selection:updated', sel);
+    c.on('selection:cleared', sel);
   }
 
   _onDown(opt) {
     const c = this.canvas;
     const t = this.tool;
+
+    // Clicking away from an active crop/curve session applies it
+    if (this._crop) {
+      if (opt.target !== this._crop.rect) this.applyCrop();
+      return;
+    }
+    if (this._curveEdit) {
+      if (!(opt.target && opt.target.isEditHandle)) this.finishCurveEdit(true);
+      return;
+    }
+
     if (c.isDrawingMode) return;
     const p = c.getPointer(opt.e);
 
-    if (t === 'pan') {
+    if (t === 'pan' && this.handMode === 'board') {
       this._panning = true;
       c.defaultCursor = 'grabbing';
       return;
     }
+    if (t === 'pan') return; // objects mode: fabric's own select/drag takes over
     if (t === 'eraser') {
       this._erasing = true;
       this._erasedAny = false;
@@ -615,7 +665,7 @@ class Whiteboard {
   _curveDown(p) {
     if (this._curve && this._curve.phase === 'bend') {
       const obj = this._curve.obj;
-      obj.set({ selectable: true, evented: true });
+      obj.set({ selectable: true, evented: true, isCurve: true });
       obj.setCoords();
       this._curve = null;
       this._internal = false;
@@ -673,8 +723,216 @@ class Whiteboard {
 
   cancelPending() {
     this._cancelCurve();
+    this.cancelCrop();
+    this.finishCurveEdit(false);
     this.canvas.discardActiveObject();
     this.canvas.requestRenderAll();
+  }
+
+  _flushChange() {
+    if (this._changeTimer) {
+      clearTimeout(this._changeTimer);
+      this._changeTimer = null;
+      this.onChange(this.getJSON(), this.getThumb());
+    }
+  }
+
+  // ---------- crop (images) ----------
+
+  isCropping() {
+    return !!this._crop;
+  }
+
+  startCropOnActive() {
+    const o = this.canvas.getActiveObject();
+    if (o && o.type === 'image' && !o.docPage) this.startCrop(o);
+  }
+
+  startCrop(img) {
+    if (this._crop || this._curveEdit || img.type !== 'image' || img.docPage) return;
+    this._flushChange();
+    const c = this.canvas;
+    this._internal = true;
+    c.isDrawingMode = false;
+    c.discardActiveObject();
+    img.set({ evented: false, selectable: false }); // only the crop frame is interactive
+    const center = img.getCenterPoint();
+    const rect = new fabric.Rect({
+      left: center.x, top: center.y, originX: 'center', originY: 'center',
+      width: img.getScaledWidth(), height: img.getScaledHeight(), angle: img.angle,
+      fill: 'rgba(10, 124, 110, 0.15)', stroke: '#0A7C6E', strokeWidth: 1.5,
+      strokeDashArray: [6, 4], strokeUniform: true,
+      lockRotation: true, transparentCorners: false, cornerColor: '#0A7C6E', cornerSize: 9,
+    });
+    rect.setControlsVisibility({ mtr: false });
+    c.add(rect);
+    c.setActiveObject(rect);
+    c.requestRenderAll();
+    this._crop = { img, rect };
+    this.onModeChange();
+  }
+
+  applyCrop() {
+    if (!this._crop) return;
+    const c = this.canvas;
+    const { img, rect } = this._crop;
+    this._crop = null;
+
+    const inv = fabric.util.invertTransform(img.calcTransformMatrix());
+    const local = rect.getCoords(true, true).map((pt) => fabric.util.transformPoint(pt, inv));
+    c.remove(rect);
+    img.set({ evented: true, selectable: true });
+
+    let minX = Math.max(Math.min(...local.map((p) => p.x)), -img.width / 2);
+    let maxX = Math.min(Math.max(...local.map((p) => p.x)), img.width / 2);
+    let minY = Math.max(Math.min(...local.map((p) => p.y)), -img.height / 2);
+    let maxY = Math.min(Math.max(...local.map((p) => p.y)), img.height / 2);
+
+    if (maxX - minX >= 4 && maxY - minY >= 4) {
+      const absCenter = fabric.util.transformPoint(
+        new fabric.Point((minX + maxX) / 2, (minY + maxY) / 2), img.calcTransformMatrix());
+      img.set({
+        cropX: (img.cropX || 0) + img.width / 2 + minX,
+        cropY: (img.cropY || 0) + img.height / 2 + minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      });
+      img.setPositionByOrigin(absCenter, 'center', 'center');
+      img.setCoords();
+    }
+    c.discardActiveObject();
+    c.requestRenderAll();
+    this._internal = false;
+    this.commit();
+    this._applyToolConfig();
+    this.onModeChange();
+  }
+
+  cancelCrop() {
+    if (!this._crop) return;
+    const c = this.canvas;
+    const { img, rect } = this._crop;
+    this._crop = null;
+    c.remove(rect);
+    img.set({ evented: true, selectable: true });
+    c.discardActiveObject();
+    c.requestRenderAll();
+    this._internal = false;
+    this._applyToolConfig();
+    this.onModeChange();
+  }
+
+  // ---------- curve editing (drag the endpoints and control point) ----------
+
+  isCurveEditing() {
+    return !!this._curveEdit;
+  }
+
+  _isEditableCurve(obj) {
+    if (!obj || obj.type !== 'path' || !obj.path || obj.path.length !== 2) return false;
+    if (obj.isCurve) return true;
+    return obj.path[0][0] === 'M' && (obj.path[1][0] === 'Q' || obj.path[1][0] === 'L');
+  }
+
+  startCurveEditOnActive() {
+    const o = this.canvas.getActiveObject();
+    if (this._isEditableCurve(o)) this.startCurveEdit(o);
+  }
+
+  startCurveEdit(obj) {
+    if (this._curveEdit || this._crop || !this._isEditableCurve(obj)) return;
+    this._flushChange();
+    const c = this.canvas;
+    const m = obj.calcTransformMatrix();
+    const po = obj.pathOffset;
+    const abs = (x, y) => fabric.util.transformPoint(new fabric.Point(x - po.x, y - po.y), m);
+    const cmds = obj.path;
+    const s = abs(cmds[0][1], cmds[0][2]);
+    let q, e;
+    if (cmds[1][0] === 'Q') {
+      q = abs(cmds[1][1], cmds[1][2]);
+      e = abs(cmds[1][3], cmds[1][4]);
+    } else {
+      e = abs(cmds[1][1], cmds[1][2]);
+      q = new fabric.Point((s.x + e.x) / 2, (s.y + e.y) / 2);
+    }
+
+    this._internal = true;
+    c.isDrawingMode = false;
+    c.selection = false;
+    c.skipTargetFind = false;
+    c.discardActiveObject();
+    c.remove(obj);
+
+    const r = Math.min(20, Math.max(4, 8 / c.getZoom()));
+    const mkHandle = (pt, fill) => {
+      const h = new fabric.Circle({
+        left: pt.x, top: pt.y, radius: r, fill, stroke: '#0A7C6E', strokeWidth: 1.5,
+        originX: 'center', originY: 'center', hasControls: false, hasBorders: false, hoverCursor: 'move',
+      });
+      h.isEditHandle = true;
+      return h;
+    };
+    this._curveEdit = {
+      original: obj,
+      style: { stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity },
+      hStart: mkHandle(s, '#FFFFFF'),
+      hCtrl: mkHandle(q, '#F59E0B'),
+      hEnd: mkHandle(e, '#FFFFFF'),
+      preview: null, arm1: null, arm2: null,
+    };
+    c.add(this._curveEdit.hStart, this._curveEdit.hCtrl, this._curveEdit.hEnd);
+    this._updateCurveEditPreview();
+    this.onModeChange();
+  }
+
+  _updateCurveEditPreview() {
+    const ce = this._curveEdit;
+    if (!ce) return;
+    const c = this.canvas;
+    [ce.preview, ce.arm1, ce.arm2].forEach((o) => o && c.remove(o));
+    const s = ce.hStart.getCenterPoint();
+    const q = ce.hCtrl.getCenterPoint();
+    const e = ce.hEnd.getCenterPoint();
+    ce.preview = new fabric.Path(`M ${s.x} ${s.y} Q ${q.x} ${q.y} ${e.x} ${e.y}`, {
+      ...ce.style, fill: '', selectable: false, evented: false,
+    });
+    const armStyle = { stroke: '#F59E0B', strokeWidth: 1, strokeDashArray: [4, 4], selectable: false, evented: false };
+    ce.arm1 = new fabric.Line([s.x, s.y, q.x, q.y], armStyle);
+    ce.arm2 = new fabric.Line([e.x, e.y, q.x, q.y], armStyle);
+    c.add(ce.preview, ce.arm1, ce.arm2);
+    [ce.hStart, ce.hCtrl, ce.hEnd].forEach((h) => h.bringToFront());
+    c.requestRenderAll();
+  }
+
+  finishCurveEdit(apply) {
+    if (!this._curveEdit) return;
+    const ce = this._curveEdit;
+    this._curveEdit = null;
+    const c = this.canvas;
+    [ce.preview, ce.arm1, ce.arm2, ce.hStart, ce.hCtrl, ce.hEnd].forEach((o) => o && c.remove(o));
+    if (apply) {
+      const s = ce.hStart.getCenterPoint();
+      const q = ce.hCtrl.getCenterPoint();
+      const e = ce.hEnd.getCenterPoint();
+      c.add(new fabric.Path(`M ${s.x} ${s.y} Q ${q.x} ${q.y} ${e.x} ${e.y}`, { ...ce.style, fill: '', isCurve: true }));
+    } else {
+      c.add(ce.original);
+    }
+    c.requestRenderAll();
+    this._internal = false;
+    if (apply) this.commit();
+    this._applyToolConfig();
+    this.onModeChange();
+  }
+
+  // What kind of thing is selected (drives contextual actions)
+  getActiveKind() {
+    const o = this.canvas.getActiveObject();
+    if (!o || (this._crop && o === this._crop.rect) || o.isEditHandle) return null;
+    if (o.type === 'image' && !o.docPage) return 'image';
+    if (this._isEditableCurve(o)) return 'curve';
+    return 'object';
   }
 
   // ----- text -----

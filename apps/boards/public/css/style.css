@@ -234,6 +234,21 @@ body.landing {
   background: #E9E7E2;
 }
 
+#hand-mode {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-sm); box-shadow: var(--shadow-1); overflow: hidden; z-index: 5;
+}
+.hand-opt {
+  border: none; background: none; padding: 7px 14px; font-size: 13px;
+  cursor: pointer; color: var(--muted); font-weight: 600;
+}
+.hand-opt.active { background: var(--teal); color: #fff; }
+
+.ctx-btn { border-color: var(--teal); color: var(--teal); }
+.ctx-apply { background: var(--teal); color: #fff; border-color: var(--teal); }
+.ctx-apply:hover { background: var(--teal-dark); color: #fff; }
+
 /* ---------- teacher students panel ---------- */
 
 #students-panel {

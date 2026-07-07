@@ -26,6 +26,10 @@
         <button id="page-next" title="Next page" hidden>▶</button>
       </div>
       <div class="topbar-group">
+        <button id="ctx-crop" class="action-btn ctx-btn" hidden title="Crop the selected image">Crop</button>
+        <button id="ctx-curve" class="action-btn ctx-btn" hidden title="Reshape the selected curve">Edit curve</button>
+        <button id="ctx-apply" class="action-btn ctx-apply" hidden>Apply</button>
+        <button id="ctx-cancel" class="action-btn" hidden>Cancel</button>
         <button id="students-btn" class="action-btn" hidden>Students</button>
         <button id="share-btn" class="teacher-only action-btn" hidden>Share my board</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
@@ -43,7 +47,7 @@
 
     <aside id="toolbar">
       <button class="tool active" data-tool="select" title="Select / move (V)">↖</button>
-      <button class="tool" data-tool="pan" title="Pan around the board (H)">✋</button>
+      <button class="tool" data-tool="pan" title="Hand — move the board or move objects (H)">✋</button>
       <button class="tool" data-tool="pen" title="Pen (P)">✏️</button>
       <button class="tool" data-tool="highlighter" title="Highlighter">🖍️</button>
       <button class="tool" data-tool="line" title="Straight line — drag">╱</button>
@@ -80,6 +84,10 @@
 
     <main id="canvas-wrap">
       <canvas id="board"></canvas>
+      <div id="hand-mode" hidden>
+        <button id="hand-board" class="hand-opt active" type="button">Move board</button>
+        <button id="hand-objects" class="hand-opt" type="button">Move objects</button>
+      </div>
     </main>
 
     <aside id="students-panel" hidden>

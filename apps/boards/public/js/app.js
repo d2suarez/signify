@@ -21,6 +21,32 @@ const canvasWrap = document.getElementById('canvas-wrap');
 const wb = new Whiteboard('board', canvasWrap, {
   onChange: (json, thumb) => sendBoard(json, thumb),
   onViewChange: updateZoomLabel,
+  onSelection: () => refreshCtx(),
+  onModeChange: () => refreshCtx(),
+});
+
+// Contextual actions for the current selection / edit session
+function refreshCtx() {
+  const cropping = wb.isCropping();
+  const editing = wb.isCurveEditing();
+  const kind = cropping || editing ? null : wb.getActiveKind();
+  document.getElementById('ctx-crop').hidden = kind !== 'image';
+  document.getElementById('ctx-curve').hidden = kind !== 'curve';
+  const apply = document.getElementById('ctx-apply');
+  apply.hidden = !(cropping || editing);
+  apply.textContent = cropping ? 'Apply crop' : 'Done';
+  document.getElementById('ctx-cancel').hidden = !(cropping || editing);
+}
+
+document.getElementById('ctx-crop').addEventListener('click', () => wb.startCropOnActive());
+document.getElementById('ctx-curve').addEventListener('click', () => wb.startCurveEditOnActive());
+document.getElementById('ctx-apply').addEventListener('click', () => {
+  if (wb.isCropping()) wb.applyCrop();
+  else wb.finishCurveEdit(true);
+});
+document.getElementById('ctx-cancel').addEventListener('click', () => {
+  wb.cancelCrop();
+  wb.finishCurveEdit(false);
 });
 
 function updateZoomLabel() {
@@ -446,8 +472,19 @@ document.querySelectorAll('.tool[data-tool]').forEach((btn) => {
     document.querySelectorAll('.tool[data-tool]').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     wb.setTool(btn.dataset.tool);
+    document.getElementById('hand-mode').hidden = btn.dataset.tool !== 'pan';
+    refreshCtx();
   });
 });
+
+// Hand tool mode: pan the board vs. manipulate objects
+document.getElementById('hand-board').addEventListener('click', () => setHandModeUI('board'));
+document.getElementById('hand-objects').addEventListener('click', () => setHandModeUI('objects'));
+function setHandModeUI(mode) {
+  wb.setHandMode(mode);
+  document.getElementById('hand-board').classList.toggle('active', mode === 'board');
+  document.getElementById('hand-objects').classList.toggle('active', mode === 'objects');
+}
 
 function activateTool(t) {
   const btn = document.querySelector(`.tool[data-tool="${t}"]`);
@@ -526,7 +563,12 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); wb.redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); wb.deleteSelection(); return; }
-  if (e.key === 'Escape') { wb.cancelPending(); return; }
+  if (e.key === 'Escape') { wb.cancelPending(); refreshCtx(); return; }
+  if (e.key === 'Enter' && (wb.isCropping() || wb.isCurveEditing())) {
+    e.preventDefault();
+    if (wb.isCropping()) wb.applyCrop(); else wb.finishCurveEdit(true);
+    return;
+  }
   if (e.key === 'PageDown') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() + 1); return; }
   if (e.key === 'PageUp') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() - 1); return; }
   const map = { v: 'select', h: 'pan', p: 'pen', t: 'text', e: 'eraser' };
