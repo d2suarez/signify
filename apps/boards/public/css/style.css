@@ -334,3 +334,15 @@ body.admin { background: #0f172a; color: #e2e8f0; min-height: 100vh; }
   position: fixed; inset: 0; z-index: 110; background: rgba(15, 23, 42, 0.8);
   display: flex; align-items: center; justify-content: center;
 }
+
+.perm-grid { display: flex; flex-direction: column; gap: 7px; margin: 10px 0 4px; }
+.perm-item {
+  display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #cbd5e1;
+  cursor: pointer; line-height: 1.35;
+}
+.perm-item input { margin-top: 2px; accent-color: #4f46e5; }
+.perm-item input:disabled + * , .perm-item:has(input:disabled) { opacity: 0.55; cursor: default; }
+.role-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.role-head h2 { margin: 0; }
+.role-meta { margin: 0; }
+.role-actions { display: flex; gap: 8px; margin-top: 12px; }

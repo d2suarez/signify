@@ -17,10 +17,11 @@
   </header>
 
   <nav id="admin-nav">
-    <button class="nav-pill active" data-section="users">Users <span id="pending-badge" class="count-badge" hidden></span></button>
-    <button class="nav-pill" data-section="domains">Domains</button>
-    <button class="nav-pill" data-section="sessions">Live sessions <span id="session-count" class="count-badge">0</span></button>
-    <button class="nav-pill" data-section="boards">Boards</button>
+    <button class="nav-pill" data-section="users" hidden>Users <span id="pending-badge" class="count-badge" hidden></span></button>
+    <button class="nav-pill" data-section="roles" hidden>Roles</button>
+    <button class="nav-pill" data-section="domains" hidden>Domains</button>
+    <button class="nav-pill" data-section="sessions" hidden>Live sessions <span id="session-count" class="count-badge">0</span></button>
+    <button class="nav-pill" data-section="boards" hidden>Boards</button>
   </nav>
 
   <main id="admin-main">
@@ -45,6 +46,20 @@
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <section id="section-roles" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Create a role</h2>
+        <p class="hint">Pick an id (short, no spaces), a display name, and the permissions the role grants.</p>
+        <div class="add-user-row">
+          <input id="new-role-id" type="text" placeholder="id, e.g. moderator" maxlength="25" />
+          <input id="new-role-label" type="text" placeholder="Display name, e.g. Moderator" maxlength="40" />
+          <button id="create-role-btn" class="primary-sm">Create role</button>
+        </div>
+        <div id="new-role-perms" class="perm-grid"></div>
+      </div>
+      <div id="roles-list"></div>
     </section>
 
     <section id="section-domains" class="admin-section" hidden>

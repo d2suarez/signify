@@ -74,6 +74,19 @@
       errEl.hidden = !msg;
     }
 
+    function isSuperSession() {
+      return !!session && (session.isSuper || session.role === 'superadmin');
+    }
+
+    function sessionPerms() {
+      if (!session) return [];
+      if (Array.isArray(session.perms)) return session.perms;
+      // Sessions issued before custom roles existed carry only a role name
+      if (session.role === 'teacher') return ['teach'];
+      if (session.role === 'admin' || session.role === 'superadmin') return ['teach', 'manage_users', 'manage_boards', 'view_sessions'];
+      return [];
+    }
+
     function setRole(r) {
       if (r === 'teacher' && session && session.role === 'student') return; // not allowed
       role = r;
@@ -162,9 +175,10 @@
         gsiButton.hidden = true;
         signedIn.hidden = false;
         document.getElementById('signed-in-label').textContent = `Signed in as ${session.name} (${session.email})`;
-        document.getElementById('admin-portal-link').hidden = !(session.role === 'admin' || session.role === 'superadmin');
+        const perms = sessionPerms();
+        document.getElementById('admin-portal-link').hidden = !(isSuperSession() || perms.some((p) => p !== 'teach'));
         joinSection.hidden = false;
-        if (session.role === 'student') {
+        if (!isSuperSession() && !perms.includes('teach')) {
           setRole('student');
           tabTeacher.disabled = true;
           tabTeacher.title = 'Your account is not registered as a teacher';
@@ -190,7 +204,7 @@
     }
 
     function loadRooms() {
-      if (cfg.authEnabled && (!session || session.role === 'student')) return;
+      if (cfg.authEnabled && (!session || (!isSuperSession() && !sessionPerms().includes('teach')))) return;
       const headers = session ? { Authorization: 'Bearer ' + session.token } : {};
       fetch('/api/rooms', { headers }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
         const ul = document.getElementById('rooms-list');

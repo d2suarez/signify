@@ -11,12 +11,13 @@ It runs in two modes:
 
 At **`/admin.html`** (link appears on the landing page for admins). The super admin is set by `SUPER_ADMINS` (default `desmond@signify.one`).
 
-- **Users** — new sign-ins from unapproved domains wait here as *pending*; approve or block them, assign roles (student / teacher / local admin), or pre-add someone before their first sign-in. Blocking disconnects the user immediately.
-- **Domains** — approve email domains (e.g. your school's) so accounts on them are admitted automatically as students. Super admin only.
+- **Users** — new sign-ins from unapproved domains wait here as *pending*; approve or block them, assign roles, or pre-add someone before their first sign-in. Blocking disconnects the user immediately.
+- **Roles** (super admin only) — create custom roles and choose which permissions each role grants: *teach classes*, *manage users*, *view & delete boards*, *view live sessions*, *manage approved domains*. The built-in Teacher and Local admin roles can be re-permissioned; Student is the locked default. Deleting a custom role turns its users back into Students.
+- **Domains** — approve email domains (e.g. your school's) so accounts on them are admitted automatically as students.
 - **Live sessions** — everyone connected right now, with room, name, and role.
 - **Boards** — every room with its saved boards; view any board full-size, delete a single board, or delete a whole room.
 
-Local admins can approve/block users and manage boards; only the super admin can manage domains and admin roles. Role and access changes apply on the user's next connection (or immediately when blocking).
+**Scoping:** anyone whose role grants *manage users* (e.g. local admins) can only see and manage accounts on **their own email domain** or accounts **they added themselves** — and never other admins or the super admin. They can only hand out roles that carry no admin permissions (Student, Teacher). Only the super admin manages roles, and domain management requires the *manage domains* permission. Everything is enforced server-side; role and access changes apply on the user's next connection (immediately when blocking).
 
 ## Running locally
 

@@ -6,6 +6,14 @@ if (!session || (session.exp && session.exp < Date.now())) {
   location.href = '/';
 }
 
+const PERM_LABELS = {
+  teach: 'Teach classes (create rooms, share, push templates)',
+  manage_users: 'Manage users (approve, block, assign roles — scoped to own domain unless super admin)',
+  manage_boards: 'View & delete rooms and boards',
+  view_sessions: 'View live sessions',
+  manage_domains: 'Manage approved domains',
+};
+
 let state = null;
 const toastEl = document.getElementById('toast');
 
@@ -32,16 +40,54 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function can(perm) {
+  return state.me.isSuper || state.me.perms.includes(perm);
+}
+
+function roleById(id) {
+  return state.roles.find((r) => r.id === id) || null;
+}
+
+function roleLabel(id) {
+  if (id === 'superadmin') return 'super admin';
+  const r = roleById(id);
+  return r ? r.label : id;
+}
+
+// Roles a non-super manager may hand out: no admin permissions
+function assignableRoles() {
+  if (state.me.isSuper) return state.roles;
+  return state.roles.filter((r) => r.perms.every((p) => p === 'teach'));
+}
+
 // ---------- nav ----------
 
 document.querySelectorAll('.nav-pill').forEach((pill) => {
-  pill.addEventListener('click', () => {
-    document.querySelectorAll('.nav-pill').forEach((p) => p.classList.remove('active'));
-    pill.classList.add('active');
-    document.querySelectorAll('.admin-section').forEach((s) => { s.hidden = true; });
-    document.getElementById('section-' + pill.dataset.section).hidden = false;
-  });
+  pill.addEventListener('click', () => activateSection(pill.dataset.section));
 });
+
+function activateSection(section) {
+  document.querySelectorAll('.nav-pill').forEach((p) => p.classList.toggle('active', p.dataset.section === section));
+  document.querySelectorAll('.admin-section').forEach((s) => { s.hidden = s.id !== 'section-' + section; });
+}
+
+function applyNavVisibility() {
+  const visible = {
+    users: can('manage_users'),
+    roles: state.me.isSuper,
+    domains: can('manage_domains'),
+    sessions: can('view_sessions'),
+    boards: can('manage_boards'),
+  };
+  let first = null;
+  document.querySelectorAll('.nav-pill').forEach((pill) => {
+    const show = visible[pill.dataset.section];
+    pill.hidden = !show;
+    if (show && !first) first = pill.dataset.section;
+  });
+  const active = document.querySelector('.nav-pill.active');
+  if ((!active || active.hidden) && first) activateSection(first);
+}
 
 document.getElementById('admin-refresh').addEventListener('click', () => refresh(true));
 
@@ -55,13 +101,16 @@ function fmtTime(t) {
 }
 
 function renderUsers() {
+  if (!can('manage_users')) return;
   const tbody = document.querySelector('#users-table tbody');
   tbody.innerHTML = '';
-  const iAmSuper = state.me.role === 'superadmin';
   const pending = state.users.filter((u) => u.status === 'pending').length;
   const badge = document.getElementById('pending-badge');
   badge.hidden = !pending;
   badge.textContent = pending;
+
+  // Scoped admins may only assign teach-only roles
+  const roleOptions = assignableRoles();
 
   const order = { pending: 0, approved: 1, blocked: 2 };
   const sorted = [...state.users].sort((a, b) => (order[a.status] - order[b.status]) || (b.lastSeen || 0) - (a.lastSeen || 0));
@@ -73,21 +122,23 @@ function renderUsers() {
     const tdUser = document.createElement('td');
     tdUser.innerHTML = `<div class="u-name"></div><div class="u-email"></div>`;
     tdUser.querySelector('.u-name').textContent = u.name;
-    tdUser.querySelector('.u-email').textContent = u.email;
+    tdUser.querySelector('.u-email').textContent = u.email + (u.addedBy ? ` · added by ${u.addedBy}` : '');
     tr.appendChild(tdUser);
 
     const tdRole = document.createElement('td');
     if (u.isSuper) {
       tdRole.innerHTML = '<span class="badge-super">super admin</span>';
     } else {
+      const currentAssignable = roleOptions.some((r) => r.id === u.role);
       const sel = document.createElement('select');
-      const canManageAdmins = iAmSuper;
-      [['student', 'Student'], ['teacher', 'Teacher'], ['admin', 'Local admin']].forEach(([v, label]) => {
-        if (v === 'admin' && !canManageAdmins) return;
-        const opt = new Option(label, v, false, u.role === v);
-        sel.appendChild(opt);
-      });
-      sel.disabled = u.role === 'admin' && !canManageAdmins;
+      for (const r of roleOptions) {
+        sel.appendChild(new Option(r.label, r.id, false, u.role === r.id));
+      }
+      if (!currentAssignable) {
+        // e.g. scoped admin looking at a role they can't hand out — show, but lock
+        sel.appendChild(new Option(roleLabel(u.role), u.role, false, true));
+        sel.disabled = true;
+      }
       sel.onchange = () => updateUser(u.email, { role: sel.value });
       tdRole.appendChild(sel);
     }
@@ -102,7 +153,7 @@ function renderUsers() {
     tr.appendChild(tdSeen);
 
     const tdActions = document.createElement('td');
-    if (!u.isSuper && (u.role !== 'admin' || iAmSuper)) {
+    if (!u.isSuper) {
       if (u.status !== 'approved') {
         const b = document.createElement('button');
         b.className = 'btn-approve';
@@ -134,6 +185,14 @@ async function updateUser(email, patch) {
   }
 }
 
+function renderAddUserRoles() {
+  const sel = document.getElementById('add-role');
+  sel.innerHTML = '';
+  for (const r of assignableRoles()) {
+    sel.appendChild(new Option(r.label, r.id, r.id === 'student', r.id === 'student'));
+  }
+}
+
 document.getElementById('add-user-btn').addEventListener('click', async () => {
   const email = document.getElementById('add-email').value.trim();
   const role = document.getElementById('add-role').value;
@@ -141,18 +200,116 @@ document.getElementById('add-user-btn').addEventListener('click', async () => {
   try {
     await api('/api/admin/user', { method: 'POST', body: JSON.stringify({ email, role, status: 'approved' }) });
     document.getElementById('add-email').value = '';
-    toast(`Added ${email} as ${role}`);
+    toast(`Added ${email} as ${roleLabel(role)}`);
     refresh();
   } catch (e) {
     toast(e.message, true);
   }
 });
 
+// ---------- roles ----------
+
+function permCheckboxes(container, checked, disabled) {
+  container.innerHTML = '';
+  for (const p of state.permissions) {
+    const label = document.createElement('label');
+    label.className = 'perm-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = p;
+    cb.checked = checked.includes(p);
+    cb.disabled = !!disabled;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + (PERM_LABELS[p] || p)));
+    container.appendChild(label);
+  }
+}
+
+function selectedPerms(container) {
+  return [...container.querySelectorAll('input:checked')].map((c) => c.value);
+}
+
+function renderRoles() {
+  if (!state.me.isSuper) return;
+  permCheckboxes(document.getElementById('new-role-perms'), [], false);
+
+  const wrap = document.getElementById('roles-list');
+  wrap.innerHTML = '';
+  for (const role of state.roles) {
+    const card = document.createElement('div');
+    card.className = 'admin-card';
+    const locked = role.id === 'student';
+    const userCount = state.users.filter((u) => u.role === role.id).length;
+
+    const head = document.createElement('div');
+    head.className = 'role-head';
+    head.innerHTML = `<h2></h2><span class="hint role-meta"></span>`;
+    head.querySelector('h2').textContent = role.label;
+    head.querySelector('.role-meta').textContent =
+      `id: ${role.id} · ${role.builtin ? 'built-in' : 'custom'} · ${userCount} user${userCount === 1 ? '' : 's'}${locked ? ' · locked (default role)' : ''}`;
+    card.appendChild(head);
+
+    const grid = document.createElement('div');
+    grid.className = 'perm-grid';
+    permCheckboxes(grid, role.perms, locked);
+    card.appendChild(grid);
+
+    if (!locked) {
+      const actions = document.createElement('div');
+      actions.className = 'role-actions';
+      const save = document.createElement('button');
+      save.className = 'primary-sm';
+      save.textContent = 'Save permissions';
+      save.onclick = async () => {
+        try {
+          await api('/api/admin/roles', { method: 'POST', body: JSON.stringify({ action: 'update', id: role.id, perms: selectedPerms(grid) }) });
+          toast(`Updated ${role.label}`);
+          refresh();
+        } catch (e) { toast(e.message, true); }
+      };
+      actions.appendChild(save);
+      if (!role.builtin) {
+        const del = document.createElement('button');
+        del.className = 'btn-block';
+        del.textContent = 'Delete role';
+        del.onclick = async () => {
+          if (!confirm(`Delete the "${role.label}" role? Its ${userCount} user${userCount === 1 ? '' : 's'} will become Students.`)) return;
+          try {
+            await api('/api/admin/roles', { method: 'POST', body: JSON.stringify({ action: 'delete', id: role.id }) });
+            toast(`Deleted ${role.label}`);
+            refresh();
+          } catch (e) { toast(e.message, true); }
+        };
+        actions.appendChild(del);
+      }
+      card.appendChild(actions);
+    }
+    wrap.appendChild(card);
+  }
+}
+
+document.getElementById('create-role-btn').addEventListener('click', async () => {
+  const id = document.getElementById('new-role-id').value.trim().toLowerCase();
+  const label = document.getElementById('new-role-label').value.trim();
+  const perms = selectedPerms(document.getElementById('new-role-perms'));
+  if (!id) { toast('Enter a role id.', true); return; }
+  try {
+    await api('/api/admin/roles', { method: 'POST', body: JSON.stringify({ action: 'create', id, label: label || id, perms }) });
+    document.getElementById('new-role-id').value = '';
+    document.getElementById('new-role-label').value = '';
+    toast(`Created role ${label || id}`);
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+// ---------- domains ----------
+
 function renderDomains() {
+  if (!can('manage_domains')) return;
   const ul = document.getElementById('domains-list');
   ul.innerHTML = '';
-  const iAmSuper = state.me.role === 'superadmin';
-  document.querySelector('#section-domains .add-user-row').style.display = iAmSuper ? '' : 'none';
   if (!state.domains.length) {
     ul.innerHTML = '<li class="hint">No approved domains yet — every account needs individual approval.</li>';
     return;
@@ -160,17 +317,15 @@ function renderDomains() {
   for (const d of state.domains) {
     const li = document.createElement('li');
     li.innerHTML = `<span>@${d}</span>`;
-    if (iAmSuper) {
-      const b = document.createElement('button');
-      b.className = 'btn-block';
-      b.textContent = 'Remove';
-      b.onclick = async () => {
-        if (!confirm(`Remove @${d}? New sign-ins from it will need individual approval.`)) return;
-        try { await api('/api/admin/domains', { method: 'POST', body: JSON.stringify({ action: 'remove', domain: d }) }); refresh(); }
-        catch (e) { toast(e.message, true); }
-      };
-      li.appendChild(b);
-    }
+    const b = document.createElement('button');
+    b.className = 'btn-block';
+    b.textContent = 'Remove';
+    b.onclick = async () => {
+      if (!confirm(`Remove @${d}? New sign-ins from it will need individual approval.`)) return;
+      try { await api('/api/admin/domains', { method: 'POST', body: JSON.stringify({ action: 'remove', domain: d }) }); refresh(); }
+      catch (e) { toast(e.message, true); }
+    };
+    li.appendChild(b);
     ul.appendChild(li);
   }
 }
@@ -188,7 +343,10 @@ document.getElementById('add-domain-btn').addEventListener('click', async () => 
   }
 });
 
+// ---------- sessions ----------
+
 function renderSessions() {
+  if (!can('view_sessions')) return;
   const tbody = document.querySelector('#sessions-table tbody');
   tbody.innerHTML = '';
   document.getElementById('session-count').textContent = state.sessions.length;
@@ -204,7 +362,10 @@ function renderSessions() {
   }
 }
 
+// ---------- boards ----------
+
 function renderRooms() {
+  if (!can('manage_boards')) return;
   const wrap = document.getElementById('rooms-admin-list');
   wrap.innerHTML = '';
   if (!state.rooms.length) {
@@ -255,8 +416,13 @@ async function toggleRoomBoards(card, code) {
       item.querySelector('.btn-view').onclick = () => openViewer(`${code} — ${e.name}`, e.json);
       item.querySelector('.btn-block').onclick = async () => {
         if (!confirm(`Delete ${e.name}'s board in ${code}?`)) return;
-        try { await api(`/api/admin/room/${code}/board/${encodeURIComponent(e.id)}`, { method: 'DELETE' }); toast('Board deleted'); toggleRoomBoards(card, code); toggleRoomBoards(card, code); refresh(); }
-        catch (err) { toast(err.message, true); }
+        try {
+          await api(`/api/admin/room/${code}/board/${encodeURIComponent(e.id)}`, { method: 'DELETE' });
+          toast('Board deleted');
+          panel.hidden = true;
+          toggleRoomBoards(card, code);
+          refresh();
+        } catch (err) { toast(err.message, true); }
       };
       panel.appendChild(item);
     }
@@ -287,8 +453,11 @@ document.getElementById('viewer-close').addEventListener('click', () => {
 async function refresh(manual) {
   try {
     state = await api('/api/admin/state');
-    document.getElementById('admin-me').textContent = `${state.me.name || state.me.email} · ${state.me.role === 'superadmin' ? 'super admin' : 'local admin'}`;
+    document.getElementById('admin-me').textContent = `${state.me.name || state.me.email} · ${roleLabel(state.me.role)}`;
+    applyNavVisibility();
+    renderAddUserRoles();
     renderUsers();
+    renderRoles();
     renderDomains();
     renderSessions();
     renderRooms();
@@ -300,11 +469,10 @@ async function refresh(manual) {
 
 refresh();
 setInterval(() => {
-  // keep sessions/users fresh without stomping on open board panels
+  // keep users/sessions fresh without stomping on open board panels or role edits
   api('/api/admin/state').then((s) => {
     state = s;
     renderUsers();
     renderSessions();
-    document.getElementById('session-count').textContent = s.sessions.length;
   }).catch(() => {});
 }, 15000);
