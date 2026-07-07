@@ -18,9 +18,24 @@ Open **http://localhost:3000** (Node.js lives at `~/.local/node/bin` on this mac
 
 For same-network use, students open `http://YOUR-IP:3000` (find your IP in System Settings → Wi-Fi → Details).
 
-## Putting it online
+## Live deployment
 
-The app is a single Node server (WebSockets included), so it works on any Node host. **Render** is a good fit; the included `render.yaml` sets everything up, and the included `Dockerfile` works on any other host (Railway, Fly.io, Cloud Run).
+The app is deployed on Railway (project `classroom-whiteboard`, d2suarez's workspace):
+
+**https://classroom-whiteboard-production.up.railway.app**
+
+Boards persist on a Railway volume mounted at `/var/data`. To redeploy after code changes:
+
+```bash
+cd classroom-whiteboard
+PATH="$HOME/.local/node/bin:$PATH" railway up --detach
+```
+
+Manage it (env vars, logs, billing) at https://railway.com/project/da83590d-9a5a-44a1-94be-d54dcff77ec8
+
+## Putting it online elsewhere
+
+The app is a single Node server (WebSockets included), so it works on any Node host. The included `render.yaml` sets up **Render**, and the included `Dockerfile` works on any other host (Fly.io, Cloud Run).
 
 ### 1. Put the code on GitHub
 
