@@ -29,6 +29,16 @@ const statusDot = document.getElementById('status-dot');
 const saveIndicator = document.getElementById('save-indicator');
 let socket = null;
 let hasLoaded = false;
+let authToken = null;
+
+async function authedFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (authToken) headers.Authorization = 'Bearer ' + authToken;
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
 
 function sendBoard(json, thumb) {
   if (!socket) return;
@@ -55,6 +65,7 @@ function sendBoard(json, thumb) {
       return;
     }
     token = session.token;
+    authToken = token;
     myName = session.name;
   } else if (!myName) {
     location.href = '/';
@@ -355,6 +366,134 @@ function wireTeacher() {
       toast('📤 Board pushed to the class');
     }
   });
+
+  if (authToken) wireRoster();
+}
+
+// ----- class roster (auth mode only) -----
+
+function wireRoster() {
+  const btn = document.getElementById('students-btn');
+  const modal = document.getElementById('roster-modal');
+  const searchInput = document.getElementById('roster-search');
+  const resultsEl = document.getElementById('roster-results');
+  const listEl = document.getElementById('roster-list');
+  let enrolled = new Set();
+
+  btn.hidden = false;
+  document.getElementById('roster-room').textContent = room;
+
+  btn.addEventListener('click', async () => {
+    modal.hidden = false;
+    searchInput.value = '';
+    resultsEl.innerHTML = '';
+    try {
+      renderRoster(await authedFetch(`/api/room/${room}/roster`));
+    } catch (e) {
+      toast(e.message);
+      modal.hidden = true;
+    }
+  });
+  document.getElementById('roster-close').addEventListener('click', () => { modal.hidden = true; });
+
+  function renderRoster(data) {
+    enrolled = new Set(data.roster.map((r) => r.email));
+    document.getElementById('roster-count').textContent = data.roster.length;
+    listEl.innerHTML = '';
+    if (!data.roster.length) {
+      listEl.innerHTML = '<p class="hint">Nobody enrolled yet. Search on the left, paste a list, or share the room code.</p>';
+      return;
+    }
+    for (const r of data.roster) {
+      const row = document.createElement('div');
+      row.className = 'roster-row';
+      row.innerHTML = `<span class="roster-who"><span class="roster-name"></span><span class="roster-email"></span></span><span class="roster-tags"></span>`;
+      row.querySelector('.roster-name').textContent = r.name;
+      row.querySelector('.roster-email').textContent = r.email;
+      const tags = row.querySelector('.roster-tags');
+      if (r.online) tags.innerHTML += '<span class="status-badge status-approved">online</span> ';
+      if (r.status === 'pending') tags.innerHTML += '<span class="status-badge status-pending">awaiting admin approval</span> ';
+      const del = document.createElement('button');
+      del.className = 'btn-block';
+      del.textContent = 'Remove';
+      del.onclick = async () => {
+        if (!confirm(`Remove ${r.name} from this class? Their board in this room will be deleted. They can rejoin with the room code.`)) return;
+        try {
+          const d = await authedFetch(`/api/room/${room}/roster`, { method: 'POST', body: JSON.stringify({ remove: [r.email] }) });
+          renderRoster(d);
+          removeStudentTile(r.email);
+          toast(`Removed ${r.name}`);
+        } catch (e) { toast(e.message); }
+      };
+      tags.appendChild(del);
+      listEl.appendChild(row);
+    }
+  }
+
+  async function addEmails(emails) {
+    if (!emails.length) return;
+    try {
+      const d = await authedFetch(`/api/room/${room}/roster`, { method: 'POST', body: JSON.stringify({ add: emails }) });
+      renderRoster(d);
+      d.added.forEach((s) => upsertStudent({ id: s.email, name: s.name, online: false }));
+      const parts = [];
+      if (d.added.length) parts.push(`added ${d.added.length}`);
+      if (d.pendingApproval.length) parts.push(`${d.pendingApproval.length} awaiting admin approval`);
+      if (d.skipped.length) parts.push(`${d.skipped.length} already enrolled/skipped`);
+      if (d.invalid.length) parts.push(`${d.invalid.length} invalid`);
+      toast('👥 ' + (parts.join(', ') || 'No changes'));
+      runSearch();
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  let searchTimer = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 300);
+  });
+
+  async function runSearch() {
+    const q = searchInput.value.trim();
+    try {
+      const students = await authedFetch(`/api/students?q=${encodeURIComponent(q)}`);
+      resultsEl.innerHTML = '';
+      const candidates = students.filter((s) => !enrolled.has(s.email));
+      if (!candidates.length) {
+        resultsEl.innerHTML = `<p class="hint">${q ? 'No matching students found.' : 'No students to add — try the bulk box below.'}</p>`;
+        return;
+      }
+      for (const s of candidates) {
+        const row = document.createElement('div');
+        row.className = 'roster-row';
+        row.innerHTML = `<span class="roster-who"><span class="roster-name"></span><span class="roster-email"></span></span>`;
+        row.querySelector('.roster-name').textContent = s.name;
+        row.querySelector('.roster-email').textContent = s.email;
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn-approve';
+        addBtn.textContent = '＋ Add';
+        addBtn.onclick = () => addEmails([s.email]);
+        row.appendChild(addBtn);
+        resultsEl.appendChild(row);
+      }
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  document.getElementById('roster-bulk-btn').addEventListener('click', () => {
+    const emails = document.getElementById('roster-bulk').value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    document.getElementById('roster-bulk').value = '';
+    addEmails(emails);
+  });
+}
+
+function removeStudentTile(id) {
+  const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
+  if (tile) tile.remove();
+  latestBoards.delete(id);
+  updateStudentCount();
 }
 
 updateZoomLabel();

@@ -186,12 +186,32 @@ async function updateUser(email, patch) {
 }
 
 function renderAddUserRoles() {
-  const sel = document.getElementById('add-role');
-  sel.innerHTML = '';
-  for (const r of assignableRoles()) {
-    sel.appendChild(new Option(r.label, r.id, r.id === 'student', r.id === 'student'));
+  for (const selId of ['add-role', 'bulk-role']) {
+    const sel = document.getElementById(selId);
+    sel.innerHTML = '';
+    for (const r of assignableRoles()) {
+      sel.appendChild(new Option(r.label, r.id, r.id === 'student', r.id === 'student'));
+    }
   }
 }
+
+document.getElementById('bulk-add-btn').addEventListener('click', async () => {
+  const box = document.getElementById('bulk-emails');
+  const emails = box.value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+  const role = document.getElementById('bulk-role').value;
+  if (!emails.length) { toast('Paste some email addresses first.', true); return; }
+  try {
+    const d = await api('/api/admin/users/bulk', { method: 'POST', body: JSON.stringify({ emails, role }) });
+    box.value = '';
+    const parts = [`added ${d.added.length}`];
+    if (d.skipped.length) parts.push(`${d.skipped.length} already existed`);
+    if (d.invalid.length) parts.push(`${d.invalid.length} invalid`);
+    toast('👥 ' + parts.join(', '));
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
 
 document.getElementById('add-user-btn').addEventListener('click', async () => {
   const email = document.getElementById('add-email').value.trim();
@@ -378,20 +398,112 @@ function renderRooms() {
     card.innerHTML = `
       <div class="room-card-head">
         <span class="badge">${r.code}</span>
-        <span class="room-meta">${r.students} student board${r.students === 1 ? '' : 's'} · ${r.online} online${r.teacherOnline ? ' · teacher live' : ''} · ${fmtTime(r.updatedAt)}</span>
+        <span class="room-title"></span>
+        <span class="room-meta"></span>
         <span class="room-card-actions">
-          <button class="btn-view">View boards</button>
-          <button class="btn-block btn-del-room">Delete room</button>
+          <button class="btn-view">Boards</button>
+          <button class="btn-view btn-roster">Roster</button>
+          <button class="btn-view btn-rename">Rename</button>
+          <button class="btn-view btn-owner">Owner</button>
+          <button class="btn-block btn-del-room">Delete</button>
         </span>
       </div>
-      <div class="room-boards" hidden></div>`;
+      <div class="room-boards" hidden></div>
+      <div class="room-roster-panel" hidden></div>`;
+    card.querySelector('.room-title').textContent = r.name || '(unnamed)';
+    card.querySelector('.room-meta').textContent =
+      `${r.owner || 'no owner'} · ${r.rosterCount} enrolled · ${r.students} board${r.students === 1 ? '' : 's'} · ${r.online} online${r.teacherOnline ? ' · teacher live' : ''} · ${fmtTime(r.updatedAt)}`;
     card.querySelector('.btn-del-room').onclick = async () => {
       if (!confirm(`Delete room ${r.code} and ALL its boards? This cannot be undone.`)) return;
       try { await api(`/api/admin/room/${r.code}`, { method: 'DELETE' }); toast(`Deleted room ${r.code}`); refresh(); }
       catch (e) { toast(e.message, true); }
     };
     card.querySelector('.btn-view').onclick = () => toggleRoomBoards(card, r.code);
+    card.querySelector('.btn-rename').onclick = async () => {
+      const name = prompt(`New name for ${r.code}:`, r.name || '');
+      if (name === null) return;
+      try { await api(`/api/room/${r.code}/meta`, { method: 'POST', body: JSON.stringify({ name }) }); toast('Renamed'); refresh(); }
+      catch (e) { toast(e.message, true); }
+    };
+    card.querySelector('.btn-owner').onclick = async () => {
+      const owner = prompt(`Teacher (owner) email for ${r.code}:`, r.owner || '');
+      if (!owner) return;
+      try { await api(`/api/room/${r.code}/meta`, { method: 'POST', body: JSON.stringify({ owner }) }); toast('Owner updated'); refresh(); }
+      catch (e) { toast(e.message, true); }
+    };
+    card.querySelector('.btn-roster').onclick = () => toggleRoomRoster(card, r.code);
     wrap.appendChild(card);
+  }
+}
+
+document.getElementById('create-room-admin-btn').addEventListener('click', async () => {
+  const name = document.getElementById('new-room-name-admin').value.trim();
+  const code = document.getElementById('new-room-code-admin').value.trim();
+  const owner = document.getElementById('new-room-owner-admin').value.trim();
+  try {
+    const d = await api('/api/rooms/create', { method: 'POST', body: JSON.stringify({ name, code: code || undefined, owner: owner || undefined }) });
+    ['new-room-name-admin', 'new-room-code-admin', 'new-room-owner-admin'].forEach((id) => { document.getElementById(id).value = ''; });
+    toast(`Created classroom ${d.code}${d.name ? ` (${d.name})` : ''}`);
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+async function toggleRoomRoster(card, code) {
+  const panel = card.querySelector('.room-roster-panel');
+  if (!panel.hidden) { panel.hidden = true; return; }
+  try {
+    await renderRoomRoster(panel, code);
+    panel.hidden = false;
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+async function renderRoomRoster(panel, code) {
+  const d = await api(`/api/room/${code}/roster`);
+  panel.innerHTML = '';
+  const addRow = document.createElement('div');
+  addRow.className = 'add-user-row';
+  addRow.innerHTML = `<input type="text" placeholder="Emails to enroll (comma or space separated)" /><button class="primary-sm">Enroll</button>`;
+  addRow.querySelector('button').onclick = async () => {
+    const emails = addRow.querySelector('input').value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!emails.length) return;
+    try {
+      const res = await api(`/api/room/${code}/roster`, { method: 'POST', body: JSON.stringify({ add: emails }) });
+      toast(`Enrolled ${res.added.length}${res.pendingApproval.length ? `, ${res.pendingApproval.length} awaiting approval` : ''}${res.invalid.length ? `, ${res.invalid.length} invalid` : ''}`);
+      renderRoomRoster(panel, code);
+    } catch (e) { toast(e.message, true); }
+  };
+  panel.appendChild(addRow);
+
+  if (!d.roster.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Nobody enrolled yet.';
+    panel.appendChild(p);
+    return;
+  }
+  for (const s of d.roster) {
+    const row = document.createElement('div');
+    row.className = 'roster-row';
+    row.innerHTML = `<span class="roster-who"><span class="roster-name"></span><span class="roster-email"></span></span><span></span>`;
+    row.querySelector('.roster-name').textContent = s.name;
+    row.querySelector('.roster-email').textContent = s.email + (s.status === 'pending' ? ' · awaiting approval' : '');
+    const del = document.createElement('button');
+    del.className = 'btn-block';
+    del.textContent = 'Remove';
+    del.onclick = async () => {
+      if (!confirm(`Remove ${s.name} from ${code}? Their board in this room will be deleted.`)) return;
+      try {
+        await api(`/api/room/${code}/roster`, { method: 'POST', body: JSON.stringify({ remove: [s.email] }) });
+        toast(`Removed ${s.name}`);
+        renderRoomRoster(panel, code);
+      } catch (e) { toast(e.message, true); }
+    };
+    row.lastElementChild.appendChild(del);
+    panel.appendChild(row);
   }
 }
 

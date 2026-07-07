@@ -43,6 +43,15 @@
 
     <p id="landing-error" class="error" hidden></p>
 
+    <div id="my-rooms" hidden>
+      <h2>My classrooms</h2>
+      <ul id="my-rooms-list"></ul>
+      <div class="room-row" id="new-room-row" hidden>
+        <input id="new-room-name" type="text" maxlength="50" placeholder="New classroom name" />
+        <button id="new-room-btn" type="button" title="Create a classroom">＋</button>
+      </div>
+    </div>
+
     <div id="recent-rooms" hidden>
       <h2>Recent boards</h2>
       <ul id="rooms-list"></ul>
@@ -186,12 +195,14 @@
           tabTeacher.disabled = false;
         }
         loadRooms();
+        loadMyRooms();
       } else {
         document.getElementById('admin-portal-link').hidden = true;
         gsiButton.hidden = false;
         signedIn.hidden = true;
         joinSection.hidden = true;
         document.getElementById('recent-rooms').hidden = true;
+        document.getElementById('my-rooms').hidden = true;
         renderGsiButton();
       }
     }
@@ -203,8 +214,59 @@
       document.getElementById('recent-rooms').hidden = role !== 'teacher' || !roomsLoaded;
     }
 
+    // ----- my classrooms (auth mode) -----
+
+    async function loadMyRooms() {
+      if (!cfg.authEnabled || !session) return;
+      const wrap = document.getElementById('my-rooms');
+      const canCreate = isSuperSession() || sessionPerms().includes('teach') || sessionPerms().includes('manage_boards');
+      document.getElementById('new-room-row').hidden = !canCreate;
+      try {
+        const r = await fetch('/api/my/rooms', { headers: { Authorization: 'Bearer ' + session.token } });
+        if (!r.ok) { wrap.hidden = !canCreate; return; }
+        const d = await r.json();
+        const ul = document.getElementById('my-rooms-list');
+        ul.innerHTML = '';
+        const items = [
+          ...d.teaching.map((x) => ({ ...x, mode: 'teacher', tag: 'you teach' })),
+          ...d.enrolled.filter((x) => !d.teaching.some((t) => t.code === x.code)).map((x) => ({ ...x, mode: 'student', tag: 'enrolled' })),
+        ];
+        for (const it of items) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="room-code"></span><span class="room-name"></span><span class="room-meta"></span>`;
+          li.querySelector('.room-code').textContent = it.code;
+          li.querySelector('.room-name').textContent = it.name || '';
+          li.querySelector('.room-meta').textContent = `${it.tag} · ${it.students} student${it.students === 1 ? '' : 's'}`;
+          li.onclick = () => {
+            location.href = `/board.html?role=${it.mode}&room=${encodeURIComponent(it.code)}&name=${encodeURIComponent(session.name)}`;
+          };
+          ul.appendChild(li);
+        }
+        wrap.hidden = !items.length && !canCreate;
+      } catch {
+        wrap.hidden = !canCreate;
+      }
+    }
+
+    document.getElementById('new-room-btn').onclick = async () => {
+      const name = document.getElementById('new-room-name').value.trim();
+      if (!name) { showError('Give your classroom a name first.'); return; }
+      try {
+        const r = await fetch('/api/rooms/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+          body: JSON.stringify({ name }),
+        });
+        const d = await r.json();
+        if (!r.ok) { showError(d.error || 'Could not create the classroom.'); return; }
+        location.href = `/board.html?role=teacher&room=${encodeURIComponent(d.code)}&name=${encodeURIComponent(session.name)}`;
+      } catch {
+        showError('Could not reach the server.');
+      }
+    };
+
     function loadRooms() {
-      if (cfg.authEnabled && (!session || (!isSuperSession() && !sessionPerms().includes('teach')))) return;
+      if (cfg.authEnabled && (!session || (!isSuperSession() && !sessionPerms().includes('manage_boards')))) return;
       const headers = session ? { Authorization: 'Bearer ' + session.token } : {};
       fetch('/api/rooms', { headers }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
         const ul = document.getElementById('rooms-list');

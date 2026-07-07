@@ -200,14 +200,215 @@ function sessionFromReq(req) {
   return verifySession((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
 }
 
+// Full room listing is for board admins; teachers use /api/my/rooms
 app.get('/api/rooms', (req, res) => {
   if (AUTH_ENABLED) {
     const user = sessionFromReq(req);
-    if (!user || !hasPerm(user.email, 'teach') || accessStatus(user.email) !== 'approved') {
+    if (!user || accessStatus(user.email) !== 'approved' || !hasPerm(user.email, 'manage_boards')) {
       return res.status(401).json([]);
     }
   }
   res.json(listRooms());
+});
+
+// ---------- classrooms (rosters, ownership) ----------
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function requireUser(req, res) {
+  if (!AUTH_ENABLED) {
+    res.status(400).json({ error: 'This feature requires Google sign-in to be enabled.' });
+    return null;
+  }
+  const user = sessionFromReq(req);
+  if (!user) {
+    res.status(401).json({ error: 'Please sign in again.' });
+    return null;
+  }
+  if (accessStatus(user.email) !== 'approved') {
+    res.status(403).json({ error: 'Your account does not have access.' });
+    return null;
+  }
+  return { email: user.email, name: user.name, perms: permsFor(user.email), isSuper: isSuperAdmin(user.email) };
+}
+
+function canEditRoom(user, data) {
+  return user.isSuper || user.perms.includes('manage_boards') || data.owner === user.email;
+}
+
+// Which accounts a user may see when searching for students to enroll:
+// super admin sees everyone; everyone else sees their own email domain
+// plus accounts they added themselves.
+function inStudentScope(user, email) {
+  if (user.isSuper) return true;
+  const rec = store.users[email];
+  return domainOf(email) === domainOf(user.email) || !!(rec && rec.addedBy === user.email);
+}
+
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code;
+  do {
+    code = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  } while (rooms.has(code) || fs.existsSync(roomFile(code)));
+  return code;
+}
+
+function rosterEntries(room) {
+  return (room.data.roster || []).map((email) => ({
+    email,
+    name: room.data.names[email] || (store.users[email] && store.users[email].name) || email,
+    status: accessStatus(email),
+    online: room.students.has(email),
+    hasBoard: !!room.data.boards[email],
+  }));
+}
+
+app.get('/api/my/rooms', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const teaching = [];
+  const enrolled = [];
+  for (const r of roomSummaries()) {
+    const item = { code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length };
+    if (r.owner === user.email) teaching.push(item);
+    if (r.roster.includes(user.email)) enrolled.push(item);
+  }
+  res.json({ teaching, enrolled });
+});
+
+app.post('/api/rooms/create', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const isBoardAdmin = user.isSuper || user.perms.includes('manage_boards');
+  if (!isBoardAdmin && !user.perms.includes('teach')) {
+    return res.status(403).json({ error: 'Your role cannot create classrooms.' });
+  }
+  const code = sanitizeCode(req.body.code) || generateRoomCode();
+  if (rooms.has(code) || fs.existsSync(roomFile(code))) {
+    return res.status(400).json({ error: `Room code ${code} is already in use.` });
+  }
+  let owner = user.email;
+  if (req.body.owner && isBoardAdmin) {
+    owner = String(req.body.owner).trim().toLowerCase();
+    if (!EMAIL_RE.test(owner)) return res.status(400).json({ error: 'The owner must be an email address.' });
+  }
+  const room = getRoom(code, true);
+  room.data.name = String(req.body.name || '').trim().slice(0, 50);
+  room.data.owner = owner;
+  room.data.updatedAt = Date.now();
+  scheduleSave(room);
+  res.json({ code, name: room.data.name, owner });
+});
+
+app.get('/api/room/:code/roster', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const room = getRoom(sanitizeCode(req.params.code), false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  if (!canEditRoom(user, room.data)) return res.status(403).json({ error: 'Only the room owner or an admin can manage this class.' });
+  res.json({ code: room.code, name: room.data.name, owner: room.data.owner, roster: rosterEntries(room) });
+});
+
+app.post('/api/room/:code/roster', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const room = getRoom(sanitizeCode(req.params.code), false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  if (!canEditRoom(user, room.data)) return res.status(403).json({ error: 'Only the room owner or an admin can manage this class.' });
+
+  const results = { added: [], pendingApproval: [], skipped: [], invalid: [], removed: [] };
+  let usersChanged = false;
+  const now = Date.now();
+
+  const add = Array.isArray(req.body.add) ? req.body.add.slice(0, 300) : [];
+  for (const raw of add) {
+    const email = String(raw).trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) {
+      if (email) results.invalid.push(email);
+      continue;
+    }
+    if (isSuperAdmin(email) || (store.users[email] && adminPerms(permsFor(email)))) {
+      results.skipped.push(email);
+      continue;
+    }
+    if (!store.users[email]) {
+      // Enrolling someone who has never signed in creates their account;
+      // outside approved domains it stays pending until an admin approves.
+      store.users[email] = {
+        name: email, role: 'student',
+        status: domainApproved(email) ? 'approved' : 'pending',
+        firstSeen: now, lastSeen: null, addedBy: user.email,
+      };
+      usersChanged = true;
+    }
+    if (room.data.roster.includes(email)) {
+      results.skipped.push(email);
+      continue;
+    }
+    room.data.roster.push(email);
+    room.data.names[email] = room.data.names[email] || store.users[email].name || email;
+    if (accessStatus(email) === 'pending') results.pendingApproval.push(email);
+    results.added.push({ email, name: room.data.names[email] });
+  }
+
+  const remove = Array.isArray(req.body.remove) ? req.body.remove.slice(0, 300) : [];
+  for (const raw of remove) {
+    const email = String(raw).trim().toLowerCase();
+    if (!room.data.roster.includes(email)) continue;
+    room.data.roster = room.data.roster.filter((e) => e !== email);
+    delete room.data.boards[email];
+    delete room.data.thumbs[email];
+    results.removed.push(email);
+  }
+
+  room.data.updatedAt = Date.now();
+  scheduleSave(room);
+  if (usersChanged) saveStore();
+  res.json({ ...results, roster: rosterEntries(room) });
+});
+
+app.post('/api/room/:code/meta', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const room = getRoom(sanitizeCode(req.params.code), false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  if (!canEditRoom(user, room.data)) return res.status(403).json({ error: 'Only the room owner or an admin can manage this class.' });
+  if (req.body.name !== undefined) {
+    room.data.name = String(req.body.name).trim().slice(0, 50);
+  }
+  if (req.body.owner !== undefined) {
+    if (!user.isSuper && !user.perms.includes('manage_boards')) {
+      return res.status(403).json({ error: 'Only an admin can change the room owner.' });
+    }
+    const owner = String(req.body.owner).trim().toLowerCase();
+    if (!EMAIL_RE.test(owner)) return res.status(400).json({ error: 'The owner must be an email address.' });
+    room.data.owner = owner;
+  }
+  room.data.updatedAt = Date.now();
+  scheduleSave(room);
+  res.json({ code: room.code, name: room.data.name, owner: room.data.owner });
+});
+
+// Search approved student accounts within the requester's scope
+app.get('/api/students', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (!user.isSuper && !user.perms.includes('teach') && !user.perms.includes('manage_users') && !user.perms.includes('manage_boards')) {
+    return res.status(403).json({ error: 'Your role cannot search students.' });
+  }
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const out = [];
+  for (const [email, rec] of Object.entries(store.users)) {
+    if (isSuperAdmin(email) || permsFor(email).length > 0) continue; // students only
+    if (accessStatus(email) !== 'approved') continue;
+    if (!inStudentScope(user, email)) continue;
+    const name = rec.name || email;
+    if (q && !email.includes(q) && !name.toLowerCase().includes(q)) continue;
+    out.push({ email, name });
+    if (out.length >= 30) break;
+  }
+  res.json(out);
 });
 
 // ---------- admin api ----------
@@ -340,6 +541,34 @@ app.post('/api/admin/user', (req, res) => {
   res.json(userView(email, rec));
 });
 
+app.post('/api/admin/users/bulk', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const role = req.body.role || 'student';
+  if (!store.roles[role]) return res.status(400).json({ error: 'Unknown role.' });
+  if (!canAssignRole(admin, role)) {
+    return res.status(403).json({ error: 'Only the super admin can assign roles with admin permissions.' });
+  }
+  const emails = Array.isArray(req.body.emails) ? req.body.emails.slice(0, 300) : [];
+  const results = { added: [], skipped: [], invalid: [] };
+  const now = Date.now();
+  for (const raw of emails) {
+    const email = String(raw).trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) {
+      if (email) results.invalid.push(email);
+      continue;
+    }
+    if (isSuperAdmin(email) || store.users[email]) {
+      results.skipped.push(email);
+      continue;
+    }
+    store.users[email] = { name: email, role, status: 'approved', firstSeen: now, lastSeen: null, addedBy: admin.email };
+    results.added.push(email);
+  }
+  if (results.added.length) saveStore();
+  res.json(results);
+});
+
 app.post('/api/admin/roles', (req, res) => {
   const admin = requireAuthed(req, res);
   if (!admin) return;
@@ -450,16 +679,22 @@ function roomFile(code) {
   return path.join(DATA_DIR, `room-${code}.json`);
 }
 
-function listRooms() {
-  return fs.readdirSync(DATA_DIR)
-    .filter((f) => /^room-.+\.json$/.test(f))
-    .map((f) => {
-      const code = f.replace(/^room-/, '').replace(/\.json$/, '');
+function roomSummaries() {
+  // Union of rooms on disk and live rooms not yet flushed by the debounced save
+  const codes = new Set(rooms.keys());
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    if (/^room-.+\.json$/.test(f)) codes.add(f.replace(/^room-/, '').replace(/\.json$/, ''));
+  }
+  return [...codes]
+    .map((code) => {
       try {
         const live = rooms.get(code);
-        const d = live ? live.data : JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+        const d = live ? live.data : JSON.parse(fs.readFileSync(roomFile(code), 'utf8'));
         return {
           code,
+          name: d.name || '',
+          owner: d.owner || null,
+          roster: d.roster || [],
           updatedAt: d.updatedAt || 0,
           students: Object.keys(d.boards || {}).length,
           online: live ? live.students.size : 0,
@@ -473,15 +708,20 @@ function listRooms() {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+function listRooms() {
+  return roomSummaries().map(({ roster, ...r }) => ({ ...r, rosterCount: roster.length }));
+}
+
 function getRoom(code, createIfMissing) {
   let room = rooms.get(code);
   if (room) return room;
-  let data = { teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
+  let data = { name: '', owner: null, roster: [], teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
   const file = roomFile(code);
   if (fs.existsSync(file)) {
     try {
       data = Object.assign(data, JSON.parse(fs.readFileSync(file, 'utf8')));
       data.names = data.names || {};
+      data.roster = data.roster || [];
     } catch (e) {
       console.error('Could not read saved room', code, e.message);
     }
@@ -557,6 +797,10 @@ io.on('connection', (socket) => {
 
       if (role === 'teacher') {
         room.teacher = socket.id;
+        if (AUTH_ENABLED && !room.data.owner) {
+          room.data.owner = id; // first teacher in claims an unowned (legacy) room
+          scheduleSave(room);
+        }
         const students = [];
         const seen = new Set();
         for (const sid of room.students.keys()) {
@@ -566,18 +810,25 @@ io.on('connection', (socket) => {
             thumb: room.data.thumbs[sid] || null, board: room.data.boards[sid] || null,
           });
         }
-        for (const sid of Object.keys(room.data.boards)) {
-          if (!seen.has(sid)) {
-            students.push({
-              id: sid, name: room.data.names[sid] || sid, online: false,
-              thumb: room.data.thumbs[sid] || null, board: room.data.boards[sid],
-            });
-          }
+        for (const sid of [...Object.keys(room.data.boards), ...(room.data.roster || [])]) {
+          if (seen.has(sid)) continue;
+          seen.add(sid);
+          students.push({
+            id: sid,
+            name: room.data.names[sid] || (store.users[sid] && store.users[sid].name) || sid,
+            online: false,
+            thumb: room.data.thumbs[sid] || null,
+            board: room.data.boards[sid] || null,
+          });
         }
         ack({ ok: true, name, board: room.data.teacherBoard, students, sharing: room.sharing });
       } else {
         room.students.set(id, socket.id);
         room.data.names[id] = name;
+        if (AUTH_ENABLED && !(room.data.roster || []).includes(id)) {
+          room.data.roster = room.data.roster || [];
+          room.data.roster.push(id); // joining by code enrolls you in the class
+        }
         scheduleSave(room);
         ack({
           ok: true,

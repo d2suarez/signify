@@ -22,6 +22,7 @@
         <button id="zoom-fit" title="Fit everything on screen">⛶ Fit</button>
       </div>
       <div class="topbar-group">
+        <button id="students-btn" class="action-btn" hidden>👥 Students</button>
         <button id="share-btn" class="teacher-only action-btn" hidden>📺 Share my board</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>📤 Push to class</button>
         <details id="download-menu">
@@ -98,6 +99,30 @@
         </div>
       </div>
       <div class="overlay-canvas-wrap"><canvas id="modal-canvas"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Teacher: class roster (search, bulk add, remove) -->
+  <div id="roster-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span>👥 Class roster — <span id="roster-room"></span></span>
+        <div><button id="roster-close">✕ Close</button></div>
+      </div>
+      <div class="roster-body">
+        <div class="roster-col">
+          <h3>Find students at your school</h3>
+          <input id="roster-search" type="text" placeholder="Search by name or email…" autocomplete="off" />
+          <div id="roster-results"></div>
+          <h3>Bulk add</h3>
+          <textarea id="roster-bulk" rows="4" placeholder="Paste email addresses separated by commas or new lines"></textarea>
+          <button id="roster-bulk-btn" class="primary-sm">Add all</button>
+        </div>
+        <div class="roster-col">
+          <h3>Enrolled <span id="roster-count" class="count-badge">0</span></h3>
+          <div id="roster-list"></div>
+        </div>
+      </div>
     </div>
   </div>
 

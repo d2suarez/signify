@@ -40,6 +40,15 @@
         </div>
       </div>
       <div class="admin-card">
+        <h2>Bulk add users</h2>
+        <p class="hint">Paste a list of email addresses (commas, spaces, or new lines) and pick the role they all get. Existing accounts are skipped.</p>
+        <textarea id="bulk-emails" rows="4" placeholder="ana@school.edu, ben@school.edu&#10;carla@school.edu"></textarea>
+        <div class="add-user-row">
+          <select id="bulk-role"></select>
+          <button id="bulk-add-btn" class="primary-sm">Add all</button>
+        </div>
+      </div>
+      <div class="admin-card">
         <h2>All users</h2>
         <table class="admin-table" id="users-table">
           <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
@@ -86,6 +95,15 @@
     </section>
 
     <section id="section-boards" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Create a classroom</h2>
+        <div class="add-user-row">
+          <input id="new-room-name-admin" type="text" maxlength="50" placeholder="Classroom name" />
+          <input id="new-room-code-admin" type="text" maxlength="12" placeholder="Code (optional)" />
+          <input id="new-room-owner-admin" type="email" placeholder="Teacher email (optional, defaults to you)" />
+          <button id="create-room-admin-btn" class="primary-sm">Create</button>
+        </div>
+      </div>
       <div class="admin-card">
         <h2>Rooms &amp; boards</h2>
         <div id="rooms-admin-list"></div>

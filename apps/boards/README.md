@@ -92,11 +92,20 @@ Notes:
 | `DATA_DIR` | Where board JSON files are stored (default `./data`) |
 | `PORT` | Listen port (default 3000; hosts set this automatically) |
 
+## Classrooms & enrollment (sign-in mode)
+
+Rooms are persistent classrooms with a name, an owner (teacher), and a roster:
+
+- The landing page shows **My classrooms** — rooms you teach and rooms you're enrolled in — so nobody retypes codes. Teachers create named classrooms right there; joining by code still works and auto-enrolls the student.
+- On the board, teachers open **👥 Students** to manage the roster: live-search approved students at their school (same email domain, plus anyone they added), bulk-paste a list of emails, or remove someone. Enrolling an email that has never signed in creates the account (outside approved domains it waits for admin approval). Enrolled students appear on the teacher dashboard even before they first join.
+- Admins with the *manage boards* permission can create classrooms (optionally assigning the teacher), rename them, change owners, and edit any roster from the portal's Boards tab.
+- Admins with *manage users* can **bulk add users** in the portal's Users tab — paste a list, pick a role.
+
 ## How to use it
 
 **Teacher**
-1. Sign in (or just enter a name in open mode), pick *I'm the Teacher*, and generate (🎲) or type a room code. Reopen a previous class from the *Recent boards* list — everything is auto-saved.
-2. Give students the room code.
+1. Sign in (or just enter a name in open mode), pick *I'm the Teacher*, and open a classroom from *My classrooms* — or generate (🎲) / type a room code. Everything is auto-saved.
+2. Give students the room code, or enroll them via 👥 Students.
 3. The right panel shows a live thumbnail of every student's board. Click a thumbnail for a full-size live view.
 4. **📺 Share my board** — students' screens switch to a live, view-only copy of your board. Click again to stop.
 5. **📤 Push to class** — sends your current board to every student as a template (replaces their board; they can undo). From a student's close-up view you can push to just that student.
