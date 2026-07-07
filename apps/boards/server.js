@@ -357,8 +357,7 @@ app.post('/api/room/:code/roster', (req, res) => {
     const email = String(raw).trim().toLowerCase();
     if (!room.data.roster.includes(email)) continue;
     room.data.roster = room.data.roster.filter((e) => e !== email);
-    delete room.data.boards[email];
-    delete room.data.thumbs[email];
+    boardsFor(email, room.code).forEach((b) => deleteBoard(b.id));
     results.removed.push(email);
   }
 
@@ -635,7 +634,10 @@ app.get('/api/admin/room/:code', (req, res) => {
   const code = sanitizeCode(req.params.code);
   const room = getRoom(code, false);
   if (!room) return res.status(404).json({ error: 'Room not found.' });
-  res.json({ code, data: room.data });
+  const boards = roomBoards(code).map((b) => ({
+    ...b, ownerName: room.data.names[b.owner] || displayNameOf(b.owner), isTeacher: b.owner === room.data.owner,
+  }));
+  res.json({ code, name: room.data.name, owner: room.data.owner, boards });
 });
 
 app.delete('/api/admin/room/:code', (req, res) => {
@@ -644,25 +646,248 @@ app.delete('/api/admin/room/:code', (req, res) => {
   const code = sanitizeCode(req.params.code);
   io.in(code).disconnectSockets(true);
   rooms.delete(code);
+  roomBoards(code).forEach((b) => deleteBoard(b.id));
   fs.unlink(roomFile(code), () => {});
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/room/:code/board/:id', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_boards');
-  if (!admin) return;
-  const code = sanitizeCode(req.params.code);
-  const room = getRoom(code, false);
-  if (!room) return res.status(404).json({ error: 'Room not found.' });
-  const id = req.params.id;
-  if (id === '__teacher__') {
-    room.data.teacherBoard = null;
-  } else {
-    delete room.data.boards[id];
-    delete room.data.thumbs[id];
+// ---------- boards ----------
+// Each board is its own file: board-<id>.json = { id, title, owner, room, createdAt, updatedAt, thumb, json }
+// owner is the verified email (or typed name in open mode); room is a code or null for personal boards.
+// boardsIndex holds metadata (no json) for fast listing; writes are debounced per board.
+
+const boardsIndex = new Map(); // id -> meta
+const boardPending = new Map(); // id -> latest unflushed json
+const boardTimers = new Map();
+
+function boardFile(id) {
+  return path.join(DATA_DIR, `board-${id}.json`);
+}
+
+function boardMetaOf(d) {
+  return {
+    id: d.id, title: d.title || 'Board', owner: d.owner, room: d.room || null,
+    createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, thumb: d.thumb || null,
+  };
+}
+
+function loadBoardsIndex() {
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    if (!/^board-[a-f0-9]{16}\.json$/.test(f)) continue;
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+      if (d.id) boardsIndex.set(d.id, boardMetaOf(d));
+    } catch (e) {
+      console.error('Could not read board file', f, e.message);
+    }
   }
-  scheduleSave(room);
+}
+
+function flushBoardSoon(id) {
+  if (boardTimers.has(id)) return;
+  boardTimers.set(id, setTimeout(() => {
+    boardTimers.delete(id);
+    const meta = boardsIndex.get(id);
+    if (!meta) return;
+    let json = boardPending.get(id);
+    if (json === undefined) json = readBoardJSON(id); // meta-only change (e.g. rename)
+    boardPending.delete(id);
+    fs.writeFile(boardFile(id), JSON.stringify({ ...meta, json: json || null }), (err) => {
+      if (err) console.error('Board save failed', id, err.message);
+    });
+  }, 800));
+}
+
+function createBoard({ owner, room, title, json, thumb }) {
+  const id = crypto.randomBytes(8).toString('hex');
+  const now = Date.now();
+  const meta = { id, title: (title || 'Board').slice(0, 60), owner, room: room || null, createdAt: now, updatedAt: now, thumb: thumb || null };
+  boardsIndex.set(id, meta);
+  boardPending.set(id, json || null);
+  flushBoardSoon(id);
+  return meta;
+}
+
+function updateBoard(id, { json, thumb, title, room }) {
+  const meta = boardsIndex.get(id);
+  if (!meta) return null;
+  if (json !== undefined) boardPending.set(id, json);
+  if (thumb !== undefined) meta.thumb = thumb;
+  if (title !== undefined) meta.title = String(title).trim().slice(0, 60) || meta.title;
+  if (room !== undefined) meta.room = room;
+  meta.updatedAt = Date.now();
+  flushBoardSoon(id);
+  return meta;
+}
+
+function readBoardJSON(id) {
+  if (boardPending.has(id)) return boardPending.get(id);
+  try {
+    return JSON.parse(fs.readFileSync(boardFile(id), 'utf8')).json || null;
+  } catch {
+    return null;
+  }
+}
+
+function deleteBoard(id) {
+  boardsIndex.delete(id);
+  boardPending.delete(id);
+  clearTimeout(boardTimers.get(id));
+  boardTimers.delete(id);
+  fs.unlink(boardFile(id), () => {});
+}
+
+function boardsFor(owner, room) {
+  return [...boardsIndex.values()]
+    .filter((b) => b.owner === owner && b.room === (room || null))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function roomBoards(room) {
+  return [...boardsIndex.values()].filter((b) => b.room === room).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function displayNameOf(id) {
+  return (store.users[id] && store.users[id].name) || id;
+}
+
+// Board access: the owner, an admin, or the teacher who owns the room it lives in
+function canViewBoard(user, meta) {
+  if (meta.owner === user.email) return true;
+  if (user.isSuper || user.perms.includes('manage_boards')) return true;
+  if (meta.room) {
+    const room = getRoom(meta.room, false);
+    if (room && room.data.owner === user.email) return true;
+  }
+  return false;
+}
+
+// May `id` place boards into `targetRoom`? (owner, enrolled, or admin)
+function canUseRoom(id, targetRoom, isBoardAdmin) {
+  const room = getRoom(targetRoom, false);
+  if (!room) return false;
+  if (isBoardAdmin) return true;
+  if (!AUTH_ENABLED) return true; // open mode trusts room codes
+  return room.data.owner === id || (room.data.roster || []).includes(id);
+}
+
+// ---------- board REST api (personal boards + cross-class transfer) ----------
+
+app.get('/api/boards/personal', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  res.json(boardsFor(user.email, null));
+});
+
+app.post('/api/boards/personal', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = createBoard({ owner: user.email, room: null, title: req.body.title || `Board ${boardsFor(user.email, null).length + 1}` });
+  res.json(meta);
+});
+
+app.get('/api/boards/:id', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (!canViewBoard(user, meta)) return res.status(403).json({ error: 'You do not have access to this board.' });
+  res.json({ ...meta, json: readBoardJSON(meta.id) });
+});
+
+app.post('/api/boards/:id', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (meta.owner !== user.email) return res.status(403).json({ error: 'Only the board owner can edit it.' });
+  updateBoard(meta.id, { json: req.body.json, thumb: req.body.thumb, title: req.body.title });
+  res.json(boardsIndex.get(meta.id));
+});
+
+app.delete('/api/boards/:id', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (meta.owner !== user.email && !user.isSuper && !user.perms.includes('manage_boards')) {
+    return res.status(403).json({ error: 'Only the board owner or an admin can delete it.' });
+  }
+  deleteBoard(meta.id);
   res.json({ ok: true });
+});
+
+app.post('/api/boards/:id/transfer', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  const isBoardAdmin = user.isSuper || user.perms.includes('manage_boards');
+  if (meta.owner !== user.email && !isBoardAdmin) {
+    return res.status(403).json({ error: 'Only the board owner or an admin can move or copy it.' });
+  }
+  const mode = req.body.mode === 'move' ? 'move' : 'copy';
+  const targetRoom = req.body.room ? sanitizeCode(req.body.room) : null;
+  if (targetRoom && !canUseRoom(meta.owner, targetRoom, isBoardAdmin)) {
+    return res.status(403).json({ error: 'The board owner is not part of that class.' });
+  }
+  if (mode === 'move') {
+    updateBoard(meta.id, { room: targetRoom });
+    return res.json(boardsIndex.get(meta.id));
+  }
+  const copy = createBoard({
+    owner: meta.owner, room: targetRoom,
+    title: meta.title + (targetRoom === meta.room ? ' (copy)' : ''),
+    json: readBoardJSON(meta.id), thumb: meta.thumb,
+  });
+  res.json(copy);
+});
+
+// List all boards in a room (room owner or admin) — powers the teacher close-up and admin portal
+app.get('/api/room/:code/boards', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const room = getRoom(sanitizeCode(req.params.code), false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  if (!canEditRoom(user, room.data)) return res.status(403).json({ error: 'Only the room owner or an admin can view all boards.' });
+  res.json(roomBoards(room.code).map((b) => ({ ...b, ownerName: room.data.names[b.owner] || displayNameOf(b.owner) })));
+});
+
+// ---------- document conversion (DOCX/PPTX/... -> PDF via LibreOffice) ----------
+
+const CONVERT_EXTS = ['doc', 'docx', 'ppt', 'pptx', 'odt', 'odp', 'ods', 'rtf', 'txt', 'xls', 'xlsx'];
+
+app.post('/api/convert', express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
+  if (AUTH_ENABLED) {
+    const user = requireUser(req, res);
+    if (!user) return;
+  }
+  const ext = String(req.query.ext || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!CONVERT_EXTS.includes(ext)) return res.status(400).json({ error: `Unsupported file type ".${ext}".` });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file.' });
+
+  const os = require('os');
+  const { execFile } = require('child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wbconv-'));
+  const inPath = path.join(dir, `input.${ext}`);
+  fs.writeFileSync(inPath, req.body);
+  execFile('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', dir, inPath],
+    { timeout: 90000, env: { ...process.env, HOME: os.tmpdir() } },
+    (err) => {
+      const outPath = path.join(dir, 'input.pdf');
+      if (err || !fs.existsSync(outPath)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        const notInstalled = err && err.code === 'ENOENT';
+        return res.status(notInstalled ? 501 : 500).json({
+          error: notInstalled
+            ? 'Document conversion is not available on this server — PDFs still work directly.'
+            : 'Could not convert that document. Try exporting it as a PDF first.',
+        });
+      }
+      const pdf = fs.readFileSync(outPath);
+      fs.rmSync(dir, { recursive: true, force: true });
+      res.type('application/pdf').send(pdf);
+    });
 });
 
 // ---------- rooms ----------
@@ -696,7 +921,7 @@ function roomSummaries() {
           owner: d.owner || null,
           roster: d.roster || [],
           updatedAt: d.updatedAt || 0,
-          students: Object.keys(d.boards || {}).length,
+          students: roomBoards(code).length,
           online: live ? live.students.size : 0,
           teacherOnline: !!(live && live.teacher),
         };
@@ -728,9 +953,29 @@ function getRoom(code, createIfMissing) {
   } else if (!createIfMissing) {
     return null;
   }
-  room = { code, data, teacher: null, students: new Map(), sharing: false, saveTimer: null };
+  migrateLegacyBoards(code, data);
+  room = { code, data, teacher: null, students: new Map(), sharing: false, saveTimer: null, lastTeacherJson: null };
   rooms.set(code, room);
   return room;
+}
+
+// Rooms used to embed one board per student plus a teacher board; convert those
+// into standalone board entities the first time the room is loaded.
+function migrateLegacyBoards(code, data) {
+  const hadLegacy = data.teacherBoard || (data.boards && Object.keys(data.boards).length);
+  if (!hadLegacy) {
+    delete data.teacherBoard; delete data.boards; delete data.thumbs;
+    return;
+  }
+  if (data.teacherBoard) {
+    createBoard({ owner: data.owner || 'teacher', room: code, title: 'Board 1', json: data.teacherBoard });
+  }
+  for (const [uid, json] of Object.entries(data.boards || {})) {
+    createBoard({ owner: uid, room: code, title: 'Board 1', json, thumb: (data.thumbs || {})[uid] || null });
+  }
+  delete data.teacherBoard; delete data.boards; delete data.thumbs;
+  fs.writeFileSync(roomFile(code), JSON.stringify(data));
+  console.log(`Migrated legacy boards for room ${code}`);
 }
 
 function scheduleSave(room) {
@@ -795,33 +1040,36 @@ io.on('connection', (socket) => {
       socket.data.connectedAt = Date.now();
       socket.join(code);
 
+      // Everyone gets their list of boards in this room; create the first one if needed
+      let myBoards = boardsFor(id, code);
+      if (!myBoards.length) {
+        myBoards = [createBoard({ owner: id, room: code, title: 'Board 1' })];
+      }
+      const active = myBoards[0];
+      const activeJson = readBoardJSON(active.id);
+
       if (role === 'teacher') {
         room.teacher = socket.id;
+        room.lastTeacherJson = activeJson;
         if (AUTH_ENABLED && !room.data.owner) {
           room.data.owner = id; // first teacher in claims an unowned (legacy) room
           scheduleSave(room);
         }
         const students = [];
-        const seen = new Set();
-        for (const sid of room.students.keys()) {
-          seen.add(sid);
-          students.push({
-            id: sid, name: room.data.names[sid] || sid, online: true,
-            thumb: room.data.thumbs[sid] || null, board: room.data.boards[sid] || null,
-          });
-        }
-        for (const sid of [...Object.keys(room.data.boards), ...(room.data.roster || [])]) {
-          if (seen.has(sid)) continue;
-          seen.add(sid);
+        const ids = new Set([...(room.data.roster || []), ...roomBoards(code).map((b) => b.owner)]);
+        ids.delete(id);
+        if (room.data.owner) ids.delete(room.data.owner);
+        for (const sid of ids) {
+          const latest = boardsFor(sid, code)[0] || null;
           students.push({
             id: sid,
-            name: room.data.names[sid] || (store.users[sid] && store.users[sid].name) || sid,
-            online: false,
-            thumb: room.data.thumbs[sid] || null,
-            board: room.data.boards[sid] || null,
+            name: room.data.names[sid] || displayNameOf(sid),
+            online: room.students.has(sid),
+            thumb: latest ? latest.thumb : null,
+            boardId: latest ? latest.id : null,
           });
         }
-        ack({ ok: true, name, board: room.data.teacherBoard, students, sharing: room.sharing });
+        ack({ ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson }, students, sharing: room.sharing });
       } else {
         room.students.set(id, socket.id);
         room.data.names[id] = name;
@@ -833,14 +1081,15 @@ io.on('connection', (socket) => {
         ack({
           ok: true,
           name,
-          board: room.data.boards[id] || null,
+          boards: myBoards,
+          activeBoard: { id: active.id, json: activeJson },
           sharing: room.sharing,
-          teacherBoard: room.sharing ? room.data.teacherBoard : null,
+          teacherBoard: room.sharing ? room.lastTeacherJson : null,
         });
         emitToTeacher(room, 'student:joined', {
           id, name,
-          thumb: room.data.thumbs[id] || null,
-          board: room.data.boards[id] || null,
+          thumb: active.thumb || null,
+          boardId: active.id,
         });
       }
     } catch (e) {
@@ -853,18 +1102,102 @@ io.on('connection', (socket) => {
     const { code, id, name, role } = socket.data || {};
     const room = code && rooms.get(code);
     const json = payload && payload.json;
-    if (!room || !json) return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!room || !json || !meta || meta.owner !== id || meta.room !== code) return;
     room.data.updatedAt = Date.now();
+    updateBoard(meta.id, { json, thumb: payload.thumb });
     if (role === 'teacher') {
-      room.data.teacherBoard = json;
+      room.lastTeacherJson = json;
       if (room.sharing) socket.to(code).emit('teacher:board', { json });
     } else {
-      room.data.boards[id] = json;
-      if (payload.thumb) room.data.thumbs[id] = payload.thumb;
-      emitToTeacher(room, 'student:board', { id, name, json, thumb: payload.thumb || null });
+      emitToTeacher(room, 'student:board', { id, name, boardId: meta.id, json, thumb: payload.thumb || null });
     }
     scheduleSave(room);
     if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  // ----- board management within the joined room -----
+
+  function myRoomBoard(payload) {
+    const { code, id } = socket.data || {};
+    if (!code) return null;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    return meta && meta.owner === id && meta.room === code ? meta : null;
+  }
+
+  socket.on('board:list', (payload, ack) => {
+    const { code, id } = socket.data || {};
+    if (!code || typeof ack !== 'function') return;
+    ack(boardsFor(id, code));
+  });
+
+  socket.on('board:create', (payload, ack) => {
+    const { code, id } = socket.data || {};
+    if (!code || typeof ack !== 'function') return;
+    const meta = createBoard({ owner: id, room: code, title: (payload && payload.title) || `Board ${boardsFor(id, code).length + 1}` });
+    ack({ ok: true, meta });
+  });
+
+  socket.on('board:load', (payload, ack) => {
+    const { code, id, role } = socket.data || {};
+    if (!code || typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!meta) return ack({ error: 'Board not found.' });
+    const room = rooms.get(code);
+    const isRoomTeacher = role === 'teacher' && meta.room === code;
+    const isAdmin = AUTH_ENABLED && socket.data.user && hasPerm(socket.data.user.email, 'manage_boards');
+    if (meta.owner !== id && !isRoomTeacher && !isAdmin) return ack({ error: 'You do not have access to this board.' });
+    void room;
+    ack({ ok: true, meta, json: readBoardJSON(meta.id) });
+  });
+
+  socket.on('board:rename', (payload, ack) => {
+    const meta = myRoomBoard(payload);
+    if (!meta) return typeof ack === 'function' && ack({ error: 'Board not found.' });
+    updateBoard(meta.id, { title: payload.title });
+    if (typeof ack === 'function') ack({ ok: true, meta: boardsIndex.get(meta.id) });
+  });
+
+  socket.on('board:delete', (payload, ack) => {
+    const meta = myRoomBoard(payload);
+    if (!meta) return typeof ack === 'function' && ack({ error: 'Board not found.' });
+    deleteBoard(meta.id);
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  socket.on('board:duplicate', (payload, ack) => {
+    const meta = myRoomBoard(payload);
+    if (!meta) return typeof ack === 'function' && ack({ error: 'Board not found.' });
+    const copy = createBoard({ owner: meta.owner, room: meta.room, title: meta.title + ' (copy)', json: readBoardJSON(meta.id), thumb: meta.thumb });
+    if (typeof ack === 'function') ack({ ok: true, meta: copy });
+  });
+
+  socket.on('board:transfer', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = myRoomBoard(payload);
+    if (!meta) return ack({ error: 'Board not found.' });
+    const targetRoom = payload.room ? sanitizeCode(payload.room) : null;
+    if (targetRoom === null && !AUTH_ENABLED) return ack({ error: 'Personal boards require sign-in.' });
+    const isAdmin = AUTH_ENABLED && socket.data.user && hasPerm(socket.data.user.email, 'manage_boards');
+    if (targetRoom && !canUseRoom(meta.owner, targetRoom, isAdmin)) {
+      return ack({ error: targetRoom === meta.room ? 'The board is already in that class.' : 'You are not part of that class (check the code).' });
+    }
+    if (payload.mode === 'move') {
+      updateBoard(meta.id, { room: targetRoom });
+      return ack({ ok: true, meta: boardsIndex.get(meta.id), moved: true });
+    }
+    const copy = createBoard({
+      owner: meta.owner, room: targetRoom,
+      title: meta.title + (targetRoom === meta.room ? ' (copy)' : ''),
+      json: readBoardJSON(meta.id), thumb: meta.thumb,
+    });
+    ack({ ok: true, meta: copy, moved: false });
+  });
+
+  socket.on('student:boards', (payload, ack) => {
+    const { code, role } = socket.data || {};
+    if (!code || role !== 'teacher' || typeof ack !== 'function') return;
+    ack(boardsFor(String(payload && payload.student || ''), code));
   });
 
   socket.on('share:start', () => {
@@ -912,8 +1245,16 @@ io.on('connection', (socket) => {
   });
 });
 
+// Build the board index and migrate any legacy single-board rooms at startup
+loadBoardsIndex();
+for (const f of fs.readdirSync(DATA_DIR)) {
+  const m = /^room-(.+)\.json$/.exec(f);
+  if (m) getRoom(sanitizeCode(m[1]), false);
+}
+
 server.listen(PORT, () => {
   console.log(`Classroom Whiteboard running on port ${PORT}`);
+  console.log(`  Boards: ${boardsIndex.size}`);
   console.log(`Google sign-in: ${AUTH_ENABLED ? 'ENABLED' : 'disabled (open mode)'}`);
   if (AUTH_ENABLED) {
     console.log(`  Super admins: ${SUPER_ADMINS.join(', ')}`);

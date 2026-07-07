@@ -52,8 +52,14 @@
       </div>
     </div>
 
+    <div id="personal-boards" hidden>
+      <h2>My boards <span class="h2-note">(not in a class)</span></h2>
+      <ul id="personal-boards-list"></ul>
+      <button id="new-personal-btn" type="button" class="ghost-btn">＋ New personal board</button>
+    </div>
+
     <div id="recent-rooms" hidden>
-      <h2>Recent boards</h2>
+      <h2>All rooms (admin)</h2>
       <ul id="rooms-list"></ul>
     </div>
   </div>
@@ -196,8 +202,10 @@
         }
         loadRooms();
         loadMyRooms();
+        loadPersonalBoards();
       } else {
         document.getElementById('admin-portal-link').hidden = true;
+        document.getElementById('personal-boards').hidden = true;
         gsiButton.hidden = false;
         signedIn.hidden = true;
         joinSection.hidden = true;
@@ -247,6 +255,44 @@
         wrap.hidden = !canCreate;
       }
     }
+
+    // ----- personal boards (no class) -----
+
+    async function loadPersonalBoards() {
+      if (!cfg.authEnabled || !session) return;
+      const wrap = document.getElementById('personal-boards');
+      try {
+        const r = await fetch('/api/boards/personal', { headers: { Authorization: 'Bearer ' + session.token } });
+        if (!r.ok) return;
+        const boards = await r.json();
+        const ul = document.getElementById('personal-boards-list');
+        ul.innerHTML = '';
+        for (const b of boards.slice(0, 10)) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="room-name"></span><span class="room-meta"></span>`;
+          li.querySelector('.room-name').textContent = b.title;
+          li.querySelector('.room-meta').textContent = b.updatedAt ? new Date(b.updatedAt).toLocaleDateString() : '';
+          li.onclick = () => { location.href = `/board.html?board=${encodeURIComponent(b.id)}`; };
+          ul.appendChild(li);
+        }
+        wrap.hidden = false;
+      } catch { /* section stays hidden */ }
+    }
+
+    document.getElementById('new-personal-btn').onclick = async () => {
+      try {
+        const r = await fetch('/api/boards/personal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+          body: JSON.stringify({}),
+        });
+        const d = await r.json();
+        if (!r.ok) { showError(d.error || 'Could not create the board.'); return; }
+        location.href = `/board.html?board=${encodeURIComponent(d.id)}`;
+      } catch {
+        showError('Could not reach the server.');
+      }
+    };
 
     document.getElementById('new-room-btn').onclick = async () => {
       const name = document.getElementById('new-room-name').value.trim();

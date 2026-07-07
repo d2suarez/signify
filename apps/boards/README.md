@@ -101,6 +101,15 @@ Rooms are persistent classrooms with a name, an owner (teacher), and a roster:
 - Admins with the *manage boards* permission can create classrooms (optionally assigning the teacher), rename them, change owners, and edit any roster from the portal's Boards tab.
 - Admins with *manage users* can **bulk add users** in the portal's Users tab — paste a list, pick a role.
 
+## Boards & documents
+
+Everyone can have **multiple boards** per class, plus **personal boards** that belong to no class:
+
+- The **🗂 board button** in the top bar opens your boards drawer: switch, create, rename, duplicate, delete, and **copy or move** any board to another class you teach/attend or to *My boards*. The landing page lists your personal boards; they auto-save like everything else.
+- The teacher dashboard always shows each student's most recently used board; the close-up view has tabs to flip through all of a student's boards in that class.
+- **📄 documents**: upload a PDF, Word, PowerPoint, or other office file (converted server-side by LibreOffice — PDFs render entirely in the browser). Pages appear as locked backgrounds you draw on top of; your drawings stay movable. Scroll through pages naturally or jump with the **◀ 1/3 ▶** buttons (PageUp/PageDown work too). Up to 40 pages per document.
+- **Navigation**: scrolling pans the board (documents scroll like documents); **Ctrl/⌘+scroll or pinch** zooms.
+
 ## How to use it
 
 **Teacher**

@@ -44,6 +44,9 @@ function downloadDataURL(url, filename) {
 
 const SHAPE_TOOLS = ['line', 'arrow', 'rect', 'ellipse', 'triangle'];
 
+// Custom/state props that must survive serialization (document pages are locked images)
+const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor'];
+
 class Whiteboard {
   constructor(canvasId, container, { onChange, onViewChange } = {}) {
     this.container = container;
@@ -93,7 +96,7 @@ class Whiteboard {
   }
 
   _snapshot() {
-    const json = JSON.stringify(this.canvas.toJSON());
+    const json = JSON.stringify(this.canvas.toJSON(PERSIST_PROPS));
     if (this._undo[this._undo.length - 1] === json) return;
     this._undo.push(json);
     if (this._undo.length > 60) this._undo.shift();
@@ -131,7 +134,7 @@ class Whiteboard {
   }
 
   getJSON() {
-    return this.canvas.toJSON();
+    return this.canvas.toJSON(PERSIST_PROPS);
   }
 
   loadJSON(json, cb) {
@@ -299,6 +302,75 @@ class Whiteboard {
     this.canvas.requestRenderAll();
   }
 
+  // ---------- documents (locked page images you draw on top of) ----------
+
+  addDocumentPages(dataUrls, done) {
+    const c = this.canvas;
+    const existing = this.getDocPages();
+    let startPage = existing.length;
+    // stack new pages below everything already on the board
+    let y = 0;
+    c.getObjects().forEach((o) => {
+      const r = o.getBoundingRect(true, true);
+      y = Math.max(y, r.top + r.height + 40);
+    });
+    this._internal = true;
+    const addOne = (i) => {
+      if (i >= dataUrls.length) {
+        this._internal = false;
+        this.commit();
+        this.gotoDocPage(startPage + 1);
+        if (done) done(dataUrls.length);
+        return;
+      }
+      fabric.Image.fromURL(dataUrls[i], (img) => {
+        img.set({
+          left: 0, top: y,
+          selectable: false, evented: false,
+          hoverCursor: 'default',
+          docPage: startPage + i + 1,
+        });
+        y += img.height + 24;
+        c.add(img);
+        img.moveTo(i); // keep pages underneath drawings
+        addOne(i + 1);
+      });
+    };
+    addOne(0);
+  }
+
+  getDocPages() {
+    return this.canvas.getObjects()
+      .filter((o) => o.docPage)
+      .sort((a, b) => a.docPage - b.docPage);
+  }
+
+  gotoDocPage(n) {
+    const page = this.getDocPages().find((o) => o.docPage === n);
+    if (!page) return;
+    const c = this.canvas;
+    const w = page.getScaledWidth();
+    const zoom = Math.min((c.getWidth() - 60) / w, 2);
+    c.setViewportTransform([zoom, 0, 0, zoom, (c.getWidth() - w * zoom) / 2 - page.left * zoom, 24 - page.top * zoom]);
+    c.requestRenderAll();
+    this.onViewChange();
+  }
+
+  // The page whose top edge is nearest the top of the current view
+  getCurrentDocPage() {
+    const pages = this.getDocPages();
+    if (!pages.length) return 0;
+    const vpt = this.canvas.viewportTransform;
+    const viewTop = -vpt[5] / vpt[3];
+    let best = pages[0].docPage;
+    let bestDist = Infinity;
+    for (const p of pages) {
+      const d = Math.abs(p.top - viewTop);
+      if (d < bestDist) { bestDist = d; best = p.docPage; }
+    }
+    return best;
+  }
+
   // ---------- export ----------
 
   downloadView(filename) {
@@ -341,9 +413,15 @@ class Whiteboard {
       const e = opt.e;
       e.preventDefault();
       e.stopPropagation();
-      let zoom = c.getZoom() * Math.pow(0.999, e.deltaY);
-      zoom = Math.min(8, Math.max(0.1, zoom));
-      c.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
+      if (e.ctrlKey || e.metaKey) {
+        // pinch or ctrl/cmd+scroll zooms
+        let zoom = c.getZoom() * Math.pow(0.995, e.deltaY);
+        zoom = Math.min(8, Math.max(0.1, zoom));
+        c.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
+      } else {
+        // plain scroll pans — natural for scrolling through documents
+        c.relativePan(new fabric.Point(-e.deltaX, -e.deltaY));
+      }
       this.onViewChange();
     });
 

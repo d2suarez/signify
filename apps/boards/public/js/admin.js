@@ -511,25 +511,25 @@ async function toggleRoomBoards(card, code) {
   const panel = card.querySelector('.room-boards');
   if (!panel.hidden) { panel.hidden = true; return; }
   try {
-    const { data } = await api(`/api/admin/room/${code}`);
+    const { boards } = await api(`/api/admin/room/${code}`);
     panel.innerHTML = '';
-    const entries = [];
-    if (data.teacherBoard) entries.push({ id: '__teacher__', name: '👩‍🏫 Teacher board', json: data.teacherBoard, thumb: null });
-    for (const [id, json] of Object.entries(data.boards || {})) {
-      entries.push({ id, name: (data.names || {})[id] || id, json, thumb: (data.thumbs || {})[id] || null });
-    }
-    if (!entries.length) panel.innerHTML = '<p class="hint">No boards saved in this room yet.</p>';
-    for (const e of entries) {
+    if (!boards.length) panel.innerHTML = '<p class="hint">No boards saved in this room yet.</p>';
+    for (const b of boards) {
       const item = document.createElement('div');
       item.className = 'board-item';
-      const img = e.thumb ? `<img src="${e.thumb}" alt="" />` : '<div class="tile-empty">No preview</div>';
+      const img = b.thumb ? `<img src="${b.thumb}" alt="" />` : '<div class="tile-empty">No preview</div>';
       item.innerHTML = `${img}<div class="board-item-foot"><span class="board-item-name"></span><span><button class="btn-view">View</button><button class="btn-block">Delete</button></span></div>`;
-      item.querySelector('.board-item-name').textContent = e.name;
-      item.querySelector('.btn-view').onclick = () => openViewer(`${code} — ${e.name}`, e.json);
-      item.querySelector('.btn-block').onclick = async () => {
-        if (!confirm(`Delete ${e.name}'s board in ${code}?`)) return;
+      item.querySelector('.board-item-name').textContent = `${b.isTeacher ? '👩‍🏫 ' : ''}${b.ownerName} — ${b.title}`;
+      item.querySelector('.btn-view').onclick = async () => {
         try {
-          await api(`/api/admin/room/${code}/board/${encodeURIComponent(e.id)}`, { method: 'DELETE' });
+          const full = await api(`/api/boards/${b.id}`);
+          openViewer(`${code} — ${b.ownerName} — ${b.title}`, full.json);
+        } catch (err) { toast(err.message, true); }
+      };
+      item.querySelector('.btn-block').onclick = async () => {
+        if (!confirm(`Delete "${b.title}" (${b.ownerName}) in ${code}?`)) return;
+        try {
+          await api(`/api/boards/${b.id}`, { method: 'DELETE' });
           toast('Board deleted');
           panel.hidden = true;
           toggleRoomBoards(card, code);

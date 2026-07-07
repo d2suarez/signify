@@ -1,15 +1,19 @@
-/* global io, Whiteboard, BoardViewer */
+/* global io, Whiteboard, BoardViewer, pdfjsLib */
 'use strict';
 
 const params = new URLSearchParams(location.search);
 const room = (params.get('room') || '').toUpperCase();
+const soloBoardId = params.get('board') || null; // personal board, no room
 const role = params.get('role') === 'teacher' ? 'teacher' : 'student';
 let myName = params.get('name') || '';
 
-if (!room) location.href = '/';
+if (!room && !soloBoardId) location.href = '/';
 
-document.title = `${room} — Whiteboard`;
-document.getElementById('room-badge').textContent = room;
+const isSolo = !room;
+document.title = `${room || 'My board'} — Whiteboard`;
+document.getElementById('room-badge').textContent = room || '🗂 My board';
+
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
 
 // ---------- whiteboard ----------
 
@@ -21,9 +25,21 @@ const wb = new Whiteboard('board', canvasWrap, {
 
 function updateZoomLabel() {
   document.getElementById('zoom-label').textContent = Math.round(wb.getZoom() * 100) + '%';
+  updatePageNav();
 }
 
-// ---------- socket ----------
+// ---------- boards state ----------
+
+let currentBoard = null; // { id, title }
+let boardsList = [];
+
+function setCurrentBoard(meta) {
+  currentBoard = { id: meta.id, title: meta.title };
+  document.getElementById('board-title').textContent = `🗂 ${meta.title} ▾`;
+  if (isSolo) document.title = `${meta.title} — Whiteboard`;
+}
+
+// ---------- socket / persistence ----------
 
 const statusDot = document.getElementById('status-dot');
 const saveIndicator = document.getElementById('save-indicator');
@@ -40,14 +56,31 @@ async function authedFetch(path, opts = {}) {
   return data;
 }
 
+function savedFlash() {
+  saveIndicator.textContent = 'Saved ✓';
+  clearTimeout(savedFlash._t);
+  savedFlash._t = setTimeout(() => { saveIndicator.textContent = ''; }, 2000);
+}
+
 function sendBoard(json, thumb) {
-  if (!socket) return;
+  if (!currentBoard) return;
   saveIndicator.textContent = 'Saving…';
-  socket.emit('board:update', { json, thumb }, () => {
-    saveIndicator.textContent = 'Saved ✓';
-    clearTimeout(sendBoard._t);
-    sendBoard._t = setTimeout(() => { saveIndicator.textContent = ''; }, 2000);
-  });
+  if (isSolo) {
+    authedFetch(`/api/boards/${currentBoard.id}`, { method: 'POST', body: JSON.stringify({ json, thumb }) })
+      .then(savedFlash)
+      .catch((e) => { saveIndicator.textContent = ''; toast(e.message); });
+  } else if (socket) {
+    socket.emit('board:update', { boardId: currentBoard.id, json, thumb }, savedFlash);
+  }
+}
+
+// Emit any pending debounced change right now (used before switching boards)
+function flushBoard() {
+  if (wb._changeTimer) {
+    clearTimeout(wb._changeTimer);
+    wb._changeTimer = null;
+    sendBoard(wb.getJSON(), wb.getThumb());
+  }
 }
 
 (async function init() {
@@ -56,7 +89,6 @@ function sendBoard(json, thumb) {
     cfg = await (await fetch('/api/config')).json();
   } catch { /* fall through to open mode */ }
 
-  let token = null;
   if (cfg.authEnabled) {
     const session = JSON.parse(localStorage.getItem('wb-session') || 'null');
     if (!session || (session.exp && session.exp < Date.now())) {
@@ -64,17 +96,35 @@ function sendBoard(json, thumb) {
       location.href = '/';
       return;
     }
-    token = session.token;
-    authToken = token;
+    authToken = session.token;
     myName = session.name;
+  } else if (isSolo) {
+    location.href = '/'; // personal boards need sign-in
+    return;
   } else if (!myName) {
     location.href = '/';
     return;
   }
 
-  document.getElementById('user-label').textContent = `${myName} (${role})`;
+  document.getElementById('user-label').textContent = isSolo ? myName : `${myName} (${role})`;
+  wireBoardsDrawer();
+  wireDocuments();
 
-  socket = io({ auth: { token } });
+  if (isSolo) {
+    statusDot.hidden = true;
+    try {
+      const b = await authedFetch(`/api/boards/${soloBoardId}`);
+      setCurrentBoard(b);
+      if (b.json) wb.loadJSON(b.json, updatePageNav);
+      hasLoaded = true;
+    } catch (e) {
+      alert(e.message);
+      location.href = '/';
+    }
+    return;
+  }
+
+  socket = io({ auth: { token: authToken } });
 
   socket.on('connect_error', (err) => {
     statusDot.className = 'dot offline';
@@ -97,16 +147,20 @@ function sendBoard(json, thumb) {
         myName = res.name;
         document.getElementById('user-label').textContent = `${myName} (${role})`;
       }
+      boardsList = res.boards || [];
       if (!hasLoaded) {
         hasLoaded = true;
-        if (res.board) wb.loadJSON(res.board);
+        if (res.activeBoard) {
+          setCurrentBoard(boardsList.find((b) => b.id === res.activeBoard.id) || { id: res.activeBoard.id, title: 'Board' });
+          if (res.activeBoard.json) wb.loadJSON(res.activeBoard.json, updatePageNav);
+        }
         if (role === 'teacher') {
           (res.students || []).forEach((s) => upsertStudent(s));
           setSharing(res.sharing);
         } else if (res.sharing && res.teacherBoard) {
           studentUI.showShare(res.teacherBoard);
         }
-      } else {
+      } else if (currentBoard) {
         // Reconnected: our local board is the source of truth
         sendBoard(wb.getJSON(), wb.getThumb());
       }
@@ -118,6 +172,272 @@ function sendBoard(json, thumb) {
   if (role === 'student') wireStudent();
   else wireTeacher();
 })();
+
+// ---------- board switcher drawer ----------
+
+async function fetchBoardsList() {
+  if (isSolo) {
+    boardsList = await authedFetch('/api/boards/personal');
+  } else {
+    boardsList = await new Promise((resolve) => socket.emit('board:list', {}, resolve));
+  }
+  return boardsList;
+}
+
+async function loadBoardFull(id) {
+  if (isSolo) return authedFetch(`/api/boards/${id}`);
+  return new Promise((resolve, reject) => {
+    socket.emit('board:load', { boardId: id }, (res) => (res && res.ok ? resolve({ ...res.meta, json: res.json }) : reject(new Error((res && res.error) || 'Could not load board.'))));
+  });
+}
+
+async function switchBoard(id) {
+  if (currentBoard && id === currentBoard.id) return;
+  flushBoard();
+  try {
+    const b = await loadBoardFull(id);
+    setCurrentBoard(b);
+    if (b.json) wb.loadJSON(b.json, updatePageNav);
+    else { wb.clear(); updatePageNav(); }
+    toast(`🗂 Opened "${b.title}"`);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function createBoardAndSwitch() {
+  flushBoard();
+  try {
+    let meta;
+    if (isSolo) {
+      meta = await authedFetch('/api/boards/personal', { method: 'POST', body: JSON.stringify({}) });
+    } else {
+      const res = await new Promise((resolve) => socket.emit('board:create', {}, resolve));
+      if (!res || !res.ok) throw new Error((res && res.error) || 'Could not create board.');
+      meta = res.meta;
+    }
+    setCurrentBoard(meta);
+    wb.clear();
+    updatePageNav();
+    renderBoardsGrid(await fetchBoardsList());
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+function wireBoardsDrawer() {
+  const modal = document.getElementById('boards-modal');
+  document.getElementById('boards-context').textContent = isSolo ? ' (not in a class)' : ` in ${room}`;
+  document.getElementById('board-title').addEventListener('click', async () => {
+    modal.hidden = false;
+    try {
+      renderBoardsGrid(await fetchBoardsList());
+    } catch (e) {
+      toast(e.message);
+      modal.hidden = true;
+    }
+  });
+  document.getElementById('boards-close').addEventListener('click', () => { modal.hidden = true; });
+  document.getElementById('board-new').addEventListener('click', () => createBoardAndSwitch());
+  wireTransferModal();
+}
+
+function renderBoardsGrid(list) {
+  const grid = document.getElementById('boards-grid');
+  grid.innerHTML = '';
+  for (const b of list) {
+    const card = document.createElement('div');
+    card.className = 'board-item board-switch-card' + (currentBoard && b.id === currentBoard.id ? ' current' : '');
+    const img = b.thumb ? `<img src="${b.thumb}" alt="" />` : '<div class="tile-empty">Empty board</div>';
+    card.innerHTML = `${img}
+      <div class="board-item-foot"><span class="board-item-name"></span></div>
+      <div class="board-card-actions">
+        <button class="btn-view b-open">Open</button>
+        <button class="btn-view b-rename" title="Rename">✎</button>
+        <button class="btn-view b-dup" title="Duplicate">⧉</button>
+        <button class="btn-view b-transfer" title="Copy or move to another class">➜</button>
+        <button class="btn-block b-del" title="Delete">🗑</button>
+      </div>`;
+    card.querySelector('.board-item-name').textContent = b.title + (currentBoard && b.id === currentBoard.id ? ' (open)' : '');
+    card.querySelector('.b-open').onclick = async () => { await switchBoard(b.id); document.getElementById('boards-modal').hidden = true; };
+    card.querySelector('.b-rename').onclick = async () => {
+      const title = prompt('Board name:', b.title);
+      if (!title || title === b.title) return;
+      try {
+        if (isSolo) await authedFetch(`/api/boards/${b.id}`, { method: 'POST', body: JSON.stringify({ title }) });
+        else await new Promise((res, rej) => socket.emit('board:rename', { boardId: b.id, title }, (r) => (r && r.ok ? res() : rej(new Error((r && r.error) || 'Rename failed.')))));
+        if (currentBoard && currentBoard.id === b.id) setCurrentBoard({ id: b.id, title });
+        renderBoardsGrid(await fetchBoardsList());
+      } catch (e) { toast(e.message); }
+    };
+    card.querySelector('.b-dup').onclick = async () => {
+      try {
+        if (isSolo) await authedFetch(`/api/boards/${b.id}/transfer`, { method: 'POST', body: JSON.stringify({ room: null, mode: 'copy' }) });
+        else await new Promise((res, rej) => socket.emit('board:duplicate', { boardId: b.id }, (r) => (r && r.ok ? res() : rej(new Error((r && r.error) || 'Duplicate failed.')))));
+        toast('⧉ Board duplicated');
+        renderBoardsGrid(await fetchBoardsList());
+      } catch (e) { toast(e.message); }
+    };
+    card.querySelector('.b-transfer').onclick = () => openTransferModal(b);
+    card.querySelector('.b-del').onclick = async () => {
+      if (!confirm(`Delete "${b.title}"? This cannot be undone.`)) return;
+      try {
+        if (isSolo) await authedFetch(`/api/boards/${b.id}`, { method: 'DELETE' });
+        else await new Promise((res, rej) => socket.emit('board:delete', { boardId: b.id }, (r) => (r && r.ok ? res() : rej(new Error((r && r.error) || 'Delete failed.')))));
+        const list2 = await fetchBoardsList();
+        if (currentBoard && currentBoard.id === b.id) {
+          if (list2.length) await switchBoard(list2[0].id);
+          else await createBoardAndSwitch();
+        }
+        renderBoardsGrid(await fetchBoardsList());
+        toast('🗑 Board deleted');
+      } catch (e) { toast(e.message); }
+    };
+    grid.appendChild(card);
+  }
+}
+
+// ----- copy / move to another class -----
+
+let transferBoard = null;
+
+function wireTransferModal() {
+  document.getElementById('transfer-close').addEventListener('click', () => {
+    document.getElementById('transfer-modal').hidden = true;
+  });
+  document.getElementById('transfer-copy').addEventListener('click', () => doTransfer('copy'));
+  document.getElementById('transfer-move').addEventListener('click', () => doTransfer('move'));
+}
+
+async function openTransferModal(board) {
+  transferBoard = board;
+  const modal = document.getElementById('transfer-modal');
+  document.getElementById('transfer-title').textContent = `Copy or move "${board.title}"`;
+  const sel = document.getElementById('transfer-dest');
+  sel.innerHTML = '';
+  if (authToken) {
+    sel.appendChild(new Option('🗂 My boards (no class)', ''));
+    try {
+      const mine = await authedFetch('/api/my/rooms');
+      const seen = new Set();
+      for (const r of [...mine.teaching, ...mine.enrolled]) {
+        if (seen.has(r.code)) continue;
+        seen.add(r.code);
+        sel.appendChild(new Option(`${r.code}${r.name ? ' — ' + r.name : ''}`, r.code));
+      }
+    } catch { /* rooms list optional */ }
+    modal.hidden = false;
+  } else {
+    // open mode: no account, just ask for a room code
+    const code = prompt('Room code to copy this board to:');
+    if (!code) return;
+    socket.emit('board:transfer', { boardId: board.id, room: code, mode: 'copy' }, (r) => {
+      toast(r && r.ok ? `⧉ Copied to ${code.toUpperCase()}` : (r && r.error) || 'Copy failed.');
+    });
+  }
+}
+
+async function doTransfer(mode) {
+  if (!transferBoard) return;
+  const dest = document.getElementById('transfer-dest').value || null;
+  try {
+    let res;
+    if (isSolo) {
+      res = await authedFetch(`/api/boards/${transferBoard.id}/transfer`, { method: 'POST', body: JSON.stringify({ room: dest, mode }) });
+    } else {
+      const r = await new Promise((resolve) => socket.emit('board:transfer', { boardId: transferBoard.id, room: dest, mode }, resolve));
+      if (!r || !r.ok) throw new Error((r && r.error) || 'Transfer failed.');
+      res = r.meta;
+    }
+    void res;
+    const destLabel = dest || 'My boards';
+    toast(mode === 'move' ? `➜ Moved to ${destLabel}` : `⧉ Copied to ${destLabel}`);
+    document.getElementById('transfer-modal').hidden = true;
+    const list = await fetchBoardsList();
+    if (mode === 'move' && currentBoard && currentBoard.id === transferBoard.id) {
+      if (list.length) await switchBoard(list[0].id);
+      else await createBoardAndSwitch();
+    }
+    renderBoardsGrid(list);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// ---------- documents (PDF + converted office files) ----------
+
+function wireDocuments() {
+  const input = document.getElementById('doc-input');
+  document.getElementById('doc-btn').addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    try {
+      let pdfData;
+      if (ext === 'pdf') {
+        pdfData = await file.arrayBuffer();
+      } else {
+        toast(`⏳ Converting ${file.name}…`);
+        const res = await fetch(`/api/convert?ext=${ext}`, {
+          method: 'POST',
+          headers: authToken ? { Authorization: 'Bearer ' + authToken } : {},
+          body: file,
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || 'Conversion failed.');
+        }
+        pdfData = await res.arrayBuffer();
+      }
+      await insertPdf(pdfData);
+    } catch (e) {
+      toast('📄 ' + e.message);
+    }
+  });
+
+  document.getElementById('page-prev').addEventListener('click', () => wb.gotoDocPage(wb.getCurrentDocPage() - 1));
+  document.getElementById('page-next').addEventListener('click', () => wb.gotoDocPage(wb.getCurrentDocPage() + 1));
+}
+
+const MAX_DOC_PAGES = 40;
+
+async function insertPdf(arrayBuffer) {
+  if (!window.pdfjsLib) throw new Error('PDF renderer failed to load.');
+  const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = Math.min(doc.numPages, MAX_DOC_PAGES);
+  const urls = [];
+  for (let i = 1; i <= pages; i++) {
+    toast(`📄 Rendering page ${i}/${pages}…`);
+    const page = await doc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const c = document.createElement('canvas');
+    c.width = viewport.width;
+    c.height = viewport.height;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    // 'print' intent renders without requestAnimationFrame scheduling,
+    // so it also completes in throttled/background tabs
+    await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
+    urls.push(c.toDataURL('image/jpeg', 0.85));
+  }
+  wb.addDocumentPages(urls, (n) => {
+    toast(`📄 Added ${n} page${n === 1 ? '' : 's'}${doc.numPages > pages ? ` (of ${doc.numPages} — capped)` : ''}. Scroll or use ◀ ▶ to move through them.`);
+    updatePageNav();
+  });
+}
+
+function updatePageNav() {
+  const count = wb.getDocPages().length;
+  const show = count > 0;
+  document.getElementById('page-prev').hidden = !show;
+  document.getElementById('page-next').hidden = !show;
+  const label = document.getElementById('page-label');
+  label.hidden = !show;
+  if (show) label.textContent = `${wb.getCurrentDocPage()}/${count}`;
+}
 
 // ---------- toolbar ----------
 
@@ -163,8 +483,8 @@ imageInput.addEventListener('change', () => {
 });
 
 document.getElementById('ruler-btn').addEventListener('click', () => wb.addRuler());
-document.getElementById('undo-btn').addEventListener('click', () => wb.undo());
-document.getElementById('redo-btn').addEventListener('click', () => wb.redo());
+document.getElementById('undo-btn').addEventListener('click', () => { wb.undo(); updatePageNav(); });
+document.getElementById('redo-btn').addEventListener('click', () => { wb.redo(); updatePageNav(); });
 document.getElementById('delete-btn').addEventListener('click', () => wb.deleteSelection());
 
 // ---------- top bar ----------
@@ -177,14 +497,15 @@ document.getElementById('zoom-fit').addEventListener('click', () => wb.fitConten
 const dlMenu = document.getElementById('download-menu');
 function dlName(kind) {
   const d = new Date().toISOString().slice(0, 10);
-  return `${room}-${myName}-${kind}-${d}.png`.replace(/\s+/g, '_');
+  const base = currentBoard ? currentBoard.title : (room || 'board');
+  return `${room || 'personal'}-${base}-${kind}-${d}.png`.replace(/\s+/g, '_');
 }
 document.getElementById('dl-full').addEventListener('click', () => { wb.downloadFull(dlName('board')); dlMenu.open = false; });
 document.getElementById('dl-view').addEventListener('click', () => { wb.downloadView(dlName('view')); dlMenu.open = false; });
 document.addEventListener('click', (e) => { if (!dlMenu.contains(e.target)) dlMenu.open = false; });
 
 document.getElementById('clear-btn').addEventListener('click', () => {
-  if (confirm('Clear the whole board? You can undo this.')) wb.clear();
+  if (confirm('Clear the whole board? You can undo this.')) { wb.clear(); updatePageNav(); }
 });
 
 document.getElementById('fullscreen-btn').addEventListener('click', () => {
@@ -200,11 +521,14 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     if (e.shiftKey) wb.redo(); else wb.undo();
+    updatePageNav();
     return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); wb.redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); wb.deleteSelection(); return; }
   if (e.key === 'Escape') { wb.cancelPending(); return; }
+  if (e.key === 'PageDown') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() + 1); return; }
+  if (e.key === 'PageUp') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() - 1); return; }
   const map = { v: 'select', h: 'pan', p: 'pen', t: 'text', e: 'eraser' };
   if (map[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) activateTool(map[e.key.toLowerCase()]);
 });
@@ -246,6 +570,7 @@ function wireStudent() {
   socket.on('template', ({ json }) => {
     wb.loadJSON(json, () => {
       wb.fitContent();
+      updatePageNav();
       sendBoard(wb.getJSON(), wb.getThumb());
       toast('📥 Your teacher sent you a new board');
     });
@@ -254,8 +579,9 @@ function wireStudent() {
 
 // ================= TEACHER =================
 
-const latestBoards = new Map(); // student id -> board json
+const latestStudentBoards = new Map(); // student id -> { boardId, json }
 let modalStudent = null; // { id, name }
+let modalBoardId = null;
 let modalViewer = null;
 
 function upsertStudent(s) {
@@ -272,7 +598,6 @@ function upsertStudent(s) {
   tile.querySelector('.tname').textContent = s.name || s.id;
   tile.dataset.name = s.name || s.id;
   tile.classList.toggle('offline', s.online === false);
-  if (s.board) latestBoards.set(s.id, s.board);
   if (s.thumb) setTileThumb(tile, s.thumb);
   updateStudentCount();
 }
@@ -284,6 +609,13 @@ function setTileThumb(tile, thumb) {
     tile.replaceChild(img, tile.querySelector('.tile-empty'));
   }
   img.src = thumb;
+}
+
+function removeStudentTile(id) {
+  const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
+  if (tile) tile.remove();
+  latestStudentBoards.delete(id);
+  updateStudentCount();
 }
 
 function updateStudentCount() {
@@ -298,16 +630,52 @@ function setSharing(on) {
   btn.dataset.on = on ? '1' : '';
 }
 
-function openStudentModal(id) {
+async function openStudentModal(id) {
   const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
   const name = (tile && tile.dataset.name) || id;
   modalStudent = { id, name };
-  document.getElementById('modal-title').textContent = `${name}'s board (live)`;
+  document.getElementById('modal-title').textContent = `${name}'s boards (live)`;
   const modal = document.getElementById('student-modal');
   modal.hidden = false;
   const wrap = modal.querySelector('.overlay-canvas-wrap');
   modalViewer.setSize(wrap.clientWidth, wrap.clientHeight);
-  modalViewer.load(latestBoards.get(id) || null);
+  await refreshModalStrip();
+}
+
+async function refreshModalStrip(selectBoardId) {
+  if (!modalStudent) return;
+  const strip = document.getElementById('modal-board-strip');
+  const boards = await new Promise((resolve) => socket.emit('student:boards', { student: modalStudent.id }, resolve));
+  strip.innerHTML = '';
+  if (!boards || !boards.length) {
+    modalViewer.load(null);
+    modalBoardId = null;
+    return;
+  }
+  const target = selectBoardId || modalBoardId || (latestStudentBoards.get(modalStudent.id) || {}).boardId || boards[0].id;
+  for (const b of boards) {
+    const item = document.createElement('button');
+    item.className = 'strip-item';
+    item.dataset.boardId = b.id;
+    item.title = b.title;
+    item.innerHTML = b.thumb ? `<img src="${b.thumb}" alt="" /><span></span>` : `<span class="strip-empty">▢</span><span></span>`;
+    item.querySelector('span:last-child').textContent = b.title;
+    item.onclick = () => viewStudentBoard(b.id);
+    strip.appendChild(item);
+  }
+  viewStudentBoard(target);
+}
+
+function viewStudentBoard(boardId) {
+  modalBoardId = boardId;
+  document.querySelectorAll('#modal-board-strip .strip-item').forEach((el) => {
+    el.classList.toggle('active', el.dataset.boardId === boardId);
+  });
+  socket.emit('board:load', { boardId }, (res) => {
+    if (res && res.ok) modalViewer.load(res.json);
+  });
+  const cached = latestStudentBoards.get(modalStudent && modalStudent.id);
+  if (cached && cached.boardId === boardId && cached.json) modalViewer.load(cached.json);
 }
 
 function wireTeacher() {
@@ -320,10 +688,11 @@ function wireTeacher() {
   document.getElementById('modal-close').addEventListener('click', () => {
     modal.hidden = true;
     modalStudent = null;
+    modalBoardId = null;
   });
   document.getElementById('modal-push').addEventListener('click', () => {
     if (!modalStudent) return;
-    if (confirm(`Replace ${modalStudent.name}'s board with your board?`)) {
+    if (confirm(`Replace ${modalStudent.name}'s current board with your board?`)) {
       socket.emit('template:push', { json: wb.getJSON(), target: modalStudent.id });
       toast(`📤 Board sent to ${modalStudent.name}`);
     }
@@ -340,8 +709,8 @@ function wireTeacher() {
     updateStudentCount();
   });
 
-  socket.on('student:board', ({ id, name, json, thumb }) => {
-    latestBoards.set(id, json);
+  socket.on('student:board', ({ id, name, boardId, json, thumb }) => {
+    latestStudentBoards.set(id, { boardId, json });
     const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
     if (tile) {
       tile.classList.remove('offline');
@@ -350,7 +719,10 @@ function wireTeacher() {
       upsertStudent({ id, name, online: true, thumb });
     }
     updateStudentCount();
-    if (modalStudent && modalStudent.id === id) modalViewer.load(json);
+    if (modalStudent && modalStudent.id === id) {
+      if (modalBoardId === boardId) modalViewer.load(json);
+      else refreshModalStrip();
+    }
   });
 
   document.getElementById('share-btn').addEventListener('click', (e) => {
@@ -361,7 +733,7 @@ function wireTeacher() {
   });
 
   document.getElementById('push-btn').addEventListener('click', () => {
-    if (confirm('Send your board to every student? This replaces what is on their boards (they can undo).')) {
+    if (confirm('Send your board to every student? This replaces their current board (they can undo).')) {
       socket.emit('template:push', { json: wb.getJSON() });
       toast('📤 Board pushed to the class');
     }
@@ -417,7 +789,7 @@ function wireRoster() {
       del.className = 'btn-block';
       del.textContent = 'Remove';
       del.onclick = async () => {
-        if (!confirm(`Remove ${r.name} from this class? Their board in this room will be deleted. They can rejoin with the room code.`)) return;
+        if (!confirm(`Remove ${r.name} from this class? Their boards in this room will be deleted. They can rejoin with the room code.`)) return;
         try {
           const d = await authedFetch(`/api/room/${room}/roster`, { method: 'POST', body: JSON.stringify({ remove: [r.email] }) });
           renderRoster(d);
@@ -487,13 +859,6 @@ function wireRoster() {
     document.getElementById('roster-bulk').value = '';
     addEmails(emails);
   });
-}
-
-function removeStudentTile(id) {
-  const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
-  if (tile) tile.remove();
-  latestBoards.delete(id);
-  updateStudentCount();
 }
 
 updateZoomLabel();
