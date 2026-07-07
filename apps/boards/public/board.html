@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whiteboard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="topbar-group">
+        <span id="room-badge" class="badge"></span>
+        <span id="user-label"></span>
+        <span id="status-dot" class="dot offline" title="Connection"></span>
+        <span id="save-indicator"></span>
+      </div>
+      <div class="topbar-group zoom-controls">
+        <button id="zoom-out" title="Zoom out">−</button>
+        <button id="zoom-label" title="Reset to 100%">100%</button>
+        <button id="zoom-in" title="Zoom in">+</button>
+        <button id="zoom-fit" title="Fit everything on screen">⛶ Fit</button>
+      </div>
+      <div class="topbar-group">
+        <button id="share-btn" class="teacher-only action-btn" hidden>📺 Share my board</button>
+        <button id="push-btn" class="teacher-only action-btn" hidden>📤 Push to class</button>
+        <details id="download-menu">
+          <summary class="action-btn">⬇ Download</summary>
+          <div class="menu">
+            <button id="dl-full">Full board</button>
+            <button id="dl-view">Current view</button>
+          </div>
+        </details>
+        <button id="clear-btn" class="action-btn" title="Clear the whole board">🗑 Clear</button>
+        <button id="fullscreen-btn" class="action-btn" title="Full screen">⛶</button>
+      </div>
+    </header>
+
+    <aside id="toolbar">
+      <button class="tool active" data-tool="select" title="Select / move (V)">↖</button>
+      <button class="tool" data-tool="pan" title="Pan around the board (H)">✋</button>
+      <button class="tool" data-tool="pen" title="Pen (P)">✏️</button>
+      <button class="tool" data-tool="highlighter" title="Highlighter">🖍️</button>
+      <button class="tool" data-tool="line" title="Straight line — drag">╱</button>
+      <button class="tool" data-tool="curve" title="Curved line — drag the line, move to bend it, click to place">↝</button>
+      <button class="tool" data-tool="arrow" title="Arrow — drag">➜</button>
+      <button class="tool" data-tool="rect" title="Rectangle — drag">▭</button>
+      <button class="tool" data-tool="ellipse" title="Ellipse — drag">◯</button>
+      <button class="tool" data-tool="triangle" title="Triangle — drag">△</button>
+      <button class="tool" data-tool="text" title="Text — click the board (T)">T</button>
+      <button class="tool" data-tool="eraser" title="Eraser — click or drag over things (E)">🧽</button>
+      <div class="tb-sep"></div>
+      <button id="image-btn" class="tool" title="Add an image">🖼️</button>
+      <input id="image-input" type="file" accept="image/*" hidden />
+      <button id="ruler-btn" class="tool" title="Add a ruler">📏</button>
+      <div class="tb-sep"></div>
+      <div id="swatches">
+        <button class="swatch active" data-color="#1e293b" style="background:#1e293b" title="Ink"></button>
+        <button class="swatch" data-color="#dc2626" style="background:#dc2626" title="Red"></button>
+        <button class="swatch" data-color="#2563eb" style="background:#2563eb" title="Blue"></button>
+        <button class="swatch" data-color="#16a34a" style="background:#16a34a" title="Green"></button>
+        <button class="swatch" data-color="#f59e0b" style="background:#f59e0b" title="Orange"></button>
+        <button class="swatch" data-color="#9333ea" style="background:#9333ea" title="Purple"></button>
+      </div>
+      <input id="color-input" type="color" value="#1e293b" title="Custom color" />
+      <input id="width-input" type="range" min="1" max="20" value="4" title="Line thickness" />
+      <label id="fill-label" title="Fill shapes with color"><input id="fill-input" type="checkbox" /> Fill</label>
+      <div class="tb-sep"></div>
+      <button id="undo-btn" class="tool" title="Undo (Ctrl+Z)">↩</button>
+      <button id="redo-btn" class="tool" title="Redo (Ctrl+Shift+Z)">↪</button>
+      <button id="delete-btn" class="tool" title="Delete selection (Del)">🗑</button>
+    </aside>
+
+    <main id="canvas-wrap">
+      <canvas id="board"></canvas>
+    </main>
+
+    <aside id="students-panel" hidden>
+      <div id="students-header">Students <span id="student-count">0</span></div>
+      <div id="student-tiles"></div>
+    </aside>
+  </div>
+
+  <!-- Student: full-screen view of the teacher's shared board -->
+  <div id="share-overlay" hidden>
+    <div class="overlay-banner">📺 Your teacher is sharing their board</div>
+    <div class="overlay-canvas-wrap"><canvas id="share-canvas"></canvas></div>
+  </div>
+
+  <!-- Teacher: close-up live view of one student -->
+  <div id="student-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="modal-title"></span>
+        <div>
+          <button id="modal-push">📤 Push my board to this student</button>
+          <button id="modal-close">✕ Close</button>
+        </div>
+      </div>
+      <div class="overlay-canvas-wrap"><canvas id="modal-canvas"></canvas></div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <script src="/vendor/fabric.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/whiteboard.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

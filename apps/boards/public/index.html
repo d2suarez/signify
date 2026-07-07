@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Classroom Whiteboard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="landing">
+  <div class="landing-card">
+    <h1>🎨 Classroom Whiteboard</h1>
+    <p class="subtitle">Draw together. Teachers see every board live.</p>
+
+    <div id="auth-section" hidden>
+      <div id="gsi-button"></div>
+      <div id="signed-in" hidden>
+        <span id="signed-in-label"></span>
+        <button id="signout-btn" type="button">Sign out</button>
+      </div>
+    </div>
+
+    <div id="join-section">
+      <div class="role-tabs">
+        <button id="tab-teacher" class="role-tab active" type="button">I'm the Teacher</button>
+        <button id="tab-student" class="role-tab" type="button">I'm a Student</button>
+      </div>
+
+      <div id="name-field">
+        <label for="name-input">Your name</label>
+        <input id="name-input" type="text" maxlength="30" placeholder="e.g. Ms. Suarez" autocomplete="off" />
+      </div>
+
+      <label for="room-input">Room code</label>
+      <div class="room-row">
+        <input id="room-input" type="text" maxlength="12" placeholder="e.g. MATH1" autocomplete="off" />
+        <button id="gen-btn" type="button" title="Generate a new room code">🎲</button>
+      </div>
+
+      <button id="join-btn" class="primary-btn" type="button">Start Whiteboard</button>
+    </div>
+
+    <p id="landing-error" class="error" hidden></p>
+
+    <div id="recent-rooms" hidden>
+      <h2>Recent boards</h2>
+      <ul id="rooms-list"></ul>
+    </div>
+  </div>
+
+  <script>
+    const tabTeacher = document.getElementById('tab-teacher');
+    const tabStudent = document.getElementById('tab-student');
+    const nameInput = document.getElementById('name-input');
+    const roomInput = document.getElementById('room-input');
+    const genBtn = document.getElementById('gen-btn');
+    const joinBtn = document.getElementById('join-btn');
+    const errEl = document.getElementById('landing-error');
+
+    let role = 'teacher';
+    let cfg = { authEnabled: false };
+    let session = JSON.parse(localStorage.getItem('wb-session') || 'null');
+    if (session && session.exp && session.exp < Date.now()) {
+      session = null;
+      localStorage.removeItem('wb-session');
+    }
+
+    nameInput.value = localStorage.getItem('wb-name') || '';
+    roomInput.value = localStorage.getItem('wb-room') || '';
+
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.hidden = !msg;
+    }
+
+    function setRole(r) {
+      if (r === 'teacher' && session && session.role === 'student') return; // not allowed
+      role = r;
+      tabTeacher.classList.toggle('active', r === 'teacher');
+      tabStudent.classList.toggle('active', r === 'student');
+      genBtn.hidden = r !== 'teacher';
+      joinBtn.textContent = r === 'teacher' ? 'Start Whiteboard' : 'Join Class';
+      updateRecentVisibility();
+    }
+    tabTeacher.onclick = () => setRole('teacher');
+    tabStudent.onclick = () => setRole('student');
+
+    genBtn.onclick = () => {
+      const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      roomInput.value = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    };
+
+    function join() {
+      const roomCode = roomInput.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+      let name;
+      if (cfg.authEnabled) {
+        if (!session) { showError('Please sign in with your school Google account first.'); return; }
+        name = session.name;
+      } else {
+        name = nameInput.value.trim();
+        if (!name) { showError('Please enter your name.'); return; }
+        localStorage.setItem('wb-name', name);
+      }
+      if (!roomCode) { showError('Please enter a room code.'); return; }
+      localStorage.setItem('wb-room', roomCode);
+      location.href = `/board.html?role=${role}&room=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(name)}`;
+    }
+    joinBtn.onclick = join;
+    document.body.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+
+    // ----- Google sign-in -----
+
+    function renderGsiButton() {
+      if (!window.google || !google.accounts) { setTimeout(renderGsiButton, 100); return; }
+      google.accounts.id.initialize({ client_id: cfg.clientId, callback: onCredential });
+      google.accounts.id.renderButton(document.getElementById('gsi-button'), {
+        theme: 'outline', size: 'large', width: 320, text: 'signin_with',
+      });
+    }
+
+    async function onCredential(resp) {
+      showError('');
+      try {
+        const r = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: resp.credential }),
+        });
+        const d = await r.json();
+        if (!r.ok) { showError(d.error || 'Sign-in failed.'); return; }
+        session = d;
+        localStorage.setItem('wb-session', JSON.stringify(d));
+        applyAuthState();
+      } catch {
+        showError('Could not reach the server. Please try again.');
+      }
+    }
+
+    document.getElementById('signout-btn').onclick = () => {
+      session = null;
+      localStorage.removeItem('wb-session');
+      if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+      applyAuthState();
+    };
+
+    function applyAuthState() {
+      const authSection = document.getElementById('auth-section');
+      const joinSection = document.getElementById('join-section');
+      const signedIn = document.getElementById('signed-in');
+      const gsiButton = document.getElementById('gsi-button');
+
+      if (!cfg.authEnabled) {
+        authSection.hidden = true;
+        joinSection.hidden = false;
+        loadRooms();
+        return;
+      }
+      authSection.hidden = false;
+      document.getElementById('name-field').hidden = true;
+      if (session) {
+        gsiButton.hidden = true;
+        signedIn.hidden = false;
+        document.getElementById('signed-in-label').textContent = `Signed in as ${session.name} (${session.email})`;
+        joinSection.hidden = false;
+        if (session.role === 'student') {
+          setRole('student');
+          tabTeacher.disabled = true;
+          tabTeacher.title = 'Your account is not registered as a teacher';
+        } else {
+          tabTeacher.disabled = false;
+        }
+        loadRooms();
+      } else {
+        gsiButton.hidden = false;
+        signedIn.hidden = true;
+        joinSection.hidden = true;
+        document.getElementById('recent-rooms').hidden = true;
+        renderGsiButton();
+      }
+    }
+
+    // ----- recent rooms (teachers) -----
+
+    let roomsLoaded = false;
+    function updateRecentVisibility() {
+      document.getElementById('recent-rooms').hidden = role !== 'teacher' || !roomsLoaded;
+    }
+
+    function loadRooms() {
+      if (cfg.authEnabled && (!session || session.role === 'student')) return;
+      const headers = session ? { Authorization: 'Bearer ' + session.token } : {};
+      fetch('/api/rooms', { headers }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
+        const ul = document.getElementById('rooms-list');
+        ul.innerHTML = '';
+        if (!roomsData.length) return;
+        roomsLoaded = true;
+        roomsData.slice(0, 8).forEach((r) => {
+          const li = document.createElement('li');
+          const when = r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '';
+          li.innerHTML = `<span class="room-code"></span><span class="room-meta">${r.students} student board${r.students === 1 ? '' : 's'} · ${when}</span>`;
+          li.querySelector('.room-code').textContent = r.code;
+          li.onclick = () => { roomInput.value = r.code; setRole('teacher'); join(); };
+          ul.appendChild(li);
+        });
+        updateRecentVisibility();
+      }).catch(() => {});
+    }
+
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((c) => { cfg = c; applyAuthState(); })
+      .catch(() => applyAuthState());
+  </script>
+</body>
+</html>
