@@ -120,7 +120,8 @@ Everyone can have **multiple boards** per class, plus **personal boards** that b
 5. **📤 Push to class** — sends your current board to every student as a template (replaces their board; they can undo). From a student's close-up view you can push to just that student.
 
 **Everyone**
-- Tools (left bar): select/move, pan, pen, highlighter, straight line, curved line (drag the line, move the mouse to bend it, click to place), arrow, rectangle, ellipse, triangle, text, eraser, image upload, and a movable/rotatable ruler.
+- Tools (left bar): select/move, hand (with a **Move board / Move objects** switch — pan the canvas or manipulate objects), pen, highlighter, straight line, curved line (drag the line, move the mouse to bend it, click to place), arrow, rectangle, ellipse, triangle, text, eraser, image upload, and a movable/rotatable ruler.
+- Every object can be moved, resized, and rotated via its selection handles. Double-click a **curve** (or use the *Edit curve* button) to reshape it with draggable endpoint/control handles; double-click an **image** (or *Crop*) to crop it with a draggable frame — Enter/Apply confirms, Esc cancels.
 - Colors, custom color picker, line thickness, and a "Fill" toggle for shapes.
 - Zoom with the mouse wheel or the +/− buttons; *Fit* shows everything; click the percentage to reset to 100%.
 - **⬇ Download** — *Full board* exports everything as a PNG; *Current view* exports exactly what's on screen (your zoomed-in view).
