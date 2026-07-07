@@ -5,7 +5,18 @@ A real-time whiteboard for teachers and students. The teacher creates a room, st
 It runs in two modes:
 
 - **Open mode** (no configuration) — anyone who can reach the server joins by typing a name. Good for local use on a classroom network.
-- **Google sign-in mode** — set `GOOGLE_CLIENT_ID` and everyone must sign in with Google. `ALLOWED_DOMAINS` restricts sign-in to your school's domain(s), and `TEACHER_EMAILS` controls who can act as a teacher. Boards are keyed to verified accounts, so students can't impersonate each other.
+- **Google sign-in mode** — set `GOOGLE_CLIENT_ID` and everyone must sign in with Google. Boards are keyed to verified accounts, so students can't impersonate each other. Access is managed from the **admin portal**.
+
+## Admin portal
+
+At **`/admin.html`** (link appears on the landing page for admins). The super admin is set by `SUPER_ADMINS` (default `desmond@signify.one`).
+
+- **Users** — new sign-ins from unapproved domains wait here as *pending*; approve or block them, assign roles (student / teacher / local admin), or pre-add someone before their first sign-in. Blocking disconnects the user immediately.
+- **Domains** — approve email domains (e.g. your school's) so accounts on them are admitted automatically as students. Super admin only.
+- **Live sessions** — everyone connected right now, with room, name, and role.
+- **Boards** — every room with its saved boards; view any board full-size, delete a single board, or delete a whole room.
+
+Local admins can approve/block users and manage boards; only the super admin can manage domains and admin roles. Role and access changes apply on the user's next connection (or immediately when blocking).
 
 ## Running locally
 
