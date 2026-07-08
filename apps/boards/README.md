@@ -126,6 +126,7 @@ Everyone can have **multiple boards** per class, plus **personal boards** that b
 - **Coordinate graph** (📈): insert a labeled Cartesian plane with a chosen X/Y range and axis titles — draw supply/demand or any lines on top.
 - **Charts** (📊): upload a CSV, pick bar / line / pie, choose the label and value columns, and a clean chart drops onto the board.
 - **Documents**: arrow keys (or PageUp/PageDown) page through an uploaded document when nothing is selected.
+- **Live polls** (teacher **Poll** button): ask a multiple-choice or short-answer question; students answer on a full-screen card. Multiple-choice results update live as bars and can be dropped onto the board as a bar or pie chart; short-answer results appear as a tinted response wall that can also be placed on the board. Poll text is capped and rendered as plain text (never HTML).
 - Colors, custom color picker, line thickness, and a "Fill" toggle for shapes.
 - Zoom with the mouse wheel or the +/− buttons; *Fit* shows everything; click the percentage to reset to 100%.
 - **⬇ Download** — *Full board* exports everything as a PNG; *Current view* exports exactly what's on screen (your zoomed-in view).
