@@ -126,6 +126,7 @@ Everyone can have **multiple boards** per class, plus **personal boards** that b
 - **Coordinate graph** (📈): insert a labeled Cartesian plane with a chosen X/Y range and axis titles — draw supply/demand or any lines on top.
 - **Charts** (📊): upload a CSV, pick bar / line / pie, choose the label and value columns, and a clean chart drops onto the board.
 - **Documents**: arrow keys (or PageUp/PageDown) page through an uploaded document when nothing is selected.
+- **Feature switches**: teachers open **Features** on the board to turn Drawing, Text, Photos, Documents, Charts, New boards, or Download on/off for the whole room or a single student (e.g. pause a student's photo uploads). Admins set school-wide defaults per domain in the portal's Users tab. Most specific wins: student overrides room, room overrides school; changes apply live with a notice on the student's screen.
 - **Live polls** (teacher **Poll** button): ask a multiple-choice or short-answer question; students answer on a full-screen card. Multiple-choice results update live as bars and can be dropped onto the board as a bar or pie chart; short-answer results appear as a tinted response wall that can also be placed on the board. Poll text is capped and rendered as plain text (never HTML).
 - Colors, custom color picker, line thickness, and a "Fill" toggle for shapes.
 - Zoom with the mouse wheel or the +/− buttons; *Fit* shows everything; click the percentage to reset to 100%.

@@ -32,6 +32,7 @@
         <button id="ctx-cancel" class="action-btn" hidden>Cancel</button>
         <button id="students-btn" class="action-btn" hidden>Students</button>
         <button id="poll-btn" class="teacher-only action-btn" hidden>Poll</button>
+        <button id="features-btn" class="teacher-only action-btn" hidden>Features</button>
         <button id="share-btn" class="teacher-only action-btn" hidden>Share my board</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
         <details id="download-menu">
@@ -183,6 +184,22 @@
           <h3>Enrolled <span id="roster-count" class="count-badge">0</span></h3>
           <div id="roster-list"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher: per-room and per-student feature switches -->
+  <div id="features-modal" hidden>
+    <div class="modal-box features-box">
+      <div class="modal-head">
+        <span>Class features — <span id="features-room"></span></span>
+        <div><button id="features-close">✕ Close</button></div>
+      </div>
+      <div class="features-body">
+        <p class="hint">Click a chip to cycle it: <span class="f-chip f-inherit">Inherited</span> → <span class="f-chip f-off">Off</span> → <span class="f-chip f-on">On</span>. Student settings override the room; the room overrides the school default.</p>
+        <div id="features-room-row"></div>
+        <h3 class="features-h3">Per student</h3>
+        <div id="features-students"></div>
       </div>
     </div>
   </div>

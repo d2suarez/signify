@@ -185,6 +185,59 @@ async function updateUser(email, patch) {
   }
 }
 
+// ---------- school-wide feature switches ----------
+
+const FEATURE_LABELS = {
+  draw: 'Drawing', text: 'Text', images: 'Photos', documents: 'Documents',
+  charts: 'Charts & graphs', newBoards: 'New boards', download: 'Download',
+};
+
+function renderDomainFeatures() {
+  const wrap = document.getElementById('domain-features');
+  if (!wrap || !can('manage_users')) return;
+  wrap.innerHTML = '';
+  const domains = Object.keys(state.domainFeatures || {});
+  if (!domains.length) {
+    wrap.innerHTML = '<p class="hint">No domains yet — approve a domain first.</p>';
+    return;
+  }
+  for (const domain of domains) {
+    const row = document.createElement('div');
+    row.className = 'f-student-row';
+    const nm = document.createElement('div');
+    nm.className = 'f-row-name';
+    nm.textContent = '@' + domain;
+    row.appendChild(nm);
+    const chips = document.createElement('div');
+    chips.className = 'f-chips';
+    for (const f of state.features || []) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      const stateOf = () => {
+        const m = state.domainFeatures[domain] || {};
+        return m[f] === false ? 'off' : m[f] === true ? 'on' : 'inherit';
+      };
+      const paint = () => {
+        b.className = 'f-chip f-' + stateOf();
+        b.textContent = FEATURE_LABELS[f] || f;
+      };
+      b.onclick = async () => {
+        const cur = stateOf();
+        const val = cur === 'inherit' ? false : cur === 'off' ? true : null;
+        try {
+          const d = await api('/api/admin/features', { method: 'POST', body: JSON.stringify({ domain, features: { [f]: val } }) });
+          state.domainFeatures[domain] = d.features;
+          paint();
+        } catch (e) { toast(e.message, true); }
+      };
+      paint();
+      chips.appendChild(b);
+    }
+    row.appendChild(chips);
+    wrap.appendChild(row);
+  }
+}
+
 function renderAddUserRoles() {
   for (const selId of ['add-role', 'bulk-role']) {
     const sel = document.getElementById(selId);
@@ -573,6 +626,7 @@ async function refresh(manual) {
     document.getElementById('admin-me').textContent = `${state.me.name || state.me.email} · ${roleLabel(state.me.role)}`;
     applyNavVisibility();
     renderAddUserRoles();
+    renderDomainFeatures();
     renderUsers();
     renderRoles();
     renderDomains();

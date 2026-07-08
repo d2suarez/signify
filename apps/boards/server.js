@@ -25,6 +25,38 @@ const oauthClient = AUTH_ENABLED ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 const PERMISSIONS = ['teach', 'manage_users', 'manage_boards', 'view_sessions', 'manage_domains'];
 
+// ---------- feature switches ----------
+// Features can be turned on/off per school domain (admin), per room (teacher),
+// or per student in a room (teacher). Most specific setting wins; default is on.
+
+const FEATURES = ['draw', 'text', 'images', 'documents', 'charts', 'newBoards', 'download'];
+
+// Apply a tri-state patch {feature: true|false|null} — null clears the override
+function applyFeaturePatch(target, patch) {
+  if (!patch || typeof patch !== 'object') return;
+  for (const f of FEATURES) {
+    if (!(f in patch)) continue;
+    const v = patch[f];
+    if (v === true || v === false) target[f] = v;
+    else delete target[f];
+  }
+}
+
+function effectiveFeatures(room, id) {
+  const out = {};
+  const domainMap = AUTH_ENABLED ? (store.domainFeatures[domainOf(id)] || null) : null;
+  const roomMap = room.data.features || {};
+  const studentMap = (room.data.studentFeatures || {})[id] || {};
+  for (const f of FEATURES) {
+    let v = true;
+    if (domainMap && domainMap[f] !== undefined) v = domainMap[f];
+    if (roomMap[f] !== undefined) v = roomMap[f];
+    if (studentMap[f] !== undefined) v = studentMap[f];
+    out[f] = v;
+  }
+  return out;
+}
+
 const DEFAULT_ROLES = {
   student: { label: 'Student', builtin: true, perms: [] },
   teacher: { label: 'Teacher', builtin: true, perms: ['teach'] },
@@ -46,6 +78,7 @@ try {
 }
 store.roles = Object.assign({}, DEFAULT_ROLES, store.roles || {});
 store.roles.student = { ...store.roles.student, perms: [] }; // the fallback role stays permissionless
+store.domainFeatures = store.domainFeatures || {}; // domain -> {feature: bool}
 
 let storeTimer = null;
 function saveStore() {
@@ -499,9 +532,22 @@ app.get('/api/admin/state', (req, res) => {
 
   const roles = Object.entries(store.roles).map(([id, r]) => ({ id, label: r.label, builtin: !!r.builtin, perms: r.perms }));
 
+  let domainFeatures = {};
+  if (canUsers) {
+    if (admin.isSuper) {
+      domainFeatures = store.domainFeatures;
+      for (const d of store.domains) if (!domainFeatures[d]) domainFeatures = { ...domainFeatures, [d]: {} };
+    } else {
+      const own = domainOf(admin.email);
+      domainFeatures = { [own]: store.domainFeatures[own] || {} };
+    }
+  }
+
   res.json({
     me: admin,
     permissions: PERMISSIONS,
+    features: FEATURES,
+    domainFeatures,
     roles,
     users,
     domains: canDomains ? store.domains : [],
@@ -609,6 +655,28 @@ app.post('/api/admin/roles', (req, res) => {
   }
   saveStore();
   res.json({ roles: Object.entries(store.roles).map(([rid, r]) => ({ id: rid, label: r.label, builtin: !!r.builtin, perms: r.perms })) });
+});
+
+// School-wide feature switches: scoped admins manage their own domain, super any
+app.post('/api/admin/features', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const domain = String(req.body.domain || '').trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(domain)) return res.status(400).json({ error: 'That is not a valid domain.' });
+  if (!admin.isSuper && domain !== domainOf(admin.email)) {
+    return res.status(403).json({ error: 'You can only manage features for your own school domain.' });
+  }
+  store.domainFeatures[domain] = store.domainFeatures[domain] || {};
+  applyFeaturePatch(store.domainFeatures[domain], req.body.features);
+  if (!Object.keys(store.domainFeatures[domain]).length) delete store.domainFeatures[domain];
+  saveStore();
+  // push the new resolution to every connected student on that domain
+  for (const room of rooms.values()) {
+    for (const sid of room.students.keys()) {
+      if (domainOf(sid) === domain) pushFeatures(room, sid);
+    }
+  }
+  res.json({ domain, features: store.domainFeatures[domain] || {} });
 });
 
 app.post('/api/admin/domains', (req, res) => {
@@ -945,13 +1013,15 @@ function listRooms() {
 function getRoom(code, createIfMissing) {
   let room = rooms.get(code);
   if (room) return room;
-  let data = { name: '', owner: null, roster: [], teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
+  let data = { name: '', owner: null, roster: [], features: {}, studentFeatures: {}, teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
   const file = roomFile(code);
   if (fs.existsSync(file)) {
     try {
       data = Object.assign(data, JSON.parse(fs.readFileSync(file, 'utf8')));
       data.names = data.names || {};
       data.roster = data.roster || [];
+      data.features = data.features || {};
+      data.studentFeatures = data.studentFeatures || {};
     } catch (e) {
       console.error('Could not read saved room', code, e.message);
     }
@@ -1009,6 +1079,12 @@ function scheduleSave(room) {
 
 function emitToTeacher(room, event, payload) {
   if (room.teacher) io.to(room.teacher).emit(event, payload);
+}
+
+// Send a student their freshly-resolved feature switches
+function pushFeatures(room, sid) {
+  const sockId = room.students.get(sid);
+  if (sockId) io.to(sockId).emit('features:update', { features: effectiveFeatures(room, sid) });
 }
 
 function teacherRoom(socket) {
@@ -1088,7 +1164,11 @@ io.on('connection', (socket) => {
             boardId: latest ? latest.id : null,
           });
         }
-        ack({ ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson }, students, sharing: room.sharing });
+        ack({
+          ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson },
+          students, sharing: room.sharing,
+          roomFeatures: room.data.features, studentFeatures: room.data.studentFeatures,
+        });
       } else {
         room.students.set(id, socket.id);
         room.data.names[id] = name;
@@ -1104,6 +1184,7 @@ io.on('connection', (socket) => {
           activeBoard: { id: active.id, json: activeJson },
           sharing: room.sharing,
           teacherBoard: room.sharing ? room.lastTeacherJson : null,
+          features: effectiveFeatures(room, id),
         });
         emitToTeacher(room, 'student:joined', {
           id, name,
@@ -1156,8 +1237,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('board:create', (payload, ack) => {
-    const { code, id } = socket.data || {};
+    const { code, id, role } = socket.data || {};
     if (!code || typeof ack !== 'function') return;
+    const room = rooms.get(code);
+    if (role === 'student' && room && !effectiveFeatures(room, id).newBoards) {
+      return ack({ error: 'Creating new boards is turned off for you right now.' });
+    }
     const meta = createBoard({ owner: id, room: code, title: (payload && payload.title) || `Board ${boardsFor(id, code).length + 1}` });
     ack({ ok: true, meta });
   });
@@ -1192,6 +1277,11 @@ io.on('connection', (socket) => {
   socket.on('board:duplicate', (payload, ack) => {
     const meta = myRoomBoard(payload);
     if (!meta) return typeof ack === 'function' && ack({ error: 'Board not found.' });
+    const { code, id, role } = socket.data || {};
+    const room = rooms.get(code);
+    if (role === 'student' && room && !effectiveFeatures(room, id).newBoards) {
+      return typeof ack === 'function' && ack({ error: 'Creating new boards is turned off for you right now.' });
+    }
     const copy = createBoard({ owner: meta.owner, room: meta.room, title: meta.title + ' (copy)', json: readBoardJSON(meta.id), thumb: meta.thumb });
     if (typeof ack === 'function') ack({ ok: true, meta: copy });
   });
@@ -1314,6 +1404,28 @@ io.on('connection', (socket) => {
     if (role === 'teacher') return ack(pollResults(room));
     const p = room.poll;
     ack(p && p.open ? { id: p.id, question: p.question, type: p.type, options: p.options } : null);
+  });
+
+  // Teacher toggles feature switches for the whole room or one student
+  socket.on('features:set', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    if (!room) return done({ error: 'Only the room teacher can change features.' });
+    const patch = payload && payload.features;
+    if (payload && payload.scope === 'student') {
+      const sid = String(payload.student || '');
+      if (!sid) return done({ error: 'Missing student.' });
+      room.data.studentFeatures[sid] = room.data.studentFeatures[sid] || {};
+      applyFeaturePatch(room.data.studentFeatures[sid], patch);
+      if (!Object.keys(room.data.studentFeatures[sid]).length) delete room.data.studentFeatures[sid];
+      pushFeatures(room, sid);
+    } else {
+      applyFeaturePatch(room.data.features, patch);
+      for (const sid of room.students.keys()) pushFeatures(room, sid);
+    }
+    room.data.updatedAt = Date.now();
+    scheduleSave(room);
+    done({ ok: true, roomFeatures: room.data.features, studentFeatures: room.data.studentFeatures });
   });
 
   socket.on('disconnect', () => {

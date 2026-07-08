@@ -312,6 +312,30 @@ body.landing {
 #poll-text-input textarea:focus { outline: none; border-color: var(--teal); }
 .poll-sent { margin-top: 16px; color: var(--teal); font-weight: 700; }
 
+/* feature switches */
+.feature-off { opacity: 0.35; pointer-events: none; }
+.features-box { width: min(760px, 94vw); height: auto; max-height: 88vh; }
+.features-body { padding: 14px 18px 18px; overflow-y: auto; }
+.features-h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--muted); margin: 18px 0 8px; font-weight: 700;
+}
+#features-room-row, .f-student-row {
+  display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 8px;
+  background: var(--surface); box-shadow: var(--shadow-1);
+}
+#features-room-row { border-color: var(--teal); }
+.f-row-name { font-weight: 700; font-size: 13px; min-width: 110px; padding-top: 3px; }
+.f-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.f-chip {
+  border: 1.5px solid var(--line); background: var(--surface); color: var(--muted);
+  border-radius: var(--r-sm); padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.f-chip.f-off { border-color: var(--orange); background: var(--orange-soft); color: var(--orange-dark); text-decoration: line-through; }
+.f-chip.f-on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-dark); }
+.hint .f-chip { cursor: default; }
+
 #hand-mode {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
   display: flex; background: var(--surface); border: 1px solid var(--line);
@@ -367,7 +391,7 @@ body.landing {
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
-#graph-modal, #chart-modal {
+#graph-modal, #chart-modal, #features-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }

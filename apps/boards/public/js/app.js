@@ -199,8 +199,11 @@ function flushBoard() {
         if (role === 'teacher') {
           (res.students || []).forEach((s) => upsertStudent(s));
           setSharing(res.sharing);
-        } else if (res.sharing && res.teacherBoard) {
-          studentUI.showShare(res.teacherBoard);
+          roomFeatures = res.roomFeatures || {};
+          studentFeaturesMap = res.studentFeatures || {};
+        } else {
+          if (res.features) applyFeatures(res.features, false);
+          if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard);
         }
       } else if (currentBoard) {
         // Reconnected: our local board is the source of truth
@@ -248,6 +251,10 @@ async function switchBoard(id) {
 }
 
 async function createBoardAndSwitch() {
+  if (role === 'student' && !isSolo && !featureOn('newBoards')) {
+    toast('Creating new boards is turned off for you right now.');
+    return;
+  }
   flushBoard();
   try {
     let meta;
@@ -413,7 +420,7 @@ function wireDocuments() {
   input.addEventListener('change', async () => {
     const file = input.files[0];
     input.value = '';
-    if (!file) return;
+    if (!file || !featureOn('documents')) return;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     try {
       let pdfData;
@@ -530,7 +537,7 @@ document.getElementById('fill-input').addEventListener('change', (e) => {
 const imageInput = document.getElementById('image-input');
 document.getElementById('image-btn').addEventListener('click', () => imageInput.click());
 imageInput.addEventListener('change', () => {
-  if (imageInput.files[0]) wb.addImageFile(imageInput.files[0]);
+  if (imageInput.files[0] && featureOn('images')) wb.addImageFile(imageInput.files[0]);
   imageInput.value = '';
 });
 
@@ -562,7 +569,7 @@ document.getElementById('chart-btn').addEventListener('click', () => csvInput.cl
 csvInput.addEventListener('change', () => {
   const file = csvInput.files[0];
   csvInput.value = '';
-  if (!file) return;
+  if (!file || !featureOn('charts')) return;
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -705,8 +712,8 @@ function dlName(kind) {
   const base = currentBoard ? currentBoard.title : (room || 'board');
   return `${room || 'personal'}-${base}-${kind}-${d}.png`.replace(/\s+/g, '_');
 }
-document.getElementById('dl-full').addEventListener('click', () => { wb.downloadFull(dlName('board')); dlMenu.open = false; });
-document.getElementById('dl-view').addEventListener('click', () => { wb.downloadView(dlName('view')); dlMenu.open = false; });
+document.getElementById('dl-full').addEventListener('click', () => { if (featureOn('download')) wb.downloadFull(dlName('board')); dlMenu.open = false; });
+document.getElementById('dl-view').addEventListener('click', () => { if (featureOn('download')) wb.downloadView(dlName('view')); dlMenu.open = false; });
 document.addEventListener('click', (e) => { if (!dlMenu.contains(e.target)) dlMenu.open = false; });
 
 document.getElementById('clear-btn').addEventListener('click', () => {
@@ -758,6 +765,142 @@ function toast(msg) {
   toast._t = setTimeout(() => { toastEl.hidden = true; }, 3000);
 }
 
+// ================= FEATURE SWITCHES =================
+
+const FEATURE_DEFS = [
+  ['draw', 'Drawing'],
+  ['text', 'Text'],
+  ['images', 'Photos'],
+  ['documents', 'Documents'],
+  ['charts', 'Charts & graphs'],
+  ['newBoards', 'New boards'],
+  ['download', 'Download'],
+];
+const DRAW_TOOLS = ['pen', 'highlighter', 'line', 'curve', 'arrow', 'rect', 'ellipse', 'triangle'];
+
+let myFeatures = null;        // student: my resolved switches
+let roomFeatures = {};        // teacher: raw room overrides
+let studentFeaturesMap = {};  // teacher: raw per-student overrides
+
+function featureOn(f) {
+  return !myFeatures || myFeatures[f] !== false;
+}
+
+function featureTargets(f) {
+  if (f === 'draw') return DRAW_TOOLS.map((t) => document.querySelector(`.tool[data-tool="${t}"]`));
+  if (f === 'text') return [document.querySelector('.tool[data-tool="text"]')];
+  if (f === 'images') return [document.getElementById('image-btn')];
+  if (f === 'documents') return [document.getElementById('doc-btn')];
+  if (f === 'charts') return [document.getElementById('graph-btn'), document.getElementById('chart-btn')];
+  if (f === 'download') return [document.getElementById('download-menu')];
+  if (f === 'newBoards') return [document.getElementById('board-new')];
+  return [];
+}
+
+function applyFeatures(next, announce) {
+  const prev = myFeatures;
+  myFeatures = next;
+  for (const [f, label] of FEATURE_DEFS) {
+    const off = next[f] === false;
+    featureTargets(f).forEach((el) => {
+      if (!el) return;
+      el.classList.toggle('feature-off', off);
+      if (el.tagName === 'BUTTON') el.disabled = off;
+      el.title = off ? `${label} is turned off by your teacher` : el.dataset.origTitle || el.title;
+    });
+    if (announce && prev && (prev[f] !== false) !== (next[f] !== false)) {
+      toast(off ? `Your teacher turned off ${label}` : `${label} is back on`);
+    }
+  }
+  // kick out of a tool that just got disabled
+  if ((next.draw === false && DRAW_TOOLS.includes(wb.tool)) || (next.text === false && wb.tool === 'text')) {
+    activateTool('select');
+  }
+}
+
+// ----- teacher panel: tri-state chips (inherit -> off -> on) -----
+
+function chipState(map, f) {
+  return map && map[f] === false ? 'off' : map && map[f] === true ? 'on' : 'inherit';
+}
+
+function nextChipValue(state) {
+  return state === 'inherit' ? false : state === 'off' ? true : null; // cycle inherit->off->on->inherit
+}
+
+function mkFeatureChip(f, label, getMap, send) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  const paint = () => {
+    const st = chipState(getMap(), f);
+    b.className = 'f-chip f-' + st;
+    b.textContent = label;
+    b.title = st === 'inherit' ? `${label}: inherited (click to turn off)` : st === 'off' ? `${label}: OFF (click to force on)` : `${label}: forced ON (click to inherit)`;
+  };
+  b.onclick = () => send(f, nextChipValue(chipState(getMap(), f)), paint);
+  paint();
+  return b;
+}
+
+function renderFeaturesModal() {
+  const roomRow = document.getElementById('features-room-row');
+  roomRow.innerHTML = '';
+  const rowLabel = document.createElement('div');
+  rowLabel.className = 'f-row-name';
+  rowLabel.textContent = 'Whole room';
+  roomRow.appendChild(rowLabel);
+  const chips = document.createElement('div');
+  chips.className = 'f-chips';
+  for (const [f, label] of FEATURE_DEFS) {
+    chips.appendChild(mkFeatureChip(f, label, () => roomFeatures, (feat, val, paint) => {
+      socket.emit('features:set', { scope: 'room', features: { [feat]: val } }, (r) => {
+        if (r && r.ok) { roomFeatures = r.roomFeatures || {}; paint(); }
+        else toast((r && r.error) || 'Could not update.');
+      });
+    }));
+  }
+  roomRow.appendChild(chips);
+
+  const wrap = document.getElementById('features-students');
+  wrap.innerHTML = '';
+  const students = [...document.querySelectorAll('#student-tiles .tile')].map((t) => ({ id: t.dataset.student, name: t.dataset.name }));
+  if (!students.length) {
+    wrap.innerHTML = '<p class="hint">No students in this class yet.</p>';
+    return;
+  }
+  for (const s of students) {
+    const row = document.createElement('div');
+    row.className = 'f-student-row';
+    const nm = document.createElement('div');
+    nm.className = 'f-row-name';
+    nm.textContent = s.name;
+    row.appendChild(nm);
+    const sChips = document.createElement('div');
+    sChips.className = 'f-chips';
+    for (const [f, label] of FEATURE_DEFS) {
+      sChips.appendChild(mkFeatureChip(f, label, () => studentFeaturesMap[s.id], (feat, val, paint) => {
+        socket.emit('features:set', { scope: 'student', student: s.id, features: { [feat]: val } }, (r) => {
+          if (r && r.ok) { studentFeaturesMap = r.studentFeatures || {}; paint(); }
+          else toast((r && r.error) || 'Could not update.');
+        });
+      }));
+    }
+    row.appendChild(sChips);
+    wrap.appendChild(row);
+  }
+}
+
+function wireFeaturesTeacher() {
+  const btn = document.getElementById('features-btn');
+  const modal = document.getElementById('features-modal');
+  document.getElementById('features-room').textContent = room;
+  btn.addEventListener('click', () => {
+    renderFeaturesModal();
+    modal.hidden = false;
+  });
+  document.getElementById('features-close').addEventListener('click', () => { modal.hidden = true; });
+}
+
 // ================= STUDENT =================
 
 const studentUI = { showShare: () => {} };
@@ -777,6 +920,8 @@ function wireStudent() {
     sizeShareViewer();
     shareViewer.load(json);
   };
+
+  socket.on('features:update', ({ features }) => applyFeatures(features, true));
 
   socket.on('share:start', ({ json }) => studentUI.showShare(json));
   socket.on('teacher:board', ({ json }) => { if (!overlay.hidden) shareViewer.load(json); });
@@ -1014,6 +1159,7 @@ function wireTeacher() {
   });
 
   wirePollTeacher();
+  wireFeaturesTeacher();
   if (authToken) wireRoster();
 }
 
