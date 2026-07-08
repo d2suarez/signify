@@ -1253,7 +1253,7 @@ for (const f of fs.readdirSync(DATA_DIR)) {
 }
 
 server.listen(PORT, () => {
-  console.log(`Classroom Whiteboard running on port ${PORT}`);
+  console.log(`Signify Learning running on port ${PORT}`);
   console.log(`  Boards: ${boardsIndex.size}`);
   console.log(`Google sign-in: ${AUTH_ENABLED ? 'ENABLED' : 'disabled (open mode)'}`);
   if (AUTH_ENABLED) {

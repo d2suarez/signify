@@ -1,4 +1,4 @@
-# Classroom Whiteboard
+# Signify Learning
 
 A real-time whiteboard for teachers and students. The teacher creates a room, students join with the room code, and the teacher sees every student's board live.
 
@@ -122,6 +122,10 @@ Everyone can have **multiple boards** per class, plus **personal boards** that b
 **Everyone**
 - Tools (left bar): select/move, hand (with a **Move board / Move objects** switch — pan the canvas or manipulate objects), pen, highlighter, straight line, curved line (drag the line, move the mouse to bend it, click to place), arrow, rectangle, ellipse, triangle, text, eraser, image upload, and a movable/rotatable ruler.
 - Every object can be moved, resized, and rotated via its selection handles. Double-click a **curve** (or use the *Edit curve* button) to reshape it with draggable endpoint/control handles; double-click an **image** (or *Crop*) to crop it with a draggable frame — Enter/Apply confirms, Esc cancels.
+- **Rich text**: select or edit a text object and a floating toolbar appears with bold, italic, underline, size, and color — applied to the whole text or just the highlighted range.
+- **Coordinate graph** (📈): insert a labeled Cartesian plane with a chosen X/Y range and axis titles — draw supply/demand or any lines on top.
+- **Charts** (📊): upload a CSV, pick bar / line / pie, choose the label and value columns, and a clean chart drops onto the board.
+- **Documents**: arrow keys (or PageUp/PageDown) page through an uploaded document when nothing is selected.
 - Colors, custom color picker, line thickness, and a "Fill" toggle for shapes.
 - Zoom with the mouse wheel or the +/− buttons; *Fit* shows everything; click the percentage to reset to 100%.
 - **⬇ Download** — *Full board* exports everything as a PNG; *Current view* exports exactly what's on screen (your zoomed-in view).

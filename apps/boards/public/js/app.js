@@ -10,7 +10,7 @@ let myName = params.get('name') || '';
 if (!room && !soloBoardId) location.href = '/';
 
 const isSolo = !room;
-document.title = `${room || 'My board'} — Whiteboard`;
+document.title = `${room || 'My board'} — Signify Learning`;
 document.getElementById('room-badge').textContent = room || 'My board';
 
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
@@ -52,6 +52,7 @@ document.getElementById('ctx-cancel').addEventListener('click', () => {
 function updateZoomLabel() {
   document.getElementById('zoom-label').textContent = Math.round(wb.getZoom() * 100) + '%';
   updatePageNav();
+  if (typeof updateTextToolbar === 'function' && wb.getActiveText()) updateTextToolbar();
 }
 
 // ---------- boards state ----------
@@ -62,7 +63,7 @@ let boardsList = [];
 function setCurrentBoard(meta) {
   currentBoard = { id: meta.id, title: meta.title };
   document.getElementById('board-title').textContent = `${meta.title} ▾`;
-  if (isSolo) document.title = `${meta.title} — Whiteboard`;
+  if (isSolo) document.title = `${meta.title} — Signify Learning`;
 }
 
 // ---------- socket / persistence ----------
@@ -520,6 +521,159 @@ imageInput.addEventListener('change', () => {
 });
 
 document.getElementById('ruler-btn').addEventListener('click', () => wb.addRuler());
+
+// ----- coordinate graph -----
+const graphModal = document.getElementById('graph-modal');
+document.getElementById('graph-btn').addEventListener('click', () => { graphModal.hidden = false; });
+document.getElementById('graph-close').addEventListener('click', () => { graphModal.hidden = true; });
+document.getElementById('graph-insert').addEventListener('click', () => {
+  const num = (id, d) => { const v = parseFloat(document.getElementById(id).value); return Number.isFinite(v) ? v : d; };
+  wb.addGraph({
+    xMin: num('graph-xmin', -10), xMax: num('graph-xmax', 10),
+    yMin: num('graph-ymin', -10), yMax: num('graph-ymax', 10),
+    xLabel: document.getElementById('graph-xlabel').value || 'x',
+    yLabel: document.getElementById('graph-ylabel').value || 'y',
+    title: document.getElementById('graph-title').value.trim(),
+  });
+  graphModal.hidden = true;
+});
+
+// ----- CSV charts -----
+const chartModal = document.getElementById('chart-modal');
+const csvInput = document.getElementById('csv-input');
+let csvData = null; // { headers, rows }
+let chartType = 'bar';
+
+document.getElementById('chart-btn').addEventListener('click', () => csvInput.click());
+csvInput.addEventListener('change', () => {
+  const file = csvInput.files[0];
+  csvInput.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      csvData = parseCSV(reader.result);
+      if (csvData.headers.length < 2 || !csvData.rows.length) throw new Error('Need a label column and at least one value column.');
+      openChartModal();
+    } catch (e) {
+      toast('CSV: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', q = false;
+  const push = () => { row.push(field); field = ''; };
+  const endRow = () => { push(); if (row.some((c) => c !== '')) rows.push(row); row = []; };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') q = false;
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') push();
+    else if (c === '\n') endRow();
+    else if (c !== '\r') field += c;
+  }
+  if (field !== '' || row.length) endRow();
+  if (!rows.length) throw new Error('empty file');
+  return { headers: rows[0].map((h) => h.trim()), rows: rows.slice(1) };
+}
+
+function openChartModal() {
+  const labelSel = document.getElementById('chart-labelcol');
+  labelSel.innerHTML = '';
+  csvData.headers.forEach((h, i) => labelSel.appendChild(new Option(h || `Column ${i + 1}`, String(i))));
+  labelSel.value = '0';
+  const valWrap = document.getElementById('chart-valcols');
+  valWrap.innerHTML = '';
+  csvData.headers.forEach((h, i) => {
+    const numeric = csvData.rows.some((r) => r[i] !== undefined && r[i] !== '' && Number.isFinite(parseFloat(String(r[i]).replace(/[$£€,%\s]/g, ''))));
+    if (!numeric) return;
+    const id = 'valcol-' + i;
+    const label = document.createElement('label');
+    label.className = 'chk';
+    label.innerHTML = `<input type="checkbox" id="${id}" value="${i}" ${i === 1 ? 'checked' : ''}> <span></span>`;
+    label.querySelector('span').textContent = h || `Column ${i + 1}`;
+    valWrap.appendChild(label);
+  });
+  updateChartSummary();
+  chartModal.hidden = false;
+}
+
+document.querySelectorAll('.chart-type').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.chart-type').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    chartType = b.dataset.type;
+    updateChartSummary();
+  });
+});
+document.getElementById('chart-labelcol').addEventListener('change', updateChartSummary);
+document.getElementById('chart-valcols').addEventListener('change', updateChartSummary);
+document.getElementById('chart-close').addEventListener('click', () => { chartModal.hidden = true; });
+
+function selectedValCols() {
+  return [...document.querySelectorAll('#chart-valcols input:checked')].map((c) => Number(c.value));
+}
+
+// Parse a cell to a number, tolerating thousands separators and currency/percent symbols
+function cellNum(v) {
+  const n = parseFloat(String(v == null ? '' : v).replace(/[$£€,%\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function updateChartSummary() {
+  const cols = selectedValCols();
+  const s = document.getElementById('chart-summary');
+  if (chartType === 'pie' && cols.length > 1) s.textContent = 'Pie charts use the first selected value column only.';
+  else s.textContent = `${csvData.rows.length} rows · ${cols.length} value column${cols.length === 1 ? '' : 's'}.`;
+}
+
+document.getElementById('chart-insert').addEventListener('click', () => {
+  const labelCol = Number(document.getElementById('chart-labelcol').value);
+  let cols = selectedValCols();
+  if (!cols.length) { toast('Pick at least one value column.'); return; }
+  if (chartType === 'pie') cols = cols.slice(0, 1);
+  const labels = csvData.rows.map((r) => (r[labelCol] || '').trim() || '—');
+  const series = cols.map((ci) => csvData.rows.map((r) => cellNum(r[ci])));
+  const seriesNames = cols.map((ci) => csvData.headers[ci] || `Column ${ci + 1}`);
+  wb.addChart({ type: chartType, title: document.getElementById('chart-title').value.trim(), labels, series, seriesNames });
+  chartModal.hidden = true;
+  toast('Chart added');
+});
+
+// ----- rich text floating toolbar -----
+const textToolbar = document.getElementById('text-toolbar');
+function updateTextToolbar() {
+  const o = wb.getActiveText();
+  if (!o) { textToolbar.hidden = true; return; }
+  const r = o.getBoundingRect();
+  textToolbar.hidden = false;
+  const tw = textToolbar.offsetWidth || 240;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(6, Math.min(left, canvasWrap.clientWidth - tw - 6));
+  textToolbar.style.left = left + 'px';
+  textToolbar.style.top = Math.max(4, r.top - 44) + 'px';
+  document.getElementById('tt-bold').classList.toggle('on', wb.getTextStyleValue('fontWeight') === 'bold' || wb.getTextStyleValue('fontWeight') === 700);
+  document.getElementById('tt-italic').classList.toggle('on', wb.getTextStyleValue('fontStyle') === 'italic');
+  document.getElementById('tt-underline').classList.toggle('on', wb.getTextStyleValue('underline') === true);
+}
+document.getElementById('tt-bold').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('fontWeight', 'bold', 'normal'); updateTextToolbar(); });
+document.getElementById('tt-italic').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('fontStyle', 'italic', 'normal'); updateTextToolbar(); });
+document.getElementById('tt-underline').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('underline', true, false); updateTextToolbar(); });
+document.getElementById('tt-smaller').addEventListener('mousedown', (e) => { e.preventDefault(); wb.changeTextSize(-4); updateTextToolbar(); });
+document.getElementById('tt-bigger').addEventListener('mousedown', (e) => { e.preventDefault(); wb.changeTextSize(4); updateTextToolbar(); });
+document.getElementById('tt-color').addEventListener('mousedown', (e) => { e.preventDefault(); wb.applyTextStyle({ fill: wb.color }); });
+['selection:created', 'selection:updated', 'selection:cleared', 'object:moving', 'object:scaling'].forEach((ev) =>
+  wb.canvas.on(ev, updateTextToolbar));
+wb.canvas.on('text:editing:entered', updateTextToolbar);
+wb.canvas.on('text:editing:exited', () => { textToolbar.hidden = true; });
+wb.canvas.on('text:selection:changed', updateTextToolbar);
+wb.canvas.on('mouse:up', () => { if (wb.getActiveText()) updateTextToolbar(); });
 document.getElementById('undo-btn').addEventListener('click', () => { wb.undo(); updatePageNav(); });
 document.getElementById('redo-btn').addEventListener('click', () => { wb.redo(); updatePageNav(); });
 document.getElementById('delete-btn').addEventListener('click', () => wb.deleteSelection());
@@ -571,6 +725,11 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'PageDown') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() + 1); return; }
   if (e.key === 'PageUp') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() - 1); return; }
+  // Arrow keys page through a document when nothing is selected
+  if (wb.getDocPages().length && !wb.canvas.getActiveObject() && !wb.isCropping() && !wb.isCurveEditing()) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() + 1); return; }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); wb.gotoDocPage(wb.getCurrentDocPage() - 1); return; }
+  }
   const map = { v: 'select', h: 'pan', p: 'pen', t: 'text', e: 'eraser' };
   if (map[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) activateTool(map[e.key.toLowerCase()]);
 });

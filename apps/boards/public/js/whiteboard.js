@@ -8,6 +8,22 @@ function hexToRgba(hex, alpha) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
+const CHART_COLORS = ['#0A7C6E', '#F59E0B', '#FF6B35', '#2563EB', '#7C3AED', '#DB2777', '#0891B2', '#65A30D'];
+const FONT = 'Bricolage Grotesque, Arial, sans-serif';
+
+// A "nice" axis step (1/2/5 × 10^k) giving ~8 divisions across the span
+function niceStep(span) {
+  const raw = span / 8;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+  return step * mag;
+}
+
+function txt(s, opts) {
+  return new fabric.Text(String(s), Object.assign({ fontFamily: FONT, fill: '#1F2937' }, opts));
+}
+
 // Fit a canvas viewport so all objects are visible
 function fitToContent(canvas, pad = 40) {
   const objs = canvas.getObjects();
@@ -391,6 +407,205 @@ class Whiteboard {
       if (d < bestDist) { bestDist = d; best = p.docPage; }
     }
     return best;
+  }
+
+  // ---------- rich text ----------
+
+  getActiveText() {
+    const o = this.canvas.getActiveObject();
+    return o && o.type === 'i-text' ? o : null;
+  }
+
+  // Read a style property from the current text selection (or the whole object)
+  getTextStyleValue(prop) {
+    const o = this.getActiveText();
+    if (!o) return undefined;
+    if (o.isEditing && o.selectionStart !== o.selectionEnd) {
+      const styles = o.getSelectionStyles(o.selectionStart, o.selectionEnd);
+      if (styles.length && styles.every((s) => s[prop] !== undefined)) {
+        const first = styles[0][prop];
+        return styles.every((s) => s[prop] === first) ? first : undefined;
+      }
+    }
+    return o[prop];
+  }
+
+  // Apply style to the selected range if editing, otherwise the whole text object
+  applyTextStyle(style) {
+    const o = this.getActiveText();
+    if (!o) return;
+    if (o.isEditing && o.selectionStart !== o.selectionEnd) {
+      o.setSelectionStyles(style, o.selectionStart, o.selectionEnd);
+    } else {
+      Object.keys(style).forEach((k) => { if (o.removeStyle) o.removeStyle(k); });
+      o.set(style);
+    }
+    o.dirty = true;
+    this.canvas.requestRenderAll();
+    this.commit();
+  }
+
+  toggleTextStyle(prop, onVal, offVal) {
+    const cur = this.getTextStyleValue(prop);
+    this.applyTextStyle({ [prop]: cur === onVal ? offVal : onVal });
+  }
+
+  changeTextSize(delta) {
+    const o = this.getActiveText();
+    if (!o) return;
+    const cur = this.getTextStyleValue('fontSize') || o.fontSize;
+    this.applyTextStyle({ fontSize: Math.max(8, Math.min(200, cur + delta)) });
+  }
+
+  // ---------- coordinate graph ----------
+
+  addGraph({ xMin = -10, xMax = 10, yMin = -10, yMax = 10, xLabel = 'x', yLabel = 'y', title = '' } = {}) {
+    const size = 440, pad = 40;
+    const span = size - pad * 2;
+    if (xMax <= xMin) xMax = xMin + 1;
+    if (yMax <= yMin) yMax = yMin + 1;
+    const X = (x) => pad + ((x - xMin) / (xMax - xMin)) * span;
+    const Y = (y) => size - pad - ((y - yMin) / (yMax - yMin)) * span;
+    const stepX = niceStep(xMax - xMin);
+    const stepY = niceStep(yMax - yMin);
+    const parts = [new fabric.Rect({ left: 0, top: 0, width: size, height: size, fill: '#FFFFFF', stroke: '#E4E2DD', strokeWidth: 1, rx: 3, ry: 3 })];
+
+    for (let x = Math.ceil(xMin / stepX) * stepX; x <= xMax + 1e-9; x += stepX) {
+      parts.push(new fabric.Line([X(x), pad, X(x), size - pad], { stroke: '#EDEBE6', strokeWidth: 1 }));
+    }
+    for (let y = Math.ceil(yMin / stepY) * stepY; y <= yMax + 1e-9; y += stepY) {
+      parts.push(new fabric.Line([pad, Y(y), size - pad, Y(y)], { stroke: '#EDEBE6', strokeWidth: 1 }));
+    }
+
+    const axX = (0 >= yMin && 0 <= yMax) ? Y(0) : size - pad; // x-axis screen-y
+    const axY = (0 >= xMin && 0 <= xMax) ? X(0) : pad;        // y-axis screen-x
+    parts.push(new fabric.Line([pad, axX, size - pad, axX], { stroke: '#1F2937', strokeWidth: 2 }));
+    parts.push(new fabric.Line([axY, pad, axY, size - pad], { stroke: '#1F2937', strokeWidth: 2 }));
+    parts.push(new fabric.Triangle({ left: size - pad, top: axX, width: 10, height: 10, angle: 90, fill: '#1F2937', originX: 'center', originY: 'center' }));
+    parts.push(new fabric.Triangle({ left: axY, top: pad, width: 10, height: 10, fill: '#1F2937', originX: 'center', originY: 'center' }));
+
+    for (let x = Math.ceil(xMin / stepX) * stepX; x <= xMax + 1e-9; x += stepX) {
+      if (Math.abs(x) < 1e-9) continue;
+      parts.push(txt(+x.toFixed(4), { left: X(x), top: axX + 5, fontSize: 11, fill: '#6F7680', originX: 'center' }));
+    }
+    for (let y = Math.ceil(yMin / stepY) * stepY; y <= yMax + 1e-9; y += stepY) {
+      if (Math.abs(y) < 1e-9) continue;
+      parts.push(txt(+y.toFixed(4), { left: axY - 6, top: Y(y), fontSize: 11, fill: '#6F7680', originX: 'right', originY: 'center' }));
+    }
+    parts.push(txt(xLabel, { left: size - pad + 2, top: axX + 8, fontSize: 13, fontStyle: 'italic', fill: '#0A7C6E' }));
+    parts.push(txt(yLabel, { left: axY + 6, top: pad - 4, fontSize: 13, fontStyle: 'italic', fill: '#0A7C6E' }));
+    if (title) parts.push(txt(title, { left: size / 2, top: 8, fontSize: 15, fontWeight: '700', originX: 'center' }));
+
+    this._placeGroup(parts, size, size);
+  }
+
+  // ---------- data charts (from CSV) ----------
+
+  addChart(spec) {
+    const type = spec.type;
+    const W = 460, H = 340, pad = 46, top = spec.title ? 40 : 20, legendH = 26;
+    const plotW = W - pad * 2;
+    const plotH = H - top - pad - legendH;
+    const parts = [new fabric.Rect({ left: 0, top: 0, width: W, height: H, fill: '#FFFFFF', stroke: '#E4E2DD', strokeWidth: 1, rx: 4, ry: 4 })];
+    if (spec.title) parts.push(txt(spec.title, { left: W / 2, top: 12, fontSize: 16, fontWeight: '700', originX: 'center' }));
+
+    if (type === 'pie') this._buildPie(parts, spec, W, H, top);
+    else this._buildAxisChart(parts, spec, { W, H, pad, top, plotW, plotH });
+
+    this._placeGroup(parts, W, H);
+  }
+
+  _buildAxisChart(parts, spec, geo) {
+    const { pad, top, plotW, plotH } = geo;
+    const type = spec.type;
+    const x0 = pad, y0 = top + plotH;
+    let max = 0, min = 0;
+    spec.series.forEach((s) => s.forEach((v) => { if (v > max) max = v; if (v < min) min = v; }));
+    if (max === min) max = min + 1;
+    const Y = (v) => y0 - ((v - min) / (max - min)) * plotH;
+
+    // y grid + labels
+    const stepY = niceStep(max - min);
+    for (let v = Math.ceil(min / stepY) * stepY; v <= max + 1e-9; v += stepY) {
+      parts.push(new fabric.Line([x0, Y(v), x0 + plotW, Y(v)], { stroke: '#EDEBE6', strokeWidth: 1 }));
+      parts.push(txt(+v.toFixed(2), { left: x0 - 6, top: Y(v), fontSize: 10, fill: '#6F7680', originX: 'right', originY: 'center' }));
+    }
+    parts.push(new fabric.Line([x0, top, x0, y0], { stroke: '#1F2937', strokeWidth: 1.5 }));
+    parts.push(new fabric.Line([x0, y0, x0 + plotW, y0], { stroke: '#1F2937', strokeWidth: 1.5 }));
+
+    const n = spec.labels.length;
+    const slot = plotW / Math.max(n, 1);
+    spec.labels.forEach((lab, i) => {
+      parts.push(txt(lab, { left: x0 + slot * (i + 0.5), top: y0 + 6, fontSize: 10, fill: '#6F7680', originX: 'center' }));
+    });
+
+    if (type === 'bar') {
+      const groups = spec.series.length;
+      const bw = (slot * 0.7) / groups;
+      spec.series.forEach((s, si) => {
+        s.forEach((v, i) => {
+          const bx = x0 + slot * i + slot * 0.15 + si * bw;
+          parts.push(new fabric.Rect({ left: bx, top: Math.min(Y(v), Y(0)), width: bw * 0.9, height: Math.abs(Y(v) - Y(0)), fill: CHART_COLORS[si % CHART_COLORS.length] }));
+        });
+      });
+    } else { // line
+      spec.series.forEach((s, si) => {
+        const col = CHART_COLORS[si % CHART_COLORS.length];
+        const pts = s.map((v, i) => ({ x: x0 + slot * (i + 0.5), y: Y(v) }));
+        for (let i = 1; i < pts.length; i++) {
+          parts.push(new fabric.Line([pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y], { stroke: col, strokeWidth: 2.5 }));
+        }
+        pts.forEach((p) => parts.push(new fabric.Circle({ left: p.x, top: p.y, radius: 3, fill: col, originX: 'center', originY: 'center' })));
+      });
+    }
+    this._legend(parts, spec.seriesNames, geo.W, geo.H);
+  }
+
+  _buildPie(parts, spec, W, H, top) {
+    const cx = W / 2 - 40, cy = top + (H - top) / 2 - 10, r = Math.min(W, H) / 3.2;
+    const data = spec.series[0] || [];
+    const total = data.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+    let ang = -Math.PI / 2;
+    data.forEach((v, i) => {
+      const frac = Math.max(0, v) / total;
+      const end = ang + frac * Math.PI * 2;
+      const x1 = cx + r * Math.cos(ang), y1 = cy + r * Math.sin(ang);
+      const x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
+      const large = frac > 0.5 ? 1 : 0;
+      parts.push(new fabric.Path(`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`,
+        { fill: CHART_COLORS[i % CHART_COLORS.length], stroke: '#FFFFFF', strokeWidth: 2 }));
+      if (frac > 0.04) {
+        const mid = (ang + end) / 2;
+        parts.push(txt(Math.round(frac * 100) + '%', { left: cx + r * 0.6 * Math.cos(mid), top: cy + r * 0.6 * Math.sin(mid), fontSize: 11, fill: '#FFFFFF', fontWeight: '700', originX: 'center', originY: 'center' }));
+      }
+      ang = end;
+    });
+    // legend down the right side
+    spec.labels.forEach((lab, i) => {
+      const ly = top + 20 + i * 20;
+      parts.push(new fabric.Rect({ left: W - 120, top: ly, width: 12, height: 12, fill: CHART_COLORS[i % CHART_COLORS.length], rx: 2 }));
+      parts.push(txt(lab, { left: W - 104, top: ly - 1, fontSize: 11, fill: '#1F2937' }));
+    });
+  }
+
+  _legend(parts, names, W, H) {
+    if (!names || names.length < 2) return;
+    let x = 40;
+    const y = H - 20;
+    names.forEach((nm, i) => {
+      parts.push(new fabric.Rect({ left: x, top: y, width: 12, height: 12, fill: CHART_COLORS[i % CHART_COLORS.length], rx: 2 }));
+      const t = txt(nm, { left: x + 16, top: y - 1, fontSize: 11, fill: '#1F2937' });
+      parts.push(t);
+      x += 28 + String(nm).length * 6.5;
+    });
+  }
+
+  _placeGroup(parts, w, h) {
+    const c = this.canvas.getVpCenter();
+    const g = new fabric.Group(parts, { left: c.x - w / 2, top: c.y - h / 2 });
+    this.canvas.add(g);
+    this.canvas.setActiveObject(g);
+    this.canvas.requestRenderAll();
   }
 
   // ---------- export ----------

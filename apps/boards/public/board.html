@@ -64,6 +64,9 @@
       <button id="doc-btn" class="tool" title="Add a document (PDF, Word, PowerPoint…) to draw on">📄</button>
       <input id="doc-input" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.odt,.odp,.ods,.rtf,.txt,.xls,.xlsx" hidden />
       <button id="ruler-btn" class="tool" title="Add a ruler">📏</button>
+      <button id="graph-btn" class="tool" title="Insert a coordinate graph">📈</button>
+      <button id="chart-btn" class="tool" title="Make a chart from a CSV file">📊</button>
+      <input id="csv-input" type="file" accept=".csv,text/csv" hidden />
       <div class="tb-sep"></div>
       <div id="swatches">
         <button class="swatch active" data-color="#1e293b" style="background:#1e293b" title="Ink"></button>
@@ -84,6 +87,16 @@
 
     <main id="canvas-wrap">
       <canvas id="board"></canvas>
+      <div id="text-toolbar" hidden>
+        <button id="tt-bold" title="Bold"><b>B</b></button>
+        <button id="tt-italic" title="Italic"><i>I</i></button>
+        <button id="tt-underline" title="Underline"><u>U</u></button>
+        <span class="tt-sep"></span>
+        <button id="tt-smaller" title="Smaller">A−</button>
+        <button id="tt-bigger" title="Bigger">A+</button>
+        <span class="tt-sep"></span>
+        <button id="tt-color" title="Use current color">Color</button>
+      </div>
       <div id="hand-mode" hidden>
         <button id="hand-board" class="hand-opt active" type="button">Move board</button>
         <button id="hand-objects" class="hand-opt" type="button">Move objects</button>
@@ -169,6 +182,55 @@
           <h3>Enrolled <span id="roster-count" class="count-badge">0</span></h3>
           <div id="roster-list"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coordinate graph setup -->
+  <div id="graph-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Insert coordinate graph</span>
+        <div><button id="graph-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label>Title (optional)</label>
+        <input id="graph-title" type="text" maxlength="40" placeholder="e.g. Supply &amp; Demand" />
+        <div class="grid2">
+          <div><label>X min</label><input id="graph-xmin" type="number" value="-10" /></div>
+          <div><label>X max</label><input id="graph-xmax" type="number" value="10" /></div>
+          <div><label>Y min</label><input id="graph-ymin" type="number" value="-10" /></div>
+          <div><label>Y max</label><input id="graph-ymax" type="number" value="10" /></div>
+          <div><label>X axis label</label><input id="graph-xlabel" type="text" maxlength="14" value="x" /></div>
+          <div><label>Y axis label</label><input id="graph-ylabel" type="text" maxlength="14" value="y" /></div>
+        </div>
+        <div class="role-actions"><button id="graph-insert" class="primary-sm">Insert graph</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV chart setup -->
+  <div id="chart-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Make a chart</span>
+        <div><button id="chart-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label>Chart type</label>
+        <div id="chart-types" class="chart-types">
+          <button class="chart-type active" data-type="bar">Bar</button>
+          <button class="chart-type" data-type="line">Line</button>
+          <button class="chart-type" data-type="pie">Pie</button>
+        </div>
+        <label>Title (optional)</label>
+        <input id="chart-title" type="text" maxlength="40" placeholder="Chart title" />
+        <label>Labels column</label>
+        <select id="chart-labelcol"></select>
+        <label>Value column(s)</label>
+        <div id="chart-valcols" class="chart-valcols"></div>
+        <p id="chart-summary" class="hint"></p>
+        <div class="role-actions"><button id="chart-insert" class="primary-sm">Insert chart</button></div>
       </div>
     </div>
   </div>

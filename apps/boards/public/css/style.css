@@ -234,6 +234,36 @@ body.landing {
   background: #E9E7E2;
 }
 
+#text-toolbar {
+  position: absolute; z-index: 6; display: flex; align-items: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+  box-shadow: var(--shadow-2); padding: 3px;
+}
+#text-toolbar button {
+  border: none; background: none; width: 30px; height: 28px; border-radius: var(--r-sm);
+  cursor: pointer; color: var(--ink); font-size: 13px;
+}
+#text-toolbar button:hover { background: var(--teal-soft); }
+#text-toolbar button.on { background: var(--teal); color: #fff; }
+#text-toolbar #tt-color { width: auto; padding: 0 8px; font-size: 12px; }
+.tt-sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-bottom: 6px; }
+.grid2 label, .transfer-body > label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 8px 0 4px; font-weight: 700; }
+.grid2 input, #graph-title, #chart-title, #chart-labelcol {
+  width: 100%; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 7px 9px; font-size: 13px;
+}
+.chart-types { display: flex; gap: 8px; margin-bottom: 4px; }
+.chart-type {
+  flex: 1; padding: 9px; border: 1.5px solid var(--line); background: var(--surface);
+  border-radius: var(--r-sm); cursor: pointer; font-weight: 600; color: var(--muted); font-size: 13px;
+}
+.chart-type.active { border-color: var(--teal); color: var(--teal); background: var(--teal-soft); }
+.chart-valcols { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.chart-valcols .chk { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+.chart-valcols input { accent-color: var(--teal); }
+
 #hand-mode {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
   display: flex; background: var(--surface); border: 1px solid var(--line);
@@ -288,11 +318,13 @@ body.landing {
 }
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
-#student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal {
+#student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
+#graph-modal, #chart-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }
-#boards-modal, #transfer-modal { z-index: 120; }
+#boards-modal, #transfer-modal, #graph-modal, #chart-modal { z-index: 120; }
+#graph-modal .modal-box, #chart-modal .modal-box { height: auto; max-height: 90vh; }
 
 .modal-box {
   background: var(--surface); border-radius: var(--r); width: min(1000px, 92vw); height: min(700px, 88vh);
