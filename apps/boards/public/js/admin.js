@@ -517,8 +517,13 @@ async function toggleRoomBoards(card, code) {
     for (const b of boards) {
       const item = document.createElement('div');
       item.className = 'board-item';
-      const img = b.thumb ? `<img src="${b.thumb}" alt="" />` : '<div class="tile-empty">No preview</div>';
-      item.innerHTML = `${img}<div class="board-item-foot"><span class="board-item-name"></span><span><button class="btn-view">View</button><button class="btn-block">Delete</button></span></div>`;
+      // Never interpolate the client-supplied thumb into HTML — set .src as a property
+      if (b.thumb) { const im = document.createElement('img'); im.alt = ''; im.src = b.thumb; item.appendChild(im); }
+      else { const d = document.createElement('div'); d.className = 'tile-empty'; d.textContent = 'No preview'; item.appendChild(d); }
+      const foot = document.createElement('div');
+      foot.className = 'board-item-foot';
+      foot.innerHTML = '<span class="board-item-name"></span><span><button class="btn-view">View</button><button class="btn-block">Delete</button></span>';
+      item.appendChild(foot);
       item.querySelector('.board-item-name').textContent = `${b.isTeacher ? 'Teacher · ' : ''}${b.ownerName} — ${b.title}`;
       item.querySelector('.btn-view').onclick = async () => {
         try {

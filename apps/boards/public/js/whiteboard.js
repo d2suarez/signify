@@ -600,6 +600,35 @@ class Whiteboard {
     });
   }
 
+  // A masonry wall of response cards (used for text-poll answers)
+  addTextWall({ title = '', responses = [] } = {}) {
+    const cardW = 210, gap = 14;
+    const cols = Math.min(3, Math.max(1, Math.round(Math.sqrt(Math.max(responses.length, 1)))));
+    const tints = ['#E3F1EF', '#FDF1DC', '#FFE9E0', '#EAF1FD', '#F3ECFB'];
+    const titleH = title ? 34 : 8;
+    const colH = new Array(cols).fill(titleH);
+    const cards = [];
+    responses.forEach((r, i) => {
+      const body = new fabric.Textbox(String(r.value || ''), { width: cardW - 24, fontSize: 14, fontFamily: FONT, fill: '#1F2937' });
+      const name = txt(r.name || 'Anonymous', { fontSize: 11, fill: '#6F7680', fontWeight: '700' });
+      const cardH = 14 + body.height + 8 + 14 + 8;
+      const col = colH.indexOf(Math.min(...colH));
+      const x = gap + col * (cardW + gap);
+      const y = colH[col];
+      cards.push(new fabric.Rect({ left: x, top: y, width: cardW, height: cardH, rx: 6, ry: 6, fill: tints[i % tints.length], stroke: '#E4E2DD', strokeWidth: 1 }));
+      body.set({ left: x + 12, top: y + 12 });
+      name.set({ left: x + 12, top: y + cardH - 22 });
+      cards.push(body, name);
+      colH[col] = y + cardH + gap;
+    });
+    const totalW = gap + cols * (cardW + gap);
+    const totalH = Math.max(...colH, titleH) + 4;
+    const parts = [new fabric.Rect({ left: 0, top: 0, width: totalW, height: totalH, fill: '#FFFFFF', stroke: '#E4E2DD', strokeWidth: 1, rx: 6, ry: 6 })];
+    if (title) parts.push(txt(title, { left: gap, top: 8, fontSize: 17, fontWeight: '700' }));
+    parts.push(...cards);
+    this._placeGroup(parts, totalW, totalH);
+  }
+
   _placeGroup(parts, w, h) {
     const c = this.canvas.getVpCenter();
     const g = new fabric.Group(parts, { left: c.x - w / 2, top: c.y - h / 2 });

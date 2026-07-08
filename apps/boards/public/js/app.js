@@ -83,6 +83,21 @@ async function authedFetch(path, opts = {}) {
   return data;
 }
 
+// Build a thumbnail node WITHOUT interpolating the (client-supplied) data URL into
+// HTML — set .src as a property so a malicious thumb string can never inject markup.
+function boardThumbNode(thumb, emptyText) {
+  if (thumb) {
+    const im = document.createElement('img');
+    im.alt = '';
+    im.src = thumb;
+    return im;
+  }
+  const d = document.createElement('div');
+  d.className = 'tile-empty';
+  d.textContent = emptyText;
+  return d;
+}
+
 function savedFlash() {
   saveIndicator.textContent = 'Saved ✓';
   clearTimeout(savedFlash._t);
@@ -275,9 +290,7 @@ function renderBoardsGrid(list) {
   for (const b of list) {
     const card = document.createElement('div');
     card.className = 'board-item board-switch-card' + (currentBoard && b.id === currentBoard.id ? ' current' : '');
-    const img = b.thumb ? `<img src="${b.thumb}" alt="" />` : '<div class="tile-empty">Empty board</div>';
-    card.innerHTML = `${img}
-      <div class="board-item-foot"><span class="board-item-name"></span></div>
+    card.innerHTML = `<div class="board-item-foot"><span class="board-item-name"></span></div>
       <div class="board-card-actions">
         <button class="btn-view b-open">Open</button>
         <button class="btn-view b-rename" title="Rename">✎</button>
@@ -285,6 +298,7 @@ function renderBoardsGrid(list) {
         <button class="btn-view b-transfer" title="Copy or move to another class">➜</button>
         <button class="btn-block b-del" title="Delete">🗑</button>
       </div>`;
+    card.insertBefore(boardThumbNode(b.thumb, 'Empty board'), card.firstChild);
     card.querySelector('.board-item-name').textContent = b.title + (currentBoard && b.id === currentBoard.id ? ' (open)' : '');
     card.querySelector('.b-open').onclick = async () => { await switchBoard(b.id); document.getElementById('boards-modal').hidden = true; };
     card.querySelector('.b-rename').onclick = async () => {
@@ -776,6 +790,62 @@ function wireStudent() {
       toast('Your teacher sent you a new board');
     });
   });
+
+  wirePollStudent();
+}
+
+// Palette for poll bars, matching the chart builders
+const POLL_COLORS = ['#0A7C6E', '#F59E0B', '#FF6B35', '#2563EB', '#7C3AED', '#DB2777', '#0891B2', '#65A30D'];
+
+// ----- student poll overlay -----
+function wirePollStudent() {
+  const overlay = document.getElementById('poll-overlay');
+  const optsEl = document.getElementById('poll-choice-opts');
+  const textIn = document.getElementById('poll-text-input');
+  const sentEl = document.getElementById('poll-sent');
+  const closedEl = document.getElementById('poll-closed');
+  let cur = null;
+
+  socket.on('poll:open', (p) => { cur = p; show(p); });
+  socket.on('poll:close', () => {
+    optsEl.hidden = true; textIn.hidden = true; sentEl.hidden = true;
+    closedEl.hidden = false;
+    setTimeout(() => { overlay.hidden = true; cur = null; }, 2500);
+  });
+
+  function show(p) {
+    overlay.hidden = false;
+    sentEl.hidden = true; closedEl.hidden = true;
+    document.getElementById('poll-overlay-q').textContent = p.question;
+    if (p.type === 'choice') {
+      textIn.hidden = true; optsEl.hidden = false; optsEl.innerHTML = '';
+      p.options.forEach((o, i) => {
+        const b = document.createElement('button');
+        b.className = 'poll-opt-btn';
+        b.textContent = o;
+        b.onclick = () => respond(i, b);
+        optsEl.appendChild(b);
+      });
+    } else {
+      optsEl.hidden = true; textIn.hidden = false;
+      document.getElementById('poll-answer').value = '';
+    }
+  }
+
+  function respond(value, btn) {
+    if (!cur) return;
+    socket.emit('poll:respond', { id: cur.id, value }, (res) => {
+      if (res && res.error) { toast(res.error); return; }
+      if (btn) { optsEl.querySelectorAll('.poll-opt-btn').forEach((x) => x.classList.remove('chosen')); btn.classList.add('chosen'); }
+      sentEl.hidden = false;
+    });
+  }
+
+  document.getElementById('poll-send').onclick = () => {
+    const v = document.getElementById('poll-answer').value.trim();
+    if (!v) { toast('Type an answer first.'); return; }
+    respond(v);
+  };
 }
 
 // ================= TEACHER =================
@@ -859,8 +929,11 @@ async function refreshModalStrip(selectBoardId) {
     item.className = 'strip-item';
     item.dataset.boardId = b.id;
     item.title = b.title;
-    item.innerHTML = b.thumb ? `<img src="${b.thumb}" alt="" /><span></span>` : `<span class="strip-empty">▢</span><span></span>`;
-    item.querySelector('span:last-child').textContent = b.title;
+    if (b.thumb) { const im = document.createElement('img'); im.alt = ''; im.src = b.thumb; item.appendChild(im); }
+    else { const sp = document.createElement('span'); sp.className = 'strip-empty'; sp.textContent = '▢'; item.appendChild(sp); }
+    const nm = document.createElement('span');
+    nm.textContent = b.title;
+    item.appendChild(nm);
     item.onclick = () => viewStudentBoard(b.id);
     strip.appendChild(item);
   }
@@ -940,7 +1013,140 @@ function wireTeacher() {
     }
   });
 
+  wirePollTeacher();
   if (authToken) wireRoster();
+}
+
+// ----- teacher poll composer + live results -----
+let pollState = null;
+function wirePollTeacher() {
+  const compose = document.getElementById('poll-compose');
+  const results = document.getElementById('poll-results');
+  const optionsBox = document.getElementById('poll-options');
+  let pollType = 'choice';
+
+  function addOption(val = '') {
+    const row = document.createElement('div');
+    row.className = 'poll-option-row';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.maxLength = 80; inp.placeholder = 'Option'; inp.value = val;
+    const del = document.createElement('button');
+    del.className = 'btn-block'; del.textContent = '✕';
+    del.onclick = () => row.remove();
+    row.append(inp, del);
+    optionsBox.appendChild(row);
+  }
+  function setPollType(t) {
+    pollType = t;
+    document.querySelectorAll('.poll-type').forEach((x) => x.classList.toggle('active', x.dataset.type === t));
+    document.getElementById('poll-options-wrap').hidden = t !== 'choice';
+  }
+  function openCompose() {
+    document.getElementById('poll-question').value = '';
+    optionsBox.innerHTML = '';
+    addOption(); addOption();
+    setPollType('choice');
+    compose.hidden = false;
+  }
+
+  document.getElementById('poll-btn').addEventListener('click', () => { if (pollState) openResults(); else openCompose(); });
+  document.getElementById('poll-compose-close').onclick = () => { compose.hidden = true; };
+  document.getElementById('poll-add-option').onclick = () => addOption();
+  document.querySelectorAll('.poll-type').forEach((b) => { b.onclick = () => setPollType(b.dataset.type); });
+
+  document.getElementById('poll-start').onclick = () => {
+    const question = document.getElementById('poll-question').value.trim();
+    const options = [...optionsBox.querySelectorAll('input')].map((i) => i.value.trim()).filter(Boolean);
+    if (!question) { toast('Enter a question.'); return; }
+    if (pollType === 'choice' && options.length < 2) { toast('Add at least two options.'); return; }
+    socket.emit('poll:start', { question, type: pollType, options }, (res) => {
+      if (res.error) { toast(res.error); return; }
+      pollState = res.results;
+      compose.hidden = true;
+      openResults();
+    });
+  };
+
+  socket.on('poll:results', (r) => { pollState = r; if (!results.hidden) renderResults(); });
+
+  function openResults() { results.hidden = false; renderResults(); }
+  document.getElementById('poll-results-close').onclick = () => { results.hidden = true; };
+  document.getElementById('poll-newpoll').onclick = () => { socket.emit('poll:clear'); pollState = null; results.hidden = true; openCompose(); };
+  document.getElementById('poll-end').onclick = () => socket.emit('poll:end', {}, (res) => { if (res && res.results) { pollState = res.results; renderResults(); } });
+
+  document.querySelectorAll('#poll-choice-view [data-chart]').forEach((b) => {
+    b.onclick = () => {
+      if (!pollState) return;
+      wb.addChart({ type: b.dataset.chart, title: pollState.question, labels: pollState.options, series: [pollState.counts], seriesNames: ['Responses'] });
+      results.hidden = true;
+      toast('Chart added to board');
+    };
+  });
+  document.getElementById('poll-wall-insert').onclick = () => {
+    if (!pollState || !pollState.responses) return;
+    wb.addTextWall({ title: pollState.question, responses: pollState.responses });
+    results.hidden = true;
+    toast('Responses added to board');
+  };
+
+  function renderResults() {
+    if (!pollState) return;
+    document.getElementById('poll-results-title').textContent = pollState.question;
+    document.getElementById('poll-count').textContent = `${pollState.total} response${pollState.total === 1 ? '' : 's'} · ${pollState.online} online`;
+    const flag = document.getElementById('poll-openflag');
+    flag.textContent = pollState.open ? 'Open' : 'Closed';
+    flag.className = 'status-badge ' + (pollState.open ? 'status-approved' : 'status-blocked');
+    document.getElementById('poll-end').hidden = !pollState.open;
+    const choiceV = document.getElementById('poll-choice-view');
+    const textV = document.getElementById('poll-text-view');
+    if (pollState.type === 'choice') { choiceV.hidden = false; textV.hidden = true; renderBars(); }
+    else { choiceV.hidden = true; textV.hidden = false; renderWall(); }
+  }
+
+  function renderBars() {
+    const wrap = document.getElementById('poll-bars');
+    wrap.innerHTML = '';
+    const max = Math.max(1, ...pollState.counts);
+    pollState.options.forEach((opt, i) => {
+      const c = pollState.counts[i];
+      const pct = pollState.total ? Math.round((c / pollState.total) * 100) : 0;
+      const row = document.createElement('div');
+      row.className = 'poll-bar-row';
+      const label = document.createElement('div');
+      label.className = 'poll-bar-label'; label.textContent = opt;
+      const track = document.createElement('div');
+      track.className = 'poll-bar-track';
+      const fill = document.createElement('div');
+      fill.className = 'poll-bar-fill';
+      fill.style.width = (c / max * 100) + '%';
+      fill.style.background = POLL_COLORS[i % POLL_COLORS.length];
+      const val = document.createElement('div');
+      val.className = 'poll-bar-val'; val.textContent = `${c} · ${pct}%`;
+      track.appendChild(fill);
+      row.append(label, track, val);
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderWall() {
+    const wall = document.getElementById('poll-wall');
+    wall.innerHTML = '';
+    if (!pollState.responses.length) { wall.innerHTML = '<p class="hint">No answers yet…</p>'; return; }
+    const tints = ['#E3F1EF', '#FDF1DC', '#FFE9E0', '#EAF1FD', '#F3ECFB'];
+    pollState.responses.forEach((r, i) => {
+      const card = document.createElement('div');
+      card.className = 'poll-wall-card';
+      card.style.background = tints[i % tints.length];
+      const v = document.createElement('div');
+      v.className = 'poll-wall-text'; v.textContent = r.value;
+      const n = document.createElement('div');
+      n.className = 'poll-wall-name'; n.textContent = r.name;
+      card.append(v, n);
+      wall.appendChild(card);
+    });
+  }
+
+  socket.emit('poll:get', {}, (r) => { if (r) pollState = r; });
 }
 
 // ----- class roster (auth mode only) -----

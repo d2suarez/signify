@@ -708,11 +708,16 @@ function createBoard({ owner, room, title, json, thumb }) {
   return meta;
 }
 
+// Accept only genuine image data URLs of a sane size as thumbnails
+function validThumb(t) {
+  return typeof t === 'string' && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(t) && t.length <= 400000;
+}
+
 function updateBoard(id, { json, thumb, title, room }) {
   const meta = boardsIndex.get(id);
   if (!meta) return null;
   if (json !== undefined) boardPending.set(id, json);
-  if (thumb !== undefined) meta.thumb = thumb;
+  if (thumb !== undefined && validThumb(thumb)) meta.thumb = thumb;
   if (title !== undefined) meta.title = String(title).trim().slice(0, 60) || meta.title;
   if (room !== undefined) meta.room = room;
   meta.updatedAt = Date.now();
@@ -954,9 +959,23 @@ function getRoom(code, createIfMissing) {
     return null;
   }
   migrateLegacyBoards(code, data);
-  room = { code, data, teacher: null, students: new Map(), sharing: false, saveTimer: null, lastTeacherJson: null };
+  room = { code, data, teacher: null, students: new Map(), sharing: false, saveTimer: null, lastTeacherJson: null, poll: null };
   rooms.set(code, room);
   return room;
+}
+
+// Aggregate the current poll for the teacher's live view
+function pollResults(room) {
+  const p = room.poll;
+  if (!p) return null;
+  const entries = [...p.responses.entries()];
+  const base = { id: p.id, question: p.question, type: p.type, open: p.open, total: entries.length, online: room.students.size };
+  if (p.type === 'choice') {
+    const counts = p.options.map(() => 0);
+    for (const [, v] of entries) { if (v >= 0 && v < counts.length) counts[v]++; }
+    return { ...base, options: p.options, counts };
+  }
+  return { ...base, responses: entries.map(([sid, v]) => ({ name: room.data.names[sid] || sid, value: v })) };
 }
 
 // Rooms used to embed one board per student plus a teacher board; convert those
@@ -1091,6 +1110,10 @@ io.on('connection', (socket) => {
           thumb: active.thumb || null,
           boardId: active.id,
         });
+        if (room.poll && room.poll.open) {
+          const p = room.poll;
+          socket.emit('poll:open', { id: p.id, question: p.question, type: p.type, options: p.options });
+        }
       }
     } catch (e) {
       console.error('join error', e);
@@ -1110,7 +1133,8 @@ io.on('connection', (socket) => {
       room.lastTeacherJson = json;
       if (room.sharing) socket.to(code).emit('teacher:board', { json });
     } else {
-      emitToTeacher(room, 'student:board', { id, name, boardId: meta.id, json, thumb: payload.thumb || null });
+      const safeThumb = validThumb(payload.thumb) ? payload.thumb : null;
+      emitToTeacher(room, 'student:board', { id, name, boardId: meta.id, json, thumb: safeThumb });
     }
     scheduleSave(room);
     if (typeof ack === 'function') ack({ ok: true });
@@ -1224,6 +1248,72 @@ io.on('connection', (socket) => {
     } else {
       socket.to(room.code).emit('template', { json });
     }
+  });
+
+  // ----- live polls -----
+
+  socket.on('poll:start', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    if (!room) return done({ error: 'Only the room teacher can start a poll.' });
+    const question = String((payload && payload.question) || '').trim().slice(0, 200);
+    if (!question) return done({ error: 'Enter a question.' });
+    const type = payload && payload.type === 'text' ? 'text' : 'choice';
+    let options = [];
+    if (type === 'choice') {
+      options = (Array.isArray(payload.options) ? payload.options : [])
+        .map((o) => String(o || '').trim().slice(0, 80)).filter(Boolean).slice(0, 8);
+      if (options.length < 2) return done({ error: 'Add at least two options.' });
+    }
+    room.poll = { id: crypto.randomBytes(6).toString('hex'), question, type, options, responses: new Map(), open: true };
+    socket.to(room.code).emit('poll:open', { id: room.poll.id, question, type, options });
+    done({ ok: true, results: pollResults(room) });
+  });
+
+  socket.on('poll:respond', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const { code, id } = socket.data || {};
+    const room = code && rooms.get(code);
+    if (!room || !room.poll || !room.poll.open) return done({ error: 'No poll is open.' });
+    const p = room.poll;
+    if (!payload || payload.id !== p.id) return done({ error: 'This poll has changed.' });
+    if (p.type === 'choice') {
+      const i = Number(payload.value);
+      if (!Number.isInteger(i) || i < 0 || i >= p.options.length) return done({ error: 'Invalid option.' });
+      p.responses.set(id, i);
+    } else {
+      const v = String((payload && payload.value) || '').trim().slice(0, 280);
+      if (!v) return done({ error: 'Enter a response.' });
+      p.responses.set(id, v);
+    }
+    emitToTeacher(room, 'poll:results', pollResults(room));
+    done({ ok: true });
+  });
+
+  socket.on('poll:end', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    if (!room || !room.poll) return done({ error: 'No active poll.' });
+    room.poll.open = false;
+    socket.to(room.code).emit('poll:close');
+    done({ ok: true, results: pollResults(room) });
+  });
+
+  socket.on('poll:clear', () => {
+    const room = teacherRoom(socket);
+    if (!room) return;
+    room.poll = null;
+    socket.to(room.code).emit('poll:close');
+  });
+
+  socket.on('poll:get', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const { code, role } = socket.data || {};
+    const room = code && rooms.get(code);
+    if (!room) return ack(null);
+    if (role === 'teacher') return ack(pollResults(room));
+    const p = room.poll;
+    ack(p && p.open ? { id: p.id, question: p.question, type: p.type, options: p.options } : null);
   });
 
   socket.on('disconnect', () => {
