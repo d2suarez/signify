@@ -126,6 +126,16 @@ function domainApproved(email) {
 function accessStatus(email) {
   if (isSuperAdmin(email)) return 'approved';
   const rec = store.users[email];
+  if (rec && rec.status === 'suspended') {
+    // Timed suspensions lift themselves once the deadline passes
+    if (rec.suspendUntil && rec.suspendUntil <= Date.now()) {
+      rec.status = 'approved';
+      delete rec.suspendUntil;
+      saveStore();
+      return 'approved';
+    }
+    return 'suspended';
+  }
   if (rec && rec.status === 'blocked') return 'blocked';
   if (rec && rec.status === 'approved') return 'approved';
   return domainApproved(email) ? 'approved' : 'pending';
@@ -225,6 +235,10 @@ app.post('/api/auth/google', async (req, res) => {
     saveStore();
 
     if (status === 'blocked') return res.status(403).json({ error: 'Your access has been disabled by an administrator.' });
+    if (status === 'suspended') {
+      const until = store.users[email] && store.users[email].suspendUntil;
+      return res.status(403).json({ error: until ? `Your account is suspended until ${new Date(until).toLocaleString()}.` : 'Your account is suspended. Please contact your teacher or administrator.' });
+    }
     if (status === 'pending') return res.status(403).json({ error: 'Your account is waiting for administrator approval. Ask your teacher or admin to approve it.' });
 
     const role = effectiveRole(email);
@@ -506,6 +520,7 @@ function userView(email, rec) {
     status: accessStatus(email),
     isSuper: isSuperAdmin(email),
     addedBy: (rec && rec.addedBy) || null,
+    suspendUntil: (rec && rec.status === 'suspended' && rec.suspendUntil) || null,
     firstSeen: rec ? rec.firstSeen : null,
     lastSeen: rec ? rec.lastSeen : null,
   };
@@ -586,7 +601,7 @@ app.post('/api/admin/user', (req, res) => {
   if (role && !canAssignRole(admin, role)) {
     return res.status(403).json({ error: 'Only the super admin can assign roles with admin permissions.' });
   }
-  if (status && !['approved', 'pending', 'blocked'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
+  if (status && !['approved', 'pending', 'blocked', 'suspended'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
 
   const now = Date.now();
   let rec = store.users[email];
@@ -594,10 +609,53 @@ app.post('/api/admin/user', (req, res) => {
   if (role) rec.role = role;
   if (status) {
     rec.status = status;
+    delete rec.suspendUntil;
+    if (status === 'suspended') {
+      // Optional timed suspension; a number in ms since epoch, else indefinite
+      const until = Number(req.body.suspendUntil);
+      if (Number.isFinite(until) && until > now) rec.suspendUntil = until;
+      kickUser(email);
+    }
     if (status === 'blocked') kickUser(email);
   }
   saveStore();
   res.json(userView(email, rec));
+});
+
+app.delete('/api/admin/user/:email', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const email = String(req.params.email || '').trim().toLowerCase();
+  if (isSuperAdmin(email)) return res.status(403).json({ error: 'Super admin accounts cannot be deleted.' });
+  if (!store.users[email]) return res.status(404).json({ error: 'User not found.' });
+  if (!canManageTarget(admin, email)) {
+    return res.status(403).json({ error: 'You can only manage accounts on your own domain or accounts you added yourself.' });
+  }
+  kickUser(email);
+  // Remove the account and everything tied to it: all boards (personal + every
+  // room), roster spots, and per-student switches — including rooms not in memory.
+  for (const b of [...boardsIndex.values()]) {
+    if (b.owner === email) deleteBoard(b.id);
+  }
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    const m = /^room-(.+)\.json$/.exec(f);
+    if (!m) continue;
+    const room = getRoom(sanitizeCode(m[1]), false);
+    if (!room) continue;
+    let touched = false;
+    if ((room.data.roster || []).includes(email)) {
+      room.data.roster = room.data.roster.filter((e) => e !== email);
+      touched = true;
+    }
+    if (room.data.studentFeatures && room.data.studentFeatures[email]) {
+      delete room.data.studentFeatures[email];
+      touched = true;
+    }
+    if (touched) scheduleSave(room);
+  }
+  delete store.users[email];
+  saveStore();
+  res.json({ ok: true });
 });
 
 app.post('/api/admin/users/bulk', (req, res) => {

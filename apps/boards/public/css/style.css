@@ -391,12 +391,12 @@ body.landing {
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
-#graph-modal, #chart-modal, #features-modal {
+#graph-modal, #chart-modal, #features-modal, #suspend-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }
-#boards-modal, #transfer-modal, #graph-modal, #chart-modal { z-index: 120; }
-#graph-modal .modal-box, #chart-modal .modal-box { height: auto; max-height: 90vh; }
+#boards-modal, #transfer-modal, #graph-modal, #chart-modal, #suspend-modal { z-index: 120; }
+#graph-modal .modal-box, #chart-modal .modal-box, #suspend-modal .modal-box { height: auto; max-height: 90vh; }
 
 .modal-box {
   background: var(--surface); border-radius: var(--r); width: min(1000px, 92vw); height: min(700px, 88vh);
@@ -541,7 +541,15 @@ body.admin { background: var(--bg); color: var(--ink); min-height: 100vh; }
 .status-badge { padding: 3px 10px; border-radius: 3px; font-size: 11px; font-weight: 700; }
 .status-approved { background: var(--teal-soft); color: var(--teal-dark); }
 .status-pending { background: var(--amber-soft); color: var(--amber-text); }
+.status-suspended { background: var(--amber-soft); color: var(--amber-text); }
 .status-blocked { background: var(--orange-soft); color: var(--orange-dark); }
+.status-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.user-actions { white-space: nowrap; }
+.user-actions button { margin-right: 4px; }
+.btn-suspend { border: 1px solid var(--amber); background: var(--surface); color: var(--amber-text); border-radius: var(--r-sm); padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.btn-suspend:hover { background: var(--amber-soft); }
+.btn-delete { border: 1px solid var(--orange); background: var(--orange); color: #fff; border-radius: var(--r-sm); padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.btn-delete:hover { background: var(--orange-dark); }
 .badge-super { color: var(--teal); font-weight: 800; font-size: 12px; }
 
 .btn-approve, .btn-block, .btn-view {

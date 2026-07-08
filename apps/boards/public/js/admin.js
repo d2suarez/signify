@@ -145,7 +145,16 @@ function renderUsers() {
     tr.appendChild(tdRole);
 
     const tdStatus = document.createElement('td');
-    tdStatus.innerHTML = `<span class="status-badge status-${u.status}">${u.status}</span>`;
+    const badge = document.createElement('span');
+    badge.className = 'status-badge status-' + u.status;
+    badge.textContent = u.status;
+    tdStatus.appendChild(badge);
+    if (u.status === 'suspended') {
+      const sub = document.createElement('div');
+      sub.className = 'status-sub';
+      sub.textContent = u.suspendUntil ? 'until ' + new Date(u.suspendUntil).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'until lifted';
+      tdStatus.appendChild(sub);
+    }
     tr.appendChild(tdStatus);
 
     const tdSeen = document.createElement('td');
@@ -153,21 +162,25 @@ function renderUsers() {
     tr.appendChild(tdSeen);
 
     const tdActions = document.createElement('td');
+    tdActions.className = 'user-actions';
     if (!u.isSuper) {
-      if (u.status !== 'approved') {
+      const addBtn = (cls, text, fn) => {
         const b = document.createElement('button');
-        b.className = 'btn-approve';
-        b.textContent = '✓ Approve';
-        b.onclick = () => updateUser(u.email, { status: 'approved' });
+        b.className = cls;
+        b.textContent = text;
+        b.onclick = fn;
         tdActions.appendChild(b);
+      };
+      if (u.status !== 'approved') {
+        addBtn('btn-approve', u.status === 'pending' ? '✓ Approve' : '✓ Reactivate', () => updateUser(u.email, { status: 'approved' }));
+      }
+      if (u.status !== 'suspended') {
+        addBtn('btn-suspend', 'Suspend', () => openSuspendModal(u));
       }
       if (u.status !== 'blocked') {
-        const b = document.createElement('button');
-        b.className = 'btn-block';
-        b.textContent = 'Block';
-        b.onclick = () => { if (confirm(`Block ${u.email}? They will be disconnected and unable to sign in.`)) updateUser(u.email, { status: 'blocked' }); };
-        tdActions.appendChild(b);
+        addBtn('btn-block', 'Block', () => { if (confirm(`Block ${u.email}? They will be disconnected and unable to sign in until you unblock them.`)) updateUser(u.email, { status: 'blocked' }); });
       }
+      addBtn('btn-delete', 'Delete', () => deleteUser(u));
     }
     tr.appendChild(tdActions);
     tbody.appendChild(tr);
@@ -184,6 +197,58 @@ async function updateUser(email, patch) {
     refresh();
   }
 }
+
+async function deleteUser(u) {
+  if (!confirm(`Delete ${u.name} (${u.email})?\n\nThis permanently removes their account, all of their boards, and their class enrollments. This cannot be undone.`)) return;
+  try {
+    await api('/api/admin/user/' + encodeURIComponent(u.email), { method: 'DELETE' });
+    toast(`Deleted ${u.email}`);
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// ----- suspend modal (temporary hold, optional auto-lift) -----
+
+const SUSPEND_DURATIONS = [
+  ['1 hour', 3600e3],
+  ['1 day', 86400e3],
+  ['3 days', 3 * 86400e3],
+  ['1 week', 7 * 86400e3],
+  ['Until I lift it', 0],
+];
+let suspendTarget = null;
+let suspendChoice = 86400e3;
+
+function openSuspendModal(u) {
+  suspendTarget = u;
+  suspendChoice = 86400e3;
+  document.getElementById('suspend-who').textContent = `${u.name} (${u.email})`;
+  const opts = document.getElementById('suspend-durations');
+  opts.innerHTML = '';
+  for (const [label, ms] of SUSPEND_DURATIONS) {
+    const b = document.createElement('button');
+    b.className = 'chart-type' + (ms === suspendChoice ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => {
+      suspendChoice = ms;
+      [...opts.children].forEach((c) => c.classList.remove('active'));
+      b.classList.add('active');
+    };
+    opts.appendChild(b);
+  }
+  document.getElementById('suspend-modal').hidden = false;
+}
+
+document.getElementById('suspend-confirm').addEventListener('click', async () => {
+  if (!suspendTarget) return;
+  const patch = { status: 'suspended' };
+  if (suspendChoice > 0) patch.suspendUntil = Date.now() + suspendChoice;
+  document.getElementById('suspend-modal').hidden = true;
+  await updateUser(suspendTarget.email, patch);
+});
+document.getElementById('suspend-cancel').addEventListener('click', () => { document.getElementById('suspend-modal').hidden = true; });
 
 // ---------- school-wide feature switches ----------
 

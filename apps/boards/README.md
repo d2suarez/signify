@@ -11,7 +11,7 @@ It runs in two modes:
 
 At **`/admin.html`** (link appears on the landing page for admins). The super admin is set by `SUPER_ADMINS` (default `desmond@signify.one`).
 
-- **Users** — new sign-ins from unapproved domains wait here as *pending*; approve or block them, assign roles, or pre-add someone before their first sign-in. Blocking disconnects the user immediately.
+- **Users** — new sign-ins from unapproved domains wait here as *pending*; approve, assign roles, or pre-add someone before their first sign-in. Three enforcement actions: **Suspend** (temporary hold with an optional auto-lift after 1 hour / 1 day / 3 days / 1 week, or until lifted), **Block** (indefinite ban), and **Delete** (permanently removes the account, all their boards, and their class enrollments). All three disconnect the user immediately and are scoped — local admins can only act on their own domain or accounts they added.
 - **Roles** (super admin only) — create custom roles and choose which permissions each role grants: *teach classes*, *manage users*, *view & delete boards*, *view live sessions*, *manage approved domains*. The built-in Teacher and Local admin roles can be re-permissioned; Student is the locked default. Deleting a custom role turns its users back into Students.
 - **Domains** — approve email domains (e.g. your school's) so accounts on them are admitted automatically as students.
 - **Live sessions** — everyone connected right now, with room, name, and role.

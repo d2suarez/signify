@@ -126,6 +126,21 @@
     </div>
   </div>
 
+  <div id="suspend-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Suspend user</span>
+        <div><button id="suspend-cancel">✕ Cancel</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">Temporarily block <strong id="suspend-who"></strong> from signing in. They're disconnected now and access returns automatically when the time is up (or when you reactivate them).</p>
+        <label>Duration</label>
+        <div id="suspend-durations" class="chart-types" style="flex-wrap:wrap"></div>
+        <div class="role-actions"><button id="suspend-confirm" class="primary-sm">Suspend</button></div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" hidden></div>
 
   <script src="/vendor/fabric.min.js"></script>
