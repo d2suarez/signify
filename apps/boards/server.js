@@ -180,6 +180,20 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 30 * 1024 * 1024 });
 
+// Canonical host: send external requests for any other hostname (e.g. the old
+// Railway URL) to CANONICAL_HOST. Gated on x-forwarded-proto so internal health
+// checks and localhost are never redirected.
+const CANONICAL_HOST = (process.env.CANONICAL_HOST || '').toLowerCase();
+if (CANONICAL_HOST) {
+  app.use((req, res, next) => {
+    const host = (req.headers.host || '').toLowerCase().split(':')[0];
+    if (req.headers['x-forwarded-proto'] && host && host !== CANONICAL_HOST) {
+      return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+    }
+    next();
+  });
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '1mb' }));
 
