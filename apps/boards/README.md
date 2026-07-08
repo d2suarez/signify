@@ -34,7 +34,7 @@ For same-network use, students open `http://YOUR-IP:3000` (find your IP in Syste
 
 The app is deployed on Railway (project `classroom-whiteboard`, d2suarez's workspace):
 
-**https://classroom-whiteboard-production.up.railway.app**
+**https://draw.signify.one** (custom domain) — also reachable at the Railway URL `https://classroom-whiteboard-production.up.railway.app`
 
 Boards persist on a Railway volume mounted at `/var/data`. To redeploy after code changes:
 
@@ -44,6 +44,17 @@ PATH="$HOME/.local/node/bin:$PATH" railway up --detach
 ```
 
 Manage it (env vars, logs, billing) at https://railway.com/project/da83590d-9a5a-44a1-94be-d54dcff77ec8
+
+### Custom domain setup (draw.signify.one)
+
+The domain is registered in Railway. To finish it, add these DNS records at the host for **signify.one**:
+
+| Type  | Name                   | Value |
+|-------|------------------------|-------|
+| CNAME | `draw`                 | `8f4eg6qv.up.railway.app` |
+| TXT   | `_railway-verify.draw` | `railway-verify=4d56fd348c9b8abbaa35a5fb33de1c56f59c0fe2fe7f3a07a0a046266b6a25da` |
+
+Then, in the [Google OAuth client](https://console.cloud.google.com/apis/credentials), add `https://draw.signify.one` to **Authorized JavaScript origins** so sign-in works on the new domain. Check status with `railway domain status cb99e8e1-d4f7-459b-b021-3c24076dce3b`.
 
 ## Putting it online elsewhere
 
