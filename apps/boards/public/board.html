@@ -22,6 +22,7 @@
       <div class="topbar-group">
         <button id="ctx-crop" class="action-btn ctx-btn" hidden title="Crop the selected image">Crop</button>
         <button id="ctx-curve" class="action-btn ctx-btn" hidden title="Reshape the selected curve">Edit curve</button>
+        <button id="ctx-duplicate" class="action-btn ctx-btn" hidden title="Duplicate selection (Ctrl/⌘+D)">Duplicate</button>
         <button id="ctx-comment" class="action-btn ctx-btn" hidden title="Comment on the selected item">Comment</button>
         <button id="ctx-send" class="action-btn ctx-btn" hidden title="Send the selected items to students">Send to…</button>
         <button id="ctx-apply" class="action-btn ctx-apply" hidden>Apply</button>
@@ -92,6 +93,9 @@
       <input id="color-input" type="color" value="#1e293b" title="Custom color" />
       <input id="width-input" type="range" min="1" max="20" value="4" title="Line thickness" />
       <input id="opacity-input" type="range" min="10" max="100" value="100" title="Transparency" />
+      <button id="linestyle-btn" class="tool" title="Line style: solid / dashed / dotted">
+        <svg width="22" height="14" viewBox="0 0 22 14"><line x1="1" y1="7" x2="21" y2="7" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
       <label id="fill-label" title="Fill shapes with color"><input id="fill-input" type="checkbox" /> Fill</label>
       <div class="tb-sep"></div>
       <button id="undo-btn" class="tool" title="Undo (Ctrl+Z)">↩</button>

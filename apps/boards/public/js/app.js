@@ -74,6 +74,7 @@ function refreshCtx() {
   const anySelection = !cropping && !editing && wb.canvas.getActiveObject();
   document.getElementById('ctx-crop').hidden = kind !== 'image';
   document.getElementById('ctx-curve').hidden = kind !== 'curve';
+  document.getElementById('ctx-duplicate').hidden = !anySelection;
   document.getElementById('ctx-comment').hidden = !anySelection || isSolo || wb.canvas.getActiveObjects().length !== 1;
   document.getElementById('ctx-send').hidden = !(anySelection && role === 'teacher' && !isSolo);
   const apply = document.getElementById('ctx-apply');
@@ -82,6 +83,7 @@ function refreshCtx() {
   document.getElementById('ctx-cancel').hidden = !(cropping || editing);
 }
 
+document.getElementById('ctx-duplicate').addEventListener('click', () => wb.duplicateSelection());
 document.getElementById('ctx-crop').addEventListener('click', () => wb.startCropOnActive());
 document.getElementById('ctx-curve').addEventListener('click', () => wb.startCurveEditOnActive());
 document.getElementById('ctx-apply').addEventListener('click', () => {
@@ -866,6 +868,21 @@ document.getElementById('width-input').addEventListener('input', (e) => {
 document.getElementById('opacity-input').addEventListener('input', (e) => {
   wb.setOpacity(Number(e.target.value) / 100);
 });
+
+// line-style cycle: solid -> dashed -> dotted
+const LINE_STYLES = ['solid', 'dashed', 'dotted'];
+const LINE_DASH = { solid: '', dashed: '5,3', dotted: '1,3' };
+let lineStyleIdx = 0;
+document.getElementById('linestyle-btn').addEventListener('click', () => {
+  lineStyleIdx = (lineStyleIdx + 1) % 3;
+  const style = LINE_STYLES[lineStyleIdx];
+  wb.setLineStyle(style);
+  const line = document.querySelector('#linestyle-btn line');
+  line.setAttribute('stroke-dasharray', LINE_DASH[style]);
+  line.setAttribute('stroke-linecap', style === 'dotted' ? 'round' : 'butt');
+  document.getElementById('linestyle-btn').title = `Line style: ${style} (click to change)`;
+  toast(`Line style: ${style}`);
+});
 document.getElementById('fill-input').addEventListener('change', (e) => {
   wb.setFillShapes(e.target.checked);
 });
@@ -1109,6 +1126,10 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); wb.redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { if (wb.copySelection()) toast('Copied'); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') { if (wb.copySelection()) { wb.deleteSelection(); toast('Cut'); } return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); wb.paste(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); wb.duplicateSelection(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); wb.deleteSelection(); return; }
   if (e.key === 'Escape') { wb.cancelPending(); refreshCtx(); return; }
   if (e.key === 'Enter' && (wb.isCropping() || wb.isCurveEditing())) {

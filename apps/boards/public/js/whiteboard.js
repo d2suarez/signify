@@ -113,7 +113,9 @@ class Whiteboard {
     this.color = '#1e293b';
     this.strokeWidth = 4;
     this.opacity = 1;
+    this.lineStyle = 'solid'; // 'solid' | 'dashed' | 'dotted'
     this.fillShapes = false;
+    this._clipboard = null;
     // On touch devices, fingers pan/pinch the board while pens and mice use the tools
     this.fingerPans = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
     this._crop = null;      // active crop session { img, rect }
@@ -133,6 +135,8 @@ class Whiteboard {
     this._bindTouchNav();
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('scroll', () => this.canvas.calcOffset(), true);
+    this._observeSize();
     this._snapshot();
   }
 
@@ -188,7 +192,23 @@ class Whiteboard {
       width: this.container.clientWidth,
       height: this.container.clientHeight,
     });
+    // recalc the cached DOM offset Fabric uses to map pointer -> canvas coords,
+    // otherwise clicks (and the text caret) land in the wrong place after the
+    // toolbar wraps or the students panel expands without a window resize
+    this.canvas.calcOffset();
     this.canvas.requestRenderAll();
+  }
+
+  // Any change to the canvas element's box (panel expand, top-bar wrap, etc.)
+  // must refresh the pointer offset; a ResizeObserver catches them all.
+  _observeSize() {
+    if (typeof ResizeObserver === 'undefined') return;
+    let raf = null;
+    const ro = new ResizeObserver(() => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = null; this.resize(); });
+    });
+    ro.observe(this.container);
   }
 
   // ---------- object-level sync ----------
@@ -473,6 +493,65 @@ class Whiteboard {
 
   setFillShapes(on) {
     this.fillShapes = on;
+  }
+
+  _dashFor(width) {
+    if (this.lineStyle === 'dashed') return [Math.max(6, width * 3), Math.max(5, width * 2)];
+    if (this.lineStyle === 'dotted') return [1, Math.max(4, width * 2)];
+    return null;
+  }
+
+  setLineStyle(style) {
+    this.lineStyle = ['dashed', 'dotted'].includes(style) ? style : 'solid';
+    const active = this.canvas.getActiveObjects();
+    if (this.tool === 'select' && active.length) {
+      active.forEach((o) => {
+        if (o.stroke || o.type === 'line' || o.type === 'path') {
+          o.set({ strokeDashArray: this._dashFor(o.strokeWidth || this.strokeWidth), strokeLineCap: this.lineStyle === 'dotted' ? 'round' : 'butt' });
+          if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) });
+        }
+      });
+      this.canvas.requestRenderAll();
+      this.commit();
+    }
+  }
+
+  // ---------- copy / paste ----------
+
+  copySelection() {
+    const objs = this.canvas.getActiveObjects();
+    if (!objs.length) return false;
+    this._clipboard = objs.filter((o) => !o.docPage).map((o) => this._ser(o));
+    return this._clipboard.length > 0;
+  }
+
+  hasClipboard() {
+    return !!(this._clipboard && this._clipboard.length);
+  }
+
+  paste() {
+    if (!this.hasClipboard()) return;
+    const c = this.canvas;
+    const defs = this._clipboard.map((o) => {
+      const n = { ...o };
+      delete n.oid; // fresh id assigned on add
+      n.left = (n.left || 0) + 24;
+      n.top = (n.top || 0) + 24;
+      return n;
+    });
+    fabric.util.enlivenObjects(defs, (objs) => {
+      c.discardActiveObject();
+      objs.forEach((o) => c.add(o));
+      if (objs.length === 1) c.setActiveObject(objs[0]);
+      else if (objs.length > 1) c.setActiveObject(new fabric.ActiveSelection(objs, { canvas: c }));
+      c.requestRenderAll();
+      // shift the clipboard so a repeated paste cascades
+      this._clipboard = objs.map((o) => this._ser(o));
+    });
+  }
+
+  duplicateSelection() {
+    if (this.copySelection()) this.paste();
   }
 
   deleteSelection() {
@@ -1095,10 +1174,14 @@ class Whiteboard {
   _startShape(tool, p) {
     const c = this.canvas;
     this._internal = true;
+    const dash = this._dashFor(this.strokeWidth);
+    const cap = this.lineStyle === 'dotted' ? 'round' : 'butt';
     const common = {
       stroke: this.color,
       strokeWidth: this.strokeWidth,
       opacity: this.opacity,
+      strokeDashArray: dash,
+      strokeLineCap: cap,
       fill: this.fillShapes ? hexToRgba(this.color, 0.25) : 'transparent',
       selectable: false,
       evented: false,
@@ -1107,7 +1190,9 @@ class Whiteboard {
     let obj;
     if (tool === 'line' || tool === 'arrow') {
       obj = new fabric.Line([p.x, p.y, p.x, p.y], {
-        stroke: this.color, strokeWidth: this.strokeWidth, opacity: this.opacity, selectable: false, evented: false,
+        stroke: this.color, strokeWidth: this.strokeWidth, opacity: this.opacity,
+        strokeDashArray: tool === 'arrow' ? null : dash, strokeLineCap: cap,
+        selectable: false, evented: false,
       });
     } else if (tool === 'rect') {
       obj = new fabric.Rect({ ...common, left: p.x, top: p.y, width: 1, height: 1 });
@@ -1232,6 +1317,8 @@ class Whiteboard {
     const path = new fabric.Path(pathStr, {
       stroke: this.color,
       strokeWidth: this.strokeWidth,
+      strokeDashArray: this._dashFor(this.strokeWidth),
+      strokeLineCap: this.lineStyle === 'dotted' ? 'round' : 'butt',
       fill: '',
       selectable: false,
       evented: false,
@@ -1404,7 +1491,7 @@ class Whiteboard {
     };
     this._curveEdit = {
       original: obj,
-      style: { stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity },
+      style: { stroke: obj.stroke, strokeWidth: obj.strokeWidth, opacity: obj.opacity, strokeDashArray: obj.strokeDashArray, strokeLineCap: obj.strokeLineCap },
       hStart: mkHandle(s, '#FFFFFF'),
       hCtrl: mkHandle(q, '#F59E0B'),
       hEnd: mkHandle(e, '#FFFFFF'),
