@@ -1528,6 +1528,9 @@ class BoardViewer {
   setSize(w, h) {
     this.canvas.setDimensions({ width: w, height: h });
   }
+  refit() {
+    fitToContent(this.canvas, 24);
+  }
   // Let the viewer scroll-pan, ctrl/pinch-zoom, and drag-pan like the main board
   enableNav() {
     if (this._nav) return;

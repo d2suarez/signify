@@ -144,11 +144,13 @@
       <div id="students-header">
         <span>Students <span id="student-count">0</span></span>
         <span class="panel-btns">
+          <input id="preview-size" type="range" min="200" max="480" value="300" hidden title="Preview size" />
           <button id="overview-btn" type="button" title="Expand — see every student's board large">⤢</button>
           <button id="panel-collapse" type="button" title="Hide the student panel">⇥</button>
         </span>
       </div>
       <div id="student-tiles"></div>
+      <div id="students-grid" hidden></div>
     </aside>
     <button id="panel-reopen" hidden title="Show the student panel">👥</button>
   </div>
@@ -175,17 +177,6 @@
       <div id="modal-board-strip"></div>
       <div class="overlay-canvas-wrap"><canvas id="modal-canvas"></canvas></div>
       <p class="hint modal-hint">Scroll to pan · Ctrl/⌘+scroll to zoom · drag to move around</p>
-    </div>
-  </div>
-
-  <!-- Teacher: expanded live grid of all student boards -->
-  <div id="overview-modal" hidden>
-    <div class="modal-box overview-box">
-      <div class="modal-head">
-        <span>All student boards — live</span>
-        <div><button id="overview-close">✕ Close</button></div>
-      </div>
-      <div id="overview-grid"></div>
     </div>
   </div>
 

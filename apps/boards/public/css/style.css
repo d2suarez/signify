@@ -437,18 +437,21 @@ body.landing {
   padding: 6px 10px; cursor: pointer; font-size: 15px; box-shadow: var(--shadow-1);
 }
 
-/* overview grid */
-.overview-box { width: min(1240px, 96vw); }
-#overview-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 14px; padding: 16px; overflow-y: auto; flex: 1; background: var(--bg); align-content: start;
+/* expanded students panel: live board grid grows leftward into the canvas */
+#students-panel { transition: width 0.2s ease; }
+#students-panel.expanded { width: min(calc(100vw - 340px), 1280px); } /* board always keeps ~250px */
+#students-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--preview-w, 300px), 1fr));
+  gap: 12px; padding: 10px 12px 14px; overflow-y: auto; flex: 1; align-content: start;
 }
+#preview-size { width: 110px; accent-color: var(--teal); vertical-align: middle; }
 .overview-cell {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
   overflow: hidden; cursor: pointer; box-shadow: var(--shadow-1);
 }
 .overview-cell:hover { border-color: var(--teal); }
-.overview-cell canvas { display: block; }
+.overview-cell canvas { display: block; margin: 0 auto; }
 .overview-name { padding: 6px 10px; font-weight: 600; font-size: 13px; border-top: 1px solid var(--line); }
 .modal-hint { margin: 0; padding: 6px 14px; border-top: 1px solid var(--line); background: var(--bg); }
 

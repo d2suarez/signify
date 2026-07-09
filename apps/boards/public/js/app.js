@@ -1255,21 +1255,23 @@ function wireTeacherExtras() {
 
   // collapse / reopen the students panel
   document.getElementById('panel-collapse').addEventListener('click', () => {
+    if (overviewOpen) collapseOverview();
     document.getElementById('students-panel').hidden = true;
     document.getElementById('panel-reopen').hidden = false;
+    wb.resize();
   });
   document.getElementById('panel-reopen').addEventListener('click', () => {
     document.getElementById('students-panel').hidden = false;
     document.getElementById('panel-reopen').hidden = true;
   });
 
-  // expanded live grid of all boards
-  document.getElementById('overview-btn').addEventListener('click', openOverview);
-  document.getElementById('overview-close').addEventListener('click', () => {
-    document.getElementById('overview-modal').hidden = true;
-    overviewOpen = false;
-    overviewViewers.clear();
-    document.getElementById('overview-grid').innerHTML = '';
+  // expanded live grid of all boards (the students panel widens leftward)
+  document.getElementById('overview-btn').addEventListener('click', toggleOverview);
+  const sizeSlider = document.getElementById('preview-size');
+  sizeSlider.value = localStorage.getItem('wb-preview-size') || 300;
+  sizeSlider.addEventListener('input', () => {
+    localStorage.setItem('wb-preview-size', sizeSlider.value);
+    applyPreviewSize();
   });
 
   // draw on a student's board / copy it
@@ -1350,13 +1352,62 @@ function openSendModal() {
   document.getElementById('send-modal').hidden = false;
 }
 
-function openOverview() {
+function previewSize() {
+  return Number(document.getElementById('preview-size').value) || 300;
+}
+
+function applyPreviewSize() {
+  const w = previewSize();
+  document.getElementById('students-grid').style.setProperty('--preview-w', w + 'px');
+  for (const entry of overviewViewers.values()) {
+    entry.viewer.setSize(w, Math.round(w * 0.7));
+    entry.viewer.refit();
+  }
+}
+
+function toggleOverview() {
+  if (overviewOpen) collapseOverview();
+  else expandOverview();
+}
+
+function expandOverview() {
   overviewOpen = true;
-  const grid = document.getElementById('overview-grid');
+  document.getElementById('students-panel').classList.add('expanded');
+  document.getElementById('student-tiles').hidden = true;
+  document.getElementById('preview-size').hidden = false;
+  const btn = document.getElementById('overview-btn');
+  btn.textContent = '⤡';
+  btn.title = 'Back to the small student list';
+  buildOverviewGrid();
+  document.getElementById('students-grid').hidden = false;
+  wb.resize();
+  setTimeout(() => wb.resize(), 260); // again after the width transition settles
+}
+
+function collapseOverview() {
+  overviewOpen = false;
+  document.getElementById('students-panel').classList.remove('expanded');
+  const grid = document.getElementById('students-grid');
+  grid.hidden = true;
   grid.innerHTML = '';
   overviewViewers.clear();
+  document.getElementById('student-tiles').hidden = false;
+  document.getElementById('preview-size').hidden = true;
+  const btn = document.getElementById('overview-btn');
+  btn.textContent = '⤢';
+  btn.title = "Expand — see every student's board large";
+  wb.resize();
+  setTimeout(() => wb.resize(), 260);
+}
+
+function buildOverviewGrid() {
+  const grid = document.getElementById('students-grid');
+  grid.innerHTML = '';
+  overviewViewers.clear();
+  const w = previewSize();
+  grid.style.setProperty('--preview-w', w + 'px');
   const tiles = [...document.querySelectorAll('#student-tiles .tile')];
-  if (!tiles.length) grid.innerHTML = '<p class="hint">No students yet.</p>';
+  if (!tiles.length) grid.innerHTML = '<p class="hint" style="padding:10px">No students yet.</p>';
   for (const t of tiles) {
     const id = t.dataset.student;
     const cell = document.createElement('div');
@@ -1367,13 +1418,10 @@ function openOverview() {
     nm.className = 'overview-name';
     nm.textContent = t.dataset.name;
     cell.appendChild(nm);
-    cell.onclick = () => {
-      document.getElementById('overview-close').click();
-      openStudentModal(id);
-    };
+    cell.onclick = () => openStudentModal(id); // stay expanded behind the close-up
     grid.appendChild(cell);
     const viewer = new BoardViewer(cv);
-    viewer.setSize(340, 240);
+    viewer.setSize(w, Math.round(w * 0.7));
     const entry = { viewer, boardId: null };
     overviewViewers.set(id, entry);
     // fetch the student's latest board fresh; live ops keep it current from there
@@ -1388,7 +1436,6 @@ function openOverview() {
       }
     });
   }
-  document.getElementById('overview-modal').hidden = false;
 }
 
 // ================= FEATURE SWITCHES =================
@@ -1749,6 +1796,7 @@ function wireTeacher() {
 
   socket.on('student:joined', (s) => {
     upsertStudent({ ...s, online: true });
+    if (overviewOpen) buildOverviewGrid();
     toast(`${s.name} joined`);
   });
 
