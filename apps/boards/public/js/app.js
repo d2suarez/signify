@@ -636,6 +636,18 @@ document.getElementById('fill-input').addEventListener('change', (e) => {
   wb.setFillShapes(e.target.checked);
 });
 
+// ----- insert flyout: image / document / ruler / graph / chart -----
+const insertBtn = document.getElementById('insert-btn');
+const insertMenu = document.getElementById('insert-menu');
+insertBtn.addEventListener('click', () => {
+  insertMenu.style.top = Math.min(insertBtn.getBoundingClientRect().top, window.innerHeight - 200) + 'px';
+  insertMenu.hidden = !insertMenu.hidden;
+});
+insertMenu.addEventListener('click', () => { insertMenu.hidden = true; }); // any pick closes it
+document.addEventListener('click', (e) => {
+  if (!insertMenu.hidden && !insertMenu.contains(e.target) && e.target !== insertBtn) insertMenu.hidden = true;
+});
+
 const imageInput = document.getElementById('image-input');
 document.getElementById('image-btn').addEventListener('click', () => imageInput.click());
 imageInput.addEventListener('change', () => {

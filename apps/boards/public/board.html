@@ -42,14 +42,15 @@
         <button id="share-btn" class="teacher-only action-btn" hidden>Share my board</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
         <details id="download-menu">
-          <summary class="action-btn">Download</summary>
+          <summary class="action-btn" title="Download, clear & more">More ▾</summary>
           <div class="menu">
-            <button id="dl-full">Full board</button>
-            <button id="dl-view">Current view</button>
+            <button id="dl-full">Download full board</button>
+            <button id="dl-view">Download current view</button>
+            <div class="menu-sep"></div>
+            <button id="fullscreen-btn" title="Full screen">Full screen</button>
+            <button id="clear-btn" class="menu-danger" title="Clear the whole board">Clear board</button>
           </div>
         </details>
-        <button id="clear-btn" class="action-btn" title="Clear the whole board">Clear</button>
-        <button id="fullscreen-btn" class="action-btn" title="Full screen">⛶</button>
       </div>
     </header>
 
@@ -76,13 +77,16 @@
       <button class="tool" data-tool="text" title="Text — click the board (T)">T</button>
       <button class="tool" data-tool="eraser" title="Eraser — click or drag over things (E)">🧽</button>
       <div class="tb-sep"></div>
-      <button id="image-btn" class="tool" title="Add an image">🖼️</button>
+      <button id="insert-btn" class="tool" title="Insert — image, document, ruler, graph, chart">＋</button>
+      <div id="insert-menu" hidden>
+        <button id="image-btn" class="insert-opt" title="Add an image">🖼️ <span>Image</span></button>
+        <button id="doc-btn" class="insert-opt" title="Add a document (PDF, Word, PowerPoint…) to draw on">📄 <span>Document</span></button>
+        <button id="ruler-btn" class="insert-opt" title="Add a ruler">📏 <span>Ruler</span></button>
+        <button id="graph-btn" class="insert-opt" title="Insert a coordinate graph">📈 <span>Graph</span></button>
+        <button id="chart-btn" class="insert-opt" title="Make a chart from a CSV file">📊 <span>Chart from CSV</span></button>
+      </div>
       <input id="image-input" type="file" accept="image/*" hidden />
-      <button id="doc-btn" class="tool" title="Add a document (PDF, Word, PowerPoint…) to draw on">📄</button>
       <input id="doc-input" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.odt,.odp,.ods,.rtf,.txt,.xls,.xlsx" hidden />
-      <button id="ruler-btn" class="tool" title="Add a ruler">📏</button>
-      <button id="graph-btn" class="tool" title="Insert a coordinate graph">📈</button>
-      <button id="chart-btn" class="tool" title="Make a chart from a CSV file">📊</button>
       <input id="csv-input" type="file" accept=".csv,text/csv" hidden />
       <div class="tb-sep"></div>
       <div id="swatches">
