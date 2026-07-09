@@ -13,6 +13,7 @@
         <a id="home-btn" class="action-btn" href="/" title="Back to my classrooms">⌂</a>
         <span id="room-badge" class="badge"><span id="room-code-text"></span><button id="code-toggle" type="button" title="Hide or show the join code">👁</button></span>
         <button id="board-title" class="action-btn" title="Switch, create, or organize your boards">Board ▾</button>
+        <button id="templates-btn" class="action-btn teacher-only" hidden title="Start from a template">Templates</button>
         <button id="back-my-board" class="action-btn ctx-apply" hidden title="Return to your own board">← My board</button>
         <span id="user-label"></span>
         <span id="status-dot" class="dot offline" title="Connection"></span>
@@ -298,6 +299,49 @@
         <div id="features-room-row"></div>
         <h3 class="features-h3">Per student</h3>
         <div id="features-students"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template library -->
+  <div id="templates-modal" hidden>
+    <div class="modal-box overview-box">
+      <div class="modal-head">
+        <span>Template library</span>
+        <div>
+          <button id="tmpl-save">＋ Save this board as a template</button>
+          <button id="templates-close">✕ Close</button>
+        </div>
+      </div>
+      <div class="tmpl-toolbar">
+        <div class="tmpl-tabs">
+          <button class="tmpl-tab active" data-lib="public">Public</button>
+          <button class="tmpl-tab" data-lib="school">My school</button>
+          <button class="tmpl-tab" data-lib="mine">Mine</button>
+        </div>
+        <select id="tmpl-subject"><option value="">All subjects</option></select>
+      </div>
+      <div id="tmpl-grid"></div>
+    </div>
+  </div>
+
+  <!-- Save-as-template dialog -->
+  <div id="tmpl-save-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head"><span>Save as template</span><div><button id="tmpl-save-close">✕ Close</button></div></div>
+      <div class="transfer-body">
+        <label>Name</label>
+        <input id="tmpl-save-title" type="text" maxlength="60" placeholder="e.g. Weekly warm-up" />
+        <label>Subject</label>
+        <select id="tmpl-save-subject"></select>
+        <label>Save to</label>
+        <select id="tmpl-save-scope">
+          <option value="personal">My templates (just me)</option>
+          <option value="school">My school library</option>
+          <option value="public">Public library</option>
+        </select>
+        <p id="tmpl-save-note" class="hint"></p>
+        <div class="role-actions"><button id="tmpl-save-go" class="primary-sm">Save template</button></div>
       </div>
     </div>
   </div>

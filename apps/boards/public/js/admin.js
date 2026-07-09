@@ -69,6 +69,8 @@ document.querySelectorAll('.nav-pill').forEach((pill) => {
 function activateSection(section) {
   document.querySelectorAll('.nav-pill').forEach((p) => p.classList.toggle('active', p.dataset.section === section));
   document.querySelectorAll('.admin-section').forEach((s) => { s.hidden = s.id !== 'section-' + section; });
+  if (section === 'usage') loadUsage();
+  if (section === 'audit') loadAudit();
 }
 
 function applyNavVisibility() {
@@ -78,6 +80,9 @@ function applyNavVisibility() {
     domains: can('manage_domains'),
     sessions: can('view_sessions'),
     boards: can('manage_boards'),
+    templates: can('manage_boards'),
+    usage: can('view_sessions'),
+    audit: can('manage_users') || can('manage_boards'),
   };
   let first = null;
   document.querySelectorAll('.nav-pill').forEach((pill) => {
@@ -90,6 +95,85 @@ function applyNavVisibility() {
 }
 
 document.getElementById('admin-refresh').addEventListener('click', () => refresh(true));
+
+// ----- templates, usage, audit -----
+
+document.getElementById('tmpl-school-open').addEventListener('change', async (e) => {
+  try {
+    await api('/api/admin/school-submit', { method: 'POST', body: JSON.stringify({ domain: state.myDomain, open: e.target.checked }) });
+    toast(e.target.checked ? 'Teachers can now publish without approval' : 'School submissions now require approval');
+  } catch (err) { toast(err.message, true); e.target.checked = !e.target.checked; }
+});
+
+function renderTemplatesAdmin() {
+  if (!can('manage_boards')) return;
+  document.getElementById('tmpl-school-card').style.display = state.me.isSuper ? 'none' : '';
+  document.getElementById('tmpl-school-open').checked = !!state.templateOpen;
+  const pending = state.templatesPending || [];
+  const badge = document.getElementById('tmpl-pending-badge');
+  badge.hidden = !pending.length;
+  badge.textContent = pending.length;
+  const list = document.getElementById('tmpl-pending-list');
+  list.innerHTML = '';
+  if (!pending.length) { list.innerHTML = '<p class="hint">Nothing awaiting approval.</p>'; return; }
+  for (const t of pending) {
+    const row = document.createElement('div');
+    row.className = 'roster-row';
+    row.innerHTML = '<span class="roster-who"><span class="roster-name"></span><span class="roster-email"></span></span><span class="tmpl-actions"></span>';
+    row.querySelector('.roster-name').textContent = `${t.title} · ${t.subject}`;
+    row.querySelector('.roster-email').textContent = `${t.scope} · by ${t.ownerName || t.owner}`;
+    const acts = row.querySelector('.tmpl-actions');
+    const view = document.createElement('button');
+    view.className = 'btn-view'; view.textContent = 'Preview';
+    view.onclick = async () => { try { const f = await api(`/api/templates/${t.id}`); openViewer(`${t.title} (${t.subject})`, f.json); } catch (e) { toast(e.message, true); } };
+    const ap = document.createElement('button');
+    ap.className = 'btn-approve'; ap.textContent = '✓ Approve';
+    ap.onclick = async () => { try { await api(`/api/templates/${t.id}/approve`, { method: 'POST' }); toast('Approved'); refresh(); } catch (e) { toast(e.message, true); } };
+    const rej = document.createElement('button');
+    rej.className = 'btn-block'; rej.textContent = 'Reject';
+    rej.onclick = async () => { if (!confirm(`Reject and delete "${t.title}"?`)) return; try { await api(`/api/templates/${t.id}`, { method: 'DELETE' }); toast('Rejected'); refresh(); } catch (e) { toast(e.message, true); } };
+    acts.append(view, ap, rej);
+    list.appendChild(row);
+  }
+}
+
+async function loadUsage() {
+  if (!can('view_sessions')) return;
+  try {
+    const u = await api('/api/admin/usage');
+    const cards = [
+      ['Classrooms', u.rooms], ['Users', u.users], ['Active this week', u.activeWeek],
+      ['Boards', u.boards], ['Boards edited (7d)', u.boardsWeek], ['Templates visible', u.templates],
+      ['Online now', u.online], ['Live classes', u.liveRooms],
+    ];
+    const grid = document.getElementById('usage-grid');
+    grid.innerHTML = '';
+    for (const [label, n] of cards) {
+      const c = document.createElement('div');
+      c.className = 'usage-card';
+      c.innerHTML = '<div class="usage-n"></div><div class="usage-l"></div>';
+      c.querySelector('.usage-n').textContent = n;
+      c.querySelector('.usage-l').textContent = label;
+      grid.appendChild(c);
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadAudit() {
+  try {
+    const d = await api('/api/admin/audit');
+    const tb = document.querySelector('#audit-table tbody');
+    tb.innerHTML = '';
+    if (!d.audit.length) { tb.innerHTML = '<tr><td colspan="4" class="hint">No recorded actions yet.</td></tr>'; return; }
+    for (const a of d.audit) {
+      const tr = document.createElement('tr');
+      [new Date(a.ts).toLocaleString(), a.actor, a.action, a.detail].forEach((v) => {
+        const td = document.createElement('td'); td.textContent = v; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    }
+  } catch (e) { toast(e.message, true); }
+}
 
 document.getElementById('backup-btn').addEventListener('click', async () => {
   toast('Preparing backup…');
@@ -596,12 +680,18 @@ function renderRoomCard(wrap, r) {
           <button class="btn-view btn-roster">Roster</button>
           <button class="btn-view btn-rename">Rename</button>
           <button class="btn-view btn-owner">Owner</button>
+          <button class="btn-view btn-archive">${r.archived ? 'Unarchive' : 'Archive'}</button>
           <button class="btn-block btn-del-room">Delete</button>
         </span>
       </div>
       <div class="room-boards" hidden></div>
       <div class="room-roster-panel" hidden></div>`;
-    card.querySelector('.room-title').textContent = r.name || '(unnamed)';
+    if (r.archived) card.classList.add('room-archived');
+    card.querySelector('.room-title').textContent = (r.archived ? '🗄 ' : '') + (r.name || '(unnamed)');
+    card.querySelector('.btn-archive').onclick = async () => {
+      try { await api(`/api/room/${r.code}/meta`, { method: 'POST', body: JSON.stringify({ archived: !r.archived }) }); toast(r.archived ? 'Unarchived' : 'Archived'); refresh(); }
+      catch (e) { toast(e.message, true); }
+    };
     card.querySelector('.room-meta').textContent =
       `${r.owner || 'no owner'} · ${r.rosterCount} enrolled · ${r.students} board${r.students === 1 ? '' : 's'} · ${r.online} online${r.teacherOnline ? ' · teacher live' : ''} · ${fmtTime(r.updatedAt)}`;
     card.querySelector('.btn-del-room').onclick = async () => {
@@ -776,6 +866,7 @@ async function refresh(manual) {
     renderDomains();
     renderSessions();
     renderRooms();
+    renderTemplatesAdmin();
     if (manual) toast('Refreshed');
   } catch (e) {
     if (e.message !== 'unauthorized') toast(e.message, true);

@@ -614,11 +614,40 @@ body.landing {
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
-#graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal, #history-modal {
+#graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal, #history-modal,
+#templates-modal, #tmpl-save-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }
-#boards-modal, #transfer-modal, #graph-modal, #chart-modal, #suspend-modal { z-index: 120; }
+#boards-modal, #transfer-modal, #graph-modal, #chart-modal, #suspend-modal, #tmpl-save-modal { z-index: 120; }
+
+/* template library */
+.tmpl-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); gap: 12px; flex-wrap: wrap; }
+.tmpl-tabs { display: flex; gap: 6px; }
+.tmpl-tab { border: 1.5px solid var(--line); background: var(--surface); border-radius: var(--r-sm); padding: 6px 14px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
+.tmpl-tab.active { border-color: var(--teal); color: var(--teal); background: var(--teal-soft); }
+#tmpl-subject, #tmpl-save-subject, #tmpl-save-scope { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 7px 10px; font-size: 13px; }
+#tmpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; padding: 14px; overflow-y: auto; flex: 1; align-content: start; background: var(--bg); }
+.tmpl-subject-head { grid-column: 1 / -1; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); font-weight: 700; margin: 6px 0 0; }
+.tmpl-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; box-shadow: var(--shadow-1); display: flex; flex-direction: column; }
+#tmpl-grid .tmpl-card img, #tmpl-grid .tmpl-card .tile-empty { width: 100%; height: 120px; min-height: 120px; flex: none; object-fit: contain; background: #fff; border-bottom: 1px solid var(--line); }
+#tmpl-grid .tmpl-card .tile-empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; padding: 6px; text-align: center; }
+.tmpl-card-foot { padding: 8px 10px; }
+.tmpl-card-name { font-weight: 700; font-size: 13px; }
+.tmpl-card-sub { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.tmpl-card-acts { display: flex; gap: 4px; }
+.tmpl-card-acts button { margin: 0; }
+#tmpl-save-modal .transfer-body label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 10px 0 4px; font-weight: 700; }
+#tmpl-save-title, #tmpl-save-modal select { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; font-size: 14px; }
+
+/* usage cards */
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.usage-card { border: 1px solid var(--line); border-radius: var(--r); padding: 16px; text-align: center; background: var(--surface); box-shadow: var(--shadow-1); }
+.usage-n { font-size: 30px; font-weight: 800; color: var(--teal); letter-spacing: -0.02em; }
+.usage-l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.room-archived { opacity: 0.7; }
+.tmpl-actions { display: flex; gap: 4px; }
+.tmpl-actions button { margin: 0; }
 #graph-modal .modal-box, #chart-modal .modal-box, #suspend-modal .modal-box { height: auto; max-height: 90vh; }
 
 .modal-box {

@@ -23,6 +23,9 @@
     <button class="nav-pill" data-section="domains" hidden>Domains</button>
     <button class="nav-pill" data-section="sessions" hidden>Live sessions <span id="session-count" class="count-badge">0</span></button>
     <button class="nav-pill" data-section="boards" hidden>Boards</button>
+    <button class="nav-pill" data-section="templates" hidden>Templates <span id="tmpl-pending-badge" class="count-badge" hidden></span></button>
+    <button class="nav-pill" data-section="usage" hidden>Usage</button>
+    <button class="nav-pill" data-section="audit" hidden>Audit log</button>
   </nav>
 
   <main id="admin-main">
@@ -113,6 +116,32 @@
       <div class="admin-card">
         <h2>Rooms &amp; boards</h2>
         <div id="rooms-admin-list"></div>
+      </div>
+    </section>
+
+    <section id="section-templates" class="admin-section" hidden>
+      <div class="admin-card" id="tmpl-school-card">
+        <h2>School template submissions</h2>
+        <p class="hint">When on, teachers at your school can publish to the school library instantly. When off, each submission waits for an admin to approve it below.</p>
+        <label class="chk"><input type="checkbox" id="tmpl-school-open" /> <span>Let teachers publish to the school library without approval</span></label>
+      </div>
+      <div class="admin-card">
+        <h2>Awaiting approval</h2>
+        <div id="tmpl-pending-list"></div>
+      </div>
+    </section>
+
+    <section id="section-usage" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Usage</h2>
+        <div id="usage-grid" class="usage-grid"></div>
+      </div>
+    </section>
+
+    <section id="section-audit" class="admin-section" hidden>
+      <div class="admin-card">
+        <h2>Recent admin actions</h2>
+        <table class="admin-table" id="audit-table"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table>
       </div>
     </section>
   </main>

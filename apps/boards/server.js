@@ -82,6 +82,21 @@ try {
 store.roles = Object.assign({}, DEFAULT_ROLES, store.roles || {});
 store.roles.student = { ...store.roles.student, perms: [] }; // the fallback role stays permissionless
 store.domainFeatures = store.domainFeatures || {}; // domain -> {feature: bool}
+store.templateOpenDomains = store.templateOpenDomains || []; // domains where teachers post to school library without approval
+
+// ---------- audit log (admin actions) ----------
+const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
+let auditLog = [];
+try { if (fs.existsSync(AUDIT_FILE)) auditLog = JSON.parse(fs.readFileSync(AUDIT_FILE, 'utf8')); } catch { auditLog = []; }
+let auditTimer = null;
+function appendAudit(actor, action, detail) {
+  auditLog.push({ ts: Date.now(), actor, action, detail: String(detail || '').slice(0, 200) });
+  if (auditLog.length > 1000) auditLog = auditLog.slice(-1000);
+  if (!auditTimer) auditTimer = setTimeout(() => {
+    auditTimer = null;
+    fs.writeFile(AUDIT_FILE, JSON.stringify(auditLog), (e) => { if (e) console.error('Audit save failed', e.message); });
+  }, 500);
+}
 
 let storeTimer = null;
 function saveStore() {
@@ -341,14 +356,93 @@ app.get('/api/my/rooms', (req, res) => {
   if (!user) return;
   const teaching = [];
   const enrolled = [];
+  const archived = [];
   for (const r of roomSummaries()) {
     // the requester's own latest board in that class makes the best card preview
     const mine = boardsFor(user.email, r.code)[0];
     const item = { code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length, thumb: mine ? mine.thumb : null };
-    if (r.owner === user.email) teaching.push(item);
-    if (r.roster.includes(user.email)) enrolled.push(item);
+    if (r.owner === user.email) {
+      if (r.archived) archived.push(item);
+      else teaching.push(item);
+    } else if (r.roster.includes(user.email) && !r.archived) enrolled.push(item);
   }
-  res.json({ teaching, enrolled });
+  res.json({ teaching, enrolled, archived });
+});
+
+// ---------- template endpoints ----------
+
+app.get('/api/templates', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const out = [];
+  for (const meta of templatesIndex.values()) {
+    if (!canSeeTemplate(user, meta)) continue;
+    out.push({ ...meta, mine: meta.owner === user.email, canManage: canManageTemplate(user, meta) });
+  }
+  out.sort((a, b) => a.subject.localeCompare(b.subject) || a.title.localeCompare(b.title));
+  res.json({ templates: out, subjects: TEMPLATE_SUBJECTS });
+});
+
+app.get('/api/templates/:id', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = templatesIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Template not found.' });
+  if (!canSeeTemplate(user, meta)) return res.status(403).json({ error: 'You cannot use this template.' });
+  res.json({ ...meta, json: readTemplateJSON(meta.id) });
+});
+
+app.post('/api/templates', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (!user.isSuper && !user.perms.includes('teach')) return res.status(403).json({ error: 'Only teachers and admins can save templates.' });
+  const title = String(req.body.title || '').trim().slice(0, 60);
+  const subject = TEMPLATE_SUBJECTS.includes(req.body.subject) ? req.body.subject : 'General';
+  const scope = ['personal', 'school', 'public'].includes(req.body.scope) ? req.body.scope : 'personal';
+  const json = req.body.json;
+  if (!title) return res.status(400).json({ error: 'Give the template a name.' });
+  if (!json || typeof json !== 'object') return res.status(400).json({ error: 'Nothing to save.' });
+  if (scope === 'school' && !AUTH_ENABLED) return res.status(400).json({ error: 'School library needs sign-in.' });
+
+  const isBoardAdmin = user.isSuper || user.perms.includes('manage_boards');
+  let status = 'approved';
+  if (scope === 'public') status = user.isSuper ? 'approved' : 'pending';
+  else if (scope === 'school') {
+    const open = store.templateOpenDomains.includes(domainOf(user.email));
+    status = (isBoardAdmin || open) ? 'approved' : 'pending';
+  }
+  const meta = createTemplate({
+    title, subject, scope, status,
+    domain: scope === 'school' ? domainOf(user.email) : (scope === 'public' ? null : null),
+    owner: user.email, ownerName: user.name,
+    thumb: validThumb(req.body.thumb) ? req.body.thumb : null, json,
+  });
+  if (status === 'pending') appendAudit(user.email, 'template:submit', `${scope} "${title}"`);
+  res.json({ ...meta, submitted: status === 'pending' });
+});
+
+app.post('/api/templates/:id/approve', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = templatesIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Template not found.' });
+  if (!canManageTemplate(user, meta)) return res.status(403).json({ error: 'You cannot approve this template.' });
+  meta.status = 'approved';
+  saveTemplateMeta(meta.id);
+  appendAudit(user.email, 'template:approve', `${meta.scope} "${meta.title}" by ${meta.ownerName}`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/templates/:id', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = templatesIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Template not found.' });
+  if (meta.owner === '__builtin__' && !user.isSuper) return res.status(403).json({ error: 'Starter templates can only be removed by the super admin.' });
+  if (meta.owner !== user.email && !canManageTemplate(user, meta)) return res.status(403).json({ error: 'You cannot remove this template.' });
+  deleteTemplate(meta.id);
+  appendAudit(user.email, 'template:delete', `${meta.scope} "${meta.title}"`);
+  res.json({ ok: true });
 });
 
 app.post('/api/rooms/create', (req, res) => {
@@ -458,9 +552,13 @@ app.post('/api/room/:code/meta', (req, res) => {
     if (!EMAIL_RE.test(owner)) return res.status(400).json({ error: 'The owner must be an email address.' });
     room.data.owner = owner;
   }
+  if (req.body.archived !== undefined) {
+    room.data.archived = !!req.body.archived;
+    appendAudit(user.email, room.data.archived ? 'room:archive' : 'room:unarchive', room.code);
+  }
   room.data.updatedAt = Date.now();
   scheduleSave(room);
-  res.json({ code: room.code, name: room.data.name, owner: room.data.owner });
+  res.json({ code: room.code, name: room.data.name, owner: room.data.owner, archived: !!room.data.archived });
 });
 
 // Search approved student accounts within the requester's scope
@@ -599,7 +697,76 @@ app.get('/api/admin/state', (req, res) => {
         .map((r) => ({ ...r, ownerName: r.owner ? displayNameOf(r.owner) : null }))
       : [],
     sessions,
+    // templates awaiting this admin's approval, and the school open-submission flag
+    templatesPending: [...templatesIndex.values()]
+      .filter((t) => t.status === 'pending' && canManageTemplate(admin, t))
+      .map((t) => ({ ...t })),
+    templateOpen: store.templateOpenDomains.includes(domainOf(admin.email)),
+    myDomain: domainOf(admin.email),
   });
+});
+
+// School library: allow this domain's teachers to post without per-template approval
+app.post('/api/admin/school-submit', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_boards');
+  if (!admin) return;
+  const domain = String(req.body.domain || '').trim().toLowerCase();
+  if (!admin.isSuper && domain !== domainOf(admin.email)) {
+    return res.status(403).json({ error: 'You can only change your own school.' });
+  }
+  const open = !!req.body.open;
+  store.templateOpenDomains = store.templateOpenDomains.filter((d) => d !== domain);
+  if (open) store.templateOpenDomains.push(domain);
+  saveStore();
+  appendAudit(admin.email, 'template:school-open', `${domain} = ${open}`);
+  res.json({ ok: true, open });
+});
+
+// Usage snapshot for the admin dashboard (scoped to what the admin can see)
+app.get('/api/admin/usage', (req, res) => {
+  const admin = requirePerm(req, res, 'view_sessions');
+  if (!admin) return;
+  const weekAgo = Date.now() - 7 * 86400e3;
+  const rooms = roomSummaries().filter((r) => admin.isSuper || !r.owner || sameDomainOrAdded(admin, r.owner));
+  const roomCodes = new Set(rooms.map((r) => r.code));
+  let boards = 0; let boardsWeek = 0;
+  for (const b of boardsIndex.values()) {
+    const inScope = admin.isSuper ? true : (b.room ? roomCodes.has(b.room) : sameDomainOrAdded(admin, b.owner));
+    if (!inScope) continue;
+    boards++;
+    if (b.updatedAt > weekAgo) boardsWeek++;
+  }
+  const users = Object.entries(store.users).filter(([e]) => admin.isSuper || sameDomainOrAdded(admin, e));
+  const activeWeek = users.filter(([, r]) => r.lastSeen && r.lastSeen > weekAgo).length;
+  let online = 0;
+  const liveRooms = new Set();
+  for (const s of io.of('/').sockets.values()) {
+    if (!s.data || !s.data.code) continue;
+    if (!roomCodes.has(s.data.code) && !admin.isSuper) continue;
+    online++; liveRooms.add(s.data.code);
+  }
+  res.json({
+    rooms: rooms.length, users: users.length, activeWeek,
+    boards, boardsWeek, online, liveRooms: liveRooms.size,
+    templates: [...templatesIndex.values()].filter((t) => canSeeTemplate(admin, t)).length,
+  });
+});
+
+app.get('/api/admin/audit', (req, res) => {
+  const admin = requireAuthed(req, res);
+  if (!admin) return;
+  // scoped: super sees all; others see actions by/about their own domain
+  const rows = auditLog.filter((a) => admin.isSuper || domainOf(a.actor) === domainOf(admin.email)).slice(-200).reverse();
+  res.json({ audit: rows });
+});
+
+// Client-side error reports land in the server log for diagnosis
+app.post('/api/client-error', (req, res) => {
+  const who = AUTH_ENABLED ? (sessionFromReq(req) || {}).email || 'anon' : 'open';
+  const msg = String(req.body && req.body.message || '').slice(0, 300);
+  const where = String(req.body && req.body.where || '').slice(0, 120);
+  if (msg) console.error(`[client-error] ${who} @ ${where}: ${msg}`);
+  res.json({ ok: true });
 });
 
 app.post('/api/admin/user', (req, res) => {
@@ -634,7 +801,9 @@ app.post('/api/admin/user', (req, res) => {
       kickUser(email);
     }
     if (status === 'blocked') kickUser(email);
+    appendAudit(admin.email, 'user:' + status, email);
   }
+  if (role) appendAudit(admin.email, 'user:role', `${email} → ${role}`);
   saveStore();
   res.json(userView(email, rec));
 });
@@ -671,6 +840,7 @@ app.delete('/api/admin/user/:email', (req, res) => {
     if (touched) scheduleSave(room);
   }
   delete store.users[email];
+  appendAudit(admin.email, 'user:delete', email);
   saveStore();
   res.json({ ok: true });
 });
@@ -1207,6 +1377,136 @@ app.post('/api/convert', express.raw({ type: () => true, limit: '25mb' }), (req,
     });
 });
 
+// ---------- template library ----------
+// Templates live in tmpl-<id>.json files. Scopes: 'personal' (one teacher),
+// 'school' (one domain, managed by local admins), 'public' (everyone, curated
+// by the super admin). Non-admin submissions start as 'pending'.
+
+const TEMPLATE_SUBJECTS = ['General', 'Math', 'Science', 'English', 'Social Studies', 'Art'];
+const templatesIndex = new Map(); // id -> meta (json kept on disk)
+
+function tmplFile(id) {
+  return path.join(DATA_DIR, `tmpl-${id}.json`);
+}
+
+function tmplMetaOf(d) {
+  return {
+    id: d.id, title: d.title || 'Template', subject: TEMPLATE_SUBJECTS.includes(d.subject) ? d.subject : 'General',
+    scope: d.scope, domain: d.domain || null, owner: d.owner || null, ownerName: d.ownerName || null,
+    status: d.status === 'pending' ? 'pending' : 'approved', thumb: d.thumb || null,
+    createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0,
+  };
+}
+
+function loadTemplatesIndex() {
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    if (!/^tmpl-[a-f0-9]{16}\.json$/.test(f)) continue;
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+      if (d.id) templatesIndex.set(d.id, tmplMetaOf(d));
+    } catch (e) {
+      console.error('Could not read template file', f, e.message);
+    }
+  }
+}
+
+function createTemplate(fields) {
+  const id = crypto.randomBytes(8).toString('hex');
+  const now = Date.now();
+  const meta = tmplMetaOf({ ...fields, id, createdAt: now, updatedAt: now });
+  templatesIndex.set(id, meta);
+  fs.writeFileSync(tmplFile(id), JSON.stringify({ ...meta, json: fields.json || null }));
+  return meta;
+}
+
+function saveTemplateMeta(id) {
+  const meta = templatesIndex.get(id);
+  if (!meta) return;
+  meta.updatedAt = Date.now();
+  const json = readTemplateJSON(id);
+  fs.writeFileSync(tmplFile(id), JSON.stringify({ ...meta, json }));
+}
+
+function readTemplateJSON(id) {
+  try {
+    return JSON.parse(fs.readFileSync(tmplFile(id), 'utf8')).json || null;
+  } catch {
+    return null;
+  }
+}
+
+function deleteTemplate(id) {
+  templatesIndex.delete(id);
+  fs.unlink(tmplFile(id), () => {});
+}
+
+// Who may see a template's content
+function canSeeTemplate(user, meta) {
+  if (meta.owner === user.email) return true;
+  if (meta.scope === 'public') return meta.status === 'approved' || user.isSuper;
+  if (meta.scope === 'school') {
+    if (meta.domain !== domainOf(user.email)) return false;
+    return meta.status === 'approved' || user.isSuper || user.perms.includes('manage_boards');
+  }
+  return false; // personal templates of other people
+}
+
+// Who may manage (approve/edit/delete) a template
+function canManageTemplate(user, meta) {
+  if (meta.scope === 'personal') return meta.owner === user.email;
+  if (meta.scope === 'public') return user.isSuper;
+  if (meta.scope === 'school') {
+    return user.isSuper || (user.perms.includes('manage_boards') && meta.domain === domainOf(user.email));
+  }
+  return false;
+}
+
+// ----- built-in starter templates (seeded once) -----
+
+function seedTemplates() {
+  if ([...templatesIndex.values()].some((t) => t.owner === '__builtin__')) return;
+  const L = (x1, y1, x2, y2, w = 1.5, color = '#B9C0C7') => ({ type: 'line', x1, y1, x2, y2, left: Math.min(x1, x2), top: Math.min(y1, y2), stroke: color, strokeWidth: w, selectable: false, evented: false, oid: 'o' + Math.random().toString(36).slice(2, 11) });
+  const R = (left, top, width, height, opts = {}) => ({ type: 'rect', left, top, width, height, fill: 'transparent', stroke: '#1F2937', strokeWidth: 2, oid: 'o' + Math.random().toString(36).slice(2, 11), ...opts });
+  const T = (text, left, top, fontSize = 22, opts = {}) => ({ type: 'i-text', version: '5.3.0', text, left, top, fontSize, fontFamily: 'Bricolage Grotesque', fill: '#1F2937', styles: [], oid: 'o' + Math.random().toString(36).slice(2, 11), ...opts });
+  const C = (left, top, radius, opts = {}) => ({ type: 'circle', left, top, radius, fill: 'transparent', stroke: '#1F2937', strokeWidth: 2, oid: 'o' + Math.random().toString(36).slice(2, 11), ...opts });
+  const J = (objects) => ({ version: '5.3.0', objects });
+  const seeds = [];
+
+  // General
+  const lined = []; for (let i = 0; i < 18; i++) lined.push(L(40, 80 + i * 44, 1000, 80 + i * 44));
+  seeds.push({ title: 'Lined paper', subject: 'General', json: J(lined) });
+  const grid = []; for (let i = 0; i <= 24; i++) grid.push(L(40 + i * 40, 40, 40 + i * 40, 680, 1, '#D8DEE4')); for (let i = 0; i <= 16; i++) grid.push(L(40, 40 + i * 40, 1000, 40 + i * 40, 1, '#D8DEE4'));
+  seeds.push({ title: 'Grid paper', subject: 'General', json: J(grid) });
+  seeds.push({ title: 'T-Chart', subject: 'General', json: J([T('Topic:', 60, 30, 28), L(520, 100, 520, 660, 3, '#1F2937'), L(60, 100, 980, 100, 3, '#1F2937'), T('Side A', 220, 55, 24), T('Side B', 680, 55, 24)]) });
+  seeds.push({ title: 'KWL Chart', subject: 'General', json: J([T('Topic:', 60, 20, 26), R(40, 70, 320, 560), R(370, 70, 320, 560), R(700, 70, 320, 560), T('K — What I Know', 70, 85, 20), T('W — What I Wonder', 400, 85, 20), T('L — What I Learned', 730, 85, 20)]) });
+  seeds.push({ title: 'Exit ticket', subject: 'General', json: J([T('Exit Ticket', 60, 30, 32), T('1. One thing I learned today…', 60, 110, 22), R(60, 150, 900, 120), T('2. One question I still have…', 60, 310, 22), R(60, 350, 900, 120), T('3. How confident do I feel? (1–5)', 60, 510, 22), R(60, 550, 900, 70)]) });
+
+  // Math
+  const plane = []; for (let i = 0; i <= 20; i++) { plane.push(L(60 + i * 30, 60, 60 + i * 30, 660, 1, '#E3E7EB')); } for (let i = 0; i <= 20; i++) plane.push(L(60, 60 + i * 30, 660, 60 + i * 30, 1, '#E3E7EB'));
+  plane.push(L(360, 60, 360, 660, 2.5, '#1F2937'), L(60, 360, 660, 360, 2.5, '#1F2937'), T('x', 668, 348, 18), T('y', 352, 34, 18));
+  seeds.push({ title: 'Coordinate plane', subject: 'Math', json: J(plane) });
+  const nline = [L(60, 200, 1060, 200, 3, '#1F2937')]; for (let i = 0; i <= 20; i++) { nline.push(L(60 + i * 50, 188, 60 + i * 50, 212, 2, '#1F2937')); nline.push(T(String(i - 10), 52 + i * 50, 222, 16)); }
+  seeds.push({ title: 'Number line (-10 to 10)', subject: 'Math', json: J(nline) });
+  const frac = [T('Fraction bars', 60, 20, 26)]; const rows = [1, 2, 3, 4, 6, 8]; rows.forEach((n, r) => { for (let i = 0; i < n; i++) frac.push(R(60 + i * (840 / n), 80 + r * 70, 840 / n, 50)); frac.push(T(`1/${n}`, 930, 90 + r * 70, 20)); });
+  seeds.push({ title: 'Fraction bars', subject: 'Math', json: J(frac) });
+
+  // Science
+  seeds.push({ title: 'Venn diagram', subject: 'Science', json: J([C(140, 120, 220, { stroke: '#0A7C6E', strokeWidth: 3 }), C(420, 120, 220, { stroke: '#FF6B35', strokeWidth: 3 }), T('A', 220, 90, 26, { fill: '#0A7C6E' }), T('B', 740, 90, 26, { fill: '#FF6B35' }), T('Both', 460, 90, 22)]) });
+  seeds.push({ title: 'Lab report', subject: 'Science', json: J([T('Lab report', 60, 20, 30), T('Question', 60, 90, 22), R(60, 125, 920, 80), T('Hypothesis', 60, 230, 22), R(60, 265, 920, 80), T('Materials & method', 60, 370, 22), R(60, 405, 920, 110), T('Observations', 60, 540, 22), R(60, 575, 920, 110), T('Conclusion', 60, 710, 22), R(60, 745, 920, 90)]) });
+
+  // English
+  seeds.push({ title: 'Story map', subject: 'English', json: J([T('Story map', 60, 20, 30), R(60, 80, 440, 180), T('Characters', 80, 95, 20), R(540, 80, 440, 180), T('Setting', 560, 95, 20), R(60, 290, 440, 180), T('Problem', 80, 305, 20), R(540, 290, 440, 180), T('Solution', 560, 305, 20), R(60, 500, 920, 150), T('Beginning → Middle → End', 80, 515, 20)]) });
+
+  // Social Studies
+  const tl = [T('Timeline', 60, 20, 30), L(80, 400, 1080, 400, 4, '#1F2937')]; for (let i = 0; i < 6; i++) { tl.push(L(140 + i * 180, 385, 140 + i * 180, 415, 3, '#1F2937')); tl.push(R(90 + i * 180, i % 2 === 0 ? 220 : 440, 160, 120, { stroke: '#0A7C6E' })); }
+  seeds.push({ title: 'Timeline', subject: 'Social Studies', json: J(tl) });
+
+  for (const s of seeds) {
+    createTemplate({ ...s, scope: 'public', status: 'approved', owner: '__builtin__', ownerName: 'Signify Learning' });
+  }
+  console.log(`Seeded ${seeds.length} starter templates`);
+}
+
 // ---------- rooms ----------
 // Boards are keyed by a stable id: the verified Google email when auth is on,
 // otherwise the typed name. data.names maps id -> display name.
@@ -1254,6 +1554,7 @@ function roomSummaries() {
           name: d.name || '',
           owner: d.owner || null,
           roster: d.roster || [],
+          archived: !!d.archived,
           updatedAt: d.updatedAt || 0,
           students: roomBoards(code).length,
           online: live ? live.students.size : 0,
@@ -2035,8 +2336,10 @@ function runBackup() {
 setTimeout(runBackup, 60 * 1000);
 setInterval(runBackup, 24 * 60 * 60 * 1000);
 
-// Build the board index and migrate any legacy single-board rooms at startup
+// Build the board & template indexes and seed starter templates at startup
 loadBoardsIndex();
+loadTemplatesIndex();
+seedTemplates();
 for (const f of fs.readdirSync(DATA_DIR)) {
   const m = /^room-(.+)\.json$/.exec(f);
   if (m) getRoom(sanitizeCode(m[1]), false);

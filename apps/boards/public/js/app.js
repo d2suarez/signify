@@ -9,6 +9,18 @@ let myName = params.get('name') || '';
 
 if (!room && !soloBoardId) location.href = '/';
 
+// Report uncaught client errors so problems on a student's device reach the server log
+let _errReported = 0;
+window.addEventListener('error', (e) => {
+  if (_errReported++ > 8) return;
+  try {
+    fetch('/api/client-error', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''), where: location.pathname }),
+    });
+  } catch { /* ignore */ }
+});
+
 const isSolo = !room;
 document.title = `${room || 'My board'} — Signify Learning`;
 // Join code is hidden by default (safe to project); only the teacher can reveal it.
@@ -195,6 +207,7 @@ function flushBoard() {
   document.getElementById('user-label').textContent = isSolo ? myName : `${myName} (${role})`;
   wireBoardsDrawer();
   wireDocuments();
+  wireTemplates();
 
   if (isSolo) {
     statusDot.hidden = true;
@@ -330,6 +343,153 @@ async function createBoardAndSwitch() {
   } catch (e) {
     toast(e.message);
   }
+}
+
+// ---------- template library ----------
+
+let tmplLib = 'public';
+let tmplData = [];
+
+function wireTemplates() {
+  const btn = document.getElementById('templates-btn');
+  if (!authToken || (!isSolo && role !== 'teacher')) return; // teachers/admins only
+  btn.hidden = false;
+  const modal = document.getElementById('templates-modal');
+  btn.addEventListener('click', () => { modal.hidden = false; loadTemplates(); });
+  document.getElementById('templates-close').addEventListener('click', () => { modal.hidden = true; });
+  document.querySelectorAll('.tmpl-tab').forEach((t) => t.addEventListener('click', () => {
+    document.querySelectorAll('.tmpl-tab').forEach((x) => x.classList.remove('active'));
+    t.classList.add('active');
+    tmplLib = t.dataset.lib;
+    renderTemplates();
+  }));
+  document.getElementById('tmpl-subject').addEventListener('change', renderTemplates);
+
+  // subject dropdowns
+  const subjSel = document.getElementById('tmpl-save-subject');
+  ['General', 'Math', 'Science', 'English', 'Social Studies', 'Art'].forEach((s) => {
+    subjSel.appendChild(new Option(s, s));
+    document.getElementById('tmpl-subject').appendChild(new Option(s, s));
+  });
+
+  // save-as-template flow
+  document.getElementById('tmpl-save').addEventListener('click', () => {
+    document.getElementById('templates-modal').hidden = true;
+    document.getElementById('tmpl-save-title').value = currentBoard ? currentBoard.title : '';
+    updateSaveNote();
+    document.getElementById('tmpl-save-modal').hidden = false;
+  });
+  document.getElementById('tmpl-save-close').addEventListener('click', () => { document.getElementById('tmpl-save-modal').hidden = true; });
+  document.getElementById('tmpl-save-scope').addEventListener('change', updateSaveNote);
+  document.getElementById('tmpl-save-go').addEventListener('click', saveAsTemplate);
+}
+
+function updateSaveNote() {
+  const scope = document.getElementById('tmpl-save-scope').value;
+  const note = document.getElementById('tmpl-save-note');
+  if (scope === 'personal') note.textContent = 'Only you will see this template.';
+  else if (scope === 'school') note.textContent = 'Shared with your school. It may need an admin to approve it first.';
+  else note.textContent = 'Submitted to the public library for the super admin to review.';
+}
+
+async function saveAsTemplate() {
+  const title = document.getElementById('tmpl-save-title').value.trim();
+  const subject = document.getElementById('tmpl-save-subject').value;
+  const scope = document.getElementById('tmpl-save-scope').value;
+  if (!title) { toast('Give the template a name.'); return; }
+  wb.cancelPending();
+  try {
+    const r = await authedFetch('/api/templates', { method: 'POST', body: JSON.stringify({ title, subject, scope, json: wb.getJSON(), thumb: wb.getThumb() }) });
+    document.getElementById('tmpl-save-modal').hidden = true;
+    toast(r.submitted ? 'Template submitted for approval' : 'Template saved');
+  } catch (e) { toast(e.message); }
+}
+
+async function loadTemplates() {
+  try {
+    const d = await authedFetch('/api/templates');
+    tmplData = d.templates;
+    renderTemplates();
+  } catch (e) { toast(e.message); }
+}
+
+function renderTemplates() {
+  const grid = document.getElementById('tmpl-grid');
+  const subj = document.getElementById('tmpl-subject').value;
+  grid.innerHTML = '';
+  let items = tmplData.filter((t) => (tmplLib === 'mine' ? t.mine : t.scope === tmplLib));
+  if (subj) items = items.filter((t) => t.subject === subj);
+  // pending items an admin can approve float to the top
+  items.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.subject.localeCompare(b.subject) || a.title.localeCompare(b.title));
+  if (!items.length) { grid.innerHTML = '<p class="hint" style="padding:14px">No templates here yet.</p>'; return; }
+  let lastSubj = null;
+  for (const t of items) {
+    if (t.subject !== lastSubj) {
+      lastSubj = t.subject;
+      const h = document.createElement('div');
+      h.className = 'tmpl-subject-head';
+      h.textContent = t.subject;
+      grid.appendChild(h);
+    }
+    const card = document.createElement('div');
+    card.className = 'tmpl-card';
+    if (t.thumb) { const im = document.createElement('img'); im.alt = ''; im.src = t.thumb; card.appendChild(im); }
+    else { const e = document.createElement('div'); e.className = 'tile-empty'; e.textContent = t.title; card.appendChild(e); }
+    const foot = document.createElement('div');
+    foot.className = 'tmpl-card-foot';
+    const nm = document.createElement('div');
+    nm.className = 'tmpl-card-name';
+    nm.textContent = t.title;
+    foot.appendChild(nm);
+    const sub = document.createElement('div');
+    sub.className = 'tmpl-card-sub';
+    sub.textContent = (t.ownerName || '') + (t.status === 'pending' ? ' · pending' : '');
+    foot.appendChild(sub);
+    const acts = document.createElement('div');
+    acts.className = 'tmpl-card-acts';
+    const use = document.createElement('button');
+    use.className = 'btn-approve';
+    use.textContent = 'Use';
+    use.onclick = () => useTemplate(t);
+    acts.appendChild(use);
+    if (t.status === 'pending' && t.canManage) {
+      const ap = document.createElement('button');
+      ap.className = 'btn-view';
+      ap.textContent = 'Approve';
+      ap.onclick = async () => { try { await authedFetch(`/api/templates/${t.id}/approve`, { method: 'POST' }); toast('Approved'); loadTemplates(); } catch (e) { toast(e.message); } };
+      acts.appendChild(ap);
+    }
+    if (t.canManage || t.mine) {
+      const del = document.createElement('button');
+      del.className = 'btn-block';
+      del.textContent = '🗑';
+      del.onclick = async () => { if (!confirm(`Remove template "${t.title}"?`)) return; try { await authedFetch(`/api/templates/${t.id}`, { method: 'DELETE' }); loadTemplates(); } catch (e) { toast(e.message); } };
+      acts.appendChild(del);
+    }
+    foot.appendChild(acts);
+    card.appendChild(foot);
+    grid.appendChild(card);
+  }
+}
+
+async function useTemplate(t) {
+  try {
+    const full = await authedFetch(`/api/templates/${t.id}`);
+    flushBoard();
+    let meta;
+    if (isSolo) meta = await authedFetch('/api/boards/personal', { method: 'POST', body: JSON.stringify({ title: t.title }) });
+    else {
+      const res = await new Promise((resolve) => socket.emit('board:create', { title: t.title }, resolve));
+      if (!res || !res.ok) throw new Error((res && res.error) || 'Could not create board.');
+      meta = res.meta;
+    }
+    setCurrentBoard(meta);
+    wb.loadJSON(full.json || { version: '5.3.0', objects: [] }, updatePageNav);
+    wb._markFullSync ? wb._markFullSync() : null;
+    flushBoard();
+    document.getElementById('templates-modal').hidden = true;
+    toast(`New board from "${t.title}"`);
+  } catch (e) { toast(e.message); }
 }
 
 function wireBoardsDrawer() {

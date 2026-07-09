@@ -54,6 +54,10 @@
         <input id="new-room-name" type="text" maxlength="50" placeholder="New classroom name" />
         <button id="new-room-btn" type="button" title="Create a classroom">＋</button>
       </div>
+      <details id="archived-rooms" hidden>
+        <summary>Archived classes (<span id="archived-count">0</span>)</summary>
+        <ul id="archived-rooms-list"></ul>
+      </details>
     </div>
 
     <div id="personal-boards" hidden>
@@ -271,25 +275,59 @@
             ren.className = 'room-rename';
             ren.textContent = '✎';
             ren.title = 'Rename this classroom';
-            ren.onclick = async (e) => {
+            ren.onclick = (e) => {
               e.stopPropagation();
               const name = prompt('Classroom name:', it.name || '');
               if (name === null) return;
-              await fetch(`/api/room/${it.code}/meta`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
-                body: JSON.stringify({ name }),
-              });
-              loadMyRooms();
+              roomMeta(it.code, { name }).then(loadMyRooms);
             };
             li.appendChild(ren);
+            const arch = document.createElement('button');
+            arch.className = 'room-rename';
+            arch.textContent = '🗄';
+            arch.title = 'Archive this class';
+            arch.onclick = (e) => {
+              e.stopPropagation();
+              if (!confirm(`Archive "${it.name || it.code}"? It moves to Archived and disappears from students' lists. You can restore it anytime.`)) return;
+              roomMeta(it.code, { archived: true }).then(loadMyRooms);
+            };
+            li.appendChild(arch);
           }
           ul.appendChild(li);
         }
-        wrap.hidden = !items.length && !canCreate;
+
+        // archived classes
+        const arWrap = document.getElementById('archived-rooms');
+        const arUl = document.getElementById('archived-rooms-list');
+        arUl.innerHTML = '';
+        (d.archived || []).forEach((it) => {
+          const li = document.createElement('li');
+          const nm = document.createElement('span');
+          nm.className = 'room-name';
+          nm.textContent = it.name || `Class ${it.code}`;
+          li.appendChild(nm);
+          const restore = document.createElement('button');
+          restore.className = 'room-rename';
+          restore.textContent = 'Restore';
+          restore.onclick = () => roomMeta(it.code, { archived: false }).then(loadMyRooms);
+          li.appendChild(restore);
+          arUl.appendChild(li);
+        });
+        arWrap.hidden = !(d.archived && d.archived.length);
+        document.getElementById('archived-count').textContent = (d.archived || []).length;
+
+        wrap.hidden = !items.length && !canCreate && !(d.archived || []).length;
       } catch {
         wrap.hidden = !canCreate;
       }
+    }
+
+    function roomMeta(code, body) {
+      return fetch(`/api/room/${code}/meta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+        body: JSON.stringify(body),
+      });
     }
 
     // ----- personal boards (no class) -----
