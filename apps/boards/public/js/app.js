@@ -153,9 +153,16 @@ function sendBoard(json, thumb) {
   }
 }
 
-// Emit any pending debounced change right now (used before switching boards)
+// Emit any pending debounced change right now (used before switching boards).
+// A full-board send supersedes any queued ops, so drop them to avoid
+// stale ops landing on the wrong board after a switch.
 function flushBoard() {
-  if (wb._changeTimer) {
+  const hadOps = wb._ops.length > 0 || wb._needFullSync;
+  wb._ops = [];
+  wb._needFullSync = false;
+  clearTimeout(wb._opsTimer);
+  wb._opsTimer = null;
+  if (wb._changeTimer || hadOps) {
     clearTimeout(wb._changeTimer);
     wb._changeTimer = null;
     sendBoard(wb.getJSON(), wb.getThumb());
@@ -204,6 +211,14 @@ function flushBoard() {
   }
 
   socket = io({ auth: { token: authToken } });
+
+  // Room boards sync per-object ops (tiny) instead of the whole board per stroke
+  wb.enableOps((ops, thumb) => {
+    if (!currentBoard || !socket || !socket.connected) return;
+    saveIndicator.textContent = 'Saving…';
+    socket.emit('board:ops', { boardId: currentBoard.id, ops, thumb }, savedFlash);
+  });
+  wb.onChange = () => {}; // whole-board path stays only for reconnect pushes
 
   socket.on('connect_error', (err) => {
     statusDot.className = 'dot offline';
@@ -980,6 +995,8 @@ function toastAction(msg, label, fn) {
   toast._t = setTimeout(() => { toastEl.hidden = true; }, 6000);
 }
 
+let lastOpsNoteTs = 0;
+
 function wireCommon() {
   document.getElementById('msg-btn').hidden = false;
 
@@ -989,6 +1006,28 @@ function wireCommon() {
       wb.loadJSON(json, updatePageNav);
     }
     if (note) toast(note);
+  });
+
+  // incremental object ops from other editors of boards I can see
+  socket.on('board:ops', ({ boardId, owner, ops, note }) => {
+    if (currentBoard && currentBoard.id === boardId) {
+      wb.applyOps(ops, updatePageNav);
+    } else if (typeof modalBoardId !== 'undefined' && modalBoardId === boardId && modalViewer) {
+      modalViewer.applyOps(ops);
+    }
+    if (overviewOpen && owner && overviewViewers.has(owner)) {
+      const cell = overviewViewers.get(owner);
+      if (cell.boardId === boardId) cell.viewer.applyOps(ops);
+    }
+    if (note && Date.now() - lastOpsNoteTs > 10000) {
+      lastOpsNoteTs = Date.now();
+      toast(note);
+    }
+  });
+
+  socket.on('student:thumb', ({ id, thumb }) => {
+    const tile = document.querySelector(`#student-tiles [data-student="${CSS.escape(id)}"]`);
+    if (tile && thumb) setTileThumb(tile, thumb);
   });
 
   socket.on('comments:update', ({ boardId, comments }) => {
@@ -1335,9 +1374,19 @@ function openOverview() {
     grid.appendChild(cell);
     const viewer = new BoardViewer(cv);
     viewer.setSize(340, 240);
-    const latest = latestStudentBoards.get(id);
-    viewer.load(latest ? latest.json : null);
-    overviewViewers.set(id, viewer);
+    const entry = { viewer, boardId: null };
+    overviewViewers.set(id, entry);
+    // fetch the student's latest board fresh; live ops keep it current from there
+    socket.emit('student:boards', { student: id }, (list) => {
+      if (list && list.length) {
+        entry.boardId = list[0].id;
+        socket.emit('board:load', { boardId: list[0].id }, (r) => {
+          if (r && r.ok) viewer.load(r.json);
+        });
+      } else {
+        viewer.load(null);
+      }
+    });
   }
   document.getElementById('overview-modal').hidden = false;
 }
@@ -1504,6 +1553,7 @@ function wireStudent() {
 
   socket.on('share:start', ({ json, by }) => studentUI.showShare(json, by));
   socket.on('spotlight:you', () => toast('Your board is being shown to the whole class!'));
+  socket.on('stage:ops', ({ ops }) => { if (!overlay.hidden) shareViewer.applyOps(ops); });
   socket.on('teacher:board', ({ json }) => { if (!overlay.hidden) shareViewer.load(json); });
   socket.on('share:stop', () => { overlay.hidden = true; });
 
@@ -1726,7 +1776,11 @@ function wireTeacher() {
     if (currentBoard && currentBoard.id === boardId && foreignBoardOwner) {
       wb.loadJSON(json, updatePageNav);
     }
-    if (overviewOpen && overviewViewers.has(id)) overviewViewers.get(id).load(json);
+    if (overviewOpen && overviewViewers.has(id)) {
+      const cell = overviewViewers.get(id);
+      cell.boardId = boardId;
+      cell.viewer.load(json);
+    }
   });
 
   document.getElementById('share-btn').addEventListener('click', () => {

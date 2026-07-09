@@ -1005,6 +1005,29 @@ function displayNameOf(id) {
   return (store.users[id] && store.users[id].name) || id;
 }
 
+// Apply object-level ops to a stored board JSON (per-object last-writer-wins)
+function applyOpsToJson(json, ops) {
+  let j = json && typeof json === 'object' ? json : { version: '5.3.0', objects: [] };
+  for (const op of ops) {
+    if (!op || typeof op !== 'object') continue;
+    if (op.t === 'full') {
+      if (op.json && typeof op.json === 'object') j = op.json;
+      continue;
+    }
+    if (!Array.isArray(j.objects)) j.objects = [];
+    if (op.t === 'clear') {
+      j.objects = [];
+    } else if ((op.t === 'add' || op.t === 'mod') && op.o && typeof op.o === 'object') {
+      const i = op.o.oid ? j.objects.findIndex((x) => x && x.oid === op.o.oid) : -1;
+      if (i >= 0) j.objects[i] = op.o;
+      else j.objects.push(op.o);
+    } else if (op.t === 'del' && op.oid) {
+      j.objects = j.objects.filter((x) => !x || x.oid !== op.oid);
+    }
+  }
+  return j;
+}
+
 // Board access: the owner, an admin, or the teacher who owns the room it lives in
 // Same email domain, or an account this admin added themselves — WITHOUT the
 // super-admin bypass. Board content viewing is domain-private by design.
@@ -1532,6 +1555,44 @@ io.on('connection', (socket) => {
         id: meta.owner, name: room.data.names[meta.owner] || meta.owner,
         boardId: meta.id, json, thumb: safeThumb,
       });
+    }
+    scheduleSave(room);
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  // Object-level sync: tiny per-object ops instead of the whole board each stroke
+  socket.on('board:ops', (payload, ack) => {
+    const { code, id, name, role } = socket.data || {};
+    const room = code && rooms.get(code);
+    const meta = payload && boardsIndex.get(payload.boardId);
+    const ops = payload && Array.isArray(payload.ops) ? payload.ops.slice(0, 200) : null;
+    if (!room || !meta || meta.room !== code || !ops || !ops.length) return;
+    const isOwner = meta.owner === id;
+    if (!isOwner && role !== 'teacher') return;
+    room.data.updatedAt = Date.now();
+    const json = applyOpsToJson(readBoardJSON(meta.id), ops);
+    const safeThumb = payload.thumb && validThumb(payload.thumb) ? payload.thumb : undefined;
+    updateBoard(meta.id, { json, thumb: safeThumb });
+
+    // fan the ops out to everyone who cares (they're small)
+    for (const s of io.of('/').sockets.values()) {
+      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+      if (s.data.id === meta.owner || s.data.role === 'teacher') {
+        s.emit('board:ops', {
+          boardId: meta.id, owner: meta.owner, ops, by: name,
+          note: !isOwner && s.data.id === meta.owner ? `${name} is drawing on your board` : null,
+        });
+      }
+    }
+    if (safeThumb && meta.owner !== room.data.owner && room.teacher && room.teacher !== socket.id) {
+      io.to(room.teacher).emit('student:thumb', { id: meta.owner, boardId: meta.id, thumb: safeThumb });
+    }
+    // stage streaming (teacher share or student spotlight) as ops too
+    if (role === 'teacher' && isOwner) {
+      room.lastTeacherJson = json;
+      if (room.sharing === 'teacher') socket.to(code).emit('stage:ops', { ops });
+    } else if (room.sharing && room.sharing === meta.owner) {
+      socket.to(code).emit('stage:ops', { ops });
     }
     scheduleSave(room);
     if (typeof ack === 'function') ack({ ok: true });

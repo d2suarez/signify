@@ -101,6 +101,11 @@ class Whiteboard {
     this.onViewChange = onViewChange || (() => {});
     this.onSelection = onSelection || (() => {});
     this.onModeChange = onModeChange || (() => {});
+    this.onOps = null; // set via enableOps(cb): per-object sync instead of whole-board
+    this._ops = [];
+    this._opsTimer = null;
+    this._needFullSync = false;
+    this._lastThumbTs = 0;
 
     this.tool = 'select';
     this.handMode = 'board'; // 'board' pans, 'objects' manipulates
@@ -186,6 +191,121 @@ class Whiteboard {
     this.canvas.requestRenderAll();
   }
 
+  // ---------- object-level sync ----------
+  // Each local change becomes a tiny op {t:'add'|'mod'|'del'|'clear'|'full', ...}
+  // instead of re-sending the entire board JSON on every stroke.
+
+  enableOps(cb) {
+    this.onOps = cb;
+  }
+
+  _ser(o) {
+    return o.toObject(PERSIST_PROPS);
+  }
+
+  _queueOp(op) {
+    if (!this.onOps || this._internal) return;
+    this._ops.push(op);
+    this._scheduleOpsFlush();
+  }
+
+  _markFullSync() {
+    if (!this.onOps) return;
+    this._needFullSync = true;
+    this._scheduleOpsFlush();
+  }
+
+  _scheduleOpsFlush() {
+    if (this._opsTimer) return;
+    this._opsTimer = setTimeout(() => {
+      this._opsTimer = null;
+      this.flushOpsNow();
+    }, 200);
+  }
+
+  flushOpsNow() {
+    if (!this.onOps) return;
+    clearTimeout(this._opsTimer);
+    this._opsTimer = null;
+    let ops;
+    if (this._needFullSync) {
+      this._needFullSync = false;
+      this._ops = [];
+      ops = [{ t: 'full', json: this.getJSON() }];
+    } else {
+      if (!this._ops.length) return;
+      // collapse repeated mods of the same object into the last one
+      const seen = new Set();
+      ops = [];
+      for (let i = this._ops.length - 1; i >= 0; i--) {
+        const op = this._ops[i];
+        const key = op.t === 'mod' && op.o && op.o.oid ? 'mod:' + op.o.oid : 'i' + i;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        ops.unshift(op);
+      }
+      this._ops = [];
+    }
+    let thumb = null;
+    if (Date.now() - this._lastThumbTs > 2500) {
+      this._lastThumbTs = Date.now();
+      thumb = this.getThumb();
+    }
+    this.onOps(ops, thumb);
+  }
+
+  // Apply remote ops to this canvas without echoing them back
+  applyOps(ops, done) {
+    const c = this.canvas;
+    const finish = () => {
+      c.requestRenderAll();
+      this._internal = false;
+      this._snapshot();
+      if (done) done();
+    };
+    this._internal = true;
+    const step = (i) => {
+      if (i >= ops.length) return finish();
+      const op = ops[i];
+      if (op.t === 'full') {
+        return this.loadJSON(op.json, () => { this._internal = true; step(i + 1); });
+      }
+      if (op.t === 'clear') {
+        c.getObjects().slice().forEach((o) => c.remove(o));
+        return step(i + 1);
+      }
+      if (op.t === 'del') {
+        const o = op.oid && this.findByOid(op.oid);
+        if (o) c.remove(o);
+        return step(i + 1);
+      }
+      if ((op.t === 'add' || op.t === 'mod') && op.o) {
+        // don't stomp text the local user is typing in right now
+        const activeText = this.getActiveText && this.getActiveText();
+        if (activeText && activeText.isEditing && activeText.oid === op.o.oid) return step(i + 1);
+        return fabric.util.enlivenObjects([op.o], (objs) => {
+          const nu = objs[0];
+          if (nu) {
+            const old = op.o.oid ? this.findByOid(op.o.oid) : null;
+            if (old) {
+              const idx = c.getObjects().indexOf(old);
+              c.remove(old);
+              c.insertAt(nu, Math.max(0, idx));
+            } else {
+              c.add(nu);
+            }
+            if (nu.type === 'i-text' || nu.type === 'text') {
+              nu.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+            }
+          }
+          step(i + 1);
+        });
+      }
+      step(i + 1);
+    };
+    step(0);
+  }
+
   // ---------- change tracking / undo ----------
 
   commit() {
@@ -213,6 +333,7 @@ class Whiteboard {
     if (this._undo.length < 2) return;
     this._redo.push(this._undo.pop());
     this._loadString(this._undo[this._undo.length - 1]);
+    this._markFullSync();
   }
 
   redo() {
@@ -220,6 +341,7 @@ class Whiteboard {
     const s = this._redo.pop();
     this._undo.push(s);
     this._loadString(s);
+    this._markFullSync();
   }
 
   _loadString(s) {
@@ -313,7 +435,10 @@ class Whiteboard {
     this._applyToolConfig();
     const active = this.canvas.getActiveObjects();
     if (this.tool === 'select' && active.length) {
-      active.forEach((o) => o.set('opacity', this.opacity));
+      active.forEach((o) => {
+        o.set('opacity', this.opacity);
+        if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) });
+      });
       this.canvas.requestRenderAll();
       this.commit();
     }
@@ -331,6 +456,7 @@ class Whiteboard {
         if (o.isType('i-text')) o.set('fill', color);
         else if (o.stroke) o.set('stroke', color);
         else o.set('fill', color);
+        if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) });
       });
       c.requestRenderAll();
       this.commit();
@@ -354,6 +480,7 @@ class Whiteboard {
     const c = this.canvas;
     const objs = c.getActiveObjects();
     if (!objs.length) return;
+    objs.forEach((o) => { if (o.oid) this._queueOp({ t: 'del', oid: o.oid }); });
     this._internal = true;
     objs.forEach((o) => c.remove(o));
     c.discardActiveObject();
@@ -365,6 +492,7 @@ class Whiteboard {
   clear() {
     this.cancelCrop();
     this.finishCurveEdit(false);
+    this._queueOp({ t: 'clear' });
     this._internal = true;
     this.canvas.clear();
     this.canvas.backgroundColor = '#ffffff';
@@ -460,6 +588,7 @@ class Whiteboard {
     const addOne = (i) => {
       if (i >= dataUrls.length) {
         this._internal = false;
+        this._markFullSync(); // pages were added internally — sync the whole board once
         this.commit();
         this.gotoDocPage(startPage + 1);
         if (done) done(dataUrls.length);
@@ -545,6 +674,7 @@ class Whiteboard {
       o.set(style);
     }
     o.dirty = true;
+    if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) });
     this.canvas.requestRenderAll();
     this.commit();
   }
@@ -808,12 +938,38 @@ class Whiteboard {
       if (e.target && (e.target.type === 'i-text' || e.target.type === 'text')) {
         e.target.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
       }
+      if (!this._internal && e.target && !e.target.isEditHandle) {
+        this._queueOp({ t: 'add', o: this._ser(e.target) });
+      }
       this.commit();
     });
-    c.on('object:modified', () => this.commit());
-    c.on('object:removed', () => this.commit());
-    c.on('text:changed', () => this._emitChange());
-    c.on('erasing:end', () => this.commit()); // partial-eraser stroke finished
+    c.on('object:modified', (e) => {
+      if (!this._internal && e.target) {
+        if (e.target.type === 'activeSelection') {
+          // group transforms store child coords relative to the selection — full sync is simplest
+          this._markFullSync();
+        } else if (!e.target.isEditHandle) {
+          this._queueOp({ t: 'mod', o: this._ser(e.target) });
+        }
+      }
+      this.commit();
+    });
+    c.on('object:removed', (e) => {
+      if (!this._internal && e.target && e.target.oid && !e.target.isEditHandle) {
+        this._queueOp({ t: 'del', oid: e.target.oid });
+      }
+      this.commit();
+    });
+    c.on('text:changed', (e) => {
+      if (e.target && e.target.oid) this._queueOp({ t: 'mod', o: this._ser(e.target) });
+      this._emitChange();
+    });
+    c.on('erasing:end', (e) => { // partial-eraser stroke finished
+      const targets = e && e.targets && e.targets.length ? e.targets : null;
+      if (targets) targets.forEach((o) => { if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) }); });
+      else this._markFullSync();
+      this.commit();
+    });
 
     c.on('object:moving', (e) => {
       if (this._curveEdit && e.target && e.target.isEditHandle) this._updateCurveEditPreview();
@@ -1175,6 +1331,7 @@ class Whiteboard {
     c.discardActiveObject();
     c.requestRenderAll();
     this._internal = false;
+    if (img.oid) this._queueOp({ t: 'mod', o: this._ser(img) });
     this.commit();
     this._applyToolConfig();
     this.onModeChange();
@@ -1287,12 +1444,17 @@ class Whiteboard {
       const s = ce.hStart.getCenterPoint();
       const q = ce.hCtrl.getCenterPoint();
       const e = ce.hEnd.getCenterPoint();
-      c.add(new fabric.Path(`M ${s.x} ${s.y} Q ${q.x} ${q.y} ${e.x} ${e.y}`, { ...ce.style, fill: '', isCurve: true }));
+      const nu = new fabric.Path(`M ${s.x} ${s.y} Q ${q.x} ${q.y} ${e.x} ${e.y}`, { ...ce.style, fill: '', isCurve: true });
+      c.add(nu);
+      this._internal = false;
+      if (ce.original.oid) this._queueOp({ t: 'del', oid: ce.original.oid });
+      if (!nu.oid) nu.oid = 'o' + Math.random().toString(36).slice(2, 11);
+      this._queueOp({ t: 'add', o: this._ser(nu) });
     } else {
       c.add(ce.original);
+      this._internal = false;
     }
     c.requestRenderAll();
-    this._internal = false;
     if (apply) this.commit();
     this._applyToolConfig();
     this.onModeChange();
@@ -1409,5 +1571,41 @@ class BoardViewer {
       this.canvas.backgroundColor = '#ffffff';
       fitToContent(this.canvas, 24);
     });
+  }
+  // Apply incremental ops to the read-only view
+  applyOps(ops) {
+    const c = this.canvas;
+    const step = (i) => {
+      if (i >= ops.length) return c.requestRenderAll();
+      const op = ops[i];
+      if (op.t === 'full') return this.load(op.json);
+      if (op.t === 'clear') {
+        c.getObjects().slice().forEach((o) => c.remove(o));
+        return step(i + 1);
+      }
+      if (op.t === 'del') {
+        const o = c.getObjects().find((x) => x.oid === op.oid);
+        if (o) c.remove(o);
+        return step(i + 1);
+      }
+      if ((op.t === 'add' || op.t === 'mod') && op.o) {
+        return fabric.util.enlivenObjects([op.o], (objs) => {
+          const nu = objs[0];
+          if (nu) {
+            const old = op.o.oid ? c.getObjects().find((x) => x.oid === op.o.oid) : null;
+            if (old) {
+              const idx = c.getObjects().indexOf(old);
+              c.remove(old);
+              c.insertAt(nu, Math.max(0, idx));
+            } else {
+              c.add(nu);
+            }
+          }
+          step(i + 1);
+        });
+      }
+      step(i + 1);
+    };
+    step(0);
   }
 }
