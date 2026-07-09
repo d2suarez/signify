@@ -808,6 +808,7 @@ function boardMetaOf(d) {
   return {
     id: d.id, title: d.title || 'Board', owner: d.owner, room: d.room || null,
     createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, thumb: d.thumb || null,
+    comments: d.comments || [],
   };
 }
 
@@ -841,7 +842,7 @@ function flushBoardSoon(id) {
 function createBoard({ owner, room, title, json, thumb }) {
   const id = crypto.randomBytes(8).toString('hex');
   const now = Date.now();
-  const meta = { id, title: (title || 'Board').slice(0, 60), owner, room: room || null, createdAt: now, updatedAt: now, thumb: thumb || null };
+  const meta = { id, title: (title || 'Board').slice(0, 60), owner, room: room || null, createdAt: now, updatedAt: now, thumb: thumb || null, comments: [] };
   boardsIndex.set(id, meta);
   boardPending.set(id, json || null);
   flushBoardSoon(id);
@@ -1085,7 +1086,7 @@ function listRooms() {
 function getRoom(code, createIfMissing) {
   let room = rooms.get(code);
   if (room) return room;
-  let data = { name: '', owner: null, roster: [], features: {}, studentFeatures: {}, teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
+  let data = { name: '', owner: null, roster: [], features: {}, studentFeatures: {}, messages: [], teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
   const file = roomFile(code);
   if (fs.existsSync(file)) {
     try {
@@ -1094,6 +1095,7 @@ function getRoom(code, createIfMissing) {
       data.roster = data.roster || [];
       data.features = data.features || {};
       data.studentFeatures = data.studentFeatures || {};
+      data.messages = data.messages || [];
     } catch (e) {
       console.error('Could not read saved room', code, e.message);
     }
@@ -1151,6 +1153,31 @@ function scheduleSave(room) {
 
 function emitToTeacher(room, event, payload) {
   if (room.teacher) io.to(room.teacher).emit(event, payload);
+}
+
+// Who may read a room message: teachers see all; students see broadcasts,
+// their own messages, and DMs addressed to them.
+function canSeeMessage(sd, msg) {
+  if (sd.role === 'teacher') return true;
+  if (msg.to === null) return true;
+  if (msg.from === sd.id) return true;
+  if (msg.to === sd.id) return true;
+  return false;
+}
+
+// Board-level socket permission: the owner or the room teacher
+function canTouchBoardSocket(socket, meta) {
+  const { code, id, role } = socket.data || {};
+  return !!meta && !!code && meta.room === code && (meta.owner === id || role === 'teacher');
+}
+
+function broadcastComments(socket, meta) {
+  for (const s of io.of('/').sockets.values()) {
+    if (s.id === socket.id || !s.data || s.data.code !== meta.room) continue;
+    if (s.data.id === meta.owner || s.data.role === 'teacher') {
+      s.emit('comments:update', { boardId: meta.id, comments: meta.comments || [] });
+    }
+  }
 }
 
 // Send a student their freshly-resolved feature switches
@@ -1279,15 +1306,31 @@ io.on('connection', (socket) => {
     const room = code && rooms.get(code);
     const json = payload && payload.json;
     const meta = payload && boardsIndex.get(payload.boardId);
-    if (!room || !json || !meta || meta.owner !== id || meta.room !== code) return;
+    if (!room || !json || !meta || meta.room !== code) return;
+    const isOwner = meta.owner === id;
+    if (!isOwner && role !== 'teacher') return; // the room teacher may draw on any board in the room
     room.data.updatedAt = Date.now();
-    updateBoard(meta.id, { json, thumb: payload.thumb });
-    if (role === 'teacher') {
+    const safeThumb = validThumb(payload.thumb) ? payload.thumb : null;
+    updateBoard(meta.id, { json, thumb: safeThumb });
+
+    // Live-sync the board owner's other devices (and notify them if the teacher is drawing)
+    for (const s of io.of('/').sockets.values()) {
+      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+      if (s.data.id === meta.owner) {
+        s.emit('board:peer', { boardId: meta.id, json, by: name, note: !isOwner ? `${name} is drawing on your board` : null });
+      }
+    }
+
+    if (role === 'teacher' && isOwner) {
       room.lastTeacherJson = json;
       if (room.sharing) socket.to(code).emit('teacher:board', { json });
-    } else {
-      const safeThumb = validThumb(payload.thumb) ? payload.thumb : null;
-      emitToTeacher(room, 'student:board', { id, name, boardId: meta.id, json, thumb: safeThumb });
+    }
+    if (meta.owner !== room.data.owner && room.teacher && room.teacher !== socket.id) {
+      // keep the teacher dashboard fresh for student-owned boards
+      io.to(room.teacher).emit('student:board', {
+        id: meta.owner, name: room.data.names[meta.owner] || meta.owner,
+        boardId: meta.id, json, thumb: safeThumb,
+      });
     }
     scheduleSave(room);
     if (typeof ack === 'function') ack({ ok: true });
@@ -1400,16 +1443,66 @@ io.on('connection', (socket) => {
     socket.to(room.code).emit('share:stop');
   });
 
-  socket.on('template:push', (payload) => {
+  // Pushing content now creates a NEW board for each target student
+  socket.on('template:push', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
     const room = teacherRoom(socket);
     const json = payload && payload.json;
-    if (!room || !json) return;
-    if (payload.target) {
-      const sid = room.students.get(payload.target);
-      if (sid) io.to(sid).emit('template', { json });
-    } else {
-      socket.to(room.code).emit('template', { json });
+    if (!room || !json) return done({ error: 'Not allowed.' });
+    const targets = payload.target
+      ? [payload.target]
+      : [...new Set([...(room.data.roster || []), ...room.students.keys()])]
+        .filter((sid) => sid !== socket.data.id && sid !== room.data.owner);
+    const title = String(payload.title || `From ${socket.data.name}`).slice(0, 60);
+    for (const sid of targets) {
+      const meta = createBoard({ owner: sid, room: room.code, title, json });
+      const sockId = room.students.get(sid);
+      if (sockId) io.to(sockId).emit('board:new', { meta, by: socket.data.name });
     }
+    done({ ok: true, count: targets.length });
+  });
+
+  // Teacher sends selected objects onto students' current boards
+  socket.on('objects:push', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    const objects = payload && Array.isArray(payload.objects) ? payload.objects.slice(0, 200) : null;
+    if (!room || !objects || !objects.length) return done({ error: 'Nothing to send.' });
+    const targets = (Array.isArray(payload.targets) && payload.targets.length
+      ? payload.targets.map(String)
+      : [...new Set([...(room.data.roster || []), ...room.students.keys()])])
+      .filter((sid) => sid !== socket.data.id && sid !== room.data.owner);
+    for (const sid of targets) {
+      let meta = boardsFor(sid, room.code)[0];
+      if (!meta) meta = createBoard({ owner: sid, room: room.code, title: 'Board 1' });
+      const json = readBoardJSON(meta.id) || { version: '5.3.0', objects: [] };
+      json.objects = [...(json.objects || []), ...objects];
+      updateBoard(meta.id, { json });
+      for (const s of io.of('/').sockets.values()) {
+        if (s.data && s.data.code === room.code && s.data.id === sid) {
+          s.emit('board:peer', { boardId: meta.id, json, by: socket.data.name, note: `${socket.data.name} added items to your board` });
+        }
+      }
+      if (room.teacher && room.teacher !== socket.id) {
+        io.to(room.teacher).emit('student:board', { id: sid, name: room.data.names[sid] || sid, boardId: meta.id, json, thumb: meta.thumb });
+      }
+    }
+    done({ ok: true, count: targets.length });
+  });
+
+  // Teacher copies any board in their room to their own set
+  socket.on('board:copy-as', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const room = teacherRoom(socket);
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!room || !meta || meta.room !== room.code) return ack({ error: 'Board not found.' });
+    const ownerName = room.data.names[meta.owner] || meta.owner;
+    const copy = createBoard({
+      owner: socket.data.id, room: room.code,
+      title: `${ownerName} — ${meta.title} (copy)`.slice(0, 60),
+      json: readBoardJSON(meta.id), thumb: meta.thumb,
+    });
+    ack({ ok: true, meta: copy });
   });
 
   // ----- live polls -----
@@ -1476,6 +1569,77 @@ io.on('connection', (socket) => {
     if (role === 'teacher') return ack(pollResults(room));
     const p = room.poll;
     ack(p && p.open ? { id: p.id, question: p.question, type: p.type, options: p.options } : null);
+  });
+
+  // ----- messaging (teacher <-> students, plus teacher broadcast) -----
+
+  socket.on('msg:send', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const { code, id, name, role } = socket.data || {};
+    const room = code && rooms.get(code);
+    const text = payload && String(payload.text || '').trim().slice(0, 1000);
+    if (!room || !text) return done({ error: 'Nothing to send.' });
+    // students always message the teacher; teachers message one student or broadcast (to=null)
+    const to = role === 'student' ? '__teacher__' : (payload.to ? String(payload.to) : null);
+    const msg = {
+      id: crypto.randomBytes(6).toString('hex'),
+      from: id, fromName: name, fromRole: role, to, text, ts: Date.now(),
+    };
+    room.data.messages = room.data.messages || [];
+    room.data.messages.push(msg);
+    if (room.data.messages.length > 400) room.data.messages = room.data.messages.slice(-400);
+    scheduleSave(room);
+    for (const s of io.of('/').sockets.values()) {
+      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+      if (s.data.role === 'teacher' || canSeeMessage(s.data, msg)) s.emit('msg:new', msg);
+    }
+    done({ ok: true, msg });
+  });
+
+  socket.on('msg:history', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const { code } = socket.data || {};
+    const room = code && rooms.get(code);
+    if (!room) return ack([]);
+    ack((room.data.messages || []).filter((m) => canSeeMessage(socket.data, m)).slice(-200));
+  });
+
+  // ----- comments anchored to board objects -----
+
+  socket.on('comment:add', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
+    const text = String(payload.text || '').trim().slice(0, 500);
+    const oid = String(payload.oid || '').slice(0, 40);
+    if (!text || !oid) return ack({ error: 'Empty comment.' });
+    meta.comments = meta.comments || [];
+    meta.comments.push({
+      id: crypto.randomBytes(6).toString('hex'),
+      oid, author: socket.data.name, authorId: socket.data.id, text, ts: Date.now(),
+    });
+    if (meta.comments.length > 200) meta.comments = meta.comments.slice(-200);
+    flushBoardSoon(meta.id);
+    broadcastComments(socket, meta);
+    ack({ ok: true, comments: meta.comments });
+  });
+
+  socket.on('comment:remove', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
+    const { id, role } = socket.data;
+    meta.comments = (meta.comments || []).filter((c) => !(c.id === payload.commentId && (c.authorId === id || role === 'teacher')));
+    flushBoardSoon(meta.id);
+    broadcastComments(socket, meta);
+    ack({ ok: true, comments: meta.comments });
+  });
+
+  socket.on('comment:list', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
+    ack({ ok: true, comments: meta.comments || [] });
   });
 
   // Teacher toggles feature switches for the whole room or one student

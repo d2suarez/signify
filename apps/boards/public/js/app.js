@@ -11,7 +11,20 @@ if (!room && !soloBoardId) location.href = '/';
 
 const isSolo = !room;
 document.title = `${room || 'My board'} — Signify Learning`;
-document.getElementById('room-badge').textContent = room || 'My board';
+document.getElementById('room-code-text').textContent = room || 'My board';
+// hide/reveal the join code (useful when projecting)
+let codeHidden = false;
+document.getElementById('code-toggle').addEventListener('click', () => {
+  codeHidden = !codeHidden;
+  document.getElementById('room-code-text').textContent = codeHidden ? '•••••' : (room || 'My board');
+});
+if (isSolo) document.getElementById('code-toggle').hidden = true;
+
+// the page itself must never zoom — only the board (pinch/ctrl-scroll on canvas)
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('wheel', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !document.getElementById('canvas-wrap').contains(e.target)) e.preventDefault();
+}, { passive: false });
 
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
 
@@ -30,8 +43,11 @@ function refreshCtx() {
   const cropping = wb.isCropping();
   const editing = wb.isCurveEditing();
   const kind = cropping || editing ? null : wb.getActiveKind();
+  const anySelection = !cropping && !editing && wb.canvas.getActiveObject();
   document.getElementById('ctx-crop').hidden = kind !== 'image';
   document.getElementById('ctx-curve').hidden = kind !== 'curve';
+  document.getElementById('ctx-comment').hidden = !anySelection || isSolo || wb.canvas.getActiveObjects().length !== 1;
+  document.getElementById('ctx-send').hidden = !(anySelection && role === 'teacher' && !isSolo);
   const apply = document.getElementById('ctx-apply');
   apply.hidden = !(cropping || editing);
   apply.textContent = cropping ? 'Apply crop' : 'Done';
@@ -60,9 +76,14 @@ function updateZoomLabel() {
 let currentBoard = null; // { id, title }
 let boardsList = [];
 
-function setCurrentBoard(meta) {
+function setCurrentBoard(meta, foreignName) {
   currentBoard = { id: meta.id, title: meta.title };
-  document.getElementById('board-title').textContent = `${meta.title} ▾`;
+  foreignBoardOwner = foreignName || null;
+  document.getElementById('board-title').textContent = foreignName
+    ? `${foreignName}: ${meta.title} ▾`
+    : `${meta.title} ▾`;
+  const back = document.getElementById('back-my-board');
+  if (back) back.hidden = !foreignName;
   if (isSolo) document.title = `${meta.title} — Signify Learning`;
 }
 
@@ -195,6 +216,7 @@ function flushBoard() {
         if (res.activeBoard) {
           setCurrentBoard(boardsList.find((b) => b.id === res.activeBoard.id) || { id: res.activeBoard.id, title: 'Board' });
           if (res.activeBoard.json) wb.loadJSON(res.activeBoard.json, updatePageNav);
+          setBoardComments(res.activeBoard.comments || []);
         }
         if (role === 'teacher') {
           (res.students || []).forEach((s) => upsertStudent(s));
@@ -216,6 +238,7 @@ function flushBoard() {
 
   if (role === 'student') wireStudent();
   else wireTeacher();
+  wireCommon();
 })();
 
 // ---------- board switcher drawer ----------
@@ -244,6 +267,7 @@ async function switchBoard(id) {
     setCurrentBoard(b);
     if (b.json) wb.loadJSON(b.json, updatePageNav);
     else { wb.clear(); updatePageNav(); }
+    setBoardComments(b.comments || []);
     toast(`Opened "${b.title}"`);
   } catch (e) {
     toast(e.message);
@@ -491,13 +515,69 @@ function updatePageNav() {
 
 document.querySelectorAll('.tool[data-tool]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tool[data-tool]').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tool[data-tool], #shapes-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     wb.setTool(btn.dataset.tool);
     document.getElementById('hand-mode').hidden = btn.dataset.tool !== 'pan';
+    document.getElementById('eraser-mode').hidden = btn.dataset.tool !== 'eraser';
+    document.getElementById('shapes-menu').hidden = true;
     refreshCtx();
   });
 });
+
+// ----- shapes flyout: one button, many shapes -----
+const SHAPE_ICONS = { rect: '▭', ellipse: '◯', triangle: '△', diamond: '◇', pentagon: '⬠', hexagon: '⬡', star: '☆' };
+let currentShape = 'rect';
+const shapesBtn = document.getElementById('shapes-btn');
+const shapesMenu = document.getElementById('shapes-menu');
+shapesBtn.addEventListener('click', () => {
+  shapesMenu.style.top = Math.min(shapesBtn.getBoundingClientRect().top, window.innerHeight - 90) + 'px';
+  if (shapesBtn.classList.contains('active')) {
+    shapesMenu.hidden = !shapesMenu.hidden; // second tap opens the picker
+  } else {
+    activateShape(currentShape);
+    shapesMenu.hidden = false;
+  }
+});
+document.querySelectorAll('.shape-opt').forEach((b) => {
+  b.addEventListener('click', () => {
+    currentShape = b.dataset.shape;
+    activateShape(currentShape);
+    shapesMenu.hidden = true;
+  });
+});
+function activateShape(shape) {
+  document.querySelectorAll('.tool[data-tool]').forEach((x) => x.classList.remove('active'));
+  shapesBtn.classList.add('active');
+  shapesBtn.textContent = SHAPE_ICONS[shape];
+  shapesBtn.title = `Shape: ${shape} — drag to draw, click again for more shapes`;
+  wb.setTool(shape);
+  document.getElementById('hand-mode').hidden = true;
+  document.getElementById('eraser-mode').hidden = true;
+  refreshCtx();
+}
+document.addEventListener('click', (e) => {
+  if (!shapesMenu.hidden && !shapesMenu.contains(e.target) && e.target !== shapesBtn) shapesMenu.hidden = true;
+});
+
+// ----- eraser mode pill -----
+document.getElementById('eraser-object').addEventListener('click', () => setEraserModeUI('object'));
+document.getElementById('eraser-partial').addEventListener('click', () => setEraserModeUI('partial'));
+function setEraserModeUI(mode) {
+  wb.setEraserMode(mode);
+  document.getElementById('eraser-object').classList.toggle('active', mode === 'object');
+  document.getElementById('eraser-partial').classList.toggle('active', mode === 'partial');
+}
+if (!window.fabric || !fabric.EraserBrush) document.getElementById('eraser-partial').hidden = true;
+
+// ----- finger vs stylus on touch screens -----
+const touchToggle = document.getElementById('touch-toggle');
+if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+  touchToggle.hidden = false;
+  const paintTouch = () => { touchToggle.textContent = wb.fingerPans ? 'Finger: pans' : 'Finger: draws'; };
+  touchToggle.addEventListener('click', () => { wb.setFingerPans(!wb.fingerPans); paintTouch(); });
+  paintTouch();
+}
 
 // Hand tool mode: pan the board vs. manipulate objects
 document.getElementById('hand-board').addEventListener('click', () => setHandModeUI('board'));
@@ -529,6 +609,9 @@ colorInput.addEventListener('input', () => {
 
 document.getElementById('width-input').addEventListener('input', (e) => {
   wb.setStrokeWidth(Number(e.target.value));
+});
+document.getElementById('opacity-input').addEventListener('input', (e) => {
+  wb.setOpacity(Number(e.target.value) / 100);
 });
 document.getElementById('fill-input').addEventListener('change', (e) => {
   wb.setFillShapes(e.target.checked);
@@ -689,10 +772,34 @@ document.getElementById('tt-underline').addEventListener('mousedown', (e) => { e
 document.getElementById('tt-smaller').addEventListener('mousedown', (e) => { e.preventDefault(); wb.changeTextSize(-4); updateTextToolbar(); });
 document.getElementById('tt-bigger').addEventListener('mousedown', (e) => { e.preventDefault(); wb.changeTextSize(4); updateTextToolbar(); });
 document.getElementById('tt-color').addEventListener('mousedown', (e) => { e.preventDefault(); wb.applyTextStyle({ fill: wb.color }); });
+
+// font picker (buttons, not a <select>, so text editing keeps focus)
+const TEXT_FONTS = ['Bricolage Grotesque', 'Arial', 'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS'];
+const fontMenu = document.getElementById('tt-font-menu');
+TEXT_FONTS.forEach((f) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = f;
+  b.style.fontFamily = f;
+  b.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    wb.applyTextStyle({ fontFamily: f });
+    fontMenu.hidden = true;
+    updateTextToolbar();
+  });
+  fontMenu.appendChild(b);
+});
+document.getElementById('tt-font').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const tb = document.getElementById('text-toolbar');
+  fontMenu.hidden = !fontMenu.hidden;
+  fontMenu.style.left = tb.style.left;
+  fontMenu.style.top = (parseInt(tb.style.top, 10) + 38) + 'px';
+});
 ['selection:created', 'selection:updated', 'selection:cleared', 'object:moving', 'object:scaling'].forEach((ev) =>
   wb.canvas.on(ev, updateTextToolbar));
 wb.canvas.on('text:editing:entered', updateTextToolbar);
-wb.canvas.on('text:editing:exited', () => { textToolbar.hidden = true; });
+wb.canvas.on('text:editing:exited', () => { textToolbar.hidden = true; document.getElementById('tt-font-menu').hidden = true; });
 wb.canvas.on('text:selection:changed', updateTextToolbar);
 wb.canvas.on('mouse:up', () => { if (wb.getActiveText()) updateTextToolbar(); });
 document.getElementById('undo-btn').addEventListener('click', () => { wb.undo(); updatePageNav(); });
@@ -763,6 +870,376 @@ function toast(msg) {
   toastEl.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { toastEl.hidden = true; }, 3000);
+}
+
+// ================= LIVE SYNC, COMMENTS, MESSAGING =================
+
+let foreignBoardOwner = null; // student name when the teacher is drawing on their board
+let overviewOpen = false;
+const overviewViewers = new Map();
+
+function toastAction(msg, label, fn) {
+  toastEl.textContent = msg + ' ';
+  const b = document.createElement('button');
+  b.className = 'toast-action';
+  b.textContent = label;
+  b.onclick = () => { toastEl.hidden = true; fn(); };
+  toastEl.appendChild(b);
+  toastEl.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toastEl.hidden = true; }, 6000);
+}
+
+function wireCommon() {
+  document.getElementById('msg-btn').hidden = false;
+
+  // another device (mine, or the teacher's pen on my board) changed this board
+  socket.on('board:peer', ({ boardId, json, note }) => {
+    if (currentBoard && currentBoard.id === boardId) {
+      wb.loadJSON(json, updatePageNav);
+    }
+    if (note) toast(note);
+  });
+
+  socket.on('comments:update', ({ boardId, comments }) => {
+    if (currentBoard && currentBoard.id === boardId) {
+      boardComments = comments || [];
+      renderCommentPins();
+      if (!document.getElementById('comment-pop').hidden) renderCommentThread();
+    }
+  });
+
+  socket.on('msg:new', (m) => {
+    messagesCache.push(m);
+    const panelOpen = !document.getElementById('msg-panel').hidden;
+    if (panelOpen && msgInCurrentThread(m)) {
+      appendMsg(m);
+    } else {
+      msgUnread++;
+      paintUnread();
+      toastAction(`${m.fromName}: ${m.text.slice(0, 60)}`, 'Reply', () => openMsgPanel(m.fromRole === 'student' ? m.from : null));
+    }
+  });
+
+  wireComments();
+  wireMessaging();
+}
+
+// ---------- comments on board objects ----------
+
+let boardComments = [];
+let commentOid = null;
+const pinEls = new Map();
+
+function setBoardComments(list) {
+  boardComments = list || [];
+  renderCommentPins();
+}
+
+function wireComments() {
+  wb.canvas.on('after:render', () => positionCommentPins());
+  document.getElementById('ctx-comment').addEventListener('click', () => {
+    const obj = wb.canvas.getActiveObjects()[0];
+    if (!obj) return;
+    if (!obj.oid) { obj.oid = 'o' + Math.random().toString(36).slice(2, 11); wb.commit(); }
+    openCommentPop(obj.oid);
+  });
+  document.getElementById('comment-close').addEventListener('click', () => {
+    document.getElementById('comment-pop').hidden = true;
+    commentOid = null;
+  });
+  document.getElementById('comment-save').addEventListener('click', () => {
+    const text = document.getElementById('comment-input').value.trim();
+    if (!text || !commentOid || !currentBoard) return;
+    socket.emit('comment:add', { boardId: currentBoard.id, oid: commentOid, text }, (r) => {
+      if (r && r.ok) {
+        document.getElementById('comment-input').value = '';
+        setBoardComments(r.comments);
+        renderCommentThread();
+      } else toast((r && r.error) || 'Could not comment.');
+    });
+  });
+}
+
+function openCommentPop(oid) {
+  commentOid = oid;
+  renderCommentThread();
+  const pop = document.getElementById('comment-pop');
+  pop.hidden = false;
+  const obj = wb.findByOid(oid);
+  if (obj) {
+    const a = wb.anchorPos(obj);
+    pop.style.left = Math.min(Math.max(8, a.x + 10), canvasWrap.clientWidth - 280) + 'px';
+    pop.style.top = Math.min(Math.max(8, a.y), canvasWrap.clientHeight - 220) + 'px';
+  }
+  document.getElementById('comment-input').focus();
+}
+
+function renderCommentThread() {
+  const list = document.getElementById('comment-thread');
+  list.innerHTML = '';
+  const mine = boardComments.filter((c) => c.oid === commentOid);
+  if (!mine.length) list.innerHTML = '<p class="hint">No comments yet on this item.</p>';
+  for (const c of mine) {
+    const row = document.createElement('div');
+    row.className = 'comment-row';
+    row.innerHTML = '<div class="comment-meta"><b></b> <span></span> <button class="c-del" title="Delete">✕</button></div><div class="comment-text"></div>';
+    row.querySelector('b').textContent = c.author;
+    row.querySelector('span').textContent = new Date(c.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    row.querySelector('.comment-text').textContent = c.text;
+    row.querySelector('.c-del').onclick = () => {
+      socket.emit('comment:remove', { boardId: currentBoard.id, commentId: c.id }, (r) => {
+        if (r && r.ok) { setBoardComments(r.comments); renderCommentThread(); }
+      });
+    };
+    list.appendChild(row);
+  }
+}
+
+function renderCommentPins() {
+  for (const el of pinEls.values()) el.remove();
+  pinEls.clear();
+  if (isSolo) return;
+  const byOid = new Map();
+  for (const c of boardComments) byOid.set(c.oid, (byOid.get(c.oid) || 0) + 1);
+  for (const [oid, count] of byOid) {
+    const pin = document.createElement('button');
+    pin.className = 'comment-pin';
+    pin.textContent = count;
+    pin.title = `${count} comment${count === 1 ? '' : 's'} — click to view`;
+    pin.onclick = () => openCommentPop(oid);
+    canvasWrap.appendChild(pin);
+    pinEls.set(oid, pin);
+  }
+  positionCommentPins();
+}
+
+let pinRaf = null;
+function positionCommentPins() {
+  if (pinRaf) return;
+  pinRaf = requestAnimationFrame(() => {
+    pinRaf = null;
+    for (const [oid, pin] of pinEls) {
+      const obj = wb.findByOid(oid);
+      if (!obj) { pin.style.display = 'none'; continue; }
+      const a = wb.anchorPos(obj);
+      pin.style.display = '';
+      pin.style.left = (a.x - 6) + 'px';
+      pin.style.top = (a.y - 12) + 'px';
+    }
+  });
+}
+
+// ---------- messaging ----------
+
+let messagesCache = [];
+let msgUnread = 0;
+let msgThread = null; // teacher: null = announcement thread, else student id
+
+function paintUnread() {
+  const b = document.getElementById('msg-unread');
+  b.hidden = !msgUnread;
+  b.textContent = msgUnread;
+}
+
+function msgInCurrentThread(m) {
+  if (role !== 'teacher') return true; // students have a single thread
+  if (msgThread === null) return m.to === null;
+  return m.from === msgThread || m.to === msgThread;
+}
+
+function wireMessaging() {
+  const panel = document.getElementById('msg-panel');
+  document.getElementById('msg-btn').addEventListener('click', () => {
+    if (panel.hidden) openMsgPanel();
+    else panel.hidden = true;
+  });
+  document.getElementById('msg-close').addEventListener('click', () => { panel.hidden = true; });
+  document.getElementById('msg-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const to = role === 'teacher' ? (document.getElementById('msg-to').value || null) : undefined;
+    socket.emit('msg:send', { to, text }, (r) => {
+      if (r && r.ok) {
+        messagesCache.push(r.msg);
+        appendMsg(r.msg);
+        input.value = '';
+      } else toast((r && r.error) || 'Could not send.');
+    });
+  });
+  if (role === 'teacher') {
+    document.getElementById('msg-to').hidden = false;
+    document.getElementById('msg-to').addEventListener('change', (e) => {
+      msgThread = e.target.value || null;
+      renderMsgList();
+    });
+  }
+}
+
+function openMsgPanel(threadId) {
+  const panel = document.getElementById('msg-panel');
+  panel.hidden = false;
+  msgUnread = 0;
+  paintUnread();
+  if (role === 'teacher') {
+    const sel = document.getElementById('msg-to');
+    sel.innerHTML = '';
+    sel.appendChild(new Option('📢 Everyone (announcement)', ''));
+    for (const t of document.querySelectorAll('#student-tiles .tile')) {
+      sel.appendChild(new Option(t.dataset.name, t.dataset.student));
+    }
+    if (threadId) sel.value = threadId;
+    msgThread = sel.value || null;
+  }
+  socket.emit('msg:history', {}, (list) => {
+    messagesCache = list || [];
+    renderMsgList();
+  });
+}
+
+function renderMsgList() {
+  const list = document.getElementById('msg-list');
+  list.innerHTML = '';
+  messagesCache.filter(msgInCurrentThread).forEach(appendMsg);
+}
+
+function appendMsg(m) {
+  if (!msgInCurrentThread(m)) return;
+  const list = document.getElementById('msg-list');
+  const row = document.createElement('div');
+  const mine = m.fromName === myName && m.fromRole === role;
+  row.className = 'msg-row' + (mine ? ' mine' : '');
+  row.innerHTML = '<div class="msg-meta"></div><div class="msg-text"></div>';
+  row.querySelector('.msg-meta').textContent =
+    `${m.fromName}${m.to === null && m.fromRole === 'teacher' ? ' · announcement' : ''} · ${new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  row.querySelector('.msg-text').textContent = m.text;
+  list.appendChild(row);
+  list.scrollTop = list.scrollHeight;
+}
+
+// ---------- teacher extras: overview grid, panel collapse, draw/copy, object send ----------
+
+function wireTeacherExtras() {
+  modalViewer.enableNav();
+
+  // collapse / reopen the students panel
+  document.getElementById('panel-collapse').addEventListener('click', () => {
+    document.getElementById('students-panel').hidden = true;
+    document.getElementById('panel-reopen').hidden = false;
+  });
+  document.getElementById('panel-reopen').addEventListener('click', () => {
+    document.getElementById('students-panel').hidden = false;
+    document.getElementById('panel-reopen').hidden = true;
+  });
+
+  // expanded live grid of all boards
+  document.getElementById('overview-btn').addEventListener('click', openOverview);
+  document.getElementById('overview-close').addEventListener('click', () => {
+    document.getElementById('overview-modal').hidden = true;
+    overviewOpen = false;
+    overviewViewers.clear();
+    document.getElementById('overview-grid').innerHTML = '';
+  });
+
+  // draw on a student's board / copy it
+  document.getElementById('modal-draw').addEventListener('click', async () => {
+    if (!modalBoardId || !modalStudent) return;
+    const name = modalStudent.name;
+    document.getElementById('student-modal').hidden = true;
+    try {
+      flushBoard();
+      const b = await loadBoardFull(modalBoardId);
+      setCurrentBoard(b, name);
+      wb.loadJSON(b.json || { version: '5.3.0', objects: [] }, updatePageNav);
+      setBoardComments(b.comments || []);
+      toast(`You are drawing on ${name}'s board — they see your changes live`);
+    } catch (e) { toast(e.message); }
+  });
+  document.getElementById('back-my-board').addEventListener('click', async () => {
+    flushBoard();
+    const mine = await fetchBoardsList();
+    if (mine.length) await switchBoard(mine[0].id);
+    else await createBoardAndSwitch();
+  });
+  document.getElementById('modal-copy').addEventListener('click', () => {
+    if (!modalBoardId) return;
+    socket.emit('board:copy-as', { boardId: modalBoardId }, (r) => {
+      toast(r && r.ok ? `Copied to your boards as "${r.meta.title}"` : (r && r.error) || 'Copy failed');
+    });
+  });
+
+  // send selected objects to chosen students
+  document.getElementById('ctx-send').addEventListener('click', openSendModal);
+  document.getElementById('send-close').addEventListener('click', () => { document.getElementById('send-modal').hidden = true; });
+  document.getElementById('send-all').addEventListener('change', (e) => {
+    document.querySelectorAll('#send-list input').forEach((c) => { c.disabled = e.target.checked; });
+  });
+  document.getElementById('send-confirm').addEventListener('click', () => {
+    const objs = pendingSendObjects;
+    if (!objs || !objs.length) return;
+    const all = document.getElementById('send-all').checked;
+    const targets = all ? null : [...document.querySelectorAll('#send-list input:checked')].map((c) => c.value);
+    if (!all && !targets.length) { toast('Pick at least one student.'); return; }
+    socket.emit('objects:push', { targets, objects: objs }, (r) => {
+      toast(r && r.ok ? `Sent to ${r.count} student${r.count === 1 ? '' : 's'}` : (r && r.error) || 'Send failed');
+    });
+    document.getElementById('send-modal').hidden = true;
+  });
+}
+
+let pendingSendObjects = null;
+
+function openSendModal() {
+  const selected = wb.canvas.getActiveObjects();
+  if (!selected.length) return;
+  wb.canvas.discardActiveObject();
+  wb.canvas.requestRenderAll();
+  pendingSendObjects = selected.map((o) => o.toObject(PERSIST_PROPS));
+  const list = document.getElementById('send-list');
+  list.innerHTML = '';
+  for (const t of document.querySelectorAll('#student-tiles .tile')) {
+    const label = document.createElement('label');
+    label.className = 'chk';
+    label.innerHTML = '<input type="checkbox" disabled /> <span></span>';
+    label.querySelector('input').value = t.dataset.student;
+    label.querySelector('span').textContent = t.dataset.name;
+    list.appendChild(label);
+  }
+  document.getElementById('send-all').checked = true;
+  document.getElementById('send-modal').hidden = false;
+}
+
+function openOverview() {
+  overviewOpen = true;
+  const grid = document.getElementById('overview-grid');
+  grid.innerHTML = '';
+  overviewViewers.clear();
+  const tiles = [...document.querySelectorAll('#student-tiles .tile')];
+  if (!tiles.length) grid.innerHTML = '<p class="hint">No students yet.</p>';
+  for (const t of tiles) {
+    const id = t.dataset.student;
+    const cell = document.createElement('div');
+    cell.className = 'overview-cell';
+    const cv = document.createElement('canvas');
+    cell.appendChild(cv);
+    const nm = document.createElement('div');
+    nm.className = 'overview-name';
+    nm.textContent = t.dataset.name;
+    cell.appendChild(nm);
+    cell.onclick = () => {
+      document.getElementById('overview-close').click();
+      openStudentModal(id);
+    };
+    grid.appendChild(cell);
+    const viewer = new BoardViewer(cv);
+    viewer.setSize(340, 240);
+    const latest = latestStudentBoards.get(id);
+    viewer.load(latest ? latest.json : null);
+    overviewViewers.set(id, viewer);
+  }
+  document.getElementById('overview-modal').hidden = false;
 }
 
 // ================= FEATURE SWITCHES =================
@@ -927,13 +1404,9 @@ function wireStudent() {
   socket.on('teacher:board', ({ json }) => { if (!overlay.hidden) shareViewer.load(json); });
   socket.on('share:stop', () => { overlay.hidden = true; });
 
-  socket.on('template', ({ json }) => {
-    wb.loadJSON(json, () => {
-      wb.fitContent();
-      updatePageNav();
-      sendBoard(wb.getJSON(), wb.getThumb());
-      toast('Your teacher sent you a new board');
-    });
+  socket.on('board:new', ({ meta, by }) => {
+    fetchBoardsList().catch(() => {});
+    toastAction(`${by} sent you a new board: "${meta.title}"`, 'Open it', () => switchBoard(meta.id));
   });
 
   wirePollStudent();
@@ -1142,6 +1615,11 @@ function wireTeacher() {
       if (modalBoardId === boardId) modalViewer.load(json);
       else refreshModalStrip();
     }
+    // teacher is drawing on this student's board on the main canvas: mirror their edits live
+    if (currentBoard && currentBoard.id === boardId && foreignBoardOwner) {
+      wb.loadJSON(json, updatePageNav);
+    }
+    if (overviewOpen && overviewViewers.has(id)) overviewViewers.get(id).load(json);
   });
 
   document.getElementById('share-btn').addEventListener('click', (e) => {
@@ -1152,14 +1630,16 @@ function wireTeacher() {
   });
 
   document.getElementById('push-btn').addEventListener('click', () => {
-    if (confirm('Send your board to every student? This replaces their current board (they can undo).')) {
-      socket.emit('template:push', { json: wb.getJSON() });
-      toast('Board pushed to the class');
+    if (confirm('Send a copy of your board to every student? Each of them gets it as a NEW board in this class.')) {
+      socket.emit('template:push', { json: wb.getJSON(), title: `From ${myName} — ${currentBoard ? currentBoard.title : 'Board'}` }, (r) => {
+        toast(r && r.ok ? `Board sent to ${r.count} student${r.count === 1 ? '' : 's'} as a new board` : (r && r.error) || 'Push failed');
+      });
     }
   });
 
   wirePollTeacher();
   wireFeaturesTeacher();
+  wireTeacherExtras();
   if (authToken) wireRoster();
 }
 

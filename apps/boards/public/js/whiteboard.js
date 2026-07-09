@@ -1,6 +1,9 @@
 /* global fabric */
 'use strict';
 
+// Use pointer events so we can tell fingers (pan/pinch) apart from pens and mice
+if (window.fabric) fabric.enablePointerEvents = true;
+
 function hexToRgba(hex, alpha) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
   if (!m) return hex;
@@ -58,10 +61,33 @@ function downloadDataURL(url, filename) {
   a.remove();
 }
 
-const SHAPE_TOOLS = ['line', 'arrow', 'rect', 'ellipse', 'triangle'];
+const POLY_SHAPES = ['diamond', 'pentagon', 'hexagon', 'star'];
+const SHAPE_TOOLS = ['line', 'arrow', 'rect', 'ellipse', 'triangle', ...POLY_SHAPES];
 
-// Custom/state props that must survive serialization (document pages are locked images)
-const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor', 'isCurve', 'cropX', 'cropY'];
+// Custom/state props that must survive serialization (document pages are locked
+// images; oid anchors comments; erasable gates the partial eraser)
+const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor', 'isCurve', 'cropX', 'cropY', 'erasable', 'oid'];
+
+// Unit-square outlines for the polygon shapes (scaled during drag)
+function unitPoints(kind) {
+  const ring = (n, rot = -Math.PI / 2) => Array.from({ length: n }, (_, i) => ({
+    x: 0.5 + 0.5 * Math.cos(rot + (i * 2 * Math.PI) / n),
+    y: 0.5 + 0.5 * Math.sin(rot + (i * 2 * Math.PI) / n),
+  }));
+  if (kind === 'diamond') return [{ x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 }];
+  if (kind === 'pentagon') return ring(5);
+  if (kind === 'hexagon') return ring(6, 0);
+  if (kind === 'star') {
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? 0.5 : 0.21;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      pts.push({ x: 0.5 + r * Math.cos(a), y: 0.5 + r * Math.sin(a) });
+    }
+    return pts;
+  }
+  return [];
+}
 
 class Whiteboard {
   constructor(canvasId, container, { onChange, onViewChange, onSelection, onModeChange } = {}) {
@@ -78,9 +104,13 @@ class Whiteboard {
 
     this.tool = 'select';
     this.handMode = 'board'; // 'board' pans, 'objects' manipulates
+    this.eraserMode = 'object'; // 'object' removes whole things, 'partial' rubs out strokes
     this.color = '#1e293b';
     this.strokeWidth = 4;
+    this.opacity = 1;
     this.fillShapes = false;
+    // On touch devices, fingers pan/pinch the board while pens and mice use the tools
+    this.fingerPans = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
     this._crop = null;      // active crop session { img, rect }
     this._curveEdit = null; // active curve-edit session
 
@@ -95,9 +125,57 @@ class Whiteboard {
     this._erasedAny = false;
 
     this._bindEvents();
+    this._bindTouchNav();
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this._snapshot();
+  }
+
+  // ---------- touch navigation: fingers pan, two fingers pinch-zoom ----------
+
+  _bindTouchNav() {
+    const el = this.canvas.upperCanvasEl;
+    const active = new Map(); // pointerId -> {x, y}
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || !this.fingerPans) return;
+      e.preventDefault();
+      e.stopImmediatePropagation(); // fabric never sees finger touches in this mode
+      active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }, { capture: true });
+
+    const move = (e) => {
+      if (!active.has(e.pointerId)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const c = this.canvas;
+      const prev = active.get(e.pointerId);
+      const cur = { x: e.clientX, y: e.clientY };
+      if (active.size === 1) {
+        c.relativePan(new fabric.Point(cur.x - prev.x, cur.y - prev.y));
+      } else if (active.size === 2) {
+        const [idA, idB] = [...active.keys()];
+        const otherId = idA === e.pointerId ? idB : idA;
+        const other = active.get(otherId);
+        const d0 = Math.hypot(prev.x - other.x, prev.y - other.y) || 1;
+        const d1 = Math.hypot(cur.x - other.x, cur.y - other.y) || 1;
+        const rect = el.getBoundingClientRect();
+        const mid = new fabric.Point((cur.x + other.x) / 2 - rect.left, (cur.y + other.y) / 2 - rect.top);
+        const zoom = Math.min(8, Math.max(0.1, c.getZoom() * (d1 / d0)));
+        c.zoomToPoint(mid, zoom);
+        c.relativePan(new fabric.Point((cur.x - prev.x) / 2, (cur.y - prev.y) / 2));
+      }
+      active.set(e.pointerId, cur);
+      c.requestRenderAll();
+      this.onViewChange();
+    };
+    const up = (e) => { active.delete(e.pointerId); };
+    window.addEventListener('pointermove', move, { capture: true, passive: false });
+    window.addEventListener('pointerup', up, { capture: true });
+    window.addEventListener('pointercancel', up, { capture: true });
+  }
+
+  setFingerPans(on) {
+    this.fingerPans = !!on;
   }
 
   resize() {
@@ -162,6 +240,11 @@ class Whiteboard {
     this._internal = true;
     this.canvas.loadFromJSON(json, () => {
       this.canvas.backgroundColor = '#ffffff';
+      this.canvas.getObjects().forEach((o) => {
+        if (o.type === 'i-text' || o.type === 'text') {
+          o.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+        }
+      });
       this.canvas.renderAll();
       this._internal = false;
       this._snapshot();
@@ -193,14 +276,19 @@ class Whiteboard {
   _applyToolConfig() {
     const t = this.tool;
     const c = this.canvas;
-    c.isDrawingMode = t === 'pen' || t === 'highlighter';
-    if (c.isDrawingMode) {
+    const partialErase = t === 'eraser' && this.eraserMode === 'partial' && fabric.EraserBrush;
+    c.isDrawingMode = t === 'pen' || t === 'highlighter' || partialErase;
+    if (partialErase) {
+      const brush = new fabric.EraserBrush(c);
+      brush.width = Math.max(this.strokeWidth * 6, 20);
+      c.freeDrawingBrush = brush;
+    } else if (c.isDrawingMode) {
       const brush = new fabric.PencilBrush(c);
       if (t === 'highlighter') {
-        brush.color = hexToRgba(this.color, 0.35);
+        brush.color = hexToRgba(this.color, 0.35 * this.opacity);
         brush.width = Math.max(this.strokeWidth * 5, 18);
       } else {
-        brush.color = this.color;
+        brush.color = this.opacity < 1 ? hexToRgba(this.color, this.opacity) : this.color;
         brush.width = this.strokeWidth;
       }
       c.freeDrawingBrush = brush;
@@ -212,6 +300,22 @@ class Whiteboard {
     if (!objectsMode) {
       c.discardActiveObject();
       c.requestRenderAll();
+    }
+  }
+
+  setEraserMode(mode) {
+    this.eraserMode = mode === 'partial' ? 'partial' : 'object';
+    if (this.tool === 'eraser') this._applyToolConfig();
+  }
+
+  setOpacity(v) {
+    this.opacity = Math.min(1, Math.max(0.05, v));
+    this._applyToolConfig();
+    const active = this.canvas.getActiveObjects();
+    if (this.tool === 'select' && active.length) {
+      active.forEach((o) => o.set('opacity', this.opacity));
+      this.canvas.requestRenderAll();
+      this.commit();
     }
   }
 
@@ -364,7 +468,7 @@ class Whiteboard {
       fabric.Image.fromURL(dataUrls[i], (img) => {
         img.set({
           left: 0, top: y,
-          selectable: false, evented: false,
+          selectable: false, evented: false, erasable: false,
           hoverCursor: 'default',
           docPage: startPage + i + 1,
         });
@@ -695,10 +799,21 @@ class Whiteboard {
     c.on('mouse:move', (opt) => this._onMove(opt));
     c.on('mouse:up', (opt) => this._onUp(opt));
 
-    c.on('object:added', () => this.commit());
+    c.on('object:added', (e) => {
+      // every object gets a stable id so comments can anchor to it
+      if (e.target && !e.target.oid && !e.target.isEditHandle) {
+        e.target.oid = 'o' + Math.random().toString(36).slice(2, 11);
+      }
+      // text scales uniformly only — no squishing from the side handles
+      if (e.target && (e.target.type === 'i-text' || e.target.type === 'text')) {
+        e.target.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+      }
+      this.commit();
+    });
     c.on('object:modified', () => this.commit());
     c.on('object:removed', () => this.commit());
     c.on('text:changed', () => this._emitChange());
+    c.on('erasing:end', () => this.commit()); // partial-eraser stroke finished
 
     c.on('object:moving', (e) => {
       if (this._curveEdit && e.target && e.target.isEditHandle) this._updateCurveEditPreview();
@@ -735,7 +850,8 @@ class Whiteboard {
     const p = c.getPointer(opt.e);
 
     if (t === 'pan' && this.handMode === 'board') {
-      this._panning = true;
+      // track our own deltas — touch/pen events have no movementX/movementY
+      this._panning = { x: opt.e.clientX || 0, y: opt.e.clientY || 0 };
       c.defaultCursor = 'grabbing';
       return;
     }
@@ -769,7 +885,10 @@ class Whiteboard {
     const e = opt.e;
 
     if (this._panning) {
-      c.relativePan(new fabric.Point(e.movementX, e.movementY));
+      const nx = e.clientX || 0;
+      const ny = e.clientY || 0;
+      c.relativePan(new fabric.Point(nx - this._panning.x, ny - this._panning.y));
+      this._panning = { x: nx, y: ny };
       this.onViewChange();
       return;
     }
@@ -823,6 +942,7 @@ class Whiteboard {
     const common = {
       stroke: this.color,
       strokeWidth: this.strokeWidth,
+      opacity: this.opacity,
       fill: this.fillShapes ? hexToRgba(this.color, 0.25) : 'transparent',
       selectable: false,
       evented: false,
@@ -831,14 +951,17 @@ class Whiteboard {
     let obj;
     if (tool === 'line' || tool === 'arrow') {
       obj = new fabric.Line([p.x, p.y, p.x, p.y], {
-        stroke: this.color, strokeWidth: this.strokeWidth, selectable: false, evented: false,
+        stroke: this.color, strokeWidth: this.strokeWidth, opacity: this.opacity, selectable: false, evented: false,
       });
     } else if (tool === 'rect') {
       obj = new fabric.Rect({ ...common, left: p.x, top: p.y, width: 1, height: 1 });
     } else if (tool === 'ellipse') {
       obj = new fabric.Ellipse({ ...common, left: p.x, top: p.y, rx: 1, ry: 1 });
-    } else {
+    } else if (tool === 'triangle') {
       obj = new fabric.Triangle({ ...common, left: p.x, top: p.y, width: 1, height: 1 });
+    } else {
+      // polygon shapes: unit outline scaled while dragging
+      obj = new fabric.Polygon(unitPoints(tool), { ...common, left: p.x, top: p.y, scaleX: 1, scaleY: 1 });
     }
     c.add(obj);
     this._drawing = { tool, origin: p, obj };
@@ -853,6 +976,7 @@ class Whiteboard {
       const h = Math.abs(p.y - origin.y);
       obj.set({ left: Math.min(p.x, origin.x), top: Math.min(p.y, origin.y) });
       if (tool === 'ellipse') obj.set({ rx: w / 2, ry: h / 2 });
+      else if (POLY_SHAPES.includes(tool)) obj.set({ scaleX: Math.max(w, 1), scaleY: Math.max(h, 1) });
       else obj.set({ width: w, height: h });
     }
     obj.setCoords();
@@ -868,7 +992,7 @@ class Whiteboard {
     if (tool === 'line' || tool === 'arrow') {
       tooSmall = Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1) < 4;
     } else {
-      tooSmall = (obj.width || obj.rx * 2 || 0) < 4 && (obj.height || obj.ry * 2 || 0) < 4;
+      tooSmall = obj.getScaledWidth() < 4 && obj.getScaledHeight() < 4;
     }
     if (tooSmall) {
       c.remove(obj);
@@ -891,17 +1015,21 @@ class Whiteboard {
   }
 
   _makeArrow(line) {
+    // One path (shaft + filled head) — grouped line+triangle drifted apart on large arrows
     const { x1, y1, x2, y2 } = line;
     const angle = Math.atan2(y2 - y1, x2 - x1);
     const headLen = Math.max(14, line.strokeWidth * 4);
-    const body = new fabric.Line([x1, y1, x2, y2], { stroke: line.stroke, strokeWidth: line.strokeWidth });
-    const head = new fabric.Triangle({
-      left: x2, top: y2, originX: 'center', originY: 'center',
-      width: headLen, height: headLen,
-      angle: (angle * 180) / Math.PI + 90,
-      fill: line.stroke,
+    const hx1 = x2 - headLen * Math.cos(angle - Math.PI / 7);
+    const hy1 = y2 - headLen * Math.sin(angle - Math.PI / 7);
+    const hx2 = x2 - headLen * Math.cos(angle + Math.PI / 7);
+    const hy2 = y2 - headLen * Math.sin(angle + Math.PI / 7);
+    const bx = x2 - headLen * 0.6 * Math.cos(angle);
+    const by = y2 - headLen * 0.6 * Math.sin(angle);
+    const d = `M ${x1} ${y1} L ${bx} ${by} M ${hx1} ${hy1} L ${x2} ${y2} L ${hx2} ${hy2} L ${hx1} ${hy1} Z`;
+    return new fabric.Path(d, {
+      stroke: line.stroke, strokeWidth: line.strokeWidth, fill: line.stroke,
+      opacity: line.opacity, strokeLineJoin: 'round',
     });
-    return new fabric.Group([body, head]);
   }
 
   // ----- curve tool: drag to set the line, move to bend, click to place -----
@@ -1170,6 +1298,18 @@ class Whiteboard {
     this.onModeChange();
   }
 
+  // ---------- comment anchors ----------
+
+  findByOid(oid) {
+    return this.canvas.getObjects().find((o) => o.oid === oid) || null;
+  }
+
+  // Screen position (within the canvas element) of an object's top-right corner
+  anchorPos(obj) {
+    const r = obj.getBoundingRect(); // viewport coordinates
+    return { x: r.left + r.width, y: r.top };
+  }
+
   // What kind of thing is selected (drives contextual actions)
   getActiveKind() {
     const o = this.canvas.getActiveObject();
@@ -1191,9 +1331,10 @@ class Whiteboard {
     const it = new fabric.IText('', {
       left: p.x,
       top: p.y,
-      fontFamily: 'Arial',
+      fontFamily: 'Bricolage Grotesque',
       fontSize: 28,
       fill: this.color,
+      opacity: this.opacity,
     });
     this._internal = true;
     c.add(it);
@@ -1224,6 +1365,38 @@ class BoardViewer {
   }
   setSize(w, h) {
     this.canvas.setDimensions({ width: w, height: h });
+  }
+  // Let the viewer scroll-pan, ctrl/pinch-zoom, and drag-pan like the main board
+  enableNav() {
+    if (this._nav) return;
+    this._nav = true;
+    const el = this.canvas.lowerCanvasEl;
+    el.style.touchAction = 'none';
+    el.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const c = this.canvas;
+      if (e.ctrlKey || e.metaKey) {
+        let z = Math.min(8, Math.max(0.1, c.getZoom() * Math.pow(0.995, e.deltaY)));
+        const r = el.getBoundingClientRect();
+        c.zoomToPoint(new fabric.Point(e.clientX - r.left, e.clientY - r.top), z);
+      } else {
+        c.relativePan(new fabric.Point(-e.deltaX, -e.deltaY));
+      }
+      c.requestRenderAll();
+    }, { passive: false });
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => {
+      drag = { x: e.clientX, y: e.clientY };
+      try { el.setPointerCapture(e.pointerId); } catch { /* ok */ }
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      this.canvas.relativePan(new fabric.Point(e.clientX - drag.x, e.clientY - drag.y));
+      drag = { x: e.clientX, y: e.clientY };
+      this.canvas.requestRenderAll();
+    });
+    el.addEventListener('pointerup', () => { drag = null; });
+    el.addEventListener('pointercancel', () => { drag = null; });
   }
   load(json) {
     if (!json) {

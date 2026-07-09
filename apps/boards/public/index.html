@@ -248,6 +248,24 @@
           li.onclick = () => {
             location.href = `/board.html?role=${it.mode}&room=${encodeURIComponent(it.code)}&name=${encodeURIComponent(session.name)}`;
           };
+          if (it.mode === 'teacher') {
+            const ren = document.createElement('button');
+            ren.className = 'room-rename';
+            ren.textContent = '✎';
+            ren.title = 'Rename this classroom';
+            ren.onclick = async (e) => {
+              e.stopPropagation();
+              const name = prompt('Classroom name:', it.name || '');
+              if (name === null) return;
+              await fetch(`/api/room/${it.code}/meta`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+                body: JSON.stringify({ name }),
+              });
+              loadMyRooms();
+            };
+            li.appendChild(ren);
+          }
           ul.appendChild(li);
         }
         wrap.hidden = !items.length && !canCreate;
