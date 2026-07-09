@@ -18,20 +18,11 @@
         <span id="status-dot" class="dot offline" title="Connection"></span>
         <span id="save-indicator"></span>
       </div>
-      <div class="topbar-group zoom-controls">
-        <button id="zoom-out" title="Zoom out (Ctrl+scroll)">−</button>
-        <button id="zoom-label" title="Reset to 100%">100%</button>
-        <button id="zoom-in" title="Zoom in (Ctrl+scroll)">+</button>
-        <button id="zoom-fit" title="Fit everything on screen">⛶ Fit</button>
-        <button id="page-prev" title="Previous page" hidden>◀</button>
-        <button id="page-label" title="Document page" hidden>1/1</button>
-        <button id="page-next" title="Next page" hidden>▶</button>
-      </div>
       <div class="topbar-group">
         <button id="ctx-crop" class="action-btn ctx-btn" hidden title="Crop the selected image">Crop</button>
         <button id="ctx-curve" class="action-btn ctx-btn" hidden title="Reshape the selected curve">Edit curve</button>
         <button id="ctx-comment" class="action-btn ctx-btn" hidden title="Comment on the selected item">Comment</button>
-        <button id="ctx-send" class="action-btn ctx-btn teacher-only" hidden title="Send the selected items to students">Send to…</button>
+        <button id="ctx-send" class="action-btn ctx-btn" hidden title="Send the selected items to students">Send to…</button>
         <button id="ctx-apply" class="action-btn ctx-apply" hidden>Apply</button>
         <button id="ctx-cancel" class="action-btn" hidden>Cancel</button>
         <button id="touch-toggle" class="action-btn" hidden title="What your finger does on the board">Finger: pans</button>
@@ -39,7 +30,7 @@
         <button id="students-btn" class="action-btn" hidden>Students</button>
         <button id="poll-btn" class="teacher-only action-btn" hidden>Poll</button>
         <button id="features-btn" class="teacher-only action-btn" hidden>Features</button>
-        <button id="share-btn" class="teacher-only action-btn" hidden>Share my board</button>
+        <button id="share-btn" class="teacher-only action-btn" hidden title="Show your board live on every student's screen">Share</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
         <details id="download-menu">
           <summary class="action-btn" title="Download, clear & more">More ▾</summary>
@@ -109,6 +100,15 @@
 
     <main id="canvas-wrap">
       <canvas id="board"></canvas>
+      <div id="zoom-dock" class="zoom-controls">
+        <button id="zoom-out" title="Zoom out (Ctrl+scroll)">−</button>
+        <button id="zoom-label" title="Reset to 100%">100%</button>
+        <button id="zoom-in" title="Zoom in (Ctrl+scroll)">+</button>
+        <button id="zoom-fit" title="Fit everything on screen">⛶ Fit</button>
+        <button id="page-prev" title="Previous page" hidden>◀</button>
+        <button id="page-label" title="Document page" hidden>1/1</button>
+        <button id="page-next" title="Next page" hidden>▶</button>
+      </div>
       <div id="text-toolbar" hidden>
         <button id="tt-bold" title="Bold"><b>B</b></button>
         <button id="tt-italic" title="Italic"><i>I</i></button>

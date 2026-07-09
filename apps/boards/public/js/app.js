@@ -1546,7 +1546,7 @@ function updateStudentCount() {
 function setSharing(on) {
   const btn = document.getElementById('share-btn');
   btn.classList.toggle('sharing', on);
-  btn.textContent = on ? 'Stop sharing' : 'Share my board';
+  btn.textContent = on ? 'Stop sharing' : 'Share';
   btn.dataset.on = on ? '1' : '';
 }
 

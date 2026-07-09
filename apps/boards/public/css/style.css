@@ -398,7 +398,7 @@ body.landing {
 
 /* Short screens: pack the toolbar row-first into balanced columns
    instead of one full column plus a sparse straggler */
-@media (max-height: 880px) {
+@media (max-height: 940px) {
   #toolbar {
     display: grid;
     grid-template-columns: repeat(2, 44px);
@@ -541,6 +541,16 @@ body.landing {
   display: flex; background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-sm); box-shadow: var(--shadow-1); overflow: hidden; z-index: 5;
 }
+
+/* zoom lives on the canvas (bottom-right), not in the top bar */
+#zoom-dock {
+  position: absolute; bottom: 16px; right: 16px; z-index: 5;
+  display: flex; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-sm); box-shadow: var(--shadow-1); padding: 4px;
+}
+#zoom-dock button { border: none; }
+#zoom-dock button:hover { background: var(--teal-soft); }
 .hand-opt {
   border: none; background: none; padding: 7px 14px; font-size: 13px;
   cursor: pointer; color: var(--muted); font-weight: 600;
