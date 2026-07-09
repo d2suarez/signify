@@ -11,13 +11,22 @@ if (!room && !soloBoardId) location.href = '/';
 
 const isSolo = !room;
 document.title = `${room || 'My board'} — Signify Learning`;
-// Join code is hidden by default (safe to project); only the teacher can reveal it
+// Join code is hidden by default (safe to project); only the teacher can reveal it.
+// The shareable joinCode is separate from the room id and can be reset/disabled.
 let codeHidden = true;
+let joinCode = room;
+let joinDisabled = false;
 function paintCode() {
-  document.getElementById('room-code-text').textContent = codeHidden ? (isSolo ? 'My board' : '•••••') : (room || 'My board');
+  const shown = joinDisabled ? 'joining off' : joinCode;
+  document.getElementById('room-code-text').textContent = codeHidden ? (isSolo ? 'My board' : '•••••') : (shown || 'My board');
   const t = document.getElementById('code-toggle');
   t.textContent = codeHidden ? '👁' : '🙈';
   t.title = codeHidden ? 'Reveal the join code' : 'Hide the join code';
+  const row = document.getElementById('code-controls');
+  if (row) {
+    document.getElementById('code-current').textContent = joinDisabled ? 'Joining by code is OFF' : `Join code: ${joinCode}`;
+    document.getElementById('code-disable').textContent = joinDisabled ? 'Enable joining' : 'Disable joining';
+  }
 }
 document.getElementById('code-toggle').addEventListener('click', () => {
   codeHidden = !codeHidden;
@@ -230,6 +239,9 @@ function flushBoard() {
           setSharing(res.sharing);
           roomFeatures = res.roomFeatures || {};
           studentFeaturesMap = res.studentFeatures || {};
+          if (res.joinCode) joinCode = res.joinCode;
+          joinDisabled = !!res.joinDisabled;
+          paintCode();
         } else {
           if (res.features) applyFeatures(res.features, false);
           if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard);
@@ -1794,6 +1806,26 @@ function wireRoster() {
 
   btn.hidden = false;
   document.getElementById('roster-room').textContent = room;
+
+  // join-code management lives with the rest of class management
+  document.getElementById('code-controls').hidden = false;
+  document.getElementById('code-reset').addEventListener('click', () => {
+    if (!confirm('Reset the join code? The old code stops working immediately; enrolled students are unaffected.')) return;
+    socket.emit('code:reset', {}, (r) => {
+      if (r && r.ok) { joinCode = r.joinCode; joinDisabled = false; paintCode(); toast(`New join code: ${r.joinCode}`); }
+      else toast((r && r.error) || 'Could not reset the code.');
+    });
+  });
+  document.getElementById('code-disable').addEventListener('click', () => {
+    socket.emit('code:toggle', { disabled: !joinDisabled }, (r) => {
+      if (r && r.ok) {
+        joinDisabled = r.joinDisabled;
+        paintCode();
+        toast(joinDisabled ? 'Joining by code is off — only enrolled students can enter' : 'Joining by code is back on');
+      } else toast((r && r.error) || 'Could not update.');
+    });
+  });
+  paintCode();
 
   btn.addEventListener('click', async () => {
     modal.hidden = false;

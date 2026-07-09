@@ -163,6 +163,13 @@ function renderUsers() {
 
     const tdActions = document.createElement('td');
     tdActions.className = 'user-actions';
+    if (can('manage_boards')) {
+      const bb = document.createElement('button');
+      bb.className = 'btn-view';
+      bb.textContent = 'Boards';
+      bb.onclick = () => openUserBoards(u);
+      tdActions.appendChild(bb);
+    }
     if (!u.isSuper) {
       const addBtn = (cls, text, fn) => {
         const b = document.createElement('button');
@@ -195,6 +202,38 @@ async function updateUser(email, patch) {
   } catch (e) {
     toast(e.message, true);
     refresh();
+  }
+}
+
+// All of one user's boards: classrooms and personal
+async function openUserBoards(u) {
+  try {
+    const d = await api('/api/admin/user-boards/' + encodeURIComponent(u.email));
+    document.getElementById('user-boards-title').textContent = `${d.name}'s boards (${d.boards.length})`;
+    const grid = document.getElementById('user-boards-grid');
+    grid.innerHTML = '';
+    if (!d.boards.length) grid.innerHTML = '<p class="hint">This user has no boards yet.</p>';
+    for (const b of d.boards) {
+      const item = document.createElement('div');
+      item.className = 'board-item';
+      if (b.thumb) { const im = document.createElement('img'); im.alt = ''; im.src = b.thumb; item.appendChild(im); }
+      else { const dd = document.createElement('div'); dd.className = 'tile-empty'; dd.textContent = 'No preview'; item.appendChild(dd); }
+      const foot = document.createElement('div');
+      foot.className = 'board-item-foot';
+      foot.innerHTML = '<span class="board-item-name"></span><button class="btn-view">View</button>';
+      foot.querySelector('.board-item-name').textContent = `${b.title} · ${b.roomName || 'Personal'}`;
+      foot.querySelector('.btn-view').onclick = async () => {
+        try {
+          const full = await api(`/api/boards/${b.id}`);
+          openViewer(`${d.name} — ${b.title} (${b.roomName || 'personal board'})`, full.json);
+        } catch (e) { toast(e.message, true); }
+      };
+      item.appendChild(foot);
+      grid.appendChild(item);
+    }
+    document.getElementById('user-boards-modal').hidden = false;
+  } catch (e) {
+    toast(e.message, true);
   }
 }
 
@@ -510,13 +549,30 @@ function renderRooms() {
     wrap.innerHTML = '<p class="hint">No rooms yet.</p>';
     return;
   }
+  // group classrooms by their teacher
+  const groups = new Map();
   for (const r of state.rooms) {
+    const key = r.ownerName || r.owner || 'No teacher assigned';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  for (const [teacher, roomsOf] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const head = document.createElement('h3');
+    head.className = 'room-group-head';
+    head.textContent = `${teacher} · ${roomsOf.length} classroom${roomsOf.length === 1 ? '' : 's'}`;
+    wrap.appendChild(head);
+    for (const r of roomsOf.sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code))) renderRoomCard(wrap, r);
+  }
+}
+
+function renderRoomCard(wrap, r) {
+  {
     const card = document.createElement('div');
     card.className = 'room-card';
     card.innerHTML = `
       <div class="room-card-head">
-        <span class="badge">${r.code}</span>
         <span class="room-title"></span>
+        <span class="badge badge-sm">${r.code}</span>
         <span class="room-meta"></span>
         <span class="room-card-actions">
           <button class="btn-view">Boards</button>
@@ -637,13 +693,15 @@ async function toggleRoomBoards(card, code) {
       item.className = 'board-item';
       // Never interpolate the client-supplied thumb into HTML — set .src as a property
       if (b.thumb) { const im = document.createElement('img'); im.alt = ''; im.src = b.thumb; item.appendChild(im); }
-      else { const d = document.createElement('div'); d.className = 'tile-empty'; d.textContent = 'No preview'; item.appendChild(d); }
+      else { const d = document.createElement('div'); d.className = 'tile-empty'; d.textContent = b.canView === false ? 'Private (other school)' : 'No preview'; item.appendChild(d); }
       const foot = document.createElement('div');
       foot.className = 'board-item-foot';
       foot.innerHTML = '<span class="board-item-name"></span><span><button class="btn-view">View</button><button class="btn-block">Delete</button></span>';
       item.appendChild(foot);
+      if (b.canView === false) foot.querySelector('.btn-view').remove(); // content is domain-private
       item.querySelector('.board-item-name').textContent = `${b.isTeacher ? 'Teacher · ' : ''}${b.ownerName} — ${b.title}`;
-      item.querySelector('.btn-view').onclick = async () => {
+      const viewBtn = item.querySelector('.btn-view');
+      if (viewBtn) viewBtn.onclick = async () => {
         try {
           const full = await api(`/api/boards/${b.id}`);
           openViewer(`${code} — ${b.ownerName} — ${b.title}`, full.json);
@@ -681,6 +739,9 @@ function openViewer(title, json) {
 }
 document.getElementById('viewer-close').addEventListener('click', () => {
   document.getElementById('board-viewer-modal').hidden = true;
+});
+document.getElementById('user-boards-close').addEventListener('click', () => {
+  document.getElementById('user-boards-modal').hidden = true;
 });
 
 // ---------- refresh loop ----------

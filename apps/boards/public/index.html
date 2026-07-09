@@ -12,6 +12,8 @@
     <h1>Signify Learning</h1>
     <p class="subtitle">Draw together. Teachers see every board live.</p>
 
+    <div id="landing-columns">
+    <div id="landing-left">
     <div id="auth-section" hidden>
       <div id="gsi-button"></div>
       <div id="signed-in" hidden>
@@ -42,7 +44,9 @@
     </div>
 
     <p id="landing-error" class="error" hidden></p>
+    </div>
 
+    <div id="landing-right">
     <div id="my-rooms" hidden>
       <h2>My classrooms</h2>
       <ul id="my-rooms-list"></ul>
@@ -61,6 +65,8 @@
     <div id="recent-rooms" hidden>
       <h2>All rooms (admin)</h2>
       <ul id="rooms-list"></ul>
+    </div>
+    </div>
     </div>
   </div>
 
@@ -241,9 +247,8 @@
         ];
         for (const it of items) {
           const li = document.createElement('li');
-          li.innerHTML = `<span class="room-code"></span><span class="room-name"></span><span class="room-meta"></span>`;
-          li.querySelector('.room-code').textContent = it.code;
-          li.querySelector('.room-name').textContent = it.name || '';
+          li.innerHTML = `<span class="room-name"></span><span class="room-meta"></span>`;
+          li.querySelector('.room-name').textContent = it.name || `Class ${it.code}`;
           li.querySelector('.room-meta').textContent = `${it.tag} · ${it.students} student${it.students === 1 ? '' : 's'}`;
           li.onclick = () => {
             location.href = `/board.html?role=${it.mode}&room=${encodeURIComponent(it.code)}&name=${encodeURIComponent(session.name)}`;

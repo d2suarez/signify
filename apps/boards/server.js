@@ -580,7 +580,11 @@ app.get('/api/admin/state', (req, res) => {
     roles,
     users,
     domains: canDomains ? store.domains : [],
-    rooms: canBoards ? listRooms() : [],
+    rooms: canBoards
+      ? listRooms()
+        .filter((r) => admin.isSuper || !r.owner || sameDomainOrAdded(admin, r.owner))
+        .map((r) => ({ ...r, ownerName: r.owner ? displayNameOf(r.owner) : null }))
+      : [],
     sessions,
   });
 });
@@ -774,10 +778,36 @@ app.get('/api/admin/room/:code', (req, res) => {
   const code = sanitizeCode(req.params.code);
   const room = getRoom(code, false);
   if (!room) return res.status(404).json({ error: 'Room not found.' });
-  const boards = roomBoards(code).map((b) => ({
-    ...b, ownerName: room.data.names[b.owner] || displayNameOf(b.owner), isTeacher: b.owner === room.data.owner,
-  }));
+  const boards = roomBoards(code).map((b) => {
+    const view = canViewBoard(admin, b); // domain-scoped, even for the super admin
+    return {
+      ...b, thumb: view ? b.thumb : null, canView: view,
+      ownerName: room.data.names[b.owner] || displayNameOf(b.owner), isTeacher: b.owner === room.data.owner,
+    };
+  });
   res.json({ code, name: room.data.name, owner: room.data.owner, boards });
+});
+
+// Every board a user owns — across classrooms and personal — for the portal
+app.get('/api/admin/user-boards/:email', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_boards');
+  if (!admin) return;
+  const email = String(req.params.email || '').trim().toLowerCase();
+  if (!sameDomainOrAdded(admin, email)) {
+    return res.status(403).json({ error: 'Board viewing is limited to your own school.' });
+  }
+  const boards = [...boardsIndex.values()]
+    .filter((b) => b.owner === email)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((b) => {
+      const room = b.room ? getRoom(b.room, false) : null;
+      return {
+        id: b.id, title: b.title, room: b.room,
+        roomName: room ? (room.data.name || b.room) : null,
+        thumb: b.thumb, updatedAt: b.updatedAt,
+      };
+    });
+  res.json({ email, name: displayNameOf(email), boards });
 });
 
 app.delete('/api/admin/room/:code', (req, res) => {
@@ -898,13 +928,24 @@ function displayNameOf(id) {
 }
 
 // Board access: the owner, an admin, or the teacher who owns the room it lives in
+// Same email domain, or an account this admin added themselves — WITHOUT the
+// super-admin bypass. Board content viewing is domain-private by design.
+function sameDomainOrAdded(user, email) {
+  const rec = store.users[email];
+  return domainOf(email) === domainOf(user.email) || !!(rec && rec.addedBy === user.email);
+}
+
+// Who may see a board's CONTENT: the owner, the teacher of its room, or a
+// board admin for accounts on their own school domain. The super admin is
+// deliberately domain-scoped too — they manage everything but only view
+// boards from their own school.
 function canViewBoard(user, meta) {
   if (meta.owner === user.email) return true;
-  if (user.isSuper || user.perms.includes('manage_boards')) return true;
   if (meta.room) {
     const room = getRoom(meta.room, false);
     if (room && room.data.owner === user.email) return true;
   }
+  if ((user.isSuper || user.perms.includes('manage_boards')) && sameDomainOrAdded(user, meta.owner)) return true;
   return false;
 }
 
@@ -1050,6 +1091,23 @@ function roomFile(code) {
   return path.join(DATA_DIR, `room-${code}.json`);
 }
 
+// The shareable join code is separate from the room id, so it can be reset
+function findRoomByJoinCode(code) {
+  for (const room of rooms.values()) {
+    if (room.data.joinCode === code) return room;
+  }
+  return null;
+}
+
+function generateJoinCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let c;
+  do {
+    c = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  } while (rooms.has(c) || fs.existsSync(roomFile(c)) || findRoomByJoinCode(c));
+  return c;
+}
+
 function roomSummaries() {
   // Union of rooms on disk and live rooms not yet flushed by the debounced save
   const codes = new Set(rooms.keys());
@@ -1086,7 +1144,7 @@ function listRooms() {
 function getRoom(code, createIfMissing) {
   let room = rooms.get(code);
   if (room) return room;
-  let data = { name: '', owner: null, roster: [], features: {}, studentFeatures: {}, messages: [], teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
+  let data = { name: '', owner: null, roster: [], joinCode: code, joinDisabled: false, features: {}, studentFeatures: {}, messages: [], teacherBoard: null, boards: {}, thumbs: {}, names: {}, updatedAt: Date.now() };
   const file = roomFile(code);
   if (fs.existsSync(file)) {
     try {
@@ -1096,6 +1154,7 @@ function getRoom(code, createIfMissing) {
       data.features = data.features || {};
       data.studentFeatures = data.studentFeatures || {};
       data.messages = data.messages || [];
+      data.joinCode = data.joinCode || code; // legacy rooms: join code = room id
     } catch (e) {
       console.error('Could not read saved room', code, e.message);
     }
@@ -1224,8 +1283,21 @@ io.on('connection', (socket) => {
       }
       if (!code || !id) return ack({ error: 'A name and room code are required.' });
 
-      const room = getRoom(code, role === 'teacher');
+      // Resolve by room id (roster links, teachers) or by the shareable join code
+      let room = getRoom(code, false);
+      if (!room) room = findRoomByJoinCode(code);
+      if (!room && role === 'teacher') room = getRoom(code, true);
       if (!room) return ack({ error: `Room "${code}" doesn't exist yet. Check the code with your teacher.` });
+
+      // Students who aren't enrolled yet need a live join code
+      if (role === 'student' && !(room.data.roster || []).includes(id)) {
+        if (room.data.joinCode !== code) {
+          return ack({ error: `Room "${code}" doesn't exist yet. Check the code with your teacher.` });
+        }
+        if (room.data.joinDisabled) {
+          return ack({ error: 'Joining with a code is turned off for this class. Ask your teacher to add you.' });
+        }
+      }
 
       socket.data.code = code;
       socket.data.id = id;
@@ -1267,13 +1339,14 @@ io.on('connection', (socket) => {
           ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson },
           students, sharing: room.sharing,
           roomFeatures: room.data.features, studentFeatures: room.data.studentFeatures,
+          joinCode: room.data.joinCode, joinDisabled: !!room.data.joinDisabled,
         });
       } else {
         room.students.set(id, socket.id);
         room.data.names[id] = name;
-        if (AUTH_ENABLED && !(room.data.roster || []).includes(id)) {
+        if (!(room.data.roster || []).includes(id)) {
           room.data.roster = room.data.roster || [];
-          room.data.roster.push(id); // joining by code enrolls you in the class
+          room.data.roster.push(id); // joining by code enrolls you; re-entry works after a code reset
         }
         scheduleSave(room);
         ack({
@@ -1640,6 +1713,27 @@ io.on('connection', (socket) => {
     const meta = payload && boardsIndex.get(payload.boardId);
     if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
     ack({ ok: true, comments: meta.comments || [] });
+  });
+
+  // ----- join code management (teacher) -----
+
+  socket.on('code:reset', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const room = teacherRoom(socket);
+    if (!room) return ack({ error: 'Only the room teacher can change the join code.' });
+    room.data.joinCode = generateJoinCode();
+    room.data.joinDisabled = false;
+    scheduleSave(room);
+    ack({ ok: true, joinCode: room.data.joinCode, joinDisabled: false });
+  });
+
+  socket.on('code:toggle', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const room = teacherRoom(socket);
+    if (!room) return ack({ error: 'Only the room teacher can change the join code.' });
+    room.data.joinDisabled = !!(payload && payload.disabled);
+    scheduleSave(room);
+    ack({ ok: true, joinCode: room.data.joinCode, joinDisabled: room.data.joinDisabled });
   });
 
   // Teacher toggles feature switches for the whole room or one student

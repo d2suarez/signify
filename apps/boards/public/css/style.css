@@ -59,8 +59,35 @@ body.landing {
   box-shadow: var(--shadow-2);
   padding: 36px;
   width: 100%;
-  max-width: 460px;
+  max-width: 1080px; /* wide layout: classes and boards get real estate */
+  max-height: 92vh;
+  overflow-y: auto;
 }
+
+#landing-columns { display: flex; gap: 36px; align-items: flex-start; }
+#landing-left { width: 320px; flex-shrink: 0; }
+#landing-right { flex: 1; min-width: 0; }
+#landing-right > div:first-child h2 { margin-top: 0; }
+@media (max-width: 880px) {
+  #landing-columns { flex-direction: column; }
+  #landing-left { width: 100%; }
+  #landing-right { width: 100%; }
+}
+
+/* classes & boards as a responsive card grid */
+#my-rooms-list, #personal-boards-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px; max-height: none; overflow: visible;
+}
+#my-rooms-list li, #personal-boards-list li {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  position: relative; padding: 12px 14px;
+}
+#my-rooms-list .room-name, #personal-boards-list .room-name {
+  font-size: 15px; font-weight: 700; white-space: normal;
+}
+#my-rooms-list .room-meta, #personal-boards-list .room-meta { margin-left: 0; }
+#my-rooms-list .room-rename { position: absolute; top: 8px; right: 8px; }
 
 .landing-card h1 { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.02em; }
 .subtitle { margin: 0 0 24px; color: var(--muted); }
@@ -153,10 +180,11 @@ body.landing {
   display: grid;
   /* minmax(0, 1fr): the content row must never grow past the viewport,
      otherwise tools scroll off the bottom of the screen */
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-columns: auto minmax(0, 1fr) auto; /* toolbar column grows if tools wrap */
   grid-template-areas: "top top top" "tools canvas students";
   height: 100vh;
+  height: 100dvh; /* iPad/phone: 100vh overshoots past the browser chrome */
   overflow: hidden;
   background: var(--bg);
 }
@@ -164,10 +192,18 @@ body.landing {
 #topbar {
   grid-area: top;
   display: flex; align-items: center; justify-content: space-between;
-  background: var(--surface); color: var(--ink); padding: 0 12px; gap: 12px;
+  flex-wrap: wrap; /* narrow screens (iPad): wrap to a second row instead of clipping */
+  min-height: 48px; row-gap: 4px;
+  background: var(--surface); color: var(--ink); padding: 4px 12px; gap: 12px;
   border-bottom: 1px solid var(--line);
   box-shadow: var(--shadow-1);
   position: relative; z-index: 10;
+}
+.topbar-group { flex-wrap: wrap; row-gap: 4px; }
+#code-controls {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--teal-soft);
+  font-weight: 700; font-size: 14px; color: var(--teal-dark);
 }
 .topbar-group { display: flex; align-items: center; gap: 8px; }
 .badge {
@@ -520,7 +556,7 @@ body.landing {
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
-#graph-modal, #chart-modal, #features-modal, #suspend-modal {
+#graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }
@@ -698,6 +734,11 @@ body.admin { background: var(--bg); color: var(--ink); min-height: 100vh; }
   font-weight: 600; background: var(--surface);
 }
 
+.room-group-head {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+  margin: 18px 0 8px; font-weight: 700; border-bottom: 1px solid var(--line); padding-bottom: 4px;
+}
+.badge-sm { font-size: 11px; padding: 2px 7px; letter-spacing: 1px; }
 .room-card { border: 1px solid var(--line); border-radius: var(--r); margin-bottom: 12px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-1); }
 .room-card-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; flex-wrap: wrap; }
 .room-title { font-weight: 700; }
