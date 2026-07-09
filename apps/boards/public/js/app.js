@@ -11,14 +11,21 @@ if (!room && !soloBoardId) location.href = '/';
 
 const isSolo = !room;
 document.title = `${room || 'My board'} — Signify Learning`;
-document.getElementById('room-code-text').textContent = room || 'My board';
-// hide/reveal the join code (useful when projecting)
-let codeHidden = false;
+// Join code is hidden by default (safe to project); only the teacher can reveal it
+let codeHidden = true;
+function paintCode() {
+  document.getElementById('room-code-text').textContent = codeHidden ? (isSolo ? 'My board' : '•••••') : (room || 'My board');
+  const t = document.getElementById('code-toggle');
+  t.textContent = codeHidden ? '👁' : '🙈';
+  t.title = codeHidden ? 'Reveal the join code' : 'Hide the join code';
+}
 document.getElementById('code-toggle').addEventListener('click', () => {
   codeHidden = !codeHidden;
-  document.getElementById('room-code-text').textContent = codeHidden ? '•••••' : (room || 'My board');
+  paintCode();
 });
-if (isSolo) document.getElementById('code-toggle').hidden = true;
+// students never see the reveal control — they don't need the code once they're in
+if (isSolo || role !== 'teacher') document.getElementById('code-toggle').hidden = true;
+paintCode();
 
 // the page itself must never zoom — only the board (pinch/ctrl-scroll on canvas)
 document.addEventListener('gesturestart', (e) => e.preventDefault());
