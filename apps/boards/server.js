@@ -1,4 +1,7 @@
 const express = require('express');
+const compression = require('compression');
+const zlib = require('zlib');
+const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -188,7 +191,12 @@ function verifySession(token) {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { maxHttpBufferSize: 30 * 1024 * 1024 });
+// perMessageDeflate: board JSON is highly compressible text — this is the
+// single biggest egress (cost) saver for live drawing sync
+const io = new Server(server, {
+  maxHttpBufferSize: 30 * 1024 * 1024,
+  perMessageDeflate: { threshold: 1024 },
+});
 
 // Canonical host: send external requests for any other hostname (e.g. the old
 // Railway URL) to CANONICAL_HOST. Gated on x-forwarded-proto so internal health
@@ -204,6 +212,9 @@ if (CANONICAL_HOST) {
   });
 }
 
+app.use(compression()); // gzip responses — cuts static + API egress ~3-5x
+// vendored libraries change rarely: let browsers cache them for a week
+app.use('/vendor', express.static(path.join(__dirname, 'public', 'vendor'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '1mb' }));
 
@@ -331,7 +342,9 @@ app.get('/api/my/rooms', (req, res) => {
   const teaching = [];
   const enrolled = [];
   for (const r of roomSummaries()) {
-    const item = { code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length };
+    // the requester's own latest board in that class makes the best card preview
+    const mine = boardsFor(user.email, r.code)[0];
+    const item = { code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length, thumb: mine ? mine.thumb : null };
     if (r.owner === user.email) teaching.push(item);
     if (r.roster.includes(user.email)) enrolled.push(item);
   }
@@ -662,6 +675,18 @@ app.delete('/api/admin/user/:email', (req, res) => {
   res.json({ ok: true });
 });
 
+// Full data export — pull this to your own computer for true off-site backup
+app.get('/api/admin/backup', (req, res) => {
+  const admin = requireAuthed(req, res);
+  if (!admin) return;
+  if (!admin.isSuper) return res.status(403).json({ error: 'Only the super admin can download backups.' });
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="signify-backup-${new Date().toISOString().slice(0, 10)}.tar.gz"`);
+  const tar = spawn('tar', ['-czf', '-', '--exclude=./backups', '-C', DATA_DIR, '.']);
+  tar.stdout.pipe(res);
+  tar.on('error', () => res.end());
+});
+
 app.post('/api/admin/users/bulk', (req, res) => {
   const admin = requirePerm(req, res, 'manage_users');
   if (!admin) return;
@@ -866,7 +891,59 @@ function flushBoardSoon(id) {
     fs.writeFile(boardFile(id), JSON.stringify({ ...meta, json: json || null }), (err) => {
       if (err) console.error('Board save failed', id, err.message);
     });
+    maybeSnapshot(id, json);
   }, 800));
+}
+
+// ---------- version history: gzipped snapshots every ~10 minutes ----------
+
+const HIST_MAX = 8;                       // snapshots kept per board
+const HIST_MIN_MS = 10 * 60 * 1000;       // min gap between snapshots
+const HIST_SKIP_BYTES = 4 * 1024 * 1024;  // huge boards (embedded docs) skip history
+
+function histFiles(id) {
+  return fs.readdirSync(DATA_DIR)
+    .filter((f) => f.startsWith(`hist-${id}-`) && f.endsWith('.json.gz'))
+    .sort();
+}
+
+function histTs(f) {
+  const m = /^hist-[a-f0-9]+-(\d+)\.json\.gz$/.exec(f);
+  return m ? Number(m[1]) : 0;
+}
+
+function maybeSnapshot(id, json, force) {
+  try {
+    if (!json) return;
+    const str = JSON.stringify(json);
+    if (str.length > HIST_SKIP_BYTES) return;
+    const files = histFiles(id);
+    const lastTs = files.length ? histTs(files[files.length - 1]) : 0;
+    if (!force && Date.now() - lastTs < HIST_MIN_MS) return;
+    fs.writeFileSync(path.join(DATA_DIR, `hist-${id}-${Date.now()}.json.gz`), zlib.gzipSync(str));
+    const all = histFiles(id);
+    while (all.length > HIST_MAX) fs.unlinkSync(path.join(DATA_DIR, all.shift()));
+  } catch (e) {
+    console.error('History snapshot failed', id, e.message);
+  }
+}
+
+function histList(id) {
+  return histFiles(id).map(histTs).filter(Boolean).sort((a, b) => b - a);
+}
+
+function histRestore(id, ts) {
+  const file = path.join(DATA_DIR, `hist-${id}-${ts}.json.gz`);
+  if (!fs.existsSync(file)) return null;
+  const json = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString());
+  // snapshot the current state first so a restore is itself undoable
+  maybeSnapshot(id, readBoardJSON(id), true);
+  updateBoard(id, { json });
+  return json;
+}
+
+function deleteHistory(id) {
+  for (const f of histFiles(id)) fs.unlinkSync(path.join(DATA_DIR, f));
 }
 
 function createBoard({ owner, room, title, json, thumb }) {
@@ -911,6 +988,7 @@ function deleteBoard(id) {
   clearTimeout(boardTimers.get(id));
   boardTimers.delete(id);
   fs.unlink(boardFile(id), () => {});
+  try { deleteHistory(id); } catch { /* best effort */ }
 }
 
 function boardsFor(owner, room) {
@@ -1002,6 +1080,35 @@ app.delete('/api/boards/:id', (req, res) => {
   }
   deleteBoard(meta.id);
   res.json({ ok: true });
+});
+
+app.get('/api/boards/:id/history', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (!canViewBoard(user, meta)) return res.status(403).json({ error: 'You do not have access to this board.' });
+  res.json({ versions: histList(meta.id) });
+});
+
+app.post('/api/boards/:id/restore', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  const isRoomTeacher = meta.room && (getRoom(meta.room, false) || { data: {} }).data.owner === user.email;
+  if (meta.owner !== user.email && !isRoomTeacher) {
+    return res.status(403).json({ error: 'Only the board owner or their teacher can restore versions.' });
+  }
+  const json = histRestore(meta.id, Number(req.body.ts));
+  if (!json) return res.status(404).json({ error: 'That version no longer exists.' });
+  // live-update anyone currently on this board
+  for (const s of io.of('/').sockets.values()) {
+    if (s.data && s.data.code === meta.room && (s.data.id === meta.owner || s.data.role === 'teacher')) {
+      s.emit('board:peer', { boardId: meta.id, json, by: user.name, note: 'Board restored to an earlier version' });
+    }
+  }
+  res.json({ ok: true, json });
 });
 
 app.post('/api/boards/:id/transfer', (req, res) => {
@@ -1251,6 +1358,21 @@ function teacherRoom(socket) {
   return rooms.get(code) || null;
 }
 
+// What's on the class stage right now (teacher's live board or a student's latest)
+function stageJson(room) {
+  if (room.sharing === 'teacher') return room.lastTeacherJson;
+  if (room.sharing) {
+    const latest = boardsFor(room.sharing, room.code)[0];
+    return latest ? readBoardJSON(latest.id) : null;
+  }
+  return null;
+}
+
+function stageBy(room) {
+  if (room.sharing === 'teacher') return 'Your teacher';
+  return room.data.names[room.sharing] || displayNameOf(room.sharing);
+}
+
 // ---------- sockets ----------
 
 io.use((socket, next) => {
@@ -1337,7 +1459,7 @@ io.on('connection', (socket) => {
         }
         ack({
           ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson },
-          students, sharing: room.sharing,
+          students, sharing: room.sharing, shareBy: room.sharing ? stageBy(room) : null,
           roomFeatures: room.data.features, studentFeatures: room.data.studentFeatures,
           joinCode: room.data.joinCode, joinDisabled: !!room.data.joinDisabled,
         });
@@ -1349,13 +1471,15 @@ io.on('connection', (socket) => {
           room.data.roster.push(id); // joining by code enrolls you; re-entry works after a code reset
         }
         scheduleSave(room);
+        const onStage = room.sharing && room.sharing !== id; // the spotlighted kid keeps drawing, no overlay
         ack({
           ok: true,
           name,
           boards: myBoards,
           activeBoard: { id: active.id, json: activeJson },
-          sharing: room.sharing,
-          teacherBoard: room.sharing ? room.lastTeacherJson : null,
+          sharing: onStage ? room.sharing : false,
+          teacherBoard: onStage ? stageJson(room) : null,
+          shareBy: onStage ? stageBy(room) : null,
           features: effectiveFeatures(room, id),
         });
         emitToTeacher(room, 'student:joined', {
@@ -1396,7 +1520,11 @@ io.on('connection', (socket) => {
 
     if (role === 'teacher' && isOwner) {
       room.lastTeacherJson = json;
-      if (room.sharing) socket.to(code).emit('teacher:board', { json });
+      if (room.sharing === 'teacher') socket.to(code).emit('teacher:board', { json });
+    }
+    // spotlighted student drawing: stream their board to the class stage
+    if (room.sharing && room.sharing === meta.owner && role === 'student') {
+      socket.to(code).emit('teacher:board', { json });
     }
     if (meta.owner !== room.data.owner && room.teacher && room.teacher !== socket.id) {
       // keep the teacher dashboard fresh for student-owned boards
@@ -1496,17 +1624,55 @@ io.on('connection', (socket) => {
     ack({ ok: true, meta: copy, moved: false });
   });
 
+  socket.on('board:history', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
+    ack({ ok: true, versions: histList(meta.id) });
+  });
+
+  socket.on('board:restore', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!canTouchBoardSocket(socket, meta)) return ack({ error: 'Not allowed.' });
+    const json = histRestore(meta.id, Number(payload.ts));
+    if (!json) return ack({ error: 'That version no longer exists.' });
+    for (const s of io.of('/').sockets.values()) {
+      if (s.id !== socket.id && s.data && s.data.code === meta.room && (s.data.id === meta.owner || s.data.role === 'teacher')) {
+        s.emit('board:peer', { boardId: meta.id, json, by: socket.data.name, note: 'Board restored to an earlier version' });
+      }
+    }
+    ack({ ok: true, json });
+  });
+
   socket.on('student:boards', (payload, ack) => {
     const { code, role } = socket.data || {};
     if (!code || role !== 'teacher' || typeof ack !== 'function') return;
     ack(boardsFor(String(payload && payload.student || ''), code));
   });
 
-  socket.on('share:start', () => {
+  // The class "stage": room.sharing is false, 'teacher', or a spotlighted student id
+  socket.on('share:start', (payload, ack) => {
     const room = teacherRoom(socket);
     if (!room) return;
-    room.sharing = true;
-    socket.to(room.code).emit('share:start', { json: room.data.teacherBoard });
+    room.sharing = 'teacher';
+    socket.to(room.code).emit('share:start', { json: room.lastTeacherJson, by: 'Your teacher' });
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  socket.on('spotlight:start', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    const sid = payload && String(payload.student || '');
+    if (!room || !sid) return done({ error: 'Not allowed.' });
+    room.sharing = sid;
+    const json = stageJson(room);
+    const by = stageBy(room);
+    for (const [stuId, sockId] of room.students) {
+      if (stuId === sid) io.to(sockId).emit('spotlight:you');
+      else io.to(sockId).emit('share:start', { json, by });
+    }
+    done({ ok: true, by });
   });
 
   socket.on('share:stop', () => {
@@ -1776,6 +1942,37 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// ---------- backups: daily local rotation + on-demand super-admin download ----------
+
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+
+function runBackup() {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const name = `backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+    const tmp = path.join(BACKUP_DIR, name + '.tmp');
+    const out = fs.createWriteStream(tmp);
+    const tar = spawn('tar', ['-czf', '-', '--exclude=./backups', '-C', DATA_DIR, '.']);
+    tar.stdout.pipe(out);
+    tar.on('close', (code) => {
+      if (code === 0) {
+        fs.renameSync(tmp, path.join(BACKUP_DIR, name));
+        const all = fs.readdirSync(BACKUP_DIR).filter((f) => f.startsWith('backup-') && f.endsWith('.tar.gz')).sort();
+        while (all.length > 7) fs.unlinkSync(path.join(BACKUP_DIR, all.shift()));
+        console.log('Backup written:', name);
+      } else {
+        fs.unlink(tmp, () => {});
+        console.error('Backup failed, tar exit code', code);
+      }
+    });
+    tar.on('error', (e) => console.error('Backup failed:', e.message));
+  } catch (e) {
+    console.error('Backup failed:', e.message);
+  }
+}
+setTimeout(runBackup, 60 * 1000);
+setInterval(runBackup, 24 * 60 * 60 * 1000);
 
 // Build the board index and migrate any legacy single-board rooms at startup
 loadBoardsIndex();

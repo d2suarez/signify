@@ -81,8 +81,18 @@ body.landing {
 }
 #my-rooms-list li, #personal-boards-list li {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  position: relative; padding: 12px 14px;
+  position: relative; padding: 0 0 10px; overflow: hidden;
 }
+.card-thumb {
+  width: 100%; height: 92px; object-fit: contain; background: #fff;
+  border-bottom: 1px solid var(--line); margin-bottom: 8px; display: block;
+}
+.card-thumb-empty {
+  display: flex; align-items: center; justify-content: center;
+  color: #D8DCE0; font-size: 26px;
+}
+#my-rooms-list .room-name, #personal-boards-list .room-name { padding: 0 14px; }
+#my-rooms-list .room-meta, #personal-boards-list .room-meta { padding: 0 14px; }
 #my-rooms-list .room-name, #personal-boards-list .room-name {
   font-size: 15px; font-weight: 700; white-space: normal;
 }
@@ -601,7 +611,7 @@ body.landing {
 .overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
-#graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal {
+#graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal, #history-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }

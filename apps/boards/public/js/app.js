@@ -236,7 +236,7 @@ function flushBoard() {
         }
         if (role === 'teacher') {
           (res.students || []).forEach((s) => upsertStudent(s));
-          setSharing(res.sharing);
+          setSharing(res.sharing, res.shareBy);
           roomFeatures = res.roomFeatures || {};
           studentFeaturesMap = res.studentFeatures || {};
           if (res.joinCode) joinCode = res.joinCode;
@@ -244,7 +244,7 @@ function flushBoard() {
           paintCode();
         } else {
           if (res.features) applyFeatures(res.features, false);
-          if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard);
+          if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard, res.shareBy);
         }
       } else if (currentBoard) {
         // Reconnected: our local board is the source of truth
@@ -346,6 +346,7 @@ function renderBoardsGrid(list) {
         <button class="btn-view b-rename" title="Rename">✎</button>
         <button class="btn-view b-dup" title="Duplicate">⧉</button>
         <button class="btn-view b-transfer" title="Copy or move to another class">➜</button>
+        <button class="btn-view b-hist" title="Version history">🕘</button>
         <button class="btn-block b-del" title="Delete">🗑</button>
       </div>`;
     card.insertBefore(boardThumbNode(b.thumb, 'Empty board'), card.firstChild);
@@ -370,6 +371,7 @@ function renderBoardsGrid(list) {
       } catch (e) { toast(e.message); }
     };
     card.querySelector('.b-transfer').onclick = () => openTransferModal(b);
+    card.querySelector('.b-hist').onclick = () => openHistoryModal(b);
     card.querySelector('.b-del').onclick = async () => {
       if (!confirm(`Delete "${b.title}"? This cannot be undone.`)) return;
       try {
@@ -387,6 +389,63 @@ function renderBoardsGrid(list) {
     grid.appendChild(card);
   }
 }
+
+// ----- version history -----
+
+async function historyVersions(id) {
+  if (isSolo) return (await authedFetch(`/api/boards/${id}/history`)).versions;
+  return new Promise((res, rej) => socket.emit('board:history', { boardId: id }, (r) =>
+    (r && r.ok ? res(r.versions) : rej(new Error((r && r.error) || 'No access.')))));
+}
+
+async function historyRestoreVersion(id, ts) {
+  if (isSolo) return (await authedFetch(`/api/boards/${id}/restore`, { method: 'POST', body: JSON.stringify({ ts }) })).json;
+  return new Promise((res, rej) => socket.emit('board:restore', { boardId: id, ts }, (r) =>
+    (r && r.ok ? res(r.json) : rej(new Error((r && r.error) || 'Restore failed.')))));
+}
+
+async function openHistoryModal(b) {
+  document.getElementById('history-board-title').textContent = b.title;
+  const list = document.getElementById('history-list');
+  list.innerHTML = '<p class="hint">Loading…</p>';
+  document.getElementById('history-modal').hidden = false;
+  try {
+    const versions = await historyVersions(b.id);
+    list.innerHTML = '';
+    if (!versions.length) {
+      list.innerHTML = '<p class="hint">No snapshots yet — they appear once a board has been edited for a while.</p>';
+      return;
+    }
+    for (const ts of versions) {
+      const when = new Date(ts);
+      const row = document.createElement('div');
+      row.className = 'roster-row';
+      row.innerHTML = '<span class="roster-who"><span class="roster-name"></span></span>';
+      row.querySelector('.roster-name').textContent = when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const btn = document.createElement('button');
+      btn.className = 'btn-approve';
+      btn.textContent = 'Restore';
+      btn.onclick = async () => {
+        if (!confirm(`Restore "${b.title}" to ${when.toLocaleString()}? The current version is snapshotted first, so this is reversible.`)) return;
+        try {
+          const json = await historyRestoreVersion(b.id, ts);
+          if (currentBoard && currentBoard.id === b.id) wb.loadJSON(json, updatePageNav);
+          document.getElementById('history-modal').hidden = true;
+          document.getElementById('boards-modal').hidden = true;
+          toast('Board restored');
+        } catch (e) { toast(e.message); }
+      };
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  } catch (e) {
+    list.innerHTML = '';
+    toast(e.message);
+  }
+}
+document.getElementById('history-close').addEventListener('click', () => {
+  document.getElementById('history-modal').hidden = true;
+});
 
 // ----- copy / move to another class -----
 
@@ -1194,6 +1253,16 @@ function wireTeacherExtras() {
     if (mine.length) await switchBoard(mine[0].id);
     else await createBoardAndSwitch();
   });
+  document.getElementById('modal-spotlight').addEventListener('click', () => {
+    if (!modalStudent) return;
+    socket.emit('spotlight:start', { student: modalStudent.id }, (r) => {
+      if (r && r.ok) {
+        setSharing(modalStudent.id, modalStudent.name);
+        document.getElementById('student-modal').hidden = true;
+        toast(`${modalStudent.name}'s board is on everyone's screen — click "Stop spotlight" to end`);
+      } else toast((r && r.error) || 'Could not spotlight.');
+    });
+  });
   document.getElementById('modal-copy').addEventListener('click', () => {
     if (!modalBoardId) return;
     socket.emit('board:copy-as', { boardId: modalBoardId }, (r) => {
@@ -1423,7 +1492,9 @@ function wireStudent() {
   }
   window.addEventListener('resize', () => { if (!overlay.hidden) sizeShareViewer(); });
 
-  studentUI.showShare = (json) => {
+  studentUI.showShare = (json, by) => {
+    document.getElementById('share-banner').textContent =
+      !by || by === 'Your teacher' ? 'Your teacher is sharing their board' : `${by}'s board is on screen — nice work!`;
     overlay.hidden = false;
     sizeShareViewer();
     shareViewer.load(json);
@@ -1431,7 +1502,8 @@ function wireStudent() {
 
   socket.on('features:update', ({ features }) => applyFeatures(features, true));
 
-  socket.on('share:start', ({ json }) => studentUI.showShare(json));
+  socket.on('share:start', ({ json, by }) => studentUI.showShare(json, by));
+  socket.on('spotlight:you', () => toast('Your board is being shown to the whole class!'));
   socket.on('teacher:board', ({ json }) => { if (!overlay.hidden) shareViewer.load(json); });
   socket.on('share:stop', () => { overlay.hidden = true; });
 
@@ -1543,11 +1615,15 @@ function updateStudentCount() {
   document.getElementById('student-count').textContent = tiles.length;
 }
 
-function setSharing(on) {
+let sharingMode = false; // false | 'teacher' | spotlighted student id
+function setSharing(mode, by) {
+  sharingMode = mode || false;
   const btn = document.getElementById('share-btn');
-  btn.classList.toggle('sharing', on);
-  btn.textContent = on ? 'Stop sharing' : 'Share';
-  btn.dataset.on = on ? '1' : '';
+  btn.classList.toggle('sharing', !!sharingMode);
+  btn.textContent = !sharingMode ? 'Share' : (sharingMode === 'teacher' ? 'Stop sharing' : 'Stop spotlight');
+  btn.title = sharingMode && sharingMode !== 'teacher'
+    ? `${by || 'A student'}'s board is on every screen — click to stop`
+    : "Show your board live on every student's screen";
 }
 
 async function openStudentModal(id) {
@@ -1653,11 +1729,16 @@ function wireTeacher() {
     if (overviewOpen && overviewViewers.has(id)) overviewViewers.get(id).load(json);
   });
 
-  document.getElementById('share-btn').addEventListener('click', (e) => {
-    const on = !e.currentTarget.dataset.on;
-    socket.emit(on ? 'share:start' : 'share:stop');
-    setSharing(on);
-    toast(on ? 'Students now see your board' : 'Stopped sharing');
+  document.getElementById('share-btn').addEventListener('click', () => {
+    if (sharingMode) {
+      socket.emit('share:stop');
+      setSharing(false);
+      toast('Stopped sharing');
+    } else {
+      socket.emit('share:start');
+      setSharing('teacher');
+      toast('Students now see your board');
+    }
   });
 
   document.getElementById('push-btn').addEventListener('click', () => {

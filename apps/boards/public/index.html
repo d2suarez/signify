@@ -248,6 +248,19 @@
         for (const it of items) {
           const li = document.createElement('li');
           li.innerHTML = `<span class="room-name"></span><span class="room-meta"></span>`;
+          // board preview on top of the card (set .src as a property — never innerHTML)
+          if (it.thumb) {
+            const im = document.createElement('img');
+            im.className = 'card-thumb';
+            im.alt = '';
+            im.src = it.thumb;
+            li.insertBefore(im, li.firstChild);
+          } else {
+            const ph = document.createElement('div');
+            ph.className = 'card-thumb card-thumb-empty';
+            ph.textContent = '✎';
+            li.insertBefore(ph, li.firstChild);
+          }
           li.querySelector('.room-name').textContent = it.name || `Class ${it.code}`;
           li.querySelector('.room-meta').textContent = `${it.tag} · ${it.students} student${it.students === 1 ? '' : 's'}`;
           li.onclick = () => {
@@ -290,9 +303,21 @@
         const boards = await r.json();
         const ul = document.getElementById('personal-boards-list');
         ul.innerHTML = '';
-        for (const b of boards.slice(0, 10)) {
+        for (const b of boards.slice(0, 12)) {
           const li = document.createElement('li');
           li.innerHTML = `<span class="room-name"></span><span class="room-meta"></span>`;
+          if (b.thumb) {
+            const im = document.createElement('img');
+            im.className = 'card-thumb';
+            im.alt = '';
+            im.src = b.thumb;
+            li.insertBefore(im, li.firstChild);
+          } else {
+            const ph = document.createElement('div');
+            ph.className = 'card-thumb card-thumb-empty';
+            ph.textContent = '✎';
+            li.insertBefore(ph, li.firstChild);
+          }
           li.querySelector('.room-name').textContent = b.title;
           li.querySelector('.room-meta').textContent = b.updatedAt ? new Date(b.updatedAt).toLocaleDateString() : '';
           li.onclick = () => { location.href = `/board.html?board=${encodeURIComponent(b.id)}`; };

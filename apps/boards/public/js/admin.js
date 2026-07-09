@@ -91,6 +91,23 @@ function applyNavVisibility() {
 
 document.getElementById('admin-refresh').addEventListener('click', () => refresh(true));
 
+document.getElementById('backup-btn').addEventListener('click', async () => {
+  toast('Preparing backup…');
+  try {
+    const res = await fetch('/api/admin/backup', { headers: { Authorization: 'Bearer ' + session.token } });
+    if (!res.ok) throw new Error('Backup failed.');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `signify-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Backup downloaded — keep a copy somewhere safe');
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
 // ---------- rendering ----------
 
 function fmtTime(t) {
@@ -750,6 +767,7 @@ async function refresh(manual) {
   try {
     state = await api('/api/admin/state');
     document.getElementById('admin-me').textContent = `${state.me.name || state.me.email} · ${roleLabel(state.me.role)}`;
+    document.getElementById('backup-btn').hidden = !state.me.isSuper;
     applyNavVisibility();
     renderAddUserRoles();
     renderDomainFeatures();
