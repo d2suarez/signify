@@ -630,11 +630,22 @@ function userView(email, rec) {
     role: effectiveRole(email),
     status: accessStatus(email),
     isSuper: isSuperAdmin(email),
+    grade: (rec && rec.grade) || '',
+    school: domainOf(email),
     addedBy: (rec && rec.addedBy) || null,
     suspendUntil: (rec && rec.status === 'suspended' && rec.suspendUntil) || null,
     firstSeen: rec ? rec.firstSeen : null,
     lastSeen: rec ? rec.lastSeen : null,
   };
+}
+
+// Grade levels, in promotion order. 'Graduated' is the terminal step past 12.
+const GRADES = ['Pre-K', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'Graduated'];
+
+function nextGrade(g) {
+  const i = GRADES.indexOf(g);
+  if (i < 0 || i >= GRADES.length - 1) return null; // unset or already Graduated
+  return GRADES[i + 1];
 }
 
 app.get('/api/admin/state', (req, res) => {
@@ -686,6 +697,8 @@ app.get('/api/admin/state', (req, res) => {
   res.json({
     me: admin,
     permissions: PERMISSIONS,
+    grades: GRADES,
+    schools: admin.isSuper ? [...new Set(Object.keys(store.users).map(domainOf))].sort() : [domainOf(admin.email)],
     features: FEATURES,
     domainFeatures,
     roles,
@@ -786,6 +799,9 @@ app.post('/api/admin/user', (req, res) => {
     return res.status(403).json({ error: 'Only the super admin can assign roles with admin permissions.' });
   }
   if (status && !['approved', 'pending', 'blocked', 'suspended'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
+  if (req.body.grade !== undefined && req.body.grade !== '' && !GRADES.includes(req.body.grade)) {
+    return res.status(400).json({ error: 'Unknown grade level.' });
+  }
 
   const now = Date.now();
   let rec = store.users[email];
@@ -804,8 +820,62 @@ app.post('/api/admin/user', (req, res) => {
     appendAudit(admin.email, 'user:' + status, email);
   }
   if (role) appendAudit(admin.email, 'user:role', `${email} → ${role}`);
+  if (req.body.grade !== undefined) {
+    if (req.body.grade === '') delete rec.grade;
+    else rec.grade = req.body.grade;
+    appendAudit(admin.email, 'user:grade', `${email} → ${req.body.grade || 'none'}`);
+  }
   saveStore();
   res.json(userView(email, rec));
+});
+
+// Set one grade on many students at once
+app.post('/api/admin/users/grade', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const grade = String(req.body.grade || '');
+  if (grade !== '' && !GRADES.includes(grade)) return res.status(400).json({ error: 'Unknown grade level.' });
+  const emails = Array.isArray(req.body.emails) ? req.body.emails.slice(0, 500) : [];
+  const updated = [];
+  const skipped = [];
+  for (const raw of emails) {
+    const email = String(raw).trim().toLowerCase();
+    const rec = store.users[email];
+    if (!rec || isSuperAdmin(email) || !canManageTarget(admin, email)) { skipped.push(email); continue; }
+    if (grade === '') delete rec.grade; else rec.grade = grade;
+    updated.push(email);
+  }
+  if (updated.length) {
+    appendAudit(admin.email, 'user:grade-bulk', `${updated.length} → ${grade || 'none'}`);
+    saveStore();
+  }
+  res.json({ ok: true, updated: updated.length, skipped: skipped.length });
+});
+
+// Move students up one grade — everyone in scope, or just the selected emails
+app.post('/api/admin/users/promote', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const only = Array.isArray(req.body.emails) && req.body.emails.length
+    ? new Set(req.body.emails.map((e) => String(e).trim().toLowerCase()))
+    : null;
+  let promoted = 0; let graduated = 0; let noGrade = 0;
+  for (const [email, rec] of Object.entries(store.users)) {
+    if (only && !only.has(email)) continue;
+    if (isSuperAdmin(email) || !canManageTarget(admin, email)) continue;
+    if (effectiveRole(email) !== 'student') continue; // only students advance
+    if (!rec.grade) { noGrade++; continue; }
+    const next = nextGrade(rec.grade);
+    if (!next) continue; // already Graduated
+    rec.grade = next;
+    promoted++;
+    if (next === 'Graduated') graduated++;
+  }
+  if (promoted) {
+    appendAudit(admin.email, 'user:promote', `${promoted} student${promoted === 1 ? '' : 's'} advanced${graduated ? `, ${graduated} graduated` : ''}`);
+    saveStore();
+  }
+  res.json({ ok: true, promoted, graduated, noGrade });
 });
 
 app.delete('/api/admin/user/:email', (req, res) => {

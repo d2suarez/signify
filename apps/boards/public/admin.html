@@ -59,8 +59,25 @@
       </div>
       <div class="admin-card">
         <h2>All users</h2>
+        <div class="users-toolbar">
+          <label class="chk"><input type="checkbox" id="sel-all" /> <span>Select all</span></label>
+          <span id="sel-count" class="hint" style="margin:0">0 selected</span>
+          <span class="users-toolbar-spacer"></span>
+          <select id="school-filter" hidden></select>
+          <select id="user-sort">
+            <option value="lastSeen">Sort: last seen</option>
+            <option value="name">Sort: name</option>
+            <option value="grade">Sort: grade</option>
+            <option value="school">Sort: school</option>
+          </select>
+        </div>
+        <div class="users-toolbar bulk-bar">
+          <select id="bulk-grade-select"></select>
+          <button id="bulk-grade-btn" class="primary-sm">Set grade for selected</button>
+          <button id="promote-btn" class="btn-view" title="Move every student in view up one grade level">↑ Promote students one grade</button>
+        </div>
         <table class="admin-table" id="users-table">
-          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
+          <thead><tr><th></th><th>User</th><th id="school-col" hidden>School</th><th>Grade</th><th>Role</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>

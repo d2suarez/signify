@@ -201,8 +201,69 @@ function fmtTime(t) {
   return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString();
 }
 
+// ----- grade levels & bulk selection -----
+
+const selectedUsers = new Set();
+
+function updateSelCount() {
+  document.getElementById('sel-count').textContent = `${selectedUsers.size} selected`;
+}
+
+function visibleUserEmails() {
+  return [...document.querySelectorAll('#users-table .user-sel')].map((c) => c.value);
+}
+
+document.getElementById('sel-all').addEventListener('change', (e) => {
+  const emails = visibleUserEmails();
+  if (e.target.checked) emails.forEach((x) => selectedUsers.add(x));
+  else emails.forEach((x) => selectedUsers.delete(x));
+  document.querySelectorAll('#users-table .user-sel').forEach((c) => { c.checked = e.target.checked; });
+  updateSelCount();
+});
+
+document.getElementById('user-sort').addEventListener('change', () => renderUsers());
+document.getElementById('school-filter').addEventListener('change', () => renderUsers());
+
+document.getElementById('bulk-grade-btn').addEventListener('click', async () => {
+  if (!selectedUsers.size) { toast('Select some students first.', true); return; }
+  const grade = document.getElementById('bulk-grade-select').value;
+  try {
+    const d = await api('/api/admin/users/grade', { method: 'POST', body: JSON.stringify({ emails: [...selectedUsers], grade }) });
+    toast(`Grade set for ${d.updated} student${d.updated === 1 ? '' : 's'}${d.skipped ? `, ${d.skipped} skipped` : ''}`);
+    selectedUsers.clear();
+    document.getElementById('sel-all').checked = false;
+    refresh();
+  } catch (e) { toast(e.message, true); }
+});
+
+document.getElementById('promote-btn').addEventListener('click', async () => {
+  const only = selectedUsers.size ? [...selectedUsers] : null;
+  const who = only ? `${only.length} selected student${only.length === 1 ? '' : 's'}` : 'every student you manage';
+  if (!confirm(`Move ${who} up one grade level?\n\nStudents in grade 12 become "Graduated". This cannot be undone in bulk.`)) return;
+  try {
+    const d = await api('/api/admin/users/promote', { method: 'POST', body: JSON.stringify(only ? { emails: only } : {}) });
+    const bits = [`${d.promoted} advanced`];
+    if (d.graduated) bits.push(`${d.graduated} graduated`);
+    if (d.noGrade) bits.push(`${d.noGrade} had no grade set`);
+    toast(bits.join(' · '));
+    selectedUsers.clear();
+    document.getElementById('sel-all').checked = false;
+    refresh();
+  } catch (e) { toast(e.message, true); }
+});
+
+function renderGradeOptions() {
+  const sel = document.getElementById('bulk-grade-select');
+  if (sel.options.length) return;
+  sel.appendChild(new Option('Clear grade', ''));
+  (state.grades || []).forEach((g) => sel.appendChild(new Option('Grade ' + g, g)));
+  sel.value = state.grades && state.grades.includes('K') ? 'K' : '';
+}
+
 function renderUsers() {
   if (!can('manage_users')) return;
+  renderGradeOptions();
+  updateSelCount();
   const tbody = document.querySelector('#users-table tbody');
   tbody.innerHTML = '';
   const pending = state.users.filter((u) => u.status === 'pending').length;
@@ -213,18 +274,83 @@ function renderUsers() {
   // Scoped admins may only assign teach-only roles
   const roleOptions = assignableRoles();
 
-  const order = { pending: 0, approved: 1, blocked: 2 };
-  const sorted = [...state.users].sort((a, b) => (order[a.status] - order[b.status]) || (b.lastSeen || 0) - (a.lastSeen || 0));
+  // super admin can group/filter the whole directory by school
+  const isSuper = state.me.isSuper;
+  document.getElementById('school-col').hidden = !isSuper;
+  const schoolFilter = document.getElementById('school-filter');
+  schoolFilter.hidden = !isSuper;
+  if (isSuper && schoolFilter.options.length !== (state.schools || []).length + 1) {
+    const cur = schoolFilter.value;
+    schoolFilter.innerHTML = '';
+    schoolFilter.appendChild(new Option('All schools', ''));
+    (state.schools || []).forEach((s) => schoolFilter.appendChild(new Option('@' + s, s)));
+    schoolFilter.value = cur || '';
+  }
+  const wantSchool = isSuper ? schoolFilter.value : '';
+  const sortBy = document.getElementById('user-sort').value;
 
-  for (const u of sorted) {
+  const order = { pending: 0, approved: 1, blocked: 2 };
+  const gradeIdx = (g) => { const i = (state.grades || []).indexOf(g); return i < 0 ? 99 : i; };
+  let list = state.users.filter((u) => !wantSchool || u.school === wantSchool);
+  list = list.sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'grade') return gradeIdx(a.grade) - gradeIdx(b.grade) || a.name.localeCompare(b.name);
+    if (sortBy === 'school') return a.school.localeCompare(b.school) || a.name.localeCompare(b.name);
+    return (order[a.status] - order[b.status]) || (b.lastSeen || 0) - (a.lastSeen || 0);
+  });
+
+  let lastSchool = null;
+  for (const u of list) {
+    // when sorting by school, head each group with the domain
+    if (isSuper && sortBy === 'school' && u.school !== lastSchool) {
+      lastSchool = u.school;
+      const htr = document.createElement('tr');
+      const htd = document.createElement('td');
+      htd.colSpan = 8;
+      htd.className = 'school-group-head';
+      htd.textContent = '@' + u.school;
+      htr.appendChild(htd);
+      tbody.appendChild(htr);
+    }
     const tr = document.createElement('tr');
     if (u.status === 'pending') tr.className = 'row-pending';
+
+    const tdSel = document.createElement('td');
+    if (!u.isSuper) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'user-sel';
+      cb.value = u.email;
+      cb.checked = selectedUsers.has(u.email);
+      cb.onchange = () => { if (cb.checked) selectedUsers.add(u.email); else selectedUsers.delete(u.email); updateSelCount(); };
+      tdSel.appendChild(cb);
+    }
+    tr.appendChild(tdSel);
 
     const tdUser = document.createElement('td');
     tdUser.innerHTML = `<div class="u-name"></div><div class="u-email"></div>`;
     tdUser.querySelector('.u-name').textContent = u.name;
     tdUser.querySelector('.u-email').textContent = u.email + (u.addedBy ? ` · added by ${u.addedBy}` : '');
     tr.appendChild(tdUser);
+
+    if (isSuper) {
+      const tdSchool = document.createElement('td');
+      tdSchool.textContent = '@' + u.school;
+      tdSchool.className = 'u-email';
+      tr.appendChild(tdSchool);
+    }
+
+    const tdGrade = document.createElement('td');
+    if (u.isSuper) tdGrade.textContent = '—';
+    else {
+      const gsel = document.createElement('select');
+      gsel.className = 'grade-select';
+      gsel.appendChild(new Option('—', '', !u.grade, !u.grade));
+      (state.grades || []).forEach((g) => gsel.appendChild(new Option(g, g, false, u.grade === g)));
+      gsel.onchange = () => updateUser(u.email, { grade: gsel.value });
+      tdGrade.appendChild(gsel);
+    }
+    tr.appendChild(tdGrade);
 
     const tdRole = document.createElement('td');
     if (u.isSuper) {

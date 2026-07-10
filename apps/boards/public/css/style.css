@@ -796,6 +796,19 @@ body.admin { background: var(--bg); color: var(--ink); min-height: 100vh; }
 .status-suspended { background: var(--amber-soft); color: var(--amber-text); }
 .status-blocked { background: var(--orange-soft); color: var(--orange-dark); }
 .status-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.users-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; }
+.users-toolbar-spacer { flex: 1; }
+.users-toolbar select {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 7px 9px; font-size: 13px;
+}
+.bulk-bar { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.grade-select { min-width: 84px; }
+.school-group-head {
+  background: var(--teal-soft); color: var(--teal-dark); font-weight: 700;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; padding: 6px 10px !important;
+}
+#users-table .user-sel { accent-color: var(--teal); }
 .user-actions { white-space: nowrap; }
 .user-actions button { margin-right: 4px; }
 .btn-suspend { border: 1px solid var(--amber); background: var(--surface); color: var(--amber-text); border-radius: var(--r-sm); padding: 5px 10px; font-size: 12px; cursor: pointer; }
