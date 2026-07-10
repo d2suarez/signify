@@ -796,6 +796,18 @@ body.admin { background: var(--bg); color: var(--ink); min-height: 100vh; }
 .status-suspended { background: var(--amber-soft); color: var(--amber-text); }
 .status-blocked { background: var(--orange-soft); color: var(--orange-dark); }
 .status-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+/* wide tables scroll inside their card instead of spilling past it */
+.table-wrap { overflow-x: auto; width: 100%; max-width: 100%; }
+.table-wrap .admin-table { min-width: 940px; }
+.admin-card { max-width: 100%; box-sizing: border-box; }
+/* the portal grew a lot of columns — give it more room before scrolling */
+#admin-main { max-width: 1340px; }
+
+.admin-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.admin-table th.sortable:hover { color: var(--teal); }
+.admin-table th.sortable::after { content: ' ' attr(data-arrow); font-size: 9px; color: var(--teal); }
+.admin-table th.sorted { color: var(--teal); }
+
 .users-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; }
 .users-toolbar-spacer { flex: 1; }
 .users-toolbar select {

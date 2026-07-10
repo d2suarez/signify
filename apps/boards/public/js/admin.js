@@ -221,8 +221,25 @@ document.getElementById('sel-all').addEventListener('change', (e) => {
   updateSelCount();
 });
 
-document.getElementById('user-sort').addEventListener('change', () => renderUsers());
+// click a heading to sort; click again to reverse
+let userSort = { key: 'lastSeen', dir: 'desc' };
+document.querySelectorAll('#users-table th.sortable').forEach((th) => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (userSort.key === key) userSort.dir = userSort.dir === 'asc' ? 'desc' : 'asc';
+    else userSort = { key, dir: key === 'lastSeen' ? 'desc' : 'asc' };
+    renderUsers();
+  });
+});
 document.getElementById('school-filter').addEventListener('change', () => renderUsers());
+
+function paintSortHeaders() {
+  document.querySelectorAll('#users-table th.sortable').forEach((th) => {
+    const on = th.dataset.sort === userSort.key;
+    th.classList.toggle('sorted', on);
+    th.dataset.arrow = on ? (userSort.dir === 'asc' ? '▲' : '▼') : '';
+  });
+}
 
 document.getElementById('bulk-grade-btn').addEventListener('click', async () => {
   if (!selectedUsers.size) { toast('Select some students first.', true); return; }
@@ -236,21 +253,28 @@ document.getElementById('bulk-grade-btn').addEventListener('click', async () => 
   } catch (e) { toast(e.message, true); }
 });
 
-document.getElementById('promote-btn').addEventListener('click', async () => {
+async function shiftGradesUI(dir) {
   const only = selectedUsers.size ? [...selectedUsers] : null;
   const who = only ? `${only.length} selected student${only.length === 1 ? '' : 's'}` : 'every student you manage';
-  if (!confirm(`Move ${who} up one grade level?\n\nStudents in grade 12 become "Graduated". This cannot be undone in bulk.`)) return;
+  const msg = dir === 'up'
+    ? `Move ${who} up one grade level?\n\nStudents in grade 12 become "Graduated".`
+    : `Move ${who} back down one grade level?\n\nUse this to undo a promotion. "Graduated" students return to grade 12.`;
+  if (!confirm(msg)) return;
   try {
-    const d = await api('/api/admin/users/promote', { method: 'POST', body: JSON.stringify(only ? { emails: only } : {}) });
-    const bits = [`${d.promoted} advanced`];
+    const d = await api(`/api/admin/users/${dir === 'up' ? 'promote' : 'demote'}`, { method: 'POST', body: JSON.stringify(only ? { emails: only } : {}) });
+    const n = dir === 'up' ? d.promoted : d.demoted;
+    const bits = [`${n} ${dir === 'up' ? 'advanced' : 'moved back'}`];
     if (d.graduated) bits.push(`${d.graduated} graduated`);
+    if (d.atEnd) bits.push(`${d.atEnd} already at the ${dir === 'up' ? 'end' : 'start'}`);
     if (d.noGrade) bits.push(`${d.noGrade} had no grade set`);
     toast(bits.join(' · '));
     selectedUsers.clear();
     document.getElementById('sel-all').checked = false;
     refresh();
   } catch (e) { toast(e.message, true); }
-});
+}
+document.getElementById('promote-btn').addEventListener('click', () => shiftGradesUI('up'));
+document.getElementById('demote-btn').addEventListener('click', () => shiftGradesUI('down'));
 
 function renderGradeOptions() {
   const sel = document.getElementById('bulk-grade-select');
@@ -287,17 +311,23 @@ function renderUsers() {
     schoolFilter.value = cur || '';
   }
   const wantSchool = isSuper ? schoolFilter.value : '';
-  const sortBy = document.getElementById('user-sort').value;
+  const sortBy = userSort.key;
+  paintSortHeaders();
 
-  const order = { pending: 0, approved: 1, blocked: 2 };
+  const statusOrder = { pending: 0, approved: 1, suspended: 2, blocked: 3 };
   const gradeIdx = (g) => { const i = (state.grades || []).indexOf(g); return i < 0 ? 99 : i; };
+  const cmp = (a, b) => {
+    switch (sortBy) {
+      case 'name': return a.name.localeCompare(b.name);
+      case 'grade': return gradeIdx(a.grade) - gradeIdx(b.grade) || a.name.localeCompare(b.name);
+      case 'school': return a.school.localeCompare(b.school) || a.name.localeCompare(b.name);
+      case 'role': return roleLabel(a.role).localeCompare(roleLabel(b.role)) || a.name.localeCompare(b.name);
+      case 'status': return (statusOrder[a.status] - statusOrder[b.status]) || a.name.localeCompare(b.name);
+      default: return (a.lastSeen || 0) - (b.lastSeen || 0); // lastSeen ascending; dir flips it
+    }
+  };
   let list = state.users.filter((u) => !wantSchool || u.school === wantSchool);
-  list = list.sort((a, b) => {
-    if (sortBy === 'name') return a.name.localeCompare(b.name);
-    if (sortBy === 'grade') return gradeIdx(a.grade) - gradeIdx(b.grade) || a.name.localeCompare(b.name);
-    if (sortBy === 'school') return a.school.localeCompare(b.school) || a.name.localeCompare(b.name);
-    return (order[a.status] - order[b.status]) || (b.lastSeen || 0) - (a.lastSeen || 0);
-  });
+  list = list.sort((a, b) => (userSort.dir === 'asc' ? cmp(a, b) : -cmp(a, b)));
 
   let lastSchool = null;
   for (const u of list) {

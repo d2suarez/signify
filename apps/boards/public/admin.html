@@ -64,22 +64,29 @@
           <span id="sel-count" class="hint" style="margin:0">0 selected</span>
           <span class="users-toolbar-spacer"></span>
           <select id="school-filter" hidden></select>
-          <select id="user-sort">
-            <option value="lastSeen">Sort: last seen</option>
-            <option value="name">Sort: name</option>
-            <option value="grade">Sort: grade</option>
-            <option value="school">Sort: school</option>
-          </select>
+          <span class="hint" style="margin:0">Click a column heading to sort</span>
         </div>
         <div class="users-toolbar bulk-bar">
           <select id="bulk-grade-select"></select>
           <button id="bulk-grade-btn" class="primary-sm">Set grade for selected</button>
-          <button id="promote-btn" class="btn-view" title="Move every student in view up one grade level">↑ Promote students one grade</button>
+          <button id="promote-btn" class="btn-view" title="Move students up one grade level">↑ Promote a grade</button>
+          <button id="demote-btn" class="btn-suspend" title="Move students back down one grade level">↓ Demote a grade</button>
         </div>
-        <table class="admin-table" id="users-table">
-          <thead><tr><th></th><th>User</th><th id="school-col" hidden>School</th><th>Grade</th><th>Role</th><th>Status</th><th>Last seen</th><th>Actions</th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table class="admin-table" id="users-table">
+            <thead><tr>
+              <th></th>
+              <th class="sortable" data-sort="name">User</th>
+              <th class="sortable" id="school-col" data-sort="school" hidden>School</th>
+              <th class="sortable" data-sort="grade">Grade</th>
+              <th class="sortable" data-sort="role">Role</th>
+              <th class="sortable" data-sort="status">Status</th>
+              <th class="sortable" data-sort="lastSeen">Last seen</th>
+              <th>Actions</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

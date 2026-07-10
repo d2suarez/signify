@@ -648,6 +648,33 @@ function nextGrade(g) {
   return GRADES[i + 1];
 }
 
+function prevGrade(g) {
+  const i = GRADES.indexOf(g);
+  if (i <= 0) return null; // unset or already at the lowest grade
+  return GRADES[i - 1];
+}
+
+// Shared engine for the promote/demote bulk actions
+function shiftGrades(admin, emails, dir) {
+  const only = Array.isArray(emails) && emails.length
+    ? new Set(emails.map((e) => String(e).trim().toLowerCase()))
+    : null;
+  const step = dir === 'down' ? prevGrade : nextGrade;
+  let changed = 0; let graduated = 0; let noGrade = 0; let atEnd = 0;
+  for (const [email, rec] of Object.entries(store.users)) {
+    if (only && !only.has(email)) continue;
+    if (isSuperAdmin(email) || !canManageTarget(admin, email)) continue;
+    if (effectiveRole(email) !== 'student') continue; // only students move
+    if (!rec.grade) { noGrade++; continue; }
+    const next = step(rec.grade);
+    if (!next) { atEnd++; continue; }
+    rec.grade = next;
+    changed++;
+    if (next === 'Graduated') graduated++;
+  }
+  return { changed, graduated, noGrade, atEnd };
+}
+
 app.get('/api/admin/state', (req, res) => {
   const admin = requireAuthed(req, res);
   if (!admin) return;
@@ -852,30 +879,28 @@ app.post('/api/admin/users/grade', (req, res) => {
   res.json({ ok: true, updated: updated.length, skipped: skipped.length });
 });
 
-// Move students up one grade — everyone in scope, or just the selected emails
+// Move students up a grade — everyone in scope, or just the selected emails
 app.post('/api/admin/users/promote', (req, res) => {
   const admin = requirePerm(req, res, 'manage_users');
   if (!admin) return;
-  const only = Array.isArray(req.body.emails) && req.body.emails.length
-    ? new Set(req.body.emails.map((e) => String(e).trim().toLowerCase()))
-    : null;
-  let promoted = 0; let graduated = 0; let noGrade = 0;
-  for (const [email, rec] of Object.entries(store.users)) {
-    if (only && !only.has(email)) continue;
-    if (isSuperAdmin(email) || !canManageTarget(admin, email)) continue;
-    if (effectiveRole(email) !== 'student') continue; // only students advance
-    if (!rec.grade) { noGrade++; continue; }
-    const next = nextGrade(rec.grade);
-    if (!next) continue; // already Graduated
-    rec.grade = next;
-    promoted++;
-    if (next === 'Graduated') graduated++;
-  }
-  if (promoted) {
-    appendAudit(admin.email, 'user:promote', `${promoted} student${promoted === 1 ? '' : 's'} advanced${graduated ? `, ${graduated} graduated` : ''}`);
+  const r = shiftGrades(admin, req.body.emails, 'up');
+  if (r.changed) {
+    appendAudit(admin.email, 'user:promote', `${r.changed} student${r.changed === 1 ? '' : 's'} advanced${r.graduated ? `, ${r.graduated} graduated` : ''}`);
     saveStore();
   }
-  res.json({ ok: true, promoted, graduated, noGrade });
+  res.json({ ok: true, promoted: r.changed, graduated: r.graduated, noGrade: r.noGrade, atEnd: r.atEnd });
+});
+
+// Undo a promotion: move students back down a grade (Graduated -> 12)
+app.post('/api/admin/users/demote', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+  const r = shiftGrades(admin, req.body.emails, 'down');
+  if (r.changed) {
+    appendAudit(admin.email, 'user:demote', `${r.changed} student${r.changed === 1 ? '' : 's'} moved back a grade`);
+    saveStore();
+  }
+  res.json({ ok: true, demoted: r.changed, noGrade: r.noGrade, atEnd: r.atEnd });
 });
 
 app.delete('/api/admin/user/:email', (req, res) => {
