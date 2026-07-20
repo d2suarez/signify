@@ -207,9 +207,15 @@ function flushBoard() {
   }
 
   document.getElementById('user-label').textContent = isSolo ? myName : `${myName} (${role})`;
+  if (authToken) {
+    const s = JSON.parse(localStorage.getItem('wb-session') || '{}');
+    const perms = Array.isArray(s.perms) ? s.perms : [];
+    canPublishBoards = !!s.isSuper || perms.includes('teach') || perms.includes('manage_boards');
+  }
   wireBoardsDrawer();
   wireDocuments();
   wireTemplates();
+  wireEmbed();
 
   if (isSolo) {
     statusDot.hidden = true;
@@ -351,6 +357,8 @@ async function createBoardAndSwitch() {
 
 let tmplLib = 'public';
 let tmplData = [];
+// teachers/admins may publish boards to the web; students never can
+let canPublishBoards = false;
 
 function wireTemplates() {
   const btn = document.getElementById('templates-btn');
@@ -524,6 +532,7 @@ function renderBoardsGrid(list) {
         <button class="btn-view b-dup" title="Duplicate">⧉</button>
         <button class="btn-view b-transfer" title="Copy or move to another class">➜</button>
         <button class="btn-view b-hist" title="Version history">🕘</button>
+        <button class="btn-view b-embed" title="Share to the web" hidden>🌐</button>
         <button class="btn-block b-del" title="Delete">🗑</button>
       </div>`;
     card.insertBefore(boardThumbNode(b.thumb, 'Empty board'), card.firstChild);
@@ -549,6 +558,14 @@ function renderBoardsGrid(list) {
     };
     card.querySelector('.b-transfer').onclick = () => openTransferModal(b);
     card.querySelector('.b-hist').onclick = () => openHistoryModal(b);
+    // publishing is teachers/admins only, and honours the 'embed' feature switch
+    const embedBtn = card.querySelector('.b-embed');
+    if (authToken && canPublishBoards && featureOn('embed')) {
+      embedBtn.hidden = false;
+      if (b.embed) embedBtn.classList.add('published');
+      embedBtn.title = b.embed ? 'Shared to the web — manage link' : 'Share to the web';
+      embedBtn.onclick = () => openEmbedModal(b);
+    }
     card.querySelector('.b-del').onclick = async () => {
       if (!confirm(`Delete "${b.title}"? This cannot be undone.`)) return;
       try {
@@ -565,6 +582,63 @@ function renderBoardsGrid(list) {
     };
     grid.appendChild(card);
   }
+}
+
+// ----- share a board to the web (read-only live embed) -----
+
+let embedBoard = null;
+
+function embedSnippet(token) {
+  return `<iframe src="${location.origin}/embed/${token}" width="800" height="600" style="border:1px solid #E4E2DD;border-radius:6px" allowfullscreen title="Signify Learning board"></iframe>`;
+}
+
+function paintEmbedState(tok) {
+  document.getElementById('embed-off').hidden = !!tok;
+  document.getElementById('embed-on').hidden = !tok;
+  if (tok) {
+    document.getElementById('embed-url').value = `${location.origin}/embed/${tok}`;
+    document.getElementById('embed-code').value = embedSnippet(tok);
+  }
+}
+
+async function openEmbedModal(b) {
+  embedBoard = b;
+  document.getElementById('embed-board-title').textContent = b.title;
+  paintEmbedState(b.embed && b.embed.token);
+  document.getElementById('embed-modal').hidden = false;
+}
+
+function wireEmbed() {
+  document.getElementById('embed-close').addEventListener('click', () => { document.getElementById('embed-modal').hidden = true; });
+  document.getElementById('embed-publish').addEventListener('click', async () => {
+    if (!embedBoard) return;
+    try {
+      const r = await authedFetch(`/api/boards/${embedBoard.id}/embed`, { method: 'POST' });
+      embedBoard.embed = { token: r.token };
+      paintEmbedState(r.token);
+      toast('Board published — anyone with the link can view it');
+      fetchBoardsList().then(renderBoardsGrid).catch(() => {});
+    } catch (e) { toast(e.message); }
+  });
+  document.getElementById('embed-revoke').addEventListener('click', async () => {
+    if (!embedBoard || !confirm('Unpublish this board? The link and any embeds stop working immediately.')) return;
+    try {
+      await authedFetch(`/api/boards/${embedBoard.id}/embed`, { method: 'DELETE' });
+      embedBoard.embed = null;
+      paintEmbedState(null);
+      toast('Board unpublished');
+      fetchBoardsList().then(renderBoardsGrid).catch(() => {});
+    } catch (e) { toast(e.message); }
+  });
+  document.getElementById('embed-copy').addEventListener('click', async () => {
+    const code = document.getElementById('embed-code').value;
+    try { await navigator.clipboard.writeText(code); toast('Embed code copied'); }
+    catch { document.getElementById('embed-code').select(); toast('Press Ctrl/⌘+C to copy'); }
+  });
+  document.getElementById('embed-open').addEventListener('click', () => {
+    const tok = embedBoard && embedBoard.embed && embedBoard.embed.token;
+    if (tok) window.open(`/embed/${tok}`, '_blank', 'noopener');
+  });
 }
 
 // ----- version history -----
@@ -1629,6 +1703,7 @@ const FEATURE_DEFS = [
   ['charts', 'Charts & graphs'],
   ['newBoards', 'New boards'],
   ['download', 'Download'],
+  ['embed', 'Share to web'],
 ];
 const DRAW_TOOLS = ['pen', 'highlighter', 'line', 'curve', 'arrow', 'rect', 'ellipse', 'triangle'];
 

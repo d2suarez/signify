@@ -228,6 +228,33 @@
     </div>
   </div>
 
+  <!-- Share a board to the web (read-only embed) -->
+  <div id="embed-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Share to the web — <span id="embed-board-title"></span></span>
+        <div><button id="embed-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">Anyone with the link can view this board — no sign-in needed. It stays live: whatever you draw appears for viewers straight away. Visitors can pan and zoom but cannot edit, and they see nothing else from your class.</p>
+        <div id="embed-off">
+          <div class="role-actions"><button id="embed-publish" class="primary-sm">Publish this board</button></div>
+        </div>
+        <div id="embed-on" hidden>
+          <label>Public link</label>
+          <input id="embed-url" type="text" readonly />
+          <label>Embed code for a webpage</label>
+          <textarea id="embed-code" rows="3" readonly></textarea>
+          <div class="role-actions">
+            <button id="embed-copy" class="primary-sm">Copy embed code</button>
+            <button id="embed-open" class="btn-view">Preview</button>
+            <button id="embed-revoke" class="btn-block">Unpublish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Board version history -->
   <div id="history-modal" hidden>
     <div class="modal-box transfer-box">

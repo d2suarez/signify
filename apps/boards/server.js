@@ -32,7 +32,7 @@ const PERMISSIONS = ['teach', 'manage_users', 'manage_boards', 'view_sessions', 
 // Features can be turned on/off per school domain (admin), per room (teacher),
 // or per student in a room (teacher). Most specific setting wins; default is on.
 
-const FEATURES = ['draw', 'text', 'images', 'documents', 'charts', 'newBoards', 'download'];
+const FEATURES = ['draw', 'text', 'images', 'documents', 'charts', 'newBoards', 'download', 'embed'];
 
 // Apply a tri-state patch {feature: true|false|null} — null clears the override
 function applyFeaturePatch(target, patch) {
@@ -1129,7 +1129,18 @@ function boardMetaOf(d) {
     id: d.id, title: d.title || 'Board', owner: d.owner, room: d.room || null,
     createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, thumb: d.thumb || null,
     comments: d.comments || [],
+    embed: d.embed || null, // { token, publishedAt, by } when shared to the web
   };
+}
+
+// token -> boardId, rebuilt from the index so lookups are O(1)
+const embedTokens = new Map();
+
+function reindexEmbeds() {
+  embedTokens.clear();
+  for (const b of boardsIndex.values()) {
+    if (b.embed && b.embed.token) embedTokens.set(b.embed.token, b.id);
+  }
 }
 
 function loadBoardsIndex() {
@@ -1226,13 +1237,18 @@ function validThumb(t) {
   return typeof t === 'string' && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(t) && t.length <= 400000;
 }
 
-function updateBoard(id, { json, thumb, title, room }) {
+function updateBoard(id, { json, thumb, title, room, embed }) {
   const meta = boardsIndex.get(id);
   if (!meta) return null;
   if (json !== undefined) boardPending.set(id, json);
   if (thumb !== undefined && validThumb(thumb)) meta.thumb = thumb;
   if (title !== undefined) meta.title = String(title).trim().slice(0, 60) || meta.title;
   if (room !== undefined) meta.room = room;
+  if (embed !== undefined) {
+    if (meta.embed && meta.embed.token) embedTokens.delete(meta.embed.token);
+    meta.embed = embed;
+    if (embed && embed.token) embedTokens.set(embed.token, id);
+  }
   meta.updatedAt = Date.now();
   flushBoardSoon(id);
   return meta;
@@ -1355,6 +1371,10 @@ app.post('/api/boards/:id', (req, res) => {
   if (!meta) return res.status(404).json({ error: 'Board not found.' });
   if (meta.owner !== user.email) return res.status(403).json({ error: 'Only the board owner can edit it.' });
   updateBoard(meta.id, { json: req.body.json, thumb: req.body.thumb, title: req.body.title });
+  // personal boards save whole-json over REST — keep any web embed live too
+  if (meta.embed && meta.embed.token && req.body.json) {
+    io.to('embed:' + meta.embed.token).emit('embed:ops', { ops: [{ t: 'full', json: req.body.json }] });
+  }
   res.json(boardsIndex.get(meta.id));
 });
 
@@ -1368,6 +1388,67 @@ app.delete('/api/boards/:id', (req, res) => {
   }
   deleteBoard(meta.id);
   res.json({ ok: true });
+});
+
+// ---------- web embeds (read-only, live, revocable) ----------
+
+// Who may publish a board to the web: its owner (if a teacher/admin), the
+// teacher of the room it lives in, or a board admin for their own school.
+function canPublishBoard(user, meta) {
+  const mayTeach = user.isSuper || user.perms.includes('teach') || user.perms.includes('manage_boards');
+  if (!mayTeach) return false;
+  if (meta.owner === user.email) return true;
+  if (meta.room) {
+    const room = getRoom(meta.room, false);
+    if (room && room.data.owner === user.email) return true;
+  }
+  return (user.isSuper || user.perms.includes('manage_boards')) && sameDomainOrAdded(user, meta.owner);
+}
+
+// The 'embed' feature switch still governs it (school / room / student scoped)
+function embedAllowed(meta, user) {
+  if (!meta.room) return true; // personal boards: no room switches to consult
+  const room = getRoom(meta.room, false);
+  if (!room) return true;
+  return effectiveFeatures(room, user.email).embed !== false;
+}
+
+app.post('/api/boards/:id/embed', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (!canPublishBoard(user, meta)) return res.status(403).json({ error: 'Only a teacher or admin can share a board to the web.' });
+  if (!embedAllowed(meta, user)) return res.status(403).json({ error: 'Sharing boards to the web is turned off for this class.' });
+  const token = crypto.randomBytes(12).toString('base64url');
+  updateBoard(meta.id, { embed: { token, publishedAt: Date.now(), by: user.email } });
+  appendAudit(user.email, 'board:embed-publish', `${meta.title} (${meta.room || 'personal'})`);
+  res.json({ ok: true, token, url: `/embed/${token}` });
+});
+
+app.delete('/api/boards/:id/embed', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (!canPublishBoard(user, meta)) return res.status(403).json({ error: 'Not allowed.' });
+  updateBoard(meta.id, { embed: null });
+  appendAudit(user.email, 'board:embed-revoke', meta.title);
+  res.json({ ok: true });
+});
+
+// Public, unauthenticated: the board content behind a valid embed token.
+// Deliberately minimal — no owner, no room, no comments, no classmates.
+app.get('/api/embed/:token', (req, res) => {
+  const id = embedTokens.get(String(req.params.token || ''));
+  const meta = id && boardsIndex.get(id);
+  if (!meta || !meta.embed) return res.status(404).json({ error: 'This board is no longer shared.' });
+  res.set('Cache-Control', 'no-store');
+  res.json({ title: meta.title, updatedAt: meta.updatedAt, json: readBoardJSON(meta.id) });
+});
+
+app.get('/embed/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
 });
 
 app.get('/api/boards/:id/history', (req, res) => {
@@ -1795,6 +1876,16 @@ function stageBy(room) {
 // ---------- sockets ----------
 
 io.use((socket, next) => {
+  // Embed viewers are anonymous by design: they may ONLY join an embed room
+  // for a valid token and receive ops. They get no session and no other events.
+  const et = socket.handshake.auth && socket.handshake.auth.embedToken;
+  if (et) {
+    const id = embedTokens.get(String(et));
+    if (!id) return next(new Error('unauthorized'));
+    socket.data.embedToken = String(et);
+    socket.data.embedBoard = id;
+    return next();
+  }
   if (!AUTH_ENABLED) return next();
   const user = verifySession(socket.handshake.auth && socket.handshake.auth.token);
   if (!user) return next(new Error('unauthorized'));
@@ -1804,6 +1895,13 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  // Embed viewers: join the broadcast room and register nothing else, so a
+  // public embed connection can never reach board/message/roster events.
+  if (socket.data.embedToken) {
+    socket.join('embed:' + socket.data.embedToken);
+    return;
+  }
+
   socket.on('join', (payload, ack) => {
     if (typeof ack !== 'function') return;
     try {
@@ -1983,6 +2081,8 @@ io.on('connection', (socket) => {
     if (safeThumb && meta.owner !== room.data.owner && room.teacher && room.teacher !== socket.id) {
       io.to(room.teacher).emit('student:thumb', { id: meta.owner, boardId: meta.id, thumb: safeThumb });
     }
+    // anyone watching this board via a web embed gets the same ops
+    if (meta.embed && meta.embed.token) io.to('embed:' + meta.embed.token).emit('embed:ops', { ops });
     // stage streaming (teacher share or student spotlight) as ops too
     if (role === 'teacher' && isOwner) {
       room.lastTeacherJson = json;
@@ -2433,6 +2533,7 @@ setInterval(runBackup, 24 * 60 * 60 * 1000);
 
 // Build the board & template indexes and seed starter templates at startup
 loadBoardsIndex();
+reindexEmbeds();
 loadTemplatesIndex();
 seedTemplates();
 for (const f of fs.readdirSync(DATA_DIR)) {

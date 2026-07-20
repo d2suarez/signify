@@ -551,6 +551,7 @@ document.getElementById('suspend-cancel').addEventListener('click', () => { docu
 const FEATURE_LABELS = {
   draw: 'Drawing', text: 'Text', images: 'Photos', documents: 'Documents',
   charts: 'Charts & graphs', newBoards: 'New boards', download: 'Download',
+  embed: 'Share to web',
 };
 
 function renderDomainFeatures() {

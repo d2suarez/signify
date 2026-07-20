@@ -615,11 +615,11 @@ body.landing {
 
 #student-modal, #board-viewer-modal, #boards-modal, #transfer-modal, #roster-modal,
 #graph-modal, #chart-modal, #features-modal, #suspend-modal, #user-boards-modal, #history-modal,
-#templates-modal, #tmpl-save-modal {
+#templates-modal, #tmpl-save-modal, #embed-modal {
   position: fixed; inset: 0; z-index: 110; background: rgba(31, 41, 55, 0.45);
   display: flex; align-items: center; justify-content: center;
 }
-#boards-modal, #transfer-modal, #graph-modal, #chart-modal, #suspend-modal, #tmpl-save-modal { z-index: 120; }
+#boards-modal, #transfer-modal, #graph-modal, #chart-modal, #suspend-modal, #tmpl-save-modal, #embed-modal { z-index: 120; }
 
 /* template library */
 .tmpl-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); gap: 12px; flex-wrap: wrap; }
@@ -683,6 +683,12 @@ body.landing {
 .board-switch-card { display: flex; flex-direction: column; }
 .board-switch-card.current { border-color: var(--teal); box-shadow: 0 0 0 2px var(--teal-soft), var(--shadow-1); }
 .board-card-actions { display: flex; gap: 4px; padding: 0 8px 8px; flex-wrap: wrap; }
+.b-embed.published { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-dark); }
+#embed-url, #embed-code {
+  width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 10px; font-size: 12px; font-family: ui-monospace, Menlo, monospace; margin-bottom: 4px;
+  resize: none;
+}
 .board-card-actions button { margin-right: 0; }
 
 /* transfer picker */
