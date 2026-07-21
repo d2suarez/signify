@@ -133,6 +133,7 @@ class Whiteboard {
 
     this._bindEvents();
     this._bindTouchNav();
+    this._bindButtonPan();
     this.resize();
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('scroll', () => this.canvas.calcOffset(), true);
@@ -141,6 +142,51 @@ class Whiteboard {
   }
 
   // ---------- touch navigation: fingers pan, two fingers pinch-zoom ----------
+
+  // Right-drag (or middle-drag) pans the board from ANY tool — the usual
+  // convention in design apps. Handled in the capture phase so Fabric never
+  // sees the press and no stray stroke or selection starts.
+  _bindButtonPan() {
+    const el = this.canvas.upperCanvasEl;
+    let from = null;
+
+    const down = (e) => {
+      if (e.button !== 2 && e.button !== 1) return; // right or middle only
+      if (this._crop || this._curveEdit) return;    // leave active edit sessions alone
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      from = { x: e.clientX, y: e.clientY };
+      this._buttonPanning = true;
+      el.style.cursor = 'grabbing';
+      try { el.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+    };
+
+    const move = (e) => {
+      if (!from) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.canvas.relativePan(new fabric.Point(e.clientX - from.x, e.clientY - from.y));
+      from = { x: e.clientX, y: e.clientY };
+      this.onViewChange();
+    };
+
+    const up = (e) => {
+      if (!from) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      from = null;
+      this._buttonPanning = false;
+      el.style.cursor = '';
+      try { el.releasePointerCapture(e.pointerId); } catch { /* not fatal */ }
+    };
+
+    el.addEventListener('pointerdown', down, true);
+    el.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    // belt and braces: never show the browser menu on the drawing surface
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 
   _bindTouchNav() {
     const el = this.canvas.upperCanvasEl;
