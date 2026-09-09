@@ -1,0 +1,216 @@
+// ===================================================================
+// Signify ID — service API for the relying apps
+// Read-only roster questions an app needs in order to decide whether an adult
+// may see a particular child's work. Authenticated with the same tokens the
+// app already holds, and scoped so an app never learns about people outside
+// its own school.
+// ===================================================================
+
+const express = require('express');
+const { createLocalJWKSet, jwtVerify } = require('jose');
+const db = require('./db');
+const oidc = require('./oidc');
+const sessions = require('./sessions');
+const keys = require('./keys');
+const audit = require('./audit');
+const catalog = require('./catalog');
+const { config } = require('./config');
+
+const router = express.Router();
+
+// Accepts either the access token or the ID token: both are audience-bound,
+// short-lived and tied to a session row that is checked here every time.
+async function caller(req, res) {
+  const token = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  let payload = null;
+  try { payload = await oidc.verifyAccessToken(token); }
+  catch { payload = null; }
+
+  if (!payload) {
+    // Fall back to the ID token, which is what the browser-facing client holds.
+    try {
+      const set = createLocalJWKSet(await keys.jwks());
+      const { payload: p } = await jwtVerify(token, set, { issuer: config.issuer });
+      if (p.typ === 'id') payload = p;
+    } catch { /* falls through to the 401 below */ }
+  }
+  if (!payload) {
+    res.set('WWW-Authenticate', 'Bearer error="invalid_token"');
+    res.status(401).json({ error: 'invalid_token' });
+    return null;
+  }
+
+  // Checked against a live row every time, and — just as importantly — the
+  // idle window is slid forward. An app's API call is somebody using their
+  // session; a teacher who works in Teacher's Desk all morning without ever
+  // opening this service must not be timed out behind their own back.
+  const live = await sessions.slide(payload.sid);
+  if (!live) {
+    res.status(401).json({ error: 'invalid_token', error_description: 'That sign-in has ended.' });
+    return null;
+  }
+
+  const app = await db.one('SELECT * FROM apps WHERE client_id = $1 AND status = $2', [String(payload.aud), 'active']);
+  if (!app) { res.status(401).json({ error: 'invalid_client' }); return null; }
+
+  return { userId: payload.sub, tenantId: payload.tenant_id || null, perms: payload.perms || {}, app, sid: payload.sid };
+}
+
+router.get('/me', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const claims = await oidc.buildClaims(c.app, c.userId, c.tenantId, c.sid);
+  res.set('Cache-Control', 'no-store');
+  res.json(claims);
+});
+
+// Do these two people share a class? The question an app asks before letting
+// a teacher open a pupil's work.
+router.get('/shares-class', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const a = String(req.query.a || '');
+  const b = String(req.query.b || '');
+  // An app may only ask about the person who is actually signed in.
+  if (a !== c.userId) return res.status(403).json({ error: 'You can only ask about the signed-in person.' });
+
+  const row = await db.one(
+    `SELECT 1 FROM class_members m1
+       JOIN class_members m2 ON m2.class_id = m1.class_id
+       JOIN classes c ON c.id = m1.class_id
+      WHERE m1.user_id = $1 AND m2.user_id = $2 AND c.archived = false
+      LIMIT 1`, [a, b]);
+  res.json({ shares: !!row });
+});
+
+// The caller's own classes, with rosters. This is what lets every app show
+// the same class list without each one keeping its own copy.
+/**
+ * The apps this person may open, for the switcher.
+ *
+ * Exactly the same decision the authorize endpoint makes at sign-in: the app
+ * must be active, switched on for their school, and not excluded for them
+ * individually. So the grid can never offer something that would then refuse
+ * them at the door.
+ */
+router.get('/my-apps', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+
+  const rows = c.tenantId
+    ? await db.many(
+        `SELECT a.client_id, a.name, a.short_name, a.launch_url, a.tile_initials,
+                a.tile_color, a.sort_order, a.description
+           FROM apps a
+           JOIN app_tenants at ON at.app_id = a.id AND at.enabled
+          WHERE a.status = 'active'
+            AND a.launch_url IS NOT NULL
+            AND at.tenant_id = $1
+            AND NOT EXISTS (
+              SELECT 1 FROM user_app_access ua
+               WHERE ua.user_id = $2 AND ua.app_id = a.id AND ua.allowed = false)
+          ORDER BY a.sort_order, a.name`,
+        [c.tenantId, c.userId])
+    // A platform admin belongs to no school, so they see everything live.
+    : await db.many(
+        `SELECT client_id, name, short_name, launch_url, tile_initials,
+                tile_color, sort_order, description
+           FROM apps
+          WHERE status = 'active' AND launch_url IS NOT NULL
+          ORDER BY sort_order, name`);
+
+  const monogram = (a) => a.tile_initials
+    || String(a.short_name || a.name).trim().slice(0, 2).toUpperCase();
+
+  res.set('Cache-Control', 'private, max-age=60');
+  res.json({
+    current: c.app.client_id,
+    apps: rows.map((a) => ({
+      id: a.client_id,
+      name: a.short_name || a.name,
+      fullName: a.name,
+      description: a.description || '',
+      url: a.launch_url,
+      initials: monogram(a),
+      color: a.tile_color || 'blue',
+      current: a.client_id === c.app.client_id,
+    })),
+  });
+});
+
+router.get('/classes', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const rows = await db.many(
+    `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year, cm.role
+       FROM class_members cm JOIN classes c ON c.id = cm.class_id
+      WHERE cm.user_id = $1 AND c.archived = false
+      ORDER BY c.name`, [c.userId]);
+  res.json({ classes: rows });
+});
+
+router.get('/classes/:id/members', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+
+  const membership = await db.one(
+    'SELECT role FROM class_members WHERE class_id = $1 AND user_id = $2', [req.params.id, c.userId]);
+  const wideReach = c.perms['core:view_directory'] === 'tenant' || c.perms['core:manage_classes'] === 'tenant';
+  if (!membership && !wideReach) return res.status(403).json({ error: 'You are not in that class.' });
+
+  // A pupil sees who is in the class; only staff get email addresses.
+  const staff = wideReach || (membership && ['teacher', 'aide'].includes(membership.role));
+  const rows = await db.many(
+    `SELECT u.id, u.display_name, u.picture_url, cm.role${staff ? ', u.email' : ''}
+       FROM class_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.class_id = $1 AND u.deleted_at IS NULL
+      ORDER BY cm.role, u.display_name`, [req.params.id]);
+
+  if (staff) {
+    await audit.record({
+      actorUserId: c.userId, tenantId: c.tenantId, appId: c.app.id,
+      action: 'roster.read', targetType: 'class', targetId: req.params.id,
+      detail: { count: rows.length }, ip: req.ip, disclosure: true,
+    });
+  }
+  res.json({ members: rows });
+});
+
+/**
+ * An app declares what permissions it has.
+ *
+ * Authenticated with the app's own client credentials, not a user's session,
+ * because this runs at boot before anybody has signed in. The namespace lock
+ * in catalog.declare() is what makes it safe to let a client write here at
+ * all: an app can only ever describe its own permissions, and declaring one
+ * grants it to nobody until an administrator puts it in a role.
+ */
+router.post('/declare', express.json({ limit: '64kb' }), async (req, res) => {
+  const app = await oidc.authenticateClient(req);
+  if (!app) {
+    res.set('WWW-Authenticate', 'Basic realm="signify-id"');
+    return res.status(401).json({ error: 'invalid_client' });
+  }
+
+  const result = await catalog.declare(app, (req.body || {}).permissions);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  await audit.record({
+    appId: app.id,
+    action: 'app.permissions_declared',
+    targetType: 'app', targetId: app.client_id,
+    detail: { declared: result.declared, retired: result.retired },
+    ip: req.ip,
+  });
+
+  res.json({
+    ok: true,
+    declared: result.declared,
+    retired: result.retired,
+    note: result.retired.length
+      ? 'Permissions no longer declared are retired, not deleted, because roles may still hold them.'
+      : undefined,
+  });
+});
+
+module.exports = router;

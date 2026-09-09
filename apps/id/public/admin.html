@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Console · Signify ID</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mark"></span><span class="brand-name">Signify ID</span></div>
+
+    <div class="field" id="tenantPickerWrap" hidden style="margin:0 .5rem">
+      <label for="tenantPicker">School</label>
+      <select id="tenantPicker"></select>
+    </div>
+
+    <nav class="nav" id="nav">
+      <div class="nav-group">School</div>
+      <button data-page="overview" class="active">Overview</button>
+      <button data-page="users">People</button>
+      <button data-page="classes">Classes</button>
+      <button data-page="roles">Roles</button>
+      <div class="nav-group">Governance</div>
+      <button data-page="audit">Audit log</button>
+      <button data-page="compliance">Compliance</button>
+      <button data-page="backups">Backups</button>
+      <div class="nav-group" data-super>Platform</div>
+      <button data-page="requests" data-super>Requests</button>
+      <button data-page="tenants" data-super>Schools</button>
+      <button data-page="apps" data-super>Applications</button>
+      <button data-page="platform" data-super>Super admins</button>
+    </nav>
+
+    <div class="whoami">
+      <div id="whoName" style="font-weight:600"></div>
+      <div class="email" id="whoEmail"></div>
+      <div style="margin-top:.4rem;display:flex;align-items:center;gap:.4rem">
+        <span class="chip chip-blue" id="whoRole"></span>
+        <a class="btn btn-sm btn-quiet" href="/logout" style="margin-left:auto">Sign out</a>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="empty">Loading…</div>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+<script src="/js/admin.js"></script>
+</body>
+</html>
