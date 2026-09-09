@@ -1,0 +1,23 @@
+qrcode.js
+=========
+
+QR Code Generator for JavaScript
+Copyright (c) 2009 Kazuhiko Arase — http://www.d-project.com/
+Licensed under the MIT licence: http://www.opensource.org/licenses/mit-license.php
+
+"QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+
+Vendored verbatim from qrcode-generator@1.4.4, unmodified.
+
+Why vendored rather than loaded from a CDN
+------------------------------------------
+Same reason as the fonts: a script fetched from someone else's server at page
+load reports every teacher's IP to that server, and hands them the ability to
+change what runs inside this app. It is served from here instead.
+
+Why vendored rather than written by hand
+----------------------------------------
+QR encoding is Reed-Solomon error correction, bit interleaving and mask
+selection. A subtle bug produces a code that simply will not scan, which is
+exactly the failure a teacher discovers in front of thirty children. This is
+the reference implementation and it is short enough to read.

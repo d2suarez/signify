@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Teacher's Desk">
+  <rect width="512" height="512" rx="96" fill="#1D4ED8"/>
+  <rect x="96" y="150" width="150" height="110" rx="14" fill="#FFFFFF" opacity="0.95"/>
+  <rect x="266" y="150" width="150" height="212" rx="14" fill="#E0A100"/>
+  <rect x="96" y="280" width="150" height="82" rx="14" fill="#C62828"/>
+  <circle cx="171" cy="205" r="30" fill="none" stroke="#1D4ED8" stroke-width="14"/>
+  <path d="M171 187v20l14 9" fill="none" stroke="#1D4ED8" stroke-width="14" stroke-linecap="round"/>
+</svg>
