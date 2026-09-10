@@ -206,15 +206,26 @@ function section(title) { console.log(`\n${title}`); }
 
   section('Sessions');
   const sess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isMinor: true });
-  const touched = await sessions.touch(sess.raw, { isMinor: true });
+  const touched = await sessions.touch(sess.raw);
   ok('a live session resolves', !!touched && touched.user_id === bobUser.id);
   eq('minors get the shorter idle window', sess.idleMinutes, 20);
+
+  // touch() has to reach the same verdict as slide() without being told who
+  // it is looking at. It used to take isMinor as an argument that no caller in
+  // the service ever passed, so a child's session was slid at the adult rate
+  // on every request that came through attachActor.
+  await db.query('UPDATE users SET is_minor = true WHERE id = $1', [bobUser.id]);
+  await sessions.touch(sess.raw);
+  const minorWindow = await db.one(
+    `SELECT idle_expires_at - now() < interval '25 minutes' AS shortened
+       FROM sessions WHERE id = $1`, [sess.id]);
+  ok('touch() reads the minor window off the account, not an argument', !!minorWindow.shortened);
 
   const stored = await db.one('SELECT token_hash FROM sessions WHERE id = $1', [sess.id]);
   ok('the raw session token is never stored', stored.token_hash !== sess.raw && stored.token_hash === keys.sha256(sess.raw));
 
   await db.query("UPDATE users SET status = 'blocked' WHERE id = $1", [bobUser.id]);
-  const afterBlock = await sessions.touch(sess.raw, { isMinor: true });
+  const afterBlock = await sessions.touch(sess.raw);
   ok('blocking an account kills its live session immediately', afterBlock === null);
   await db.query("UPDATE users SET status = 'active' WHERE id = $1", [bobUser.id]);
 

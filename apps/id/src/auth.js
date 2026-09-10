@@ -21,9 +21,19 @@ const googleClient = config.googleClientId ? new OAuth2Client(config.googleClien
 
 // Only allow onward redirects to paths on this service. Without this check an
 // attacker can hand a teacher a sign-in link that bounces to their own site.
+//
+// Rejecting a leading "//" is not enough on its own. Browsers normalise a
+// backslash to a forward slash while parsing a URL, so "/\\evil.example" is
+// read as "//evil.example" — a protocol-relative address, and an open redirect
+// out of the sign-in flow. Control characters are stripped during parsing for
+// the same reason, so "/\tevil" has to go too. What is left is a single
+// leading slash followed by ordinary path characters.
 function safeContinue(value, fallback = '/admin') {
   const v = String(value || '');
-  if (!v.startsWith('/') || v.startsWith('//')) return fallback;
+  if (!v.startsWith('/')) return fallback;
+  if (v.startsWith('//')) return fallback;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\x00-\x1f\x7f]/.test(v)) return fallback;
   return v;
 }
 

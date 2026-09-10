@@ -47,14 +47,21 @@ async function create(userId, { ip, userAgent, isMinor }) {
 // Looks up a session and slides the idle window forward. Returns null for
 // anything expired, revoked, or belonging to an account that has since been
 // blocked or deleted — the check is against live rows every time.
-async function touch(rawToken, { isMinor } = {}) {
+//
+// Which idle window applies is read from the account itself, exactly as
+// slide() does. It used to come from an argument no caller ever passed, so
+// every session touched here — which is every request that reaches this
+// service, via attachActor — was slid at the adult rate. A child's tablet got
+// the 45-minute window instead of the 20 the policy promises, and the two code
+// paths disagreed about the same session depending on which one saw it last.
+async function touch(rawToken) {
   if (!rawToken) return null;
-  const idleMinutes = isMinor ? config.sessionIdleMinutesMinor : config.sessionIdleMinutes;
 
   const row = await db.one(
     `UPDATE sessions s
         SET last_seen_at = now(),
-            idle_expires_at = now() + ($2 || ' minutes')::interval
+            idle_expires_at = now()
+              + ((CASE WHEN u.is_minor THEN $2 ELSE $3 END) || ' minutes')::interval
        FROM users u
       WHERE s.token_hash = $1
         AND u.id = s.user_id
@@ -64,7 +71,7 @@ async function touch(rawToken, { isMinor } = {}) {
         AND u.deleted_at IS NULL
         AND u.status NOT IN ('blocked', 'suspended')
     RETURNING s.id, s.user_id, s.expires_at`,
-    [keys.sha256(rawToken), String(idleMinutes)]
+    [keys.sha256(rawToken), String(config.sessionIdleMinutesMinor), String(config.sessionIdleMinutes)]
   );
   return row;
 }

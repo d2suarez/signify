@@ -871,10 +871,14 @@ router.post('/classes', async (req, res) => {
   if (name.length < 2) return fail(res, 400, 'Give the class a name.');
 
   const year = String(b.school_year || new Date().getFullYear());
+  // grade_levels, plural: migration 002 replaced the single grade_level column
+  // with an array for mixed-age and split classes. This INSERT was still
+  // naming the old column, so every attempt to create a class from the console
+  // failed on a column that no longer exists.
   const cls = await db.one(
-    `INSERT INTO classes (tenant_id, name, subject, grade_level, school_year, created_by)
+    `INSERT INTO classes (tenant_id, name, subject, grade_levels, school_year, created_by)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [tenantId, name, b.subject || null, b.grade_level || null, year, actor.userId]
+    [tenantId, name, b.subject || null, cleanYearGroups(b.grade_levels), year, actor.userId]
   );
   // The creator teaches it unless somebody says otherwise.
   await db.query("INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,'teacher') ON CONFLICT DO NOTHING", [cls.id, actor.userId]);
@@ -985,6 +989,12 @@ router.delete('/classes/:id/members/:userId', async (req, res) => {
 router.get('/users/:id/sessions', async (req, res) => {
   const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
   if (!actor) return;
+  // The same question the revoke route below already asks. Without it a local
+  // admin could read the sign-in history — addresses, devices, times — of
+  // anybody on the platform, including staff at another school, just by
+  // knowing their user id.
+  const can = await guards.canManageUser(actor, req.params.id);
+  if (!can.ok) return fail(res, 403, can.reason);
   res.json({ sessions: await sessions.listForUser(req.params.id) });
 });
 

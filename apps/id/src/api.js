@@ -14,6 +14,7 @@ const sessions = require('./sessions');
 const keys = require('./keys');
 const audit = require('./audit');
 const catalog = require('./catalog');
+const rbac = require('./rbac');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -53,7 +54,11 @@ async function caller(req, res) {
   const app = await db.one('SELECT * FROM apps WHERE client_id = $1 AND status = $2', [String(payload.aud), 'active']);
   if (!app) { res.status(401).json({ error: 'invalid_client' }); return null; }
 
-  return { userId: payload.sub, tenantId: payload.tenant_id || null, perms: payload.perms || {}, app, sid: payload.sid };
+  return {
+    userId: payload.sub, tenantId: payload.tenant_id || null,
+    perms: payload.perms || {}, isSuper: !!payload.is_super,
+    app, sid: payload.sid,
+  };
 }
 
 router.get('/me', async (req, res) => {
@@ -153,13 +158,33 @@ router.get('/classes/:id/members', async (req, res) => {
   const c = await caller(req, res);
   if (!c) return;
 
+  // The class has to be found before anything is decided about it, because
+  // which school it belongs to is half the answer.
+  const cls = await db.one('SELECT id, tenant_id FROM classes WHERE id = $1', [req.params.id]);
+  if (!cls) return res.status(404).json({ error: 'No such class.' });
+
   const membership = await db.one(
     'SELECT role FROM class_members WHERE class_id = $1 AND user_id = $2', [req.params.id, c.userId]);
-  const wideReach = c.perms['core:view_directory'] === 'tenant' || c.perms['core:manage_classes'] === 'tenant';
-  if (!membership && !wideReach) return res.status(403).json({ error: 'You are not in that class.' });
+
+  // Reach beyond one's own classes is a property of a school, not of the
+  // platform. This used to test the permission alone, so anyone holding
+  // core:view_directory — every teacher does — could read the full roster of
+  // any class anywhere, in any school, given only its id. It also compared the
+  // scope with === 'tenant', which quietly excluded a platform admin holding
+  // the same permission at 'global'.
+  const wideReach = c.isSuper
+    || rbac.allows(c.perms, 'core:view_directory', 'tenant')
+    || rbac.allows(c.perms, 'core:manage_classes', 'tenant');
+  const sameSchool = c.isSuper || (!!c.tenantId && c.tenantId === cls.tenant_id);
+
+  if (!membership && !(wideReach && sameSchool)) {
+    return res.status(403).json({ error: 'You are not in that class.' });
+  }
 
   // A pupil sees who is in the class; only staff get email addresses.
-  const staff = wideReach || (membership && ['teacher', 'aide'].includes(membership.role));
+  // Email addresses need the same pairing the access check uses: reach that
+  // actually applies to this school, or being staff in the class itself.
+  const staff = (wideReach && sameSchool) || (membership && ['teacher', 'aide'].includes(membership.role));
   const rows = await db.many(
     `SELECT u.id, u.display_name, u.picture_url, cm.role${staff ? ', u.email' : ''}
        FROM class_members cm JOIN users u ON u.id = cm.user_id

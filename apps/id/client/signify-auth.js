@@ -249,9 +249,19 @@ async function declarePermissions(permissions, { retries = 3 } = {}) {
 
 // ---------- routes ----------
 
+// Where to land after sign-in. Only ever a path on this app.
+//
+// Rejecting a leading "//" is not enough on its own: browsers normalise a
+// backslash to a forward slash while parsing a URL, so "/\\evil.example" is
+// read as "//evil.example" and the sign-in flow hands the person to somebody
+// else's site. Control characters are stripped during parsing for the same
+// reason. A single leading slash and ordinary path characters, or nothing.
 function safeReturn(value) {
   const v = String(value || '/');
-  return v.startsWith('/') && !v.startsWith('//') ? v : '/';
+  if (!v.startsWith('/') || v.startsWith('//')) return '/';
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\x00-\x1f\x7f]/.test(v)) return '/';
+  return v;
 }
 
 function mount(app, options = {}) {
