@@ -74,6 +74,7 @@ function refreshCtx() {
   const anySelection = !cropping && !editing && wb.canvas.getActiveObject();
   document.getElementById('ctx-crop').hidden = kind !== 'image';
   document.getElementById('ctx-curve').hidden = kind !== 'curve';
+  document.getElementById('ctx-beautify').hidden = kind !== 'stroke';
   document.getElementById('ctx-duplicate').hidden = !anySelection;
   document.getElementById('ctx-comment').hidden = !anySelection || isSolo || wb.canvas.getActiveObjects().length !== 1;
   document.getElementById('ctx-send').hidden = !(anySelection && role === 'teacher' && !isSolo);
@@ -84,6 +85,10 @@ function refreshCtx() {
 }
 
 document.getElementById('ctx-duplicate').addEventListener('click', () => wb.duplicateSelection());
+document.getElementById('ctx-beautify').addEventListener('click', () => {
+  const kind = wb.beautifyActive();
+  if (!kind) toast('Couldn’t tidy that one — try a clearer line, box, triangle or circle.');
+});
 document.getElementById('ctx-crop').addEventListener('click', () => wb.startCropOnActive());
 document.getElementById('ctx-curve').addEventListener('click', () => wb.startCurveEditOnActive());
 document.getElementById('ctx-apply').addEventListener('click', () => {
@@ -105,10 +110,19 @@ function updateZoomLabel() {
 
 let currentBoard = null; // { id, title }
 let boardsList = [];
+let offlineDirty = false; // drew while disconnected — local canvas has unsent work
 
 function setCurrentBoard(meta, foreignName) {
-  currentBoard = { id: meta.id, title: meta.title };
+  const prev = currentBoard;
+  if (prev && prev.id !== meta.id && !isSolo && socket && socket.connected) {
+    socket.emit('cursor:hide', { boardId: prev.id }); // tell peers I left the old board
+  }
+  if (typeof clearCursors === 'function' && (!prev || prev.id !== meta.id)) clearCursors();
+  if (!isSolo && socket && socket.connected) socket.emit('presence:view', { boardId: meta.id });
+  // rev = the board revision we currently hold, for the reconnect skip-if-unchanged guard
+  currentBoard = { id: meta.id, title: meta.title, rev: meta.updatedAt || null };
   foreignBoardOwner = foreignName || null;
+  if (typeof renderAssignmentBanner === 'function') renderAssignmentBanner();
   document.getElementById('board-title').textContent = foreignName
     ? `${foreignName}: ${meta.title} ▾`
     : `${meta.title} ▾`;
@@ -123,12 +137,17 @@ const statusDot = document.getElementById('status-dot');
 const saveIndicator = document.getElementById('save-indicator');
 let socket = null;
 let hasLoaded = false;
+// Signed-in state is a flag now, not a token — the session is an httpOnly
+// cookie the browser attaches on its own.
 let authToken = null;
+// A SEPARATE Google client, used only for the Google Classroom import. Sign-in
+// does not touch Google here any more; Classroom needs its own consent because
+// it asks for roster scopes, which are far more than signing in requires.
+let googleClientId = null;
 
 async function authedFetch(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (authToken) headers.Authorization = 'Bearer ' + authToken;
-  const res = await fetch(path, { ...opts, headers });
+  const res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
@@ -155,8 +174,40 @@ function savedFlash() {
   savedFlash._t = setTimeout(() => { saveIndicator.textContent = ''; }, 2000);
 }
 
+// ---------- board loading overlay (progress feedback on slow wifi) ----------
+
+function showBoardLoading(label) {
+  const el = document.getElementById('board-loading');
+  el.hidden = false;
+  el.classList.add('indeterminate'); // downloading: no byte progress available
+  document.getElementById('bl-text').textContent = label || 'Loading board…';
+  document.getElementById('bl-fill').style.width = '0%';
+}
+function boardLoadingProgress(done, total) {
+  const el = document.getElementById('board-loading');
+  el.hidden = false;
+  el.classList.remove('indeterminate');
+  document.getElementById('bl-text').textContent = `Loading board — ${done} of ${total}`;
+  document.getElementById('bl-fill').style.width = Math.round((done / total) * 100) + '%';
+}
+function hideBoardLoading() {
+  document.getElementById('board-loading').hidden = true;
+}
+
+// Load json into the main canvas with the progress overlay; hides it when done.
+function loadBoardWithProgress(json, after) {
+  wb.loadJSON(json || { version: '5.3.0', objects: [] }, () => {
+    hideBoardLoading();
+    updatePageNav();
+    if (after) after();
+  }, boardLoadingProgress);
+}
+
 function sendBoard(json, thumb) {
   if (!currentBoard) return;
+  // A board mid-load has an empty/partial canvas — shipping that as the
+  // board's content is how pushed PDFs used to vanish. Never send it.
+  if (wb.loading) return;
   saveIndicator.textContent = 'Saving…';
   if (isSolo) {
     authedFetch(`/api/boards/${currentBoard.id}`, { method: 'POST', body: JSON.stringify({ json, thumb }) })
@@ -188,16 +239,17 @@ function flushBoard() {
   try {
     cfg = await (await fetch('/api/config')).json();
   } catch { /* fall through to open mode */ }
-
+  // Signed-in state comes from the server, not from anything this page holds.
+  let me = null;
   if (cfg.authEnabled) {
-    const session = JSON.parse(localStorage.getItem('wb-session') || 'null');
-    if (!session || (session.exp && session.exp < Date.now())) {
-      localStorage.removeItem('wb-session');
-      location.href = '/';
-      return;
-    }
-    authToken = session.token;
-    myName = session.name;
+    try {
+      const r = await fetch('/api/me', { credentials: 'same-origin' });
+      if (r.ok) me = await r.json();
+    } catch { /* treated as signed out */ }
+    if (!me) { location.href = '/'; return; }
+    myName = me.name;
+    authToken = true;              // signed in; the cookie does the rest
+    googleClientId = cfg.classroomClientId || null;
   } else if (isSolo) {
     location.href = '/'; // personal boards need sign-in
     return;
@@ -207,10 +259,9 @@ function flushBoard() {
   }
 
   document.getElementById('user-label').textContent = isSolo ? myName : `${myName} (${role})`;
-  if (authToken) {
-    const s = JSON.parse(localStorage.getItem('wb-session') || '{}');
-    const perms = Array.isArray(s.perms) ? s.perms : [];
-    canPublishBoards = !!s.isSuper || perms.includes('teach') || perms.includes('manage_boards');
+  if (me) {
+    const perms = Array.isArray(me.perms) ? me.perms : [];
+    canPublishBoards = !!me.isSuper || perms.includes('teach') || perms.includes('manage_boards');
   }
   wireBoardsDrawer();
   wireDocuments();
@@ -219,34 +270,48 @@ function flushBoard() {
 
   if (isSolo) {
     statusDot.hidden = true;
+    showBoardLoading('Downloading board…');
     try {
       const b = await authedFetch(`/api/boards/${soloBoardId}`);
       setCurrentBoard(b);
-      if (b.json) wb.loadJSON(b.json, updatePageNav);
+      if (b.json) loadBoardWithProgress(b.json);
+      else hideBoardLoading();
       hasLoaded = true;
     } catch (e) {
+      hideBoardLoading();
       alert(e.message);
       location.href = '/';
     }
     return;
   }
 
-  socket = io({ auth: { token: authToken } });
+  showBoardLoading('Connecting to your class…');
+  socket = io({ withCredentials: true });
 
   // Room boards sync per-object ops (tiny) instead of the whole board per stroke
   wb.enableOps((ops, thumb) => {
-    if (!currentBoard || !socket || !socket.connected) return;
+    if (!currentBoard) return;
+    if (!socket || !socket.connected) {
+      // The strokes stay on the local canvas; remember to push the whole
+      // board when the connection returns instead of silently losing them.
+      offlineDirty = true;
+      saveIndicator.textContent = 'Offline — will save when reconnected';
+      return;
+    }
     saveIndicator.textContent = 'Saving…';
-    socket.emit('board:ops', { boardId: currentBoard.id, ops, thumb }, savedFlash);
+    const boardId = currentBoard.id;
+    socket.emit('board:ops', { boardId, ops, thumb }, (r) => {
+      if (r && r.rev && currentBoard && currentBoard.id === boardId) currentBoard.rev = r.rev; // track our own new revision
+      savedFlash();
+    });
   });
   wb.onChange = () => {}; // whole-board path stays only for reconnect pushes
 
   socket.on('connect_error', (err) => {
     statusDot.className = 'dot offline';
     if (err.message === 'unauthorized') {
-      localStorage.removeItem('wb-session');
       alert('Your sign-in has expired. Please sign in again.');
-      location.href = '/';
+      location.href = '/auth/login?return=' + encodeURIComponent(location.pathname + location.search);
     }
   });
 
@@ -258,6 +323,7 @@ function flushBoard() {
         return;
       }
       statusDot.className = 'dot online';
+      if (res.roomName) document.title = `${res.roomName} — Signify Learning`;
       if (res.name) {
         myName = res.name;
         document.getElementById('user-label').textContent = `${myName} (${role})`;
@@ -267,8 +333,11 @@ function flushBoard() {
         hasLoaded = true;
         if (res.activeBoard) {
           setCurrentBoard(boardsList.find((b) => b.id === res.activeBoard.id) || { id: res.activeBoard.id, title: 'Board' });
-          if (res.activeBoard.json) wb.loadJSON(res.activeBoard.json, updatePageNav);
+          if (res.activeBoard.json) loadBoardWithProgress(res.activeBoard.json);
+          else hideBoardLoading();
           setBoardComments(res.activeBoard.comments || []);
+        } else {
+          hideBoardLoading();
         }
         if (role === 'teacher') {
           (res.students || []).forEach((s) => upsertStudent(s));
@@ -281,20 +350,241 @@ function flushBoard() {
         } else {
           if (res.features) applyFeatures(res.features, false);
           if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard, res.shareBy);
+          refreshStudentAssignments();
         }
+        if (res.timer) showTimer(res.timer);
       } else if (currentBoard) {
-        // Reconnected: our local board is the source of truth
-        sendBoard(wb.getJSON(), wb.getThumb());
+        // Reconnected mid-session. Only push our canvas up if we actually
+        // drew while offline AND the board is fully loaded — blindly sending
+        // the local canvas used to wipe boards (empty/partial canvas during a
+        // big load, or stomping teacher edits made while we were away).
+        if (offlineDirty && !wb.loading) {
+          offlineDirty = false;
+          sendBoard(wb.getJSON(), wb.getThumb());
+        } else if (!wb.loading) {
+          // Nothing unsent locally — ask the server for the board, but pass the
+          // revision we hold so it can answer "unchanged" and skip the transfer
+          // when nothing moved during the blip (avoids a reconnect-storm of
+          // full-board pulls).
+          loadBoardFull(currentBoard.id, currentBoard.rev).then((b) => {
+            if (b.unchanged) { if (currentBoard) currentBoard.rev = b.updatedAt || currentBoard.rev; return; }
+            loadBoardWithProgress(b.json, () => setBoardComments(b.comments || []));
+            if (currentBoard) currentBoard.rev = b.updatedAt || currentBoard.rev;
+          }).catch(() => {});
+        }
+        // Re-sync the live class state that changed while we were offline:
+        // feature locks, a running timer, and any share/spotlight overlay.
+        if (role === 'student') {
+          if (res.features) applyFeatures(res.features, false);
+          if (res.sharing && res.teacherBoard) studentUI.showShare(res.teacherBoard, res.shareBy);
+          else if (!res.sharing && studentUI.hideShare) studentUI.hideShare();
+          refreshStudentAssignments();
+        } else {
+          setSharing(res.sharing, res.shareBy);
+          roomFeatures = res.roomFeatures || {};
+          studentFeaturesMap = res.studentFeatures || {};
+        }
+        if (res.timer) showTimer(res.timer); else hideTimer();
       }
     });
   });
 
-  socket.on('disconnect', () => { statusDot.className = 'dot offline'; });
+  socket.on('disconnect', () => {
+    statusDot.className = 'dot offline';
+    // ops queued but not yet flushed ride along in the next reconnect push
+    if (wb._ops.length || wb._needFullSync || wb._opsTimer) offlineDirty = true;
+  });
 
   if (role === 'student') wireStudent();
   else wireTeacher();
   wireCommon();
+  wireLiveClassroom();
 })();
+
+// ================= LIVE CLASSROOM: timer, picker, reactions =================
+
+let timerInterval = null;
+function fmtClock(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function showTimer(t) {
+  const chip = document.getElementById('timer-chip');
+  const time = document.getElementById('timer-time');
+  clearInterval(timerInterval);
+  const tick = () => {
+    const left = t.endsAt - Date.now();
+    time.textContent = fmtClock(left);
+    chip.classList.toggle('ending', left <= 10000 && left > 0);
+    if (left <= 0) {
+      clearInterval(timerInterval);
+      time.textContent = "Time's up!";
+      chip.classList.add('done');
+      setTimeout(() => { chip.hidden = true; chip.classList.remove('done'); }, 4000);
+    }
+  };
+  chip.hidden = false;
+  chip.classList.remove('done');
+  tick();
+  timerInterval = setInterval(tick, 250);
+}
+function hideTimer() {
+  clearInterval(timerInterval);
+  document.getElementById('timer-chip').hidden = true;
+}
+
+const REACTIONS = ['👍', '👏', '❤️', '😂', '🎉', '🤔', '😮', '✅', '❓', '🙋'];
+function floatReaction(emoji, name) {
+  const layer = document.getElementById('reactions-layer');
+  const el = document.createElement('div');
+  el.className = 'float-reaction';
+  el.textContent = emoji;
+  el.style.left = (12 + Math.random() * 60) + '%';
+  if (name) { const tag = document.createElement('span'); tag.textContent = name; el.appendChild(tag); }
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function wireLiveClassroom() {
+  // everyone: receive timer / picker / reactions
+  socket.on('timer:start', (t) => showTimer(t));
+  socket.on('timer:stop', () => hideTimer());
+  socket.on('picker:result', (p) => showPicker(p.name));
+  socket.on('reaction', (r) => floatReaction(r.emoji, r.name));
+
+  if (role === 'teacher') wireClassroomTeacher();
+  // Everyone gets the reaction bar — teachers were the only ones without it,
+  // which is why it "disappeared" when signed in as the teacher.
+  wireReactionsBar();
+
+  document.getElementById('picker-dismiss').onclick = () => { document.getElementById('picker-overlay').hidden = true; };
+}
+
+function wireClassroomTeacher() {
+  const btn = document.getElementById('classroom-btn');
+  btn.hidden = false;
+  const modal = document.getElementById('classroom-modal');
+  btn.addEventListener('click', () => { modal.hidden = false; });
+  document.getElementById('classroom-close').addEventListener('click', () => { modal.hidden = true; });
+
+  const startTimer = (sec) => {
+    socket.emit('timer:start', { seconds: sec }, (r) => { if (!r || !r.ok) toast((r && r.error) || 'Could not start timer.'); });
+    modal.hidden = true;
+  };
+  document.querySelectorAll('.timer-preset').forEach((b) => b.addEventListener('click', () => startTimer(Number(b.dataset.sec))));
+  document.getElementById('timer-custom-btn').addEventListener('click', () => {
+    const mins = Number(document.getElementById('timer-custom').value);
+    if (mins > 0) startTimer(Math.round(mins * 60));
+  });
+  document.getElementById('timer-stop-btn').addEventListener('click', () => { socket.emit('timer:stop'); modal.hidden = true; });
+
+  document.getElementById('picker-btn').addEventListener('click', () => {
+    socket.emit('picker:pick', {}, (r) => {
+      if (r && r.ok) { modal.hidden = true; runPickerAnimation(r.picked.name); }
+      else toast((r && r.error) || 'No students to pick.');
+    });
+  });
+}
+
+// teacher spins through names before landing (student side just gets the result)
+function runPickerAnimation(finalName) {
+  const overlay = document.getElementById('picker-overlay');
+  const nameEl = document.getElementById('picker-name');
+  overlay.hidden = false;
+  const names = [...document.querySelectorAll('#student-tiles .tile')].map((t) => t.dataset.name);
+  const pool = names.length ? names : [finalName];
+  let n = 0;
+  const spin = setInterval(() => {
+    nameEl.textContent = pool[Math.floor(Math.random() * pool.length)];
+    if (++n > 14) { clearInterval(spin); nameEl.textContent = finalName; nameEl.classList.add('landed'); setTimeout(() => nameEl.classList.remove('landed'), 1200); }
+  }, 90);
+}
+function showPicker(name) {
+  // students / non-initiators: simple reveal
+  const overlay = document.getElementById('picker-overlay');
+  if (!overlay.hidden && document.getElementById('picker-name').classList.contains('landed')) return;
+  overlay.hidden = false;
+  document.getElementById('picker-name').textContent = name;
+}
+
+function wireReactionsBar() {
+  const bar = document.getElementById('reactions-bar');
+  bar.hidden = false;
+  REACTIONS.forEach((e) => {
+    const b = document.createElement('button');
+    b.textContent = e;
+    b.title = 'Send reaction';
+    b.onclick = () => { socket.emit('reaction:send', { emoji: e }); floatReaction(e, null); };
+    bar.appendChild(b);
+  });
+}
+
+// ---------- live presence: multiplayer cursors ----------
+const PRESENCE_COLORS = ['#e5484d', '#0ea5e9', '#f5a623', '#8b5cf6', '#16a34a', '#db2777', '#0d9488', '#d97706'];
+const remoteCursors = new Map(); // from -> { el, x, y, seen }
+let presenceEmitAt = 0;
+
+function presenceColor(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return PRESENCE_COLORS[h % PRESENCE_COLORS.length];
+}
+function placeCursor(c) {
+  const vpt = wb.canvas.viewportTransform; // [zoomX,0,0,zoomY,panX,panY]
+  c.el.style.transform = `translate(${c.x * vpt[0] + vpt[4]}px, ${c.y * vpt[3] + vpt[5]}px)`;
+}
+function positionCursors() { for (const c of remoteCursors.values()) placeCursor(c); }
+function removeCursor(from) {
+  const c = remoteCursors.get(from);
+  if (c) { c.el.remove(); remoteCursors.delete(from); }
+}
+function clearCursors() { for (const from of [...remoteCursors.keys()]) removeCursor(from); }
+
+function wirePresence() {
+  if (isSolo) return; // a personal board has no classmates on it
+  const layer = document.getElementById('cursor-layer');
+  const canvas = wb.canvas;
+
+  // broadcast my pointer (in scene coords) over whatever board I'm viewing
+  canvas.on('mouse:move', (opt) => {
+    if (!currentBoard || !socket || !socket.connected) return;
+    const now = Date.now();
+    if (now - presenceEmitAt < 55) return;
+    presenceEmitAt = now;
+    const p = canvas.getPointer(opt.e);
+    socket.emit('cursor:move', { boardId: currentBoard.id, x: Math.round(p.x), y: Math.round(p.y) });
+  });
+  canvas.upperCanvasEl.addEventListener('mouseleave', () => {
+    if (currentBoard && socket && socket.connected) socket.emit('cursor:hide', { boardId: currentBoard.id });
+  });
+  canvas.on('after:render', positionCursors); // keep dots glued to the board through pan/zoom
+
+  socket.on('cursor:peer', ({ boardId, from, name, x, y }) => {
+    if (!currentBoard || boardId !== currentBoard.id) return;
+    let c = remoteCursors.get(from);
+    if (!c) {
+      const color = presenceColor(from || 'x');
+      const el = document.createElement('div');
+      el.className = 'remote-cursor';
+      el.innerHTML = '<svg viewBox="0 0 16 16" width="20" height="20"><path d="M2 1l11 5.4-4.7 1.4L6 13.6z" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg><span class="rc-name"></span>';
+      el.querySelector('path').setAttribute('fill', color);
+      const tag = el.querySelector('.rc-name');
+      tag.textContent = name || 'Someone';
+      tag.style.background = color;
+      layer.appendChild(el);
+      c = { el };
+      remoteCursors.set(from, c);
+    }
+    c.x = x; c.y = y; c.seen = Date.now();
+    placeCursor(c);
+  });
+  socket.on('cursor:gone', ({ from }) => removeCursor(from));
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [from, c] of remoteCursors) if (now - (c.seen || 0) > 5000) removeCursor(from);
+  }, 2000);
+}
 
 // ---------- board switcher drawer ----------
 
@@ -307,24 +597,26 @@ async function fetchBoardsList() {
   return boardsList;
 }
 
-async function loadBoardFull(id) {
+async function loadBoardFull(id, haveRev) {
   if (isSolo) return authedFetch(`/api/boards/${id}`);
   return new Promise((resolve, reject) => {
-    socket.emit('board:load', { boardId: id }, (res) => (res && res.ok ? resolve({ ...res.meta, json: res.json }) : reject(new Error((res && res.error) || 'Could not load board.'))));
+    socket.emit('board:load', { boardId: id, haveRev }, (res) => (res && res.ok ? resolve({ ...res.meta, json: res.json, unchanged: res.unchanged }) : reject(new Error((res && res.error) || 'Could not load board.'))));
   });
 }
 
 async function switchBoard(id) {
   if (currentBoard && id === currentBoard.id) return;
   flushBoard();
+  showBoardLoading('Downloading board…');
   try {
     const b = await loadBoardFull(id);
     setCurrentBoard(b);
-    if (b.json) wb.loadJSON(b.json, updatePageNav);
-    else { wb.clear(); updatePageNav(); }
+    if (b.json) loadBoardWithProgress(b.json);
+    else { wb.clear(); updatePageNav(); hideBoardLoading(); }
     setBoardComments(b.comments || []);
     toast(`Opened "${b.title}"`);
   } catch (e) {
+    hideBoardLoading();
     toast(e.message);
   }
 }
@@ -494,9 +786,10 @@ async function useTemplate(t) {
       meta = res.meta;
     }
     setCurrentBoard(meta);
-    wb.loadJSON(full.json || { version: '5.3.0', objects: [] }, updatePageNav);
-    wb._markFullSync ? wb._markFullSync() : null;
-    flushBoard();
+    loadBoardWithProgress(full.json, () => {
+      wb._markFullSync ? wb._markFullSync() : null;
+      flushBoard();
+    });
     document.getElementById('templates-modal').hidden = true;
     toast(`New board from "${t.title}"`);
   } catch (e) { toast(e.message); }
@@ -588,16 +881,47 @@ function renderBoardsGrid(list) {
 
 let embedBoard = null;
 
+function clampInt(v, lo, hi, dflt) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
+}
+
+function embedOpts() {
+  return {
+    w: clampInt(document.getElementById('embed-w').value, 200, 4000, 800),
+    h: clampInt(document.getElementById('embed-h').value, 200, 4000, 600),
+    fit: document.getElementById('embed-fit').value,
+    start: clampInt(document.getElementById('embed-start').value, 1, 999, 1),
+    nav: document.getElementById('embed-nav').checked,
+    autoplay: document.getElementById('embed-autoplay').checked,
+  };
+}
+
+function embedUrl(token) {
+  const o = embedOpts();
+  const p = new URLSearchParams();
+  if (o.fit === 'all') p.set('fit', 'all');
+  else if (o.start > 1) p.set('page', String(o.start));
+  if (!o.nav) p.set('nav', '0');
+  if (o.autoplay) p.set('autoplay', '1');
+  const qs = p.toString();
+  return `${location.origin}/embed/${token}${qs ? '?' + qs : ''}`;
+}
+
 function embedSnippet(token) {
-  return `<iframe src="${location.origin}/embed/${token}" width="800" height="600" style="border:1px solid #E4E2DD;border-radius:6px" allowfullscreen title="Signify Learning board"></iframe>`;
+  const o = embedOpts();
+  return `<iframe src="${embedUrl(token)}" width="${o.w}" height="${o.h}" style="border:1px solid #E4E2DD;border-radius:6px" allowfullscreen title="Signify Learning board"></iframe>`;
 }
 
 function paintEmbedState(tok) {
   document.getElementById('embed-off').hidden = !!tok;
   document.getElementById('embed-on').hidden = !tok;
   if (tok) {
+    // The plain public link stays canonical; the embed code carries the options.
     document.getElementById('embed-url').value = `${location.origin}/embed/${tok}`;
     document.getElementById('embed-code').value = embedSnippet(tok);
+    // Start-page only matters when opening on the first page
+    document.getElementById('embed-start').disabled = document.getElementById('embed-fit').value === 'all';
   }
 }
 
@@ -610,6 +934,13 @@ async function openEmbedModal(b) {
 
 function wireEmbed() {
   document.getElementById('embed-close').addEventListener('click', () => { document.getElementById('embed-modal').hidden = true; });
+  // Any option change rebuilds the embed snippet in place
+  ['embed-w', 'embed-h', 'embed-fit', 'embed-start', 'embed-nav', 'embed-autoplay'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', () => {
+      const tok = embedBoard && embedBoard.embed && embedBoard.embed.token;
+      if (tok) paintEmbedState(tok);
+    });
+  });
   document.getElementById('embed-publish').addEventListener('click', async () => {
     if (!embedBoard) return;
     try {
@@ -680,7 +1011,7 @@ async function openHistoryModal(b) {
         if (!confirm(`Restore "${b.title}" to ${when.toLocaleString()}? The current version is snapshotted first, so this is reversible.`)) return;
         try {
           const json = await historyRestoreVersion(b.id, ts);
-          if (currentBoard && currentBoard.id === b.id) wb.loadJSON(json, updatePageNav);
+          if (currentBoard && currentBoard.id === b.id) loadBoardWithProgress(json);
           document.getElementById('history-modal').hidden = true;
           document.getElementById('boards-modal').hidden = true;
           toast('Board restored');
@@ -783,7 +1114,7 @@ function wireDocuments() {
         toast(`Converting ${file.name}…`);
         const res = await fetch(`/api/convert?ext=${ext}`, {
           method: 'POST',
-          headers: authToken ? { Authorization: 'Bearer ' + authToken } : {},
+          credentials: 'same-origin',
           body: file,
         });
         if (!res.ok) {
@@ -792,7 +1123,8 @@ function wireDocuments() {
         }
         pdfData = await res.arrayBuffer();
       }
-      await insertPdf(pdfData);
+      const rendered = await renderPdf(pdfData, file.name);
+      choosePlacement(rendered);
     } catch (e) {
       toast(e.message);
     }
@@ -800,11 +1132,35 @@ function wireDocuments() {
 
   document.getElementById('page-prev').addEventListener('click', () => wb.gotoDocPage(wb.getCurrentDocPage() - 1));
   document.getElementById('page-next').addEventListener('click', () => wb.gotoDocPage(wb.getCurrentDocPage() + 1));
+  document.getElementById('page-add').addEventListener('click', () => { wb.addBlankPage(); updatePageNav(); });
+  document.getElementById('margin-more').addEventListener('click', () => { wb.setDocMargin(wb.getDocMargin() + 40); });
+  document.getElementById('margin-less').addEventListener('click', () => { wb.setDocMargin(wb.getDocMargin() - 40); });
+
+  // The placement choice modal (as a document vs. movable objects)
+  const modal = document.getElementById('docmode-modal');
+  const close = () => { modal.hidden = true; pendingDoc = null; };
+  document.getElementById('docmode-cancel').addEventListener('click', close);
+  document.getElementById('docmode-doc').addEventListener('click', () => {
+    if (!pendingDoc) return; const d = pendingDoc; close();
+    wb.addDocumentPages(d.urls, (n) => {
+      toast(`Added ${n} page${n === 1 ? '' : 's'}${d.capped ? ' (capped at ' + MAX_DOC_PAGES + ')' : ''}. It's fenced in now — scroll and zoom freely, add pages with ＋ Page.`);
+      updatePageNav();
+    });
+  });
+  document.getElementById('docmode-object').addEventListener('click', () => {
+    if (!pendingDoc) return; const d = pendingDoc; close();
+    wb.addDocumentObjects(d.urls, (n) => {
+      toast(`Placed ${n} page${n === 1 ? '' : 's'} on the board — drag, resize, or delete them like any object.`);
+      updatePageNav();
+    });
+  });
 }
 
 const MAX_DOC_PAGES = 40;
+let pendingDoc = null; // { urls, capped, name } awaiting a placement choice
 
-async function insertPdf(arrayBuffer) {
+// Render a PDF to page image data-URLs (does not place them yet)
+async function renderPdf(arrayBuffer, name) {
   if (!window.pdfjsLib) throw new Error('PDF renderer failed to load.');
   const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages = Math.min(doc.numPages, MAX_DOC_PAGES);
@@ -824,17 +1180,23 @@ async function insertPdf(arrayBuffer) {
     await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
     urls.push(c.toDataURL('image/jpeg', 0.85));
   }
-  wb.addDocumentPages(urls, (n) => {
-    toast(`Added ${n} page${n === 1 ? '' : 's'}${doc.numPages > pages ? ` (of ${doc.numPages} — capped)` : ''}. Scroll or use ◀ ▶ to move through them.`);
-    updatePageNav();
-  });
+  return { urls, capped: doc.numPages > pages, name: name || 'document' };
+}
+
+// Ask the teacher/student how to place the just-rendered document
+function choosePlacement(rendered) {
+  pendingDoc = rendered;
+  document.getElementById('docmode-name').textContent = rendered.name;
+  document.getElementById('docmode-modal').hidden = false;
 }
 
 function updatePageNav() {
   const count = wb.getDocPages().length;
-  const show = count > 0;
-  document.getElementById('page-prev').hidden = !show;
-  document.getElementById('page-next').hidden = !show;
+  const docMode = wb.isDocMode && wb.isDocMode();
+  const show = count > 0 && docMode;
+  ['page-prev', 'page-next', 'page-add', 'margin-more', 'margin-less'].forEach((id) => {
+    document.getElementById(id).hidden = !show;
+  });
   const label = document.getElementById('page-label');
   label.hidden = !show;
   if (show) label.textContent = `${wb.getCurrentDocPage()}/${count}`;
@@ -860,7 +1222,10 @@ let currentShape = 'rect';
 const shapesBtn = document.getElementById('shapes-btn');
 const shapesMenu = document.getElementById('shapes-menu');
 shapesBtn.addEventListener('click', () => {
-  shapesMenu.style.top = Math.min(shapesBtn.getBoundingClientRect().top, window.innerHeight - 90) + 'px';
+  const r = shapesBtn.getBoundingClientRect();
+  shapesMenu.style.top = Math.min(r.top, window.innerHeight - 90) + 'px';
+  // sit just past the (now floating) toolbar's right edge so it never overlaps it
+  shapesMenu.style.left = (document.getElementById('toolbar').getBoundingClientRect().right + 8) + 'px';
   if (shapesBtn.classList.contains('active')) {
     shapesMenu.hidden = !shapesMenu.hidden; // second tap opens the picker
   } else {
@@ -998,6 +1363,116 @@ document.getElementById('graph-insert').addEventListener('click', () => {
   graphModal.hidden = true;
 });
 
+// ----- math equation editor (MathJax SVG, lazy-loaded) -----
+let mathjaxPromise = null;
+function ensureMathJax() {
+  if (mathjaxPromise) return mathjaxPromise;
+  mathjaxPromise = new Promise((resolve, reject) => {
+    // fontCache:'none' inlines every glyph path so the SVG is self-contained for fabric
+    window.MathJax = {
+      loader: { load: ['[tex]/ams'] },
+      tex: { packages: { '[+]': ['ams'] } },
+      svg: { fontCache: 'none' },
+      startup: { typeset: false },
+    };
+    const s = document.createElement('script');
+    s.src = '/vendor/mathjax-tex-svg.js';
+    s.async = true;
+    s.onload = () => {
+      if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
+        window.MathJax.startup.promise.then(resolve).catch(reject);
+      } else resolve();
+    };
+    s.onerror = () => reject(new Error('Could not load the math renderer.'));
+    document.head.appendChild(s);
+  });
+  return mathjaxPromise;
+}
+
+function renderEquationSVG(latex) {
+  // returns an SVG string, or throws on a TeX error
+  const node = window.MathJax.tex2svg(latex, { display: true });
+  const svg = node.querySelector('svg');
+  if (!svg) throw new Error('No output');
+  const err = svg.querySelector('[data-mml-node="merror"], .merror');
+  if (err) throw new Error('TeX error');
+  return svg.outerHTML;
+}
+
+const EQN_SYMBOLS = [
+  ['x²', 'x^{2}'], ['√', '\\sqrt{ }'], ['⁄', '\\frac{ }{ }'], ['π', '\\pi'],
+  ['θ', '\\theta'], ['≤', '\\leq'], ['≥', '\\geq'], ['≠', '\\neq'],
+  ['±', '\\pm'], ['×', '\\times'], ['÷', '\\div'], ['∑', '\\sum'],
+  ['∫', '\\int'], ['∞', '\\infty'], ['→', '\\rightarrow'], ['°', '^{\\circ}'],
+];
+
+(function wireEquationEditor() {
+  const modal = document.getElementById('equation-modal');
+  const btn = document.getElementById('equation-btn');
+  const input = document.getElementById('eqn-input');
+  const preview = document.getElementById('eqn-preview');
+  const insertBtnEl = document.getElementById('eqn-insert');
+  const symbols = document.getElementById('eqn-symbols');
+  if (!modal || !btn) return;
+
+  for (const [label, tex] of EQN_SYMBOLS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'eqn-sym';
+    b.textContent = label;
+    b.title = tex.trim();
+    b.addEventListener('click', () => {
+      const s = input.selectionStart || input.value.length;
+      input.value = input.value.slice(0, s) + tex + input.value.slice(input.selectionEnd || s);
+      input.focus();
+      input.selectionStart = input.selectionEnd = s + tex.length;
+      schedulePreview();
+    });
+    symbols.appendChild(b);
+  }
+
+  let lastSVG = null;
+  let previewTimer = null;
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(runPreview, 220);
+  }
+  async function runPreview() {
+    const latex = input.value.trim();
+    lastSVG = null;
+    insertBtnEl.disabled = true;
+    if (!latex) { preview.innerHTML = '<span class="hint">Your equation appears here.</span>'; return; }
+    try {
+      await ensureMathJax();
+      const svg = renderEquationSVG(latex);
+      lastSVG = svg;
+      preview.innerHTML = svg;
+      insertBtnEl.disabled = false;
+    } catch {
+      preview.innerHTML = '<span class="eqn-err">Check your LaTeX — that didn\'t render.</span>';
+    }
+  }
+  input.addEventListener('input', schedulePreview);
+
+  btn.addEventListener('click', () => {
+    if (!featureOn('charts')) return;
+    modal.hidden = false;
+    input.focus();
+    ensureMathJax().catch(() => { preview.innerHTML = '<span class="eqn-err">Math renderer failed to load.</span>'; });
+    if (input.value.trim()) runPreview();
+  });
+  document.getElementById('equation-close').addEventListener('click', () => { modal.hidden = true; });
+  insertBtnEl.addEventListener('click', async () => {
+    if (!lastSVG) return;
+    try {
+      await wb.addEquation(lastSVG, wb.color || '#1f2937');
+      modal.hidden = true;
+    } catch {
+      toast('Could not insert that equation.');
+    }
+  });
+})();
+
 // ----- CSV charts -----
 const chartModal = document.getElementById('chart-modal');
 const csvInput = document.getElementById('csv-input');
@@ -1129,8 +1604,11 @@ document.getElementById('tt-smaller').addEventListener('mousedown', (e) => { e.p
 document.getElementById('tt-bigger').addEventListener('mousedown', (e) => { e.preventDefault(); wb.changeTextSize(4); updateTextToolbar(); });
 document.getElementById('tt-color').addEventListener('mousedown', (e) => { e.preventDefault(); wb.applyTextStyle({ fill: wb.color }); });
 
-// font picker (buttons, not a <select>, so text editing keeps focus)
-const TEXT_FONTS = ['Bricolage Grotesque', 'Arial', 'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS'];
+// font picker (buttons, not a <select>, so text editing keeps focus).
+// Bricolage Grotesque is intentionally excluded: Fabric mis-measures that
+// variable display font per character, so its typing caret drifts. These
+// system fonts all measure exactly as they render.
+const TEXT_FONTS = ['Arial', 'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS', 'Verdana'];
 const fontMenu = document.getElementById('tt-font-menu');
 TEXT_FONTS.forEach((f) => {
   const b = document.createElement('button');
@@ -1254,18 +1732,28 @@ let lastOpsNoteTs = 0;
 
 function wireCommon() {
   document.getElementById('msg-btn').hidden = false;
+  wirePresence();
+  wireAssignments();
 
   // another device (mine, or the teacher's pen on my board) changed this board
   socket.on('board:peer', ({ boardId, json, note }) => {
     if (currentBoard && currentBoard.id === boardId) {
-      wb.loadJSON(json, updatePageNav);
+      // If I have unflushed strokes, a full reload would erase them from my
+      // screen. Flush them as per-object ops first (the server merges by id, so
+      // nothing is lost) and keep my canvas rather than clobbering it.
+      if (wb._ops.length || wb._needFullSync || wb._opsTimer) {
+        wb.flushOpsNow();
+      } else {
+        loadBoardWithProgress(json);
+      }
     }
     if (note) toast(note);
   });
 
   // incremental object ops from other editors of boards I can see
-  socket.on('board:ops', ({ boardId, owner, ops, note }) => {
+  socket.on('board:ops', ({ boardId, owner, ops, note, rev }) => {
     if (currentBoard && currentBoard.id === boardId) {
+      if (rev) currentBoard.rev = rev; // keep our revision current so reconnect can skip an unchanged pull
       wb.applyOps(ops, updatePageNav);
     } else if (typeof modalBoardId !== 'undefined' && modalBoardId === boardId && modalViewer) {
       modalViewer.applyOps(ops);
@@ -1520,6 +2008,13 @@ function wireTeacherExtras() {
     document.getElementById('panel-reopen').hidden = true;
   });
 
+  // export every student's current board(s) to a single PDF (via the print dialog)
+  const exportBtn = document.getElementById('export-all-btn');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    document.getElementById('download-menu').open = false;
+    exportAllBoards();
+  });
+
   // expanded live grid of all boards (the students panel widens leftward)
   document.getElementById('overview-btn').addEventListener('click', toggleOverview);
   const sizeSlider = document.getElementById('preview-size');
@@ -1534,14 +2029,14 @@ function wireTeacherExtras() {
     if (!modalBoardId || !modalStudent) return;
     const name = modalStudent.name;
     document.getElementById('student-modal').hidden = true;
+    showBoardLoading(`Downloading ${name}'s board…`);
     try {
       flushBoard();
       const b = await loadBoardFull(modalBoardId);
       setCurrentBoard(b, name);
-      wb.loadJSON(b.json || { version: '5.3.0', objects: [] }, updatePageNav);
-      setBoardComments(b.comments || []);
+      loadBoardWithProgress(b.json, () => setBoardComments(b.comments || []));
       toast(`You are drawing on ${name}'s board — they see your changes live`);
-    } catch (e) { toast(e.message); }
+    } catch (e) { hideBoardLoading(); toast(e.message); }
   });
   document.getElementById('back-my-board').addEventListener('click', async () => {
     flushBoard();
@@ -1693,6 +2188,388 @@ function buildOverviewGrid() {
   }
 }
 
+// ---------- export every student's board to one PDF (print dialog) ----------
+let exportBusy = false;
+
+async function exportAllBoards() {
+  if (exportBusy) return;
+  const tiles = [...document.querySelectorAll('#student-tiles .tile')];
+  if (!tiles.length) { toast('No students to export yet.'); return; }
+  exportBusy = true;
+  try {
+    // one reusable offscreen viewer sized to a landscape page
+    const off = document.createElement('canvas');
+    off.style.cssText = 'position:fixed;left:-99999px;top:0;';
+    document.body.appendChild(off);
+    const PW = 1200, PH = 850;
+    const viewer = new BoardViewer(off);
+    viewer.setSize(PW, PH);
+
+    const pages = [];
+    let done = 0;
+    for (const t of tiles) {
+      const id = t.dataset.student, name = t.dataset.name || id;
+      toast(`Rendering boards… ${++done}/${tiles.length}`);
+      const list = await new Promise((res) => socket.emit('student:boards', { student: id }, (l) => res(l || [])));
+      if (!list.length) { pages.push({ name, title: 'No board yet', url: null }); continue; }
+      for (const b of list) {
+        const r = await new Promise((res) => socket.emit('board:load', { boardId: b.id }, res));
+        if (!r || !r.ok) continue;
+        await viewer.loadAsync(r.json);
+        pages.push({ name, title: b.title || 'Board', url: viewer.canvas.toDataURL({ format: 'png', multiplier: 1 }) });
+      }
+    }
+    off.remove();
+    if (!pages.length) { toast('Nothing to export.'); return; }
+    printBoardPages(pages);
+    toast('Choose "Save as PDF" in the print dialog to save all boards.');
+  } catch (e) {
+    toast('Could not export boards.');
+    console.error(e);
+  } finally {
+    exportBusy = false;
+  }
+}
+
+// Build a self-contained print document in a hidden iframe and open the print dialog.
+// Using an iframe (not window.open) avoids popup blockers after the async render.
+function printBoardPages(pages) {
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument;
+  doc.open();
+  doc.write('<!doctype html><html><head><meta charset="utf-8"><title>Student boards</title></head><body></body></html>');
+  doc.close();
+  const style = doc.createElement('style');
+  style.textContent = [
+    '*{box-sizing:border-box}',
+    'body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#1f2937}',
+    '.page{page-break-after:always;padding:10px 4px}',
+    '.page:last-child{page-break-after:auto}',
+    'h2{font-size:15px;margin:0 0 6px}',
+    'h2 span{font-weight:400;color:#6b7280;margin-left:8px}',
+    'img{display:block;width:100%;height:auto;border:1px solid #e5e7eb;border-radius:6px}',
+    '.empty{color:#9ca3af;font-style:italic;padding:24px 0}',
+    '@page{size:landscape;margin:12mm}',
+  ].join('');
+  doc.head.appendChild(style);
+  for (const p of pages) {
+    const sec = doc.createElement('section');
+    sec.className = 'page';
+    const h = doc.createElement('h2');
+    h.textContent = p.name;
+    const sp = doc.createElement('span');
+    sp.textContent = p.title;
+    h.appendChild(sp);
+    sec.appendChild(h);
+    if (p.url) {
+      const img = doc.createElement('img');
+      img.src = p.url;
+      sec.appendChild(img);
+    } else {
+      const e = doc.createElement('p');
+      e.className = 'empty';
+      e.textContent = 'No board yet';
+      sec.appendChild(e);
+    }
+    doc.body.appendChild(sec);
+  }
+  // wait for the images to decode before printing
+  const imgs = [...doc.images];
+  Promise.all(imgs.map((im) => im.complete ? Promise.resolve() : new Promise((r) => { im.onload = im.onerror = r; })))
+    .then(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => iframe.remove(), 2000);
+    });
+}
+
+// ================= ACCESSIBILITY =================
+(function wireAccessibility() {
+  const PREF = { dyslexic: 'a11y-dyslexic', contrast: 'a11y-contrast' };
+  function apply(key, on) {
+    document.body.classList.toggle(PREF[key], on);
+    localStorage.setItem('wb-' + PREF[key], on ? '1' : '0');
+    const btn = document.getElementById(PREF[key]);
+    if (btn) {
+      btn.textContent = on ? 'On' : 'Off';
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      btn.classList.toggle('active', on);
+    }
+  }
+  for (const key of Object.keys(PREF)) apply(key, localStorage.getItem('wb-' + PREF[key]) === '1');
+
+  const modal = document.getElementById('a11y-modal');
+  const openBtn = document.getElementById('a11y-btn');
+  if (openBtn && modal) {
+    openBtn.addEventListener('click', () => {
+      const dm = document.getElementById('download-menu');
+      if (dm) dm.open = false;
+      modal.hidden = false;
+    });
+    document.getElementById('a11y-close').addEventListener('click', () => { modal.hidden = true; });
+    for (const key of Object.keys(PREF)) {
+      const btn = document.getElementById(PREF[key]);
+      if (btn) btn.addEventListener('click', () => apply(key, !document.body.classList.contains(PREF[key])));
+    }
+  }
+
+  // Screen-reader names for icon-only controls, and an announced toast
+  document.querySelectorAll('button[title]:not([aria-label])').forEach((b) => b.setAttribute('aria-label', b.title));
+  const board = document.getElementById('board');
+  if (board) board.setAttribute('aria-label', 'Drawing canvas');
+  const toastEl2 = document.getElementById('toast');
+  if (toastEl2) { toastEl2.setAttribute('role', 'status'); toastEl2.setAttribute('aria-live', 'polite'); }
+
+  // Esc closes the topmost open dialog (using its own close button so cleanup still runs)
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const open = [...document.querySelectorAll('[id$="-modal"]')].filter((m) => !m.hidden);
+    const top = open[open.length - 1];
+    if (!top) return;
+    const close = top.querySelector('[id$="-close"]') || top.querySelector('.modal-head button');
+    if (close) close.click(); else top.hidden = true;
+    e.stopPropagation();
+  });
+})();
+
+// Offline/online awareness (the app reconnects and re-syncs the local board automatically)
+window.addEventListener('offline', () => { if (typeof toast === 'function') toast("You're offline — your work is kept here and will sync when you reconnect."); });
+window.addEventListener('online', () => { if (typeof toast === 'function') toast('Back online — syncing.'); });
+
+// ================= ASSIGNMENTS: assign → turn in → grade → return =================
+const studentAssignments = new Map(); // boardId -> { id, title, instructions, submission }
+let teacherAssignments = [];
+
+const ASSIGN_STATUS = { assigned: 'Not started', working: 'Working', turnedin: 'Turned in', returned: 'Returned' };
+
+function fmtWhen(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function wireAssignments() {
+  if (isSolo) return;
+  if (role === 'teacher') wireAssignmentsTeacher();
+  else wireAssignmentsStudent();
+}
+
+// ----- student side: banner + turn in -----
+function ingestStudentAssignment(a) {
+  if (a && a.submission && a.submission.boardId) studentAssignments.set(a.submission.boardId, a);
+}
+function refreshStudentAssignments() {
+  if (!socket) return;
+  socket.emit('assignment:list', {}, (r) => {
+    if (r && r.ok) { (r.assignments || []).forEach(ingestStudentAssignment); renderAssignmentBanner(); }
+  });
+}
+function renderAssignmentBanner() {
+  const banner = document.getElementById('assignment-banner');
+  if (!banner) return;
+  if (role === 'teacher' || isSolo) { banner.hidden = true; return; }
+  const a = currentBoard && studentAssignments.get(currentBoard.id);
+  if (!a) { banner.hidden = true; return; }
+  const sub = a.submission || {};
+  document.getElementById('ab-title').textContent = a.title;
+  const statusEl = document.getElementById('ab-status');
+  const turnin = document.getElementById('ab-turnin');
+  const gradeEl = document.getElementById('ab-grade');
+  const info = document.getElementById('ab-info');
+  const instr = document.getElementById('ab-instructions');
+  info.hidden = !a.instructions;
+  instr.textContent = a.instructions || '';
+  instr.hidden = true;
+  banner.className = '';
+  gradeEl.hidden = true;
+  if (sub.status === 'returned') {
+    statusEl.textContent = 'Returned';
+    banner.classList.add('ab-returned');
+    turnin.hidden = true;
+    const bits = [];
+    if (sub.grade != null && sub.grade !== '') bits.push('Grade: ' + sub.grade);
+    if (sub.feedback) bits.push(sub.feedback);
+    gradeEl.textContent = bits.join(' — ') || 'Returned';
+    gradeEl.hidden = false;
+  } else if (sub.status === 'turnedin') {
+    statusEl.textContent = 'Turned in';
+    banner.classList.add('ab-turnedin');
+    turnin.hidden = true;
+    gradeEl.textContent = 'Turned in ✓ — waiting for feedback';
+    gradeEl.hidden = false;
+  } else {
+    statusEl.textContent = 'Assignment';
+    turnin.hidden = false;
+    turnin.textContent = 'Turn in';
+  }
+  banner.hidden = false;
+}
+function wireAssignmentsStudent() {
+  document.getElementById('ab-turnin').addEventListener('click', () => {
+    const a = currentBoard && studentAssignments.get(currentBoard.id);
+    if (!a) return;
+    if (!confirm(`Turn in "${a.title}"? Your teacher will see it as done.`)) return;
+    socket.emit('assignment:turnin', { assignmentId: a.id }, (r) => {
+      if (r && r.ok) {
+        a.submission = a.submission || {};
+        a.submission.status = 'turnedin';
+        a.submission.turnedInAt = Date.now();
+        renderAssignmentBanner();
+        toast('Turned in! 🎉');
+      } else toast((r && r.error) || 'Could not turn in.');
+    });
+  });
+  document.getElementById('ab-info').addEventListener('click', () => {
+    const instr = document.getElementById('ab-instructions');
+    instr.hidden = !instr.hidden;
+  });
+  socket.on('assignment:new', (a) => { ingestStudentAssignment(a); toast(`New assignment: ${a.title}`); renderAssignmentBanner(); });
+  socket.on('assignment:returned', (a) => {
+    ingestStudentAssignment(a);
+    const g = a.submission && a.submission.grade;
+    toast(`Your work was returned${g != null && g !== '' ? ': ' + g : ''}`);
+    renderAssignmentBanner();
+  });
+}
+
+// ----- teacher side: assign + dashboard + grading -----
+function wireAssignmentsTeacher() {
+  const assignModal = document.getElementById('assign-modal');
+  document.getElementById('assign-btn').addEventListener('click', () => {
+    document.getElementById('download-menu').open = false;
+    document.getElementById('assign-title').value = currentBoard ? currentBoard.title : '';
+    assignModal.hidden = false;
+  });
+  document.getElementById('assign-close').addEventListener('click', () => { assignModal.hidden = true; });
+  document.getElementById('assign-send').addEventListener('click', () => {
+    const title = document.getElementById('assign-title').value.trim();
+    if (!title) { toast('Give the assignment a title.'); return; }
+    const instructions = document.getElementById('assign-instructions').value;
+    const dueVal = document.getElementById('assign-due').value;
+    const dueAt = dueVal ? new Date(dueVal).getTime() : null;
+    socket.emit('assignment:create', { title, instructions, dueAt, json: wb.getJSON() }, (r) => {
+      if (r && r.ok) {
+        assignModal.hidden = true;
+        document.getElementById('assign-instructions').value = '';
+        document.getElementById('assign-due').value = '';
+        toast(`Assigned to ${r.count} student${r.count === 1 ? '' : 's'}.`);
+      } else toast((r && r.error) || 'Could not assign.');
+    });
+  });
+
+  const listModal = document.getElementById('assignments-modal');
+  document.getElementById('assignments-btn').addEventListener('click', () => {
+    document.getElementById('download-menu').open = false;
+    listModal.hidden = false;
+    loadAssignmentsList();
+  });
+  document.getElementById('assignments-close').addEventListener('click', () => { listModal.hidden = true; });
+
+  socket.on('assignment:submitted', ({ name }) => {
+    toast(`${name} turned in their work.`);
+    if (!listModal.hidden) loadAssignmentsList();
+  });
+  socket.on('assignment:progress', () => { if (!listModal.hidden) loadAssignmentsList(); });
+}
+
+function loadAssignmentsList() {
+  socket.emit('assignment:list', {}, (r) => {
+    if (!r || !r.ok) return;
+    teacherAssignments = r.assignments || [];
+    renderAssignmentsList();
+  });
+}
+function renderAssignmentsList() {
+  const wrap = document.getElementById('assignments-list');
+  wrap.innerHTML = '';
+  if (!teacherAssignments.length) {
+    wrap.innerHTML = '<p class="hint">No assignments yet. Open a board and use “Assign to class…” to create one.</p>';
+    return;
+  }
+  for (const a of teacherAssignments) {
+    const card = document.createElement('div');
+    card.className = 'assignment-card';
+    const head = document.createElement('div');
+    head.className = 'assignment-head';
+    const strong = document.createElement('strong');
+    strong.textContent = a.title;
+    head.appendChild(strong);
+    const counts = a.submissions.reduce((m, s) => (m[s.status] = (m[s.status] || 0) + 1, m), {});
+    const meta = document.createElement('span');
+    meta.className = 'hint';
+    meta.textContent = ` ${counts.turnedin || 0} turned in · ${counts.returned || 0} returned · ${a.submissions.length} student${a.submissions.length === 1 ? '' : 's'}`;
+    head.appendChild(meta);
+    card.appendChild(head);
+    if (a.submissions.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = 'No students in the class yet.';
+      card.appendChild(p);
+    }
+    for (const s of a.submissions) card.appendChild(buildSubmissionRow(a, s));
+    wrap.appendChild(card);
+  }
+}
+function buildSubmissionRow(a, s) {
+  const row = document.createElement('div');
+  row.className = 'submission-row';
+  const nm = document.createElement('span');
+  nm.className = 'sr-name';
+  nm.textContent = s.name;
+  row.appendChild(nm);
+  const st = document.createElement('span');
+  st.className = 'sr-status status-' + s.status;
+  st.textContent = ASSIGN_STATUS[s.status] || s.status;
+  row.appendChild(st);
+  const open = document.createElement('button');
+  open.className = 'sr-open';
+  open.textContent = 'Open';
+  open.title = "Open this student's board on your canvas";
+  open.onclick = () => openAssignmentBoard(a, s);
+  row.appendChild(open);
+  const grade = document.createElement('input');
+  grade.className = 'sr-grade';
+  grade.placeholder = 'Grade';
+  grade.maxLength = 20;
+  grade.value = s.grade || '';
+  row.appendChild(grade);
+  const fb = document.createElement('input');
+  fb.className = 'sr-feedback';
+  fb.placeholder = 'Feedback';
+  fb.maxLength = 2000;
+  fb.value = s.feedback || '';
+  row.appendChild(fb);
+  const ret = document.createElement('button');
+  ret.className = 'sr-return primary-sm';
+  ret.textContent = s.status === 'returned' ? 'Update' : 'Return';
+  ret.onclick = () => {
+    socket.emit('assignment:return', { assignmentId: a.id, student: s.student, grade: grade.value, feedback: fb.value }, (r) => {
+      if (r && r.ok) {
+        s.status = 'returned'; s.grade = grade.value; s.feedback = fb.value;
+        st.className = 'sr-status status-returned';
+        st.textContent = ASSIGN_STATUS.returned;
+        ret.textContent = 'Update';
+        toast(`Returned to ${s.name}.`);
+      } else toast((r && r.error) || 'Could not return.');
+    });
+  };
+  row.appendChild(ret);
+  return row;
+}
+function openAssignmentBoard(a, s) {
+  flushBoard(); // send any pending strokes to the CURRENT board before switching
+  showBoardLoading('Downloading board…');
+  socket.emit('board:load', { boardId: s.boardId }, (r) => {
+    if (r && r.ok) {
+      setCurrentBoard({ id: s.boardId, title: a.title }, s.name);
+      loadBoardWithProgress(r.json);
+      document.getElementById('assignments-modal').hidden = true;
+    } else { hideBoardLoading(); toast('Could not open that board.'); }
+  });
+}
+
 // ================= FEATURE SWITCHES =================
 
 const FEATURE_DEFS = [
@@ -1720,7 +2597,7 @@ function featureTargets(f) {
   if (f === 'text') return [document.querySelector('.tool[data-tool="text"]')];
   if (f === 'images') return [document.getElementById('image-btn')];
   if (f === 'documents') return [document.getElementById('doc-btn')];
-  if (f === 'charts') return [document.getElementById('graph-btn'), document.getElementById('chart-btn')];
+  if (f === 'charts') return [document.getElementById('graph-btn'), document.getElementById('chart-btn'), document.getElementById('equation-btn')];
   if (f === 'download') return [document.getElementById('download-menu')];
   if (f === 'newBoards') return [document.getElementById('board-new')];
   return [];
@@ -2382,6 +3259,64 @@ function wireRoster() {
     document.getElementById('roster-bulk').value = '';
     addEmails(emails);
   });
+
+  // ----- Google Classroom import (only when Google sign-in is configured) -----
+  (function wireClassroomImport() {
+    const wrap = document.getElementById('roster-classroom');
+    const importBtn = document.getElementById('roster-classroom-btn');
+    const picker = document.getElementById('roster-classroom-picker');
+    if (!wrap || !googleClientId) return; // hidden in open mode / when no client id
+    wrap.hidden = false;
+
+    function getAccessToken() {
+      return new Promise((resolve, reject) => {
+        if (!(window.google && google.accounts && google.accounts.oauth2)) {
+          return reject(new Error('Google is still loading — try again in a moment.'));
+        }
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.profile.emails',
+          callback: (resp) => (resp && resp.access_token ? resolve(resp.access_token) : reject(new Error('Google did not grant access.'))),
+          error_callback: () => reject(new Error('Google authorization was cancelled.')),
+        });
+        client.requestAccessToken();
+      });
+    }
+
+    importBtn.addEventListener('click', async () => {
+      picker.innerHTML = '<p class="hint">Connecting to Google Classroom…</p>';
+      try {
+        const token = await getAccessToken();
+        const { courses } = await authedFetch('/api/classroom/courses', { method: 'POST', body: JSON.stringify({ accessToken: token }) });
+        if (!courses || !courses.length) { picker.innerHTML = '<p class="hint">No active Google Classroom courses found for your account.</p>'; return; }
+        picker.innerHTML = '';
+        const label = document.createElement('p');
+        label.className = 'hint';
+        label.textContent = 'Pick a class to import its students:';
+        picker.appendChild(label);
+        for (const c of courses) {
+          const b = document.createElement('button');
+          b.className = 'btn-view';
+          b.style.cssText = 'display:block;width:100%;text-align:left;margin:4px 0';
+          b.textContent = c.name + (c.section ? ' · ' + c.section : '');
+          b.onclick = async () => {
+            picker.innerHTML = '<p class="hint">Importing students…</p>';
+            try {
+              const { students } = await authedFetch('/api/classroom/students', { method: 'POST', body: JSON.stringify({ accessToken: token, courseId: c.id }) });
+              const emails = (students || []).map((s) => s.email);
+              if (!emails.length) { picker.innerHTML = '<p class="hint">That class has no students with visible email addresses.</p>'; return; }
+              await addEmails(emails);
+              picker.innerHTML = '';
+            } catch (e) { picker.innerHTML = ''; toast(e.message); }
+          };
+          picker.appendChild(b);
+        }
+      } catch (e) {
+        picker.innerHTML = '';
+        toast(e.message);
+      }
+    });
+  })();
 }
 
 updateZoomLabel();

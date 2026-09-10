@@ -1,10 +1,9 @@
 /* global BoardViewer */
 'use strict';
 
-const session = JSON.parse(localStorage.getItem('wb-session') || 'null');
-if (!session || (session.exp && session.exp < Date.now())) {
-  location.href = '/';
-}
+// Filled from /api/me before anything renders; the session itself is a
+// cookie this page never sees.
+let session = null;
 
 const PERM_LABELS = {
   teach: 'Teach classes (create rooms, share, push templates)',
@@ -28,14 +27,17 @@ function toast(msg, isError) {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + session.token,
-      ...(opts.headers || {}),
-    },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { location.href = '/'; throw new Error('unauthorized'); }
+  // Something this portal used to do that Signify ID owns now.
+  if (res.status === 410 && data.moved) {
+    toast(data.error + ' Opening Signify ID…', true);
+    setTimeout(() => { window.open(data.console, '_blank'); }, 900);
+    throw new Error(data.error);
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
@@ -146,11 +148,13 @@ async function loadUsage() {
       ['Boards', u.boards], ['Boards edited (7d)', u.boardsWeek], ['Templates visible', u.templates],
       ['Online now', u.online], ['Live classes', u.liveRooms],
     ];
+    // super admin only: storage headroom, flagged red when it's running low
+    if (u.diskFreeMB != null) cards.push([u.diskLow ? '⚠ Storage free' : 'Storage free', u.diskFreeMB + ' MB', u.diskLow]);
     const grid = document.getElementById('usage-grid');
     grid.innerHTML = '';
-    for (const [label, n] of cards) {
+    for (const [label, n, warn] of cards) {
       const c = document.createElement('div');
-      c.className = 'usage-card';
+      c.className = 'usage-card' + (warn ? ' usage-warn' : '');
       c.innerHTML = '<div class="usage-n"></div><div class="usage-l"></div>';
       c.querySelector('.usage-n').textContent = n;
       c.querySelector('.usage-l').textContent = label;
@@ -178,7 +182,7 @@ async function loadAudit() {
 document.getElementById('backup-btn').addEventListener('click', async () => {
   toast('Preparing backup…');
   try {
-    const res = await fetch('/api/admin/backup', { headers: { Authorization: 'Bearer ' + session.token } });
+    const res = await fetch('/api/admin/backup', { credentials: 'same-origin' });
     if (!res.ok) throw new Error('Backup failed.');
     const blob = await res.blob();
     const a = document.createElement('a');
@@ -1030,7 +1034,17 @@ async function refresh(manual) {
   }
 }
 
-refresh();
+// Confirm there is a session before the portal renders anything.
+(async () => {
+  try {
+    const r = await fetch('/api/me', { credentials: 'same-origin' });
+    if (!r.ok) { location.href = '/'; return; }
+    session = await r.json();
+  } catch { location.href = '/'; return; }
+  try { localStorage.removeItem('wb-session'); } catch { /* ignore */ }
+  refresh();
+})();
+
 setInterval(() => {
   // keep users/sessions fresh without stomping on open board panels or role edits
   api('/api/admin/state').then((s) => {

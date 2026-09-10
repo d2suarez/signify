@@ -3,26 +3,95 @@ const compression = require('compression');
 const zlib = require('zlib');
 const { spawn } = require('child_process');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
-const { OAuth2Client } = require('google-auth-library');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// ---------- auth config ----------
-// Set GOOGLE_CLIENT_ID to require Google sign-in. Without it the app runs
-// open (name-only), which is fine for local/classroom-network use.
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const AUTH_ENABLED = !!GOOGLE_CLIENT_ID;
-const SUPER_ADMINS = (process.env.SUPER_ADMINS || 'desmond@signify.one')
-  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const SESSION_HOURS = 12;
-const oauthClient = AUTH_ENABLED ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+// Availability safety net: a classroom full of students should never be taken
+// down by a single stray error (e.g. an ENOSPC on a background file write, which
+// crash-looped the server once). Log and keep serving rather than exiting.
+process.on('uncaughtException', (e) => {
+  console.error('Uncaught exception (server kept alive):', (e && e.stack) || e);
+});
+process.on('unhandledRejection', (e) => {
+  console.error('Unhandled promise rejection:', (e && e.stack) || e);
+});
+
+// ---------- auth ----------
+// Identity is Signify ID's job now. The whiteboard neither talks to Google
+// nor mints sessions; it reads the claims Signify puts on each request.
+//
+// store.users survives as a SHADOW: a local copy of who has signed in, used
+// for listing people in the admin portal, for per-student feature switches
+// and for board ownership. It is authoritative for none of that — every
+// authorisation decision comes from the claims on the request, and the shadow
+// is refreshed from them on every call.
+const signify = require('./signify-auth');
+const AUTH_ENABLED = signify.ENABLED;
+
+// Permissions this app owns, declared to Signify ID on boot so they can be
+// put into roles there. Adding one is a change here, not there.
+const WB_PERMISSIONS = [
+  { key: 'whiteboard:teach', label: 'Host and lead a board' },
+  { key: 'whiteboard:manage_boards', label: 'Manage every board in the school', admin: true },
+  { key: 'whiteboard:view_sessions', label: 'See who is in live sessions', admin: true },
+  { key: 'whiteboard:manage_templates', label: 'Publish to the school template library' },
+];
+
+// The whiteboard's own permission names, mapped to the Signify ones. Keeping
+// the local vocabulary means the 50-odd call sites below did not change.
+const PERM_MAP = {
+  teach: 'whiteboard:teach',
+  manage_boards: 'whiteboard:manage_boards',
+  view_sessions: 'whiteboard:view_sessions',
+  manage_templates: 'whiteboard:manage_templates',
+  // Managing people and school domains moved to Signify ID entirely.
+  manage_users: 'core:manage_users',
+  manage_domains: 'core:manage_tenants',
+};
+
+// Turns Signify claims into the shape this file already speaks.
+function permsFromClaims(claims) {
+  if (!claims) return [];
+  if (claims.isSuper) return [...PERMISSIONS];
+  return PERMISSIONS.filter((p) => claims.perms && claims.perms[PERM_MAP[p]]);
+}
+
+// Refreshes the local shadow from the claims on this request.
+function shadow(claims) {
+  if (!claims) return null;
+  const email = String(claims.email).toLowerCase();
+  const now = Date.now();
+  const rec = store.users[email] || { firstSeen: now };
+
+  // A released address is a different person now. Signify issues them a new
+  // id, so the shadow must not hand them the previous pupil's boards.
+  if (rec.uid && rec.uid !== claims.id) {
+    const archived = `${email}#released-${now}`;
+    store.users[archived] = { ...rec, releasedAt: now };
+    delete store.users[email];
+    for (const meta of boardsIndex.values()) if (meta.owner === email) meta.owner = archived;
+    console.warn(`whiteboard: ${email} was released to a new person; previous boards archived as ${archived}`);
+    return shadow(claims);
+  }
+
+  rec.uid = claims.id;
+  rec.name = claims.name || rec.name || email;
+  rec.role = claims.isSuper ? 'superadmin' : (claims.role || 'student');
+  rec.perms = permsFromClaims(claims);
+  rec.isSuper = !!claims.isSuper;
+  rec.status = 'approved';   // Signify would not have issued a token otherwise
+  rec.lastSeen = now;
+  store.users[email] = rec;
+  saveStore();
+  return rec;
+}
 
 // ---------- permissions & roles ----------
 
@@ -109,23 +178,26 @@ function saveStore() {
   }, 300);
 }
 
+// All three read the shadow, which was written from Signify's claims the last
+// time this person made a request. Nothing here is a source of truth.
 function isSuperAdmin(email) {
-  return SUPER_ADMINS.includes(email);
+  const rec = store.users[email];
+  return !!(rec && rec.isSuper);
 }
 
 function effectiveRole(email) {
-  if (isSuperAdmin(email)) return 'superadmin';
-  const role = (store.users[email] && store.users[email].role) || 'student';
-  return store.roles[role] ? role : 'student';
+  const rec = store.users[email];
+  if (!rec) return 'student';
+  return rec.isSuper ? 'superadmin' : (rec.role || 'student');
 }
 
 function permsFor(email) {
-  if (isSuperAdmin(email)) return [...PERMISSIONS];
-  return store.roles[effectiveRole(email)].perms;
+  const rec = store.users[email];
+  return (rec && rec.perms) || [];
 }
 
 function hasPerm(email, perm) {
-  return isSuperAdmin(email) || permsFor(email).includes(perm);
+  return permsFor(email).includes(perm);
 }
 
 // Any permission beyond teaching makes an account "admin-like"
@@ -137,26 +209,22 @@ function domainOf(email) {
   return email.split('@')[1] || '';
 }
 
+// A client-supplied string is about to be used as an object/map key. Reject the
+// ones that walk the prototype chain, or they poison Object.prototype globally.
+function isSafeKey(k) {
+  return k !== '__proto__' && k !== 'constructor' && k !== 'prototype';
+}
+
 function domainApproved(email) {
   return store.domains.includes(domainOf(email));
 }
 
+// Approval, suspension and blocking all live in Signify ID now — it simply
+// will not issue a token to an account in any of those states, so anyone
+// reaching this code has already passed. Kept as a function because the call
+// sites read better for it, and because an unknown address is still unknown.
 function accessStatus(email) {
-  if (isSuperAdmin(email)) return 'approved';
-  const rec = store.users[email];
-  if (rec && rec.status === 'suspended') {
-    // Timed suspensions lift themselves once the deadline passes
-    if (rec.suspendUntil && rec.suspendUntil <= Date.now()) {
-      rec.status = 'approved';
-      delete rec.suspendUntil;
-      saveStore();
-      return 'approved';
-    }
-    return 'suspended';
-  }
-  if (rec && rec.status === 'blocked') return 'blocked';
-  if (rec && rec.status === 'approved') return 'approved';
-  return domainApproved(email) ? 'approved' : 'pending';
+  return store.users[email] ? 'approved' : 'pending';
 }
 
 // Scope rule: a non-super manager may only touch accounts that (a) are not
@@ -180,28 +248,6 @@ function canAssignRole(manager, roleId) {
 
 // ---------- sessions ----------
 
-function signSession(user) {
-  const body = Buffer.from(JSON.stringify(user)).toString('base64url');
-  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
-  return `${body}.${sig}`;
-}
-
-function verifySession(token) {
-  try {
-    const [body, sig] = String(token || '').split('.');
-    if (!body || !sig) return null;
-    const expect = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
-    const a = Buffer.from(sig);
-    const b = Buffer.from(expect);
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    const user = JSON.parse(Buffer.from(body, 'base64url').toString());
-    if (!user.exp || user.exp < Date.now()) return null;
-    return user;
-  } catch {
-    return null;
-  }
-}
-
 // ---------- http ----------
 
 const app = express();
@@ -209,7 +255,13 @@ const server = http.createServer(app);
 // perMessageDeflate: board JSON is highly compressible text — this is the
 // single biggest egress (cost) saver for live drawing sync
 const io = new Server(server, {
-  maxHttpBufferSize: 30 * 1024 * 1024,
+  // Boards with imported documents (each PDF page is a data-URL image) can be
+  // tens of MB. If a message exceeds this cap socket.io KILLS the connection,
+  // which on classroom wifi turned into a silent reconnect/data-loss loop.
+  maxHttpBufferSize: 100 * 1024 * 1024,
+  // A slow multi-MB board transfer on school wifi can stall pings past the
+  // 20s default and get the socket dropped mid-flight — give it headroom.
+  pingTimeout: 60000,
   perMessageDeflate: { threshold: 1024 },
 });
 
@@ -227,75 +279,152 @@ if (CANONICAL_HOST) {
   });
 }
 
+app.set('trust proxy', true); // behind Railway's proxy — needed for a correct req.ip
+
+// ---------- security headers ----------
+// Scripts allow 'unsafe-inline' (a few inline blocks) but NO arbitrary external
+// hosts beyond Google sign-in — that's the meaningful XSS protection. Google
+// allowances are deliberately broad so sign-in can't break. The embed page must
+// stay iframe-able on other sites, so it alone skips the frame restrictions.
+const CSP_BASE = [
+  "default-src 'self'",
+  // 'unsafe-eval' is required by the Fabric.js canvas engine; 'unsafe-inline'
+  // by a few inline blocks. Restricting the HOSTS is still the real protection.
+  // Google is allowed broadly (*.google.com et al.) so sign-in can never break.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://apis.google.com https://*.gstatic.com https://*.googleapis.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com https://*.google.com",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.google.com https://*.googleapis.com",
+  "worker-src 'self' blob:",
+  "frame-src 'self' https://*.google.com https://content.googleapis.com",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  const isEmbed = req.path.startsWith('/embed/') || req.path === '/embed.html';
+  if (isEmbed) {
+    res.setHeader('Content-Security-Policy', CSP_BASE); // framing allowed for embeds
+  } else {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Content-Security-Policy', CSP_BASE + "; frame-ancestors 'self'");
+  }
+  next();
+});
+
+// ---------- lightweight in-memory rate limiting ----------
+// One small Railway instance, so in-process fixed-window counters are enough.
+function makeLimiter({ windowMs, max }) {
+  const hits = new Map(); // key -> { count, resetAt }
+  setInterval(() => { const now = Date.now(); for (const [k, e] of hits) if (e.resetAt < now) hits.delete(k); }, windowMs).unref();
+  return (key) => {
+    const now = Date.now();
+    let e = hits.get(key);
+    if (!e || e.resetAt < now) { e = { count: 0, resetAt: now + windowMs }; hits.set(key, e); }
+    return ++e.count <= max;
+  };
+}
+const apiLimiter = makeLimiter({ windowMs: 60 * 1000, max: 600 });    // general API: generous
+const authLimiter = makeLimiter({ windowMs: 60 * 1000, max: 30 });    // sign-in attempts
+const convertLimiter = makeLimiter({ windowMs: 60 * 1000, max: 10 }); // LibreOffice conversions (expensive)
+const joinLimiter = makeLimiter({ windowMs: 60 * 1000, max: 60 });    // socket room-code join attempts (per IP)
+
+app.use('/api/', (req, res, next) => {
+  let limiter = apiLimiter;
+  if (req.path === '/auth/google') limiter = authLimiter;
+  else if (req.path === '/convert') limiter = convertLimiter;
+  if (!limiter(req.ip)) return res.status(429).json({ error: 'Too many requests — please slow down.' });
+  next();
+});
+
 app.use(compression()); // gzip responses — cuts static + API egress ~3-5x
 // vendored libraries change rarely: let browsers cache them for a week
 app.use('/vendor', express.static(path.join(__dirname, 'public', 'vendor'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50mb' })); // personal-board REST saves carry full board JSON incl. document images
+
+// Sign-in, sign-out and the callback, plus req.user on every request.
+signify.mount(app, {
+  permissions: WB_PERMISSIONS,
+  postLogoutUri: CANONICAL_HOST ? `https://${CANONICAL_HOST}/` : undefined,
+});
+app.use(signify.middleware);
+
+// ---------- identity management moved to Signify ID ----------
+// Approving people, changing roles, promoting year groups and approving
+// school domains are all Signify ID's job now. These endpoints are refused
+// here rather than quietly left working, because two places that can both
+// change somebody's role is exactly how the two disagree.
+//
+// Registered ahead of the originals so they intercept; the old handlers
+// below are dead and can be deleted once this has settled.
+const IDENTITY_MOVED = [
+  ['post', '/api/admin/user', 'Adding and editing people'],
+  ['post', '/api/admin/users/grade', 'Setting year groups'],
+  ['post', '/api/admin/users/promote', 'Promoting year groups'],
+  ['post', '/api/admin/users/demote', 'Demoting year groups'],
+  ['post', '/api/admin/users/bulk', 'Bulk changes to people'],
+  ['delete', '/api/admin/user/:email', 'Removing people'],
+  ['post', '/api/admin/roles', 'Creating and editing roles'],
+  ['post', '/api/admin/domains', 'Approving school domains'],
+];
+const SIGNIFY_CONSOLE = (process.env.SIGNIFY_ISSUER || 'https://id.signify.one') + '/admin';
+for (const [method, route, what] of IDENTITY_MOVED) {
+  app[method](route, (req, res) => res.status(410).json({
+    error: `${what} now happens in Signify ID, so every app agrees on who somebody is.`,
+    moved: true,
+    console: SIGNIFY_CONSOLE,
+  }));
+}
 
 app.get('/api/config', (req, res) => {
-  res.json({ authEnabled: AUTH_ENABLED, clientId: GOOGLE_CLIENT_ID });
+  res.json({
+    authEnabled: AUTH_ENABLED,
+    signInUrl: '/auth/login',
+    signOutUrl: '/auth/logout',
+    // Google Classroom import keeps its own client: it asks for roster
+    // scopes, which are sensitive and quite separate from signing in.
+    // Unset simply hides the import button.
+    classroomClientId: process.env.GOOGLE_CLASSROOM_CLIENT_ID || '',
+  });
 });
 
-app.post('/api/auth/google', async (req, res) => {
-  if (!AUTH_ENABLED) return res.status(400).json({ error: 'Google sign-in is not enabled on this server.' });
-  try {
-    const ticket = await oauthClient.verifyIdToken({
-      idToken: req.body.credential,
-      audience: GOOGLE_CLIENT_ID,
-    });
-    const p = ticket.getPayload();
-    const email = (p.email || '').toLowerCase();
-    if (!p.email_verified) return res.status(403).json({ error: 'This Google account has no verified email.' });
-
-    // Every real sign-in gets a user record so admins can see and approve it
-    const now = Date.now();
-    let rec = store.users[email];
-    if (!rec) {
-      rec = store.users[email] = { name: p.name || email, role: 'student', status: 'pending', firstSeen: now, lastSeen: now, addedBy: null };
-    }
-    rec.name = p.name || rec.name;
-    rec.lastSeen = now;
-    const status = accessStatus(email);
-    if (rec.status === 'pending' && status === 'approved') rec.status = 'approved';
-    saveStore();
-
-    if (status === 'blocked') return res.status(403).json({ error: 'Your access has been disabled by an administrator.' });
-    if (status === 'suspended') {
-      const until = store.users[email] && store.users[email].suspendUntil;
-      return res.status(403).json({ error: until ? `Your account is suspended until ${new Date(until).toLocaleString()}.` : 'Your account is suspended. Please contact your teacher or administrator.' });
-    }
-    if (status === 'pending') return res.status(403).json({ error: 'Your account is waiting for administrator approval. Ask your teacher or admin to approve it.' });
-
-    const role = effectiveRole(email);
-    const user = { email, name: rec.name, role, exp: now + SESSION_HOURS * 3600 * 1000 };
-    res.json({
-      token: signSession(user),
-      email,
-      name: rec.name,
-      role,
-      perms: permsFor(email),
-      isSuper: isSuperAdmin(email),
-      exp: user.exp,
-    });
-  } catch (e) {
-    res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.' });
-  }
+// Who is signed in, in the shape the client already speaks — including the
+// whiteboard's own permission names rather than Signify's.
+app.get('/api/me', (req, res) => {
+  const u = sessionFromReq(req);
+  if (!u) return res.status(401).json({ error: 'Not signed in.' });
+  res.json({
+    email: u.email,
+    name: u.name,
+    role: effectiveRole(u.email),
+    perms: permsFor(u.email),
+    isSuper: isSuperAdmin(u.email),
+    school: req.user.tenantName || null,
+  });
 });
 
+// Whoever is making this request, in the shape the rest of the file expects.
+// The shadow is refreshed here, on every authenticated call, so a role change
+// in Signify reaches the whiteboard within one request rather than at the
+// next sign-in.
 function sessionFromReq(req) {
-  return verifySession((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  if (!req.user) return null;
+  shadow(req.user);
+  return { email: String(req.user.email).toLowerCase(), name: req.user.name };
 }
 
 // Full room listing is for board admins; teachers use /api/my/rooms
 app.get('/api/rooms', (req, res) => {
-  if (AUTH_ENABLED) {
-    const user = sessionFromReq(req);
-    if (!user || accessStatus(user.email) !== 'approved' || !hasPerm(user.email, 'manage_boards')) {
-      return res.status(401).json([]);
-    }
-  }
-  res.json(listRooms());
+  if (!AUTH_ENABLED) return res.json(listRooms()); // open mode: trusted LAN
+  const admin = requirePerm(req, res, 'manage_boards');
+  if (!admin) return; // requirePerm already responded
+  // Scope to the admin's own school — do not leak other schools' room codes,
+  // names, and owner emails (which also fed the classroom-takeover vector).
+  res.json(listRooms().filter((r) => admin.isSuper || !r.owner || sameDomainOrAdded(admin, r.owner)));
 });
 
 // ---------- classrooms (rosters, ownership) ----------
@@ -347,7 +476,10 @@ function rosterEntries(room) {
     name: room.data.names[email] || (store.users[email] && store.users[email].name) || email,
     status: accessStatus(email),
     online: room.students.has(email),
-    hasBoard: !!room.data.boards[email],
+    // boards live in their own files now — data.boards is legacy and gets
+    // deleted by migrateLegacyBoards, so never read it here (it threw a 500
+    // that made the Students window close as soon as anyone was enrolled)
+    hasBoard: boardsFor(email, room.code).length > 0,
   }));
 }
 
@@ -535,6 +667,65 @@ app.post('/api/room/:code/roster', (req, res) => {
   res.json({ ...results, roster: rosterEntries(room) });
 });
 
+// ---------- Google Classroom import ----------
+// Requires the teacher to grant the Classroom scopes (courses.readonly, rosters.readonly,
+// profile.emails) and the project to have the Classroom API enabled. The client sends a
+// short-lived OAuth access token obtained via Google's token flow; we never store it.
+async function classroomApi(pathAndQuery, accessToken) {
+  const r = await fetch('https://classroom.googleapis.com/v1/' + pathAndQuery, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+  });
+  if (!r.ok) {
+    const detail = (await r.text().catch(() => '')).slice(0, 300);
+    const err = new Error('Classroom API ' + r.status);
+    err.httpStatus = r.status;
+    err.detail = detail;
+    throw err;
+  }
+  return r.json();
+}
+
+app.post('/api/classroom/courses', async (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const token = String((req.body && req.body.accessToken) || '');
+  if (!token) return res.status(400).json({ error: 'Missing Google authorization.' });
+  try {
+    const data = await classroomApi('courses?teacherId=me&courseStates=ACTIVE&pageSize=100', token);
+    res.json({ courses: (data.courses || []).map((c) => ({ id: c.id, name: c.name, section: c.section || '' })) });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not reach Google Classroom. Make sure the Classroom API is enabled and you granted access.', detail: e.detail });
+  }
+});
+
+app.post('/api/classroom/students', async (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const token = String((req.body && req.body.accessToken) || '');
+  const courseId = String((req.body && req.body.courseId) || '');
+  if (!token || !courseId) return res.status(400).json({ error: 'Missing course or authorization.' });
+  try {
+    const students = [];
+    let pageToken = '';
+    let guard = 0;
+    do {
+      const data = await classroomApi(
+        `courses/${encodeURIComponent(courseId)}/students?pageSize=100${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`,
+        token,
+      );
+      for (const s of (data.students || [])) {
+        const email = s.profile && s.profile.emailAddress;
+        const name = s.profile && s.profile.name && s.profile.name.fullName;
+        if (email) students.push({ email: String(email).toLowerCase(), name: name || email });
+      }
+      pageToken = data.nextPageToken || '';
+    } while (pageToken && ++guard < 20);
+    res.json({ students });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not read the class roster from Google. Grant the “see student emails” permission and try again.', detail: e.detail });
+  }
+});
+
 app.post('/api/room/:code/meta', (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
@@ -685,10 +876,11 @@ app.get('/api/admin/state', (req, res) => {
 
   let users = [];
   if (canUsers) {
-    users = Object.entries(store.users).map(([email, r]) => userView(email, r));
-    for (const email of SUPER_ADMINS) {
-      if (!store.users[email]) users.push(userView(email, null));
-    }
+    // Everyone who has signed in at least once. The authoritative roster
+    // lives in Signify ID; this is only who has actually opened the app.
+    users = Object.entries(store.users)
+      .filter(([, r]) => !r.releasedAt)
+      .map(([email, r]) => userView(email, r));
     if (!admin.isSuper) users = users.filter((u) => canManageTarget(admin, u.email));
     users.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
   }
@@ -763,6 +955,39 @@ app.post('/api/admin/school-submit', (req, res) => {
 });
 
 // Usage snapshot for the admin dashboard (scoped to what the admin can see)
+// A migration aid: everyone the whiteboard knows who has not yet signed in
+// through Signify ID, as a CSV the Signify importer accepts as-is.
+//
+// Deliberately a download behind an admin session rather than something
+// printed at boot — Railway keeps stdout, and a list of pupils' addresses is
+// not something to leave sitting in a log.
+app.get('/api/admin/signify-roster.csv', (req, res) => {
+  const admin = requirePerm(req, res, 'manage_users');
+  if (!admin) return;
+
+  const esc = (v) => {
+    const t = String(v == null ? '' : v);
+    return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+
+  const rows = [['First name', 'Last name', 'Email address', 'Role', 'Classes', 'Apps', 'Graduation year']];
+  for (const [email, rec] of Object.entries(store.users)) {
+    if (rec.releasedAt || rec.uid) continue;          // archived, or already linked
+    const parts = String(rec.name || '').trim().split(/\s+/);
+    const first = parts.length > 1 ? parts.slice(0, -1).join(' ') : (parts[0] || '');
+    const last = parts.length > 1 ? parts[parts.length - 1] : '';
+    // The whiteboard's own role names, mapped to Signify's.
+    const role = rec.role === 'superadmin' ? 'local_admin'
+      : rec.role === 'admin' ? 'local_admin'
+      : rec.role === 'teacher' ? 'teacher' : 'student';
+    rows.push([first, last, email, role, '', '', '']);
+  }
+
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="whiteboard-people-for-signify.csv"');
+  res.send(rows.map((r) => r.map(esc).join(',')).join('\r\n') + '\r\n');
+});
+
 app.get('/api/admin/usage', (req, res) => {
   const admin = requirePerm(req, res, 'view_sessions');
   if (!admin) return;
@@ -789,6 +1014,9 @@ app.get('/api/admin/usage', (req, res) => {
     rooms: rooms.length, users: users.length, activeWeek,
     boards, boardsWeek, online, liveRooms: liveRooms.size,
     templates: [...templatesIndex.values()].filter((t) => canSeeTemplate(admin, t)).length,
+    // storage headroom — only the super admin sees the raw volume figure
+    diskFreeMB: admin.isSuper ? Math.round(diskFreeBytes / 1e6) : null,
+    diskLow: admin.isSuper ? diskFreeBytes < DISK_WARN_FREE : null,
   });
 });
 
@@ -803,8 +1031,10 @@ app.get('/api/admin/audit', (req, res) => {
 // Client-side error reports land in the server log for diagnosis
 app.post('/api/client-error', (req, res) => {
   const who = AUTH_ENABLED ? (sessionFromReq(req) || {}).email || 'anon' : 'open';
-  const msg = String(req.body && req.body.message || '').slice(0, 300);
-  const where = String(req.body && req.body.where || '').slice(0, 120);
+  // strip control chars/newlines so a client can't forge extra log lines
+  const clean = (s, n) => String(s || '').replace(/[\r\n\t\x00-\x1f]+/g, ' ').slice(0, n);
+  const msg = clean(req.body && req.body.message, 300);
+  const where = clean(req.body && req.body.where, 120);
   if (msg) console.error(`[client-error] ${who} @ ${where}: ${msg}`);
   res.json({ ok: true });
 });
@@ -820,6 +1050,11 @@ app.post('/api/admin/user', (req, res) => {
   const exists = !!store.users[email];
   if (exists && !canManageTarget(admin, email)) {
     return res.status(403).json({ error: 'You can only manage accounts on your own domain or accounts you added yourself.' });
+  }
+  // Creating a NEW account: non-super admins are confined to their own school
+  // domain, so they can't pre-create (and thereby own) other schools' accounts.
+  if (!exists && !admin.isSuper && domainOf(email) !== domainOf(admin.email)) {
+    return res.status(403).json({ error: 'You can only add accounts in your own school domain.' });
   }
   if (role && !store.roles[role]) return res.status(400).json({ error: 'Unknown role.' });
   if (role && !canAssignRole(admin, role)) {
@@ -969,6 +1204,13 @@ app.post('/api/admin/users/bulk', (req, res) => {
       if (email) results.invalid.push(email);
       continue;
     }
+    // A non-super admin may only pre-create accounts in their own school's
+    // domain. Otherwise they could squat other schools' accounts (approved +
+    // addedBy them), then read/alter those users once they sign in.
+    if (!admin.isSuper && domainOf(email) !== domainOf(admin.email)) {
+      results.invalid.push(email);
+      continue;
+    }
     if (isSuperAdmin(email) || store.users[email]) {
       results.skipped.push(email);
       continue;
@@ -1104,6 +1346,13 @@ app.delete('/api/admin/room/:code', (req, res) => {
   const admin = requirePerm(req, res, 'manage_boards');
   if (!admin) return;
   const code = sanitizeCode(req.params.code);
+  const room = getRoom(code, false);
+  if (!room) return res.status(404).json({ error: 'Room not found.' });
+  // Only the super admin or an admin in the room owner's school may delete a
+  // classroom — this route wipes every board and its history.
+  if (!admin.isSuper && room.data.owner && !sameDomainOrAdded(admin, room.data.owner)) {
+    return res.status(403).json({ error: 'You can only manage classrooms in your own school.' });
+  }
   io.in(code).disconnectSockets(true);
   rooms.delete(code);
   roomBoards(code).forEach((b) => deleteBoard(b.id));
@@ -1120,6 +1369,16 @@ const boardsIndex = new Map(); // id -> meta
 const boardPending = new Map(); // id -> latest unflushed json
 const boardTimers = new Map();
 
+// Secondary indexes so boardsFor()/roomBoards() are O(a room's or a user's
+// boards) instead of O(every board on the server). Without these, a teacher
+// joining a class was O(students × all boards).
+const boardsByRoom = new Map();  // room|'' -> Set(id)
+const boardsByOwner = new Map(); // owner   -> Set(id)
+function idxAdd(map, key, id) { let s = map.get(key); if (!s) map.set(key, (s = new Set())); s.add(id); }
+function idxDel(map, key, id) { const s = map.get(key); if (s) { s.delete(id); if (!s.size) map.delete(key); } }
+function indexBoard(meta) { idxAdd(boardsByRoom, meta.room || '', meta.id); idxAdd(boardsByOwner, meta.owner, meta.id); }
+function unindexBoard(meta) { idxDel(boardsByRoom, meta.room || '', meta.id); idxDel(boardsByOwner, meta.owner, meta.id); }
+
 function boardFile(id) {
   return path.join(DATA_DIR, `board-${id}.json`);
 }
@@ -1130,6 +1389,7 @@ function boardMetaOf(d) {
     createdAt: d.createdAt || 0, updatedAt: d.updatedAt || 0, thumb: d.thumb || null,
     comments: d.comments || [],
     embed: d.embed || null, // { token, publishedAt, by } when shared to the web
+    assignment: d.assignment || null, // assignment id when this board is a submission
   };
 }
 
@@ -1144,14 +1404,73 @@ function reindexEmbeds() {
 }
 
 function loadBoardsIndex() {
+  let migrated = 0;
   for (const f of fs.readdirSync(DATA_DIR)) {
+    if (f.endsWith('.tmp')) { try { fs.unlinkSync(path.join(DATA_DIR, f)); } catch { /* leftover from an interrupted write */ } continue; }
     if (!/^board-[a-f0-9]{16}\.json$/.test(f)) continue;
     try {
-      const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
-      if (d.id) boardsIndex.set(d.id, boardMetaOf(d));
+      const full = path.join(DATA_DIR, f);
+      const d = JSON.parse(fs.readFileSync(full, 'utf8'));
+      if (!d.id) continue;
+      const meta = boardMetaOf(d);
+      boardsIndex.set(d.id, meta);
+      indexBoard(meta);
+      // One-time migration: externalize any inline images to blobs and rewrite
+      // the board small. Deduped, so 30 copies of a pushed PDF collapse to one.
+      const dj = dehydrate(d.json);
+      if (dj !== d.json) {
+        try {
+          const tmp = full + '.tmp';
+          fs.writeFileSync(tmp, JSON.stringify({ ...boardMetaOf(d), json: dj }));
+          fs.renameSync(tmp, full);
+          migrated++;
+        } catch (e) { console.error('Board image migration failed for', f, e.message); }
+      }
     } catch (e) {
-      console.error('Could not read board file', f, e.message);
+      console.error('Could not read board file', f, e.message, '— attempting recovery');
+      if (!recoverBoard(f)) {
+        // Unrecoverable (e.g. the file was truncated to empty). Set it aside so
+        // it stops erroring on every boot; keep it rather than delete, just in case.
+        console.error('  recovery failed for', f, '— setting aside as .corrupt');
+        try { fs.renameSync(path.join(DATA_DIR, f), path.join(DATA_DIR, f + '.corrupt')); } catch { /* ignore */ }
+      }
     }
+  }
+  if (migrated) { console.log(`Externalized images on ${migrated} board(s); running blob GC.`); gcBlobs(); }
+}
+
+// The board meta keys are always serialized before the big (and, when a write
+// is truncated, incomplete) "json" value. So even a corrupted file usually has
+// an intact prefix we can salvage the meta from.
+function salvageMeta(text) {
+  const i = text.lastIndexOf(',"json":');
+  if (i === -1) return null;
+  try { return JSON.parse(text.slice(0, i) + '}'); } catch { return null; }
+}
+
+// Rebuild a corrupted board file: recover its meta from the file's intact
+// prefix and its content from the most recent version-history snapshot (or
+// blank if there is none), then rewrite it atomically so it opens again.
+function recoverBoard(f) {
+  try {
+    const full = path.join(DATA_DIR, f);
+    const id = (f.match(/^board-([a-f0-9]{16})\.json$/) || [])[1];
+    const meta = salvageMeta(fs.readFileSync(full, 'utf8'));
+    if (!id || !meta || meta.id !== id) return false;
+    let json = null;
+    const hs = histFiles(id);
+    if (hs.length) {
+      try { json = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(DATA_DIR, hs[hs.length - 1]))).toString()); } catch { json = null; }
+    }
+    const tmp = full + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ ...boardMetaOf(meta), json }));
+    fs.renameSync(tmp, full);
+    boardsIndex.set(id, boardMetaOf(meta));
+    console.warn(`  recovered board ${id} "${meta.title}" (${json ? 'content from history' : 'blank — no snapshot'})`);
+    return true;
+  } catch (e) {
+    console.error('  recovery error:', e.message);
+    return false;
   }
 }
 
@@ -1162,10 +1481,19 @@ function flushBoardSoon(id) {
     const meta = boardsIndex.get(id);
     if (!meta) return;
     let json = boardPending.get(id);
-    if (json === undefined) json = readBoardJSON(id); // meta-only change (e.g. rename)
+    if (json === undefined) json = readBoardStored(id); // meta-only change (e.g. rename) — keep blob refs
     boardPending.delete(id);
-    fs.writeFile(boardFile(id), JSON.stringify({ ...meta, json: json || null }), (err) => {
-      if (err) console.error('Board save failed', id, err.message);
+    // Atomic write: serialize to a temp file, then rename over the real one.
+    // If the disk fills mid-write, only the temp is truncated — the existing
+    // board file stays intact instead of being corrupted (which is exactly what
+    // took two boards down when the volume filled).
+    const dest = boardFile(id);
+    const tmp = dest + '.tmp';
+    fs.writeFile(tmp, JSON.stringify({ ...meta, json: json || null }), (err) => {
+      if (err) { console.error('Board save failed', id, err.message); fs.unlink(tmp, () => {}); return; }
+      fs.rename(tmp, dest, (err2) => {
+        if (err2) { console.error('Board save rename failed', id, err2.message); fs.unlink(tmp, () => {}); }
+      });
     });
     maybeSnapshot(id, json);
   }, 800));
@@ -1188,15 +1516,23 @@ function histTs(f) {
   return m ? Number(m[1]) : 0;
 }
 
+// In-memory snapshot bookkeeping so the flush hot path never touches the disk
+// (readdirSync) or stringifies a multi-MB board just to rate-limit. id ->
+// { lastAt, tooBig }.
+const histState = new Map();
+
 function maybeSnapshot(id, json, force) {
   try {
     if (!json) return;
+    const st = histState.get(id) || {};
+    if (st.tooBig) return; // learned once: huge doc boards never snapshot
+    // Rate-limit WITHOUT reading the directory or serializing the board.
+    if (!force && st.lastAt && Date.now() - st.lastAt < HIST_MIN_MS) return;
     const str = JSON.stringify(json);
-    if (str.length > HIST_SKIP_BYTES) return;
-    const files = histFiles(id);
-    const lastTs = files.length ? histTs(files[files.length - 1]) : 0;
-    if (!force && Date.now() - lastTs < HIST_MIN_MS) return;
+    if (str.length > HIST_SKIP_BYTES) { histState.set(id, { ...st, tooBig: true }); return; }
     fs.writeFileSync(path.join(DATA_DIR, `hist-${id}-${Date.now()}.json.gz`), zlib.gzipSync(str));
+    histState.set(id, { ...st, lastAt: Date.now() });
+    // Pruning reads the dir, but only runs when we actually snapshot (~10 min).
     const all = histFiles(id);
     while (all.length > HIST_MAX) fs.unlinkSync(path.join(DATA_DIR, all.shift()));
   } catch (e) {
@@ -1211,23 +1547,120 @@ function histList(id) {
 function histRestore(id, ts) {
   const file = path.join(DATA_DIR, `hist-${id}-${ts}.json.gz`);
   if (!fs.existsSync(file)) return null;
-  const json = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString());
+  const stored = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString()); // snapshots hold blob refs
   // snapshot the current state first so a restore is itself undoable
-  maybeSnapshot(id, readBoardJSON(id), true);
-  updateBoard(id, { json });
-  return json;
+  maybeSnapshot(id, readBoardStored(id), true);
+  updateBoard(id, { json: stored });
+  return rehydrate(stored); // client-ready
 }
 
 function deleteHistory(id) {
   for (const f of histFiles(id)) fs.unlinkSync(path.join(DATA_DIR, f));
 }
 
-function createBoard({ owner, room, title, json, thumb }) {
+// ---------- image blob store (content-addressed) ----------
+// Imported document pages are huge base64 data URLs. Storing them inline in the
+// board JSON meant every stroke re-serialized/re-wrote/re-snapshotted tens of MB
+// and every pushed copy duplicated them. Instead we externalize each unique
+// image to a blob file keyed by its content hash, and keep only a "blob:<hash>"
+// reference in the stored board JSON. Blobs are DEDUPED (a PDF pushed to 30 kids
+// is stored once) and boards on disk become tiny. Rehydration back to the full
+// data URL happens transparently whenever a board is sent to a client, so the
+// client and wire protocol are unchanged.
+const BLOB_MIN = 4096; // only externalize data URLs bigger than this
+
+function blobPut(dataUrl) {
+  const hash = crypto.createHash('sha256').update(dataUrl).digest('hex');
+  const f = path.join(DATA_DIR, `blob-${hash}`);
+  if (!fs.existsSync(f)) {
+    const tmp = f + '.tmp';
+    fs.writeFileSync(tmp, dataUrl);
+    fs.renameSync(tmp, f); // atomic — a partial blob is never referenced
+  }
+  return `blob:${hash}`;
+}
+
+function blobGet(ref) {
+  const hash = String(ref).slice(5);
+  if (!/^[a-f0-9]{64}$/.test(hash)) return null;
+  try { return fs.readFileSync(path.join(DATA_DIR, `blob-${hash}`), 'utf8'); } catch { return null; }
+}
+
+// Replace big inline image data URLs with blob refs (non-mutating). A blob write
+// failure (e.g. disk full) leaves that image inline — never corrupts the board.
+function dehydrate(json) {
+  if (!json || !Array.isArray(json.objects)) return json;
+  let changed = false;
+  const objects = json.objects.map((o) => {
+    if (o && typeof o.src === 'string' && o.src.startsWith('data:') && o.src.length > BLOB_MIN) {
+      try { const ref = blobPut(o.src); changed = true; return { ...o, src: ref }; } catch { return o; }
+    }
+    return o;
+  });
+  return changed ? { ...json, objects } : json;
+}
+
+// Resolve blob refs back to full data URLs for sending to clients (non-mutating).
+function rehydrate(json) {
+  if (!json || !Array.isArray(json.objects)) return json;
+  let changed = false;
+  const objects = json.objects.map((o) => {
+    if (o && typeof o.src === 'string' && o.src.startsWith('blob:')) {
+      const data = blobGet(o.src);
+      if (data != null) { changed = true; return { ...o, src: data }; }
+    }
+    return o;
+  });
+  return changed ? { ...json, objects } : json;
+}
+
+// Every blob hash still referenced by a live board, a pending write, a history
+// snapshot, or a template. Anything not here is orphaned and safe to delete.
+function collectBlobRefs() {
+  const refs = new Set();
+  const scan = (json) => {
+    if (!json || !Array.isArray(json.objects)) return;
+    for (const o of json.objects) {
+      if (o && typeof o.src === 'string' && o.src.startsWith('blob:')) refs.add(o.src.slice(5));
+    }
+  };
+  for (const j of boardPending.values()) scan(j);
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    try {
+      if (/^board-[a-f0-9]{16}\.json$/.test(f) || /^tmpl-[a-f0-9]{16}\.json$/.test(f)) {
+        scan(JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8')).json);
+      } else if (/^hist-[a-f0-9]+-\d+\.json\.gz$/.test(f)) {
+        scan(JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(DATA_DIR, f))).toString()));
+      }
+    } catch { /* skip unreadable file — never delete blobs on a partial scan */ }
+  }
+  return refs;
+}
+
+// Delete blob files no board/history/template references anymore.
+function gcBlobs() {
+  try {
+    const refs = collectBlobRefs();
+    let removed = 0;
+    for (const f of fs.readdirSync(DATA_DIR)) {
+      const m = /^blob-([a-f0-9]{64})$/.exec(f);
+      if (m && !refs.has(m[1])) { try { fs.unlinkSync(path.join(DATA_DIR, f)); removed++; } catch { /* ignore */ } }
+      if (f.startsWith('blob-') && f.endsWith('.tmp')) { try { fs.unlinkSync(path.join(DATA_DIR, f)); } catch { /* ignore */ } }
+    }
+    if (removed) console.log(`Blob GC: removed ${removed} orphaned image blob(s).`);
+  } catch (e) {
+    console.error('Blob GC failed:', e.message);
+  }
+}
+setInterval(gcBlobs, 24 * 60 * 60 * 1000); // daily sweep of orphaned blobs
+
+function createBoard({ owner, room, title, json, thumb, assignment }) {
   const id = crypto.randomBytes(8).toString('hex');
   const now = Date.now();
-  const meta = { id, title: (title || 'Board').slice(0, 60), owner, room: room || null, createdAt: now, updatedAt: now, thumb: thumb || null, comments: [] };
+  const meta = { id, title: (title || 'Board').slice(0, 60), owner, room: room || null, createdAt: now, updatedAt: now, thumb: thumb || null, comments: [], assignment: assignment || null };
   boardsIndex.set(id, meta);
-  boardPending.set(id, json || null);
+  indexBoard(meta);
+  boardPending.set(id, dehydrate(json) || null);
   flushBoardSoon(id);
   return meta;
 }
@@ -1240,10 +1673,14 @@ function validThumb(t) {
 function updateBoard(id, { json, thumb, title, room, embed }) {
   const meta = boardsIndex.get(id);
   if (!meta) return null;
-  if (json !== undefined) boardPending.set(id, json);
+  if (json !== undefined) boardPending.set(id, dehydrate(json));
   if (thumb !== undefined && validThumb(thumb)) meta.thumb = thumb;
   if (title !== undefined) meta.title = String(title).trim().slice(0, 60) || meta.title;
-  if (room !== undefined) meta.room = room;
+  if (room !== undefined && (room || null) !== meta.room) {
+    idxDel(boardsByRoom, meta.room || '', id); // board moved rooms — keep the room index correct
+    meta.room = room || null;
+    idxAdd(boardsByRoom, meta.room || '', id);
+  }
   if (embed !== undefined) {
     if (meta.embed && meta.embed.token) embedTokens.delete(meta.embed.token);
     meta.embed = embed;
@@ -1254,7 +1691,9 @@ function updateBoard(id, { json, thumb, title, room, embed }) {
   return meta;
 }
 
-function readBoardJSON(id) {
+// Raw stored board JSON — holds blob refs, NOT full images. Used by the
+// internals (ops application, snapshots) so the hot path stays tiny.
+function readBoardStored(id) {
   if (boardPending.has(id)) return boardPending.get(id);
   try {
     return JSON.parse(fs.readFileSync(boardFile(id), 'utf8')).json || null;
@@ -1263,7 +1702,16 @@ function readBoardJSON(id) {
   }
 }
 
+// Client-ready board JSON: blob refs resolved back to full images. Every place
+// that sends a board to a browser goes through here, so none of them need to
+// know blobs exist.
+function readBoardJSON(id) {
+  return rehydrate(readBoardStored(id));
+}
+
 function deleteBoard(id) {
+  const meta = boardsIndex.get(id);
+  if (meta) unindexBoard(meta);
   boardsIndex.delete(id);
   boardPending.delete(id);
   clearTimeout(boardTimers.get(id));
@@ -1273,13 +1721,70 @@ function deleteBoard(id) {
 }
 
 function boardsFor(owner, room) {
-  return [...boardsIndex.values()]
-    .filter((b) => b.owner === owner && b.room === (room || null))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const ids = boardsByOwner.get(owner); // a single user owns very few boards
+  if (!ids) return [];
+  const want = room || null;
+  const out = [];
+  for (const id of ids) { const b = boardsIndex.get(id); if (b && b.room === want) out.push(b); }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 function roomBoards(room) {
-  return [...boardsIndex.values()].filter((b) => b.room === room).sort((a, b) => b.updatedAt - a.updatedAt);
+  const ids = boardsByRoom.get(room || '');
+  if (!ids) return [];
+  const out = [];
+  for (const id of ids) { const b = boardsIndex.get(id); if (b) out.push(b); }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+// ---------- assignments: assign → turn in → grade → return ----------
+const assignments = new Map(); // id -> { id, room, title, instructions, dueAt, createdBy, createdByName, createdAt, submissions }
+function assignmentFile(id) { return path.join(DATA_DIR, `assignment-${id}.json`); }
+
+function loadAssignments() {
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    if (!f.startsWith('assignment-') || !f.endsWith('.json')) continue;
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+      if (d.id) assignments.set(d.id, d);
+    } catch { /* skip a corrupt file */ }
+  }
+}
+
+function saveAssignment(a) {
+  fs.writeFile(assignmentFile(a.id), JSON.stringify(a), (err) => {
+    if (err) console.error('Assignment save failed', a.id, err.message);
+  });
+}
+
+// Shape an assignment for the client — full roster for a teacher, one row for a student
+function assignmentView(a, { forStudent, room } = {}) {
+  const nameOf = (sid) => (room && room.data.names[sid]) || displayNameOf(sid);
+  const base = {
+    id: a.id, room: a.room, title: a.title, instructions: a.instructions,
+    dueAt: a.dueAt || null, createdAt: a.createdAt, createdByName: a.createdByName,
+  };
+  const subShape = (s) => ({
+    boardId: s.boardId, status: s.status, grade: s.grade ?? null,
+    feedback: s.feedback || '', turnedInAt: s.turnedInAt || null, returnedAt: s.returnedAt || null,
+  });
+  if (forStudent) {
+    const s = a.submissions[forStudent];
+    return { ...base, submission: s ? subShape(s) : null };
+  }
+  const submissions = Object.entries(a.submissions).map(([sid, s]) => ({ student: sid, name: nameOf(sid), ...subShape(s) }));
+  return { ...base, submissions };
+}
+
+// First edit on an assigned board flips its status to "working" (once) for the teacher dashboard
+function markAssignmentWorking(assignmentId, studentId, room) {
+  const a = assignments.get(assignmentId);
+  if (!a) return;
+  const s = a.submissions[studentId];
+  if (!s || s.status !== 'assigned') return;
+  s.status = 'working';
+  saveAssignment(a);
+  if (room) emitToTeacher(room, 'assignment:progress', { assignmentId, student: studentId, status: 'working' });
 }
 
 function displayNameOf(id) {
@@ -1432,7 +1937,11 @@ app.delete('/api/boards/:id/embed', (req, res) => {
   const meta = boardsIndex.get(req.params.id);
   if (!meta) return res.status(404).json({ error: 'Board not found.' });
   if (!canPublishBoard(user, meta)) return res.status(403).json({ error: 'Not allowed.' });
+  const oldToken = meta.embed && meta.embed.token;
   updateBoard(meta.id, { embed: null });
+  // Kick viewers already connected to the embed room — otherwise "revoked"
+  // only blocks NEW connections while live iframes keep streaming ops.
+  if (oldToken) io.in('embed:' + oldToken).disconnectSockets(true);
   appendAudit(user.email, 'board:embed-revoke', meta.title);
   res.json({ ok: true });
 });
@@ -1444,10 +1953,12 @@ app.get('/api/embed/:token', (req, res) => {
   const meta = id && boardsIndex.get(id);
   if (!meta || !meta.embed) return res.status(404).json({ error: 'This board is no longer shared.' });
   res.set('Cache-Control', 'no-store');
+  res.set('X-Robots-Tag', 'noindex, nofollow'); // published boards are link-only, never indexed
   res.json({ title: meta.title, updatedAt: meta.updatedAt, json: readBoardJSON(meta.id) });
 });
 
 app.get('/embed/:token', (req, res) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow'); // keep shared boards out of search engines
   res.sendFile(path.join(__dirname, 'public', 'embed.html'));
 });
 
@@ -1846,10 +2357,9 @@ function broadcastComments(socket, meta) {
   }
 }
 
-// Send a student their freshly-resolved feature switches
+// Send a student their freshly-resolved feature switches (to all their tabs)
 function pushFeatures(room, sid) {
-  const sockId = room.students.get(sid);
-  if (sockId) io.to(sockId).emit('features:update', { features: effectiveFeatures(room, sid) });
+  emitToStudent(room.code, sid, 'features:update', { features: effectiveFeatures(room, sid) });
 }
 
 function teacherRoom(socket) {
@@ -1858,12 +2368,60 @@ function teacherRoom(socket) {
   return rooms.get(code) || null;
 }
 
-// What's on the class stage right now (teacher's live board or a student's latest)
+// Build the canonical {email,name,perms,isSuper} user for a socket, so socket
+// handlers can reuse the same authorization helpers as the REST routes.
+function socketUser(socket) {
+  const u = socket.data && socket.data.user;
+  if (!u) return null;
+  return { email: u.email, name: u.name, perms: permsFor(u.email), isSuper: isSuperAdmin(u.email) };
+}
+
+// Iterate only the sockets joined to room `code` (via socket.join(code)),
+// instead of scanning every socket on the whole server. Hot paths like
+// cursor:move and board:ops fan out through this — at classroom scale the old
+// instance-wide scans cost O(all sockets on the box) per event.
+function* roomSockets(code) {
+  const ns = io.of('/');
+  const ids = ns.adapter.rooms.get(code);
+  if (!ids) return;
+  for (const sid of ids) {
+    const s = ns.sockets.get(sid);
+    if (s) yield s;
+  }
+}
+
+// Emit to EVERY socket a student has open in this room — room.students only
+// tracks their most recent socket, so a second tab or a mid-event reconnect
+// would otherwise silently miss the delivery.
+function emitToStudent(code, sid, event, data) {
+  for (const s of roomSockets(code)) {
+    if (s.data && s.data.id === sid) s.emit(event, data);
+  }
+}
+
+// Does this student still have at least one live socket in the room (besides
+// optionally an excluded one)? Used to avoid a premature "left" on multi-tab.
+function studentHasSocket(code, sid, exceptSocketId) {
+  for (const s of roomSockets(code)) {
+    if (s.id !== exceptSocketId && s.data && s.data.id === sid) return s.id;
+  }
+  return null;
+}
+
+// A running countdown, or null if none/expired
+function activeTimer(room) {
+  if (room.timer && room.timer.endsAt > Date.now()) return room.timer;
+  room.timer = null;
+  return null;
+}
+
+// What's on the class stage right now (teacher's live board or a student's
+// latest). lastTeacherJson holds blob refs, so rehydrate it for the students.
 function stageJson(room) {
-  if (room.sharing === 'teacher') return room.lastTeacherJson;
+  if (room.sharing === 'teacher') return rehydrate(room.lastTeacherJson);
   if (room.sharing) {
     const latest = boardsFor(room.sharing, room.code)[0];
-    return latest ? readBoardJSON(latest.id) : null;
+    return latest ? readBoardJSON(latest.id) : null; // already rehydrated
   }
   return null;
 }
@@ -1887,11 +2445,17 @@ io.use((socket, next) => {
     return next();
   }
   if (!AUTH_ENABLED) return next();
-  const user = verifySession(socket.handshake.auth && socket.handshake.auth.token);
-  if (!user) return next(new Error('unauthorized'));
-  if (accessStatus(user.email) !== 'approved') return next(new Error('unauthorized'));
-  socket.data.user = { email: user.email, name: user.name };
-  next();
+
+  // The session is an httpOnly cookie, which the browser sends on a
+  // same-origin handshake — so the page never holds a token it could leak.
+  signify.verifyCookieSession(socket.handshake.headers.cookie)
+    .then((claims) => {
+      if (!claims) return next(new Error('unauthorized'));
+      shadow(claims);
+      socket.data.user = { email: String(claims.email).toLowerCase(), name: claims.name };
+      next();
+    })
+    .catch(() => next(new Error('unauthorized')));
 });
 
 io.on('connection', (socket) => {
@@ -1904,6 +2468,9 @@ io.on('connection', (socket) => {
 
   socket.on('join', (payload, ack) => {
     if (typeof ack !== 'function') return;
+    // Throttle join attempts per IP so the 5-char room-code space can't be brute-forced.
+    const ip = (socket.handshake.headers['x-forwarded-for'] || '').split(',')[0].trim() || socket.handshake.address;
+    if (!joinLimiter(ip)) return ack({ error: 'Too many attempts — please wait a moment and try again.' });
     try {
       const code = sanitizeCode(payload.room);
       let name, id, role;
@@ -1921,6 +2488,7 @@ io.on('connection', (socket) => {
         role = payload.role === 'teacher' ? 'teacher' : 'student';
       }
       if (!code || !id) return ack({ error: 'A name and room code are required.' });
+      if (!isSafeKey(id)) return ack({ error: 'That name is not allowed.' }); // open mode: id is the typed name
 
       // Resolve by room id (roster links, teachers) or by the shareable join code
       let room = getRoom(code, false);
@@ -1936,6 +2504,16 @@ io.on('connection', (socket) => {
         if (room.data.joinDisabled) {
           return ack({ error: 'Joining with a code is turned off for this class. Ask your teacher to add you.' });
         }
+      }
+
+      // A teacher may only take the teacher seat of a room they OWN (or as an
+      // admin). Without this, any account with the 'teach' permission that
+      // learned a room code could hijack another teacher's class — displacing
+      // them and gaining read/write on every student board and DM. Unowned
+      // legacy rooms are claimed just below.
+      if (AUTH_ENABLED && role === 'teacher' && room.data.owner
+          && room.data.owner !== id && !hasPerm(id, 'manage_boards')) {
+        return ack({ error: 'This classroom belongs to another teacher. Ask an admin if you need access to it.' });
       }
 
       socket.data.code = code;
@@ -1955,7 +2533,7 @@ io.on('connection', (socket) => {
 
       if (role === 'teacher') {
         room.teacher = socket.id;
-        room.lastTeacherJson = activeJson;
+        room.lastTeacherJson = readBoardStored(active.id); // blob refs; rehydrated when shared
         if (AUTH_ENABLED && !room.data.owner) {
           room.data.owner = id; // first teacher in claims an unowned (legacy) room
           scheduleSave(room);
@@ -1975,10 +2553,11 @@ io.on('connection', (socket) => {
           });
         }
         ack({
-          ok: true, name, boards: myBoards, activeBoard: { id: active.id, json: activeJson },
+          ok: true, name, roomName: room.data.name || '', boards: myBoards, activeBoard: { id: active.id, json: activeJson },
           students, sharing: room.sharing, shareBy: room.sharing ? stageBy(room) : null,
           roomFeatures: room.data.features, studentFeatures: room.data.studentFeatures,
           joinCode: room.data.joinCode, joinDisabled: !!room.data.joinDisabled,
+          timer: activeTimer(room),
         });
       } else {
         room.students.set(id, socket.id);
@@ -1992,12 +2571,14 @@ io.on('connection', (socket) => {
         ack({
           ok: true,
           name,
+          roomName: room.data.name || '',
           boards: myBoards,
           activeBoard: { id: active.id, json: activeJson },
           sharing: onStage ? room.sharing : false,
           teacherBoard: onStage ? stageJson(room) : null,
           shareBy: onStage ? stageBy(room) : null,
           features: effectiveFeatures(room, id),
+          timer: activeTimer(room),
         });
         emitToTeacher(room, 'student:joined', {
           id, name,
@@ -2028,15 +2609,15 @@ io.on('connection', (socket) => {
     updateBoard(meta.id, { json, thumb: safeThumb });
 
     // Live-sync the board owner's other devices (and notify them if the teacher is drawing)
-    for (const s of io.of('/').sockets.values()) {
-      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+    for (const s of roomSockets(code)) {
+      if (s.id === socket.id || !s.data) continue;
       if (s.data.id === meta.owner) {
         s.emit('board:peer', { boardId: meta.id, json, by: name, note: !isOwner ? `${name} is drawing on your board` : null });
       }
     }
 
     if (role === 'teacher' && isOwner) {
-      room.lastTeacherJson = json;
+      room.lastTeacherJson = dehydrate(json); // keep only blob refs in memory
       if (room.sharing === 'teacher') socket.to(code).emit('teacher:board', { json });
     }
     // spotlighted student drawing: stream their board to the class stage
@@ -2064,16 +2645,20 @@ io.on('connection', (socket) => {
     const isOwner = meta.owner === id;
     if (!isOwner && role !== 'teacher') return;
     room.data.updatedAt = Date.now();
-    const json = applyOpsToJson(readBoardJSON(meta.id), ops);
+    // Apply the tiny stroke op to the RAW stored board (blob refs), never the
+    // rehydrated multi-MB version — this is what makes per-stroke saves cheap.
+    const json = applyOpsToJson(readBoardStored(meta.id), ops);
     const safeThumb = payload.thumb && validThumb(payload.thumb) ? payload.thumb : undefined;
     updateBoard(meta.id, { json, thumb: safeThumb });
+    const rev = meta.updatedAt; // updated by updateBoard — the new board revision
+    if (meta.assignment && isOwner) markAssignmentWorking(meta.assignment, id, room);
 
     // fan the ops out to everyone who cares (they're small)
-    for (const s of io.of('/').sockets.values()) {
-      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+    for (const s of roomSockets(code)) {
+      if (s.id === socket.id || !s.data) continue;
       if (s.data.id === meta.owner || s.data.role === 'teacher') {
         s.emit('board:ops', {
-          boardId: meta.id, owner: meta.owner, ops, by: name,
+          boardId: meta.id, owner: meta.owner, ops, by: name, rev,
           note: !isOwner && s.data.id === meta.owner ? `${name} is drawing on your board` : null,
         });
       }
@@ -2091,7 +2676,43 @@ io.on('connection', (socket) => {
       socket.to(code).emit('stage:ops', { ops });
     }
     scheduleSave(room);
-    if (typeof ack === 'function') ack({ ok: true });
+    if (typeof ack === 'function') ack({ ok: true, rev }); // sender tracks its own new revision
+  });
+
+  // Live presence: ephemeral cursor positions, routed like board:ops but never stored.
+  // Coordinates are scene/board coords so each viewer maps them with its own pan/zoom.
+  // Clients announce which board they're looking at so cursors only reach actual co-viewers.
+  socket.on('presence:view', (payload) => {
+    const meta = payload && boardsIndex.get(payload.boardId);
+    socket.data.viewingBoard = meta && meta.room === socket.data.code ? meta.id : null;
+  });
+
+  socket.on('cursor:move', (payload) => {
+    const { code, id, name, role } = socket.data || {};
+    const room = code && rooms.get(code);
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!room || !meta || meta.room !== code) return;
+    if (meta.owner !== id && role !== 'teacher') return; // only the owner or the room teacher share a board
+    const x = Number(payload.x), y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    for (const s of roomSockets(code)) {
+      if (s.id === socket.id || !s.data) continue;
+      // the board owner always co-views their own board; others must have opened it
+      if (s.data.viewingBoard === meta.id || s.data.id === meta.owner) {
+        s.emit('cursor:peer', { boardId: meta.id, from: id, name, x, y });
+      }
+    }
+  });
+
+  socket.on('cursor:hide', (payload) => {
+    const { code, id } = socket.data || {};
+    const room = code && rooms.get(code);
+    const meta = payload && boardsIndex.get(payload.boardId);
+    if (!room || !meta || meta.room !== code) return;
+    for (const s of roomSockets(code)) {
+      if (s.id === socket.id || !s.data) continue;
+      if (s.data.viewingBoard === meta.id || s.data.id === meta.owner) s.emit('cursor:gone', { from: id });
+    }
   });
 
   // ----- board management within the joined room -----
@@ -2125,11 +2746,16 @@ io.on('connection', (socket) => {
     if (!code || typeof ack !== 'function') return;
     const meta = payload && boardsIndex.get(payload.boardId);
     if (!meta) return ack({ error: 'Board not found.' });
-    const room = rooms.get(code);
     const isRoomTeacher = role === 'teacher' && meta.room === code;
-    const isAdmin = AUTH_ENABLED && socket.data.user && hasPerm(socket.data.user.email, 'manage_boards');
-    if (meta.owner !== id && !isRoomTeacher && !isAdmin) return ack({ error: 'You do not have access to this board.' });
-    void room;
+    // Admins may load a board only within their own domain — same rule the REST
+    // path enforces via canViewBoard. The old bare manage_boards check let any
+    // board admin read any board in any school given its id.
+    const canView = meta.owner === id || isRoomTeacher || (AUTH_ENABLED && socketUser(socket) && canViewBoard(socketUser(socket), meta));
+    if (!canView) return ack({ error: 'You do not have access to this board.' });
+    // Reconnect guard: if the client already holds this exact revision, skip the
+    // (potentially multi-MB) transfer. Stops a class-wide wifi blip from turning
+    // into 30 simultaneous full-board pulls.
+    if (payload.haveRev && payload.haveRev === meta.updatedAt) return ack({ ok: true, unchanged: true, meta });
     ack({ ok: true, meta, json: readBoardJSON(meta.id) });
   });
 
@@ -2245,17 +2871,100 @@ io.on('connection', (socket) => {
     const room = teacherRoom(socket);
     const json = payload && payload.json;
     if (!room || !json) return done({ error: 'Not allowed.' });
+    // A push target must be an actual member of this class — never an arbitrary
+    // string (which would mint a board owned by a non-member, or pollute a map).
+    const members = new Set([...(room.data.roster || []), ...room.students.keys()]);
     const targets = payload.target
-      ? [payload.target]
-      : [...new Set([...(room.data.roster || []), ...room.students.keys()])]
-        .filter((sid) => sid !== socket.data.id && sid !== room.data.owner);
+      ? (members.has(payload.target) ? [payload.target] : [])
+      : [...members].filter((sid) => sid !== socket.data.id && sid !== room.data.owner);
+    if (!targets.length) return done({ error: 'No matching students in this class.' });
     const title = String(payload.title || `From ${socket.data.name}`).slice(0, 60);
     for (const sid of targets) {
       const meta = createBoard({ owner: sid, room: room.code, title, json });
-      const sockId = room.students.get(sid);
-      if (sockId) io.to(sockId).emit('board:new', { meta, by: socket.data.name });
+      emitToStudent(room.code, sid, 'board:new', { meta, by: socket.data.name });
     }
     done({ ok: true, count: targets.length });
+  });
+
+  // ----- assignments -----
+
+  // Teacher assigns the given board content to every student as their own graded board
+  socket.on('assignment:create', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    const json = payload && payload.json;
+    if (!room || !json) return done({ error: 'Not allowed.' });
+    const title = String(payload.title || 'Assignment').trim().slice(0, 80) || 'Assignment';
+    const instructions = String(payload.instructions || '').slice(0, 2000);
+    const dueAt = Number(payload.dueAt) || null;
+    const roster = [...new Set([...(room.data.roster || []), ...room.students.keys()])]
+      .filter((sid) => sid !== room.data.owner);
+    if (!roster.length) return done({ error: 'Add students to the class first.' });
+    const id = crypto.randomBytes(8).toString('hex');
+    const a = {
+      id, room: room.code, title, instructions, dueAt,
+      createdBy: socket.data.id, createdByName: socket.data.name, createdAt: Date.now(), submissions: {},
+    };
+    for (const sid of roster) {
+      const board = createBoard({ owner: sid, room: room.code, title, json, assignment: id });
+      a.submissions[sid] = { boardId: board.id, status: 'assigned', grade: null, feedback: '', turnedInAt: null, returnedAt: null };
+      emitToStudent(room.code, sid, 'board:new', { meta: board, by: socket.data.name });
+      emitToStudent(room.code, sid, 'assignment:new', assignmentView(a, { forStudent: sid, room }));
+    }
+    assignments.set(id, a);
+    saveAssignment(a);
+    done({ ok: true, assignment: assignmentView(a, { room }), count: roster.length });
+  });
+
+  // List assignments for the joined room (teacher: full roster; student: their own rows)
+  socket.on('assignment:list', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const { code, id, role } = socket.data || {};
+    if (!code) return ack({ error: 'Not in a room.' });
+    const room = rooms.get(code);
+    const mine = [...assignments.values()].filter((a) => a.room === code).sort((x, y) => y.createdAt - x.createdAt);
+    if (role === 'teacher') return ack({ ok: true, assignments: mine.map((a) => assignmentView(a, { room })) });
+    ack({ ok: true, assignments: mine.filter((a) => a.submissions[id]).map((a) => assignmentView(a, { forStudent: id, room })) });
+  });
+
+  // Student turns in their submission
+  socket.on('assignment:turnin', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const { code, id, name } = socket.data || {};
+    const a = payload && assignments.get(payload.assignmentId);
+    if (!a || a.room !== code) return done({ error: 'Assignment not found.' });
+    const sub = a.submissions[id];
+    if (!sub) return done({ error: 'This assignment is not yours.' });
+    if (sub.status === 'returned') return done({ error: 'It has already been graded.' });
+    sub.status = 'turnedin';
+    sub.turnedInAt = Date.now();
+    saveAssignment(a);
+    const room = rooms.get(code);
+    if (room) emitToTeacher(room, 'assignment:submitted', { assignmentId: a.id, student: id, name, at: sub.turnedInAt });
+    done({ ok: true });
+  });
+
+  // Teacher returns a submission with an optional grade and feedback
+  socket.on('assignment:return', (payload, ack) => {
+    const done = typeof ack === 'function' ? ack : () => {};
+    const room = teacherRoom(socket);
+    const a = payload && assignments.get(payload.assignmentId);
+    if (!room || !a || a.room !== room.code) return done({ error: 'Not allowed.' });
+    const student = String(payload.student || '');
+    // isSafeKey blocks '__proto__' etc. from resolving to Object.prototype and
+    // sneaking past the `!sub` guard below.
+    if (!isSafeKey(student) || !Object.prototype.hasOwnProperty.call(a.submissions, student)) {
+      return done({ error: 'No such submission.' });
+    }
+    const sub = a.submissions[student];
+    sub.grade = payload.grade != null && String(payload.grade).trim() !== '' ? String(payload.grade).slice(0, 20) : null;
+    sub.feedback = String(payload.feedback || '').slice(0, 2000);
+    sub.status = 'returned';
+    sub.returnedAt = Date.now();
+    saveAssignment(a);
+    // Reach every tab the student has open, not just their newest socket.
+    emitToStudent(room.code, student, 'assignment:returned', assignmentView(a, { forStudent: student, room }));
+    done({ ok: true });
   });
 
   // Teacher sends selected objects onto students' current boards
@@ -2264,9 +2973,10 @@ io.on('connection', (socket) => {
     const room = teacherRoom(socket);
     const objects = payload && Array.isArray(payload.objects) ? payload.objects.slice(0, 200) : null;
     if (!room || !objects || !objects.length) return done({ error: 'Nothing to send.' });
+    const members = new Set([...(room.data.roster || []), ...room.students.keys()]);
     const targets = (Array.isArray(payload.targets) && payload.targets.length
-      ? payload.targets.map(String)
-      : [...new Set([...(room.data.roster || []), ...room.students.keys()])])
+      ? payload.targets.map(String).filter((sid) => members.has(sid)) // only real class members
+      : [...members])
       .filter((sid) => sid !== socket.data.id && sid !== room.data.owner);
     for (const sid of targets) {
       let meta = boardsFor(sid, room.code)[0];
@@ -2274,11 +2984,7 @@ io.on('connection', (socket) => {
       const json = readBoardJSON(meta.id) || { version: '5.3.0', objects: [] };
       json.objects = [...(json.objects || []), ...objects];
       updateBoard(meta.id, { json });
-      for (const s of io.of('/').sockets.values()) {
-        if (s.data && s.data.code === room.code && s.data.id === sid) {
-          s.emit('board:peer', { boardId: meta.id, json, by: socket.data.name, note: `${socket.data.name} added items to your board` });
-        }
-      }
+      emitToStudent(room.code, sid, 'board:peer', { boardId: meta.id, json, by: socket.data.name, note: `${socket.data.name} added items to your board` });
       if (room.teacher && room.teacher !== socket.id) {
         io.to(room.teacher).emit('student:board', { id: sid, name: room.data.names[sid] || sid, boardId: meta.id, json, thumb: meta.thumb });
       }
@@ -2367,6 +3073,51 @@ io.on('connection', (socket) => {
     ack(p && p.open ? { id: p.id, question: p.question, type: p.type, options: p.options } : null);
   });
 
+  // ----- live-classroom: countdown timer, random picker, reactions -----
+
+  socket.on('timer:start', (payload, ack) => {
+    const room = teacherRoom(socket);
+    if (!room) return typeof ack === 'function' && ack({ error: 'Not allowed.' });
+    const seconds = Math.max(5, Math.min(3600, Math.round(Number(payload && payload.seconds) || 0)));
+    room.timer = { endsAt: Date.now() + seconds * 1000, seconds };
+    io.to(room.code).emit('timer:start', room.timer);
+    if (typeof ack === 'function') ack({ ok: true });
+  });
+
+  socket.on('timer:stop', () => {
+    const room = teacherRoom(socket);
+    if (!room) return;
+    room.timer = null;
+    io.to(room.code).emit('timer:stop');
+  });
+
+  socket.on('picker:pick', (payload, ack) => {
+    if (typeof ack !== 'function') return;
+    const room = teacherRoom(socket);
+    if (!room) return ack({ error: 'Not allowed.' });
+    // pool = enrolled students, preferring those online; teacher & owner excluded
+    const online = [...room.students.keys()].filter((id) => id !== room.data.owner);
+    const roster = (room.data.roster || []).filter((id) => id !== room.data.owner);
+    const pool = online.length ? online : roster;
+    if (!pool.length) return ack({ error: 'No students to pick from.' });
+    const id = pool[Math.floor(Math.random() * pool.length)];
+    const picked = { id, name: room.data.names[id] || displayNameOf(id) };
+    socket.to(room.code).emit('picker:result', picked); // teacher animates locally from the ack
+    ack({ ok: true, picked });
+  });
+
+  socket.on('reaction:send', (payload) => {
+    const { code, id, name, role } = socket.data || {};
+    const room = code && rooms.get(code);
+    if (!room) return;
+    const allowed = ['👍', '👏', '❤️', '😂', '🎉', '🤔', '😮', '✅', '❓', '🙋'];
+    const emoji = payload && String(payload.emoji || '');
+    if (!allowed.includes(emoji)) return;
+    // fan out to everyone else (the sender already floated it locally)
+    socket.to(code).emit('reaction', { emoji, name, from: id });
+    void role;
+  });
+
   // ----- messaging (teacher <-> students, plus teacher broadcast) -----
 
   socket.on('msg:send', (payload, ack) => {
@@ -2385,8 +3136,8 @@ io.on('connection', (socket) => {
     room.data.messages.push(msg);
     if (room.data.messages.length > 400) room.data.messages = room.data.messages.slice(-400);
     scheduleSave(room);
-    for (const s of io.of('/').sockets.values()) {
-      if (s.id === socket.id || !s.data || s.data.code !== code) continue;
+    for (const s of roomSockets(code)) {
+      if (s.id === socket.id || !s.data) continue;
       if (s.data.role === 'teacher' || canSeeMessage(s.data, msg)) s.emit('msg:new', msg);
     }
     done({ ok: true, msg });
@@ -2467,7 +3218,7 @@ io.on('connection', (socket) => {
     const patch = payload && payload.features;
     if (payload && payload.scope === 'student') {
       const sid = String(payload.student || '');
-      if (!sid) return done({ error: 'Missing student.' });
+      if (!sid || !isSafeKey(sid)) return done({ error: 'Missing student.' });
       room.data.studentFeatures[sid] = room.data.studentFeatures[sid] || {};
       applyFeaturePatch(room.data.studentFeatures[sid], patch);
       if (!Object.keys(room.data.studentFeatures[sid]).length) delete room.data.studentFeatures[sid];
@@ -2485,6 +3236,7 @@ io.on('connection', (socket) => {
     const { code, id, role } = socket.data || {};
     const room = code && rooms.get(code);
     if (!room) return;
+    socket.to(code).emit('cursor:gone', { from: id }); // clear my presence dot for everyone
     if (role === 'teacher') {
       if (room.teacher === socket.id) {
         room.teacher = null;
@@ -2494,8 +3246,16 @@ io.on('connection', (socket) => {
         }
       }
     } else if (room.students.get(id) === socket.id) {
-      room.students.delete(id);
-      emitToTeacher(room, 'student:left', { id });
+      // Only mark the student gone when their LAST tab closes. If another tab
+      // is still open, hand the primary slot to it instead of emitting 'left'
+      // (which previously flipped them offline and broke targeted delivery).
+      const survivor = studentHasSocket(code, id, socket.id);
+      if (survivor) {
+        room.students.set(id, survivor);
+      } else {
+        room.students.delete(id);
+        emitToTeacher(room, 'student:left', { id });
+      }
     }
   });
 });
@@ -2503,21 +3263,106 @@ io.on('connection', (socket) => {
 // ---------- backups: daily local rotation + on-demand super-admin download ----------
 
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP = 3;                          // rotated copies to retain (was 7)
+const DISK_MIN_FREE = 250 * 1024 * 1024;        // critical: reclaim/skip backups below this
+const DISK_WARN_FREE = 700 * 1024 * 1024;       // warn well before it gets critical
+
+// Available bytes on the data volume, or Infinity if it can't be determined.
+function freeSpaceBytes() {
+  try {
+    const s = fs.statfsSync(DATA_DIR);
+    return s.bavail * s.bsize;
+  } catch {
+    return Infinity;
+  }
+}
+
+// Delete rotated backups down to `keep`, plus any leftover .tmp files. Backups
+// are regenerable disaster-recovery tars (of all boards, PDFs included), so
+// they're the first thing to drop when the volume gets tight — never the live
+// board files.
+function pruneBackups(keep) {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) return;
+    const files = fs.readdirSync(BACKUP_DIR);
+    for (const f of files) {
+      if (f.endsWith('.tmp')) { try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch { /* ignore */ } }
+    }
+    const all = files.filter((f) => f.startsWith('backup-') && f.endsWith('.tar.gz')).sort();
+    while (all.length > keep) { try { fs.unlinkSync(path.join(BACKUP_DIR, all.shift())); } catch { /* ignore */ } }
+  } catch (e) {
+    console.error('Backup prune failed:', e.message);
+  }
+}
+
+// Last-known free space, exposed to the admin dashboard so a full volume is
+// visible before it becomes an outage.
+let diskFreeBytes = freeSpaceBytes();
+
+// Periodic watch: warn loudly well before the volume is critical, and reclaim
+// backup space automatically if it gets dangerous.
+function checkDisk() {
+  diskFreeBytes = freeSpaceBytes();
+  if (diskFreeBytes < DISK_WARN_FREE) {
+    console.warn(`⚠ Data volume low: ${Math.round(diskFreeBytes / 1e6)}MB free. Enlarge the volume or offload backups.`);
+    if (diskFreeBytes < DISK_MIN_FREE) pruneBackups(1);
+  }
+}
+setTimeout(checkDisk, 30 * 1000);
+setInterval(checkDisk, 60 * 60 * 1000); // hourly
+
+// On boot, reclaim space so a full volume can't crash-loop the server (an
+// unhandled ENOSPC on the backup stream is exactly what took it down).
+(function reclaimDiskOnBoot() {
+  const free = freeSpaceBytes();
+  if (free < DISK_MIN_FREE) {
+    console.warn(`Low disk: ${Math.round(free / 1e6)}MB free — clearing all backups to recover.`);
+    pruneBackups(0);
+  } else {
+    pruneBackups(BACKUP_KEEP);
+  }
+})();
 
 function runBackup() {
   try {
+    if (freeSpaceBytes() < DISK_MIN_FREE) {
+      console.warn('Skipping backup — low disk space; pruning old copies instead.');
+      pruneBackups(1);
+      return;
+    }
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
     const name = `backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
     const tmp = path.join(BACKUP_DIR, name + '.tmp');
     const out = fs.createWriteStream(tmp);
     const tar = spawn('tar', ['-czf', '-', '--exclude=./backups', '-C', DATA_DIR, '.']);
+    // A write error (e.g. the volume filling mid-backup) must NOT crash the
+    // process — handle it, drop the partial file, and stop the tar.
+    out.on('error', (e) => {
+      console.error('Backup write failed:', e.message);
+      try { tar.kill(); } catch { /* ignore */ }
+      fs.unlink(tmp, () => {});
+      if (e.code === 'ENOSPC') pruneBackups(0); // reclaim so the app keeps saving boards
+    });
     tar.stdout.pipe(out);
     tar.on('close', (code) => {
       if (code === 0) {
-        fs.renameSync(tmp, path.join(BACKUP_DIR, name));
-        const all = fs.readdirSync(BACKUP_DIR).filter((f) => f.startsWith('backup-') && f.endsWith('.tar.gz')).sort();
-        while (all.length > 7) fs.unlinkSync(path.join(BACKUP_DIR, all.shift()));
-        console.log('Backup written:', name);
+        try {
+          const finalPath = path.join(BACKUP_DIR, name);
+          fs.renameSync(tmp, finalPath);
+          if (offsite.enabled()) {
+            // Off-site: push it away, prune the off-site history, and keep
+            // just ONE local copy so backups can never fill the volume again.
+            // If the upload fails, keep the full local set instead — a failed
+            // mirror must never leave FEWER copies than having no mirror.
+            offsite.upload(finalPath, name)
+              .then(() => offsite.prune(OFFSITE_KEEP))
+              .then(() => { pruneBackups(1); console.log('Backup mirrored off-site:', name); })
+              .catch((e) => { console.error('Off-site backup failed (kept local copies):', e.message); pruneBackups(BACKUP_KEEP); });
+          } else {
+            pruneBackups(BACKUP_KEEP);
+            console.log('Backup written:', name);
+          }
+        } catch (e) { console.error('Backup finalize failed:', e.message); fs.unlink(tmp, () => {}); }
       } else {
         fs.unlink(tmp, () => {});
         console.error('Backup failed, tar exit code', code);
@@ -2531,10 +3376,20 @@ function runBackup() {
 setTimeout(runBackup, 60 * 1000);
 setInterval(runBackup, 24 * 60 * 60 * 1000);
 
+// ---------- optional off-site backups ----------
+// Set R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY to
+// mirror every daily backup off the Railway volume to Cloudflare R2. Unset =
+// local-only backups, exactly as before. See offsite.js for why it is a
+// bucket-scoped key and not a Google account.
+const offsite = require('./offsite');
+const OFFSITE_KEEP = Number(process.env.R2_KEEP) || 30;   // daily copies to retain off-site
+if (offsite.enabled()) console.log('Off-site backups:', offsite.describe());
+
 // Build the board & template indexes and seed starter templates at startup
 loadBoardsIndex();
 reindexEmbeds();
 loadTemplatesIndex();
+loadAssignments();
 seedTemplates();
 for (const f of fs.readdirSync(DATA_DIR)) {
   const m = /^room-(.+)\.json$/.exec(f);
@@ -2544,11 +3399,14 @@ for (const f of fs.readdirSync(DATA_DIR)) {
 server.listen(PORT, () => {
   console.log(`Signify Learning running on port ${PORT}`);
   console.log(`  Boards: ${boardsIndex.size}`);
-  console.log(`Google sign-in: ${AUTH_ENABLED ? 'ENABLED' : 'disabled (open mode)'}`);
+  console.log(`  Sign-in: ${AUTH_ENABLED
+    ? 'Signify ID (' + process.env.SIGNIFY_ISSUER + ')'
+    : 'NOT configured — set SIGNIFY_ISSUER, SIGNIFY_CLIENT_ID, SIGNIFY_CLIENT_SECRET, SIGNIFY_REDIRECT_URI'}`);
   if (AUTH_ENABLED) {
-    console.log(`  Super admins: ${SUPER_ADMINS.join(', ')}`);
-    console.log(`  Approved domains: ${store.domains.join(', ') || '(none yet — approve them in the admin portal)'}`);
-    console.log(`  Roles: ${Object.keys(store.roles).join(', ')}`);
-    if (!process.env.SESSION_SECRET) console.log('  Note: set SESSION_SECRET so sign-ins survive server restarts.');
+    const known = Object.values(store.users).filter((u) => !u.releasedAt);
+    const linked = known.filter((u) => u.uid).length;
+    console.log(`  Accounts: ${linked}/${known.length} linked to Signify ID`);
+    const waiting = known.filter((u) => !u.uid).length;
+    if (waiting) console.log(`  ${waiting} will link on their next sign-in`);
   }
 });

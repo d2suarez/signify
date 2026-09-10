@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
   <title>Signify Learning board</title>
   <link rel="stylesheet" href="/css/style.css" />
   <style>
@@ -24,11 +25,36 @@
       border-radius: var(--r-sm); padding: 2px 8px; cursor: pointer; font-size: 12px;
     }
     #embed-zoom button:hover { border-color: var(--teal); color: var(--teal); }
+    #embed-pager { display: none; align-items: center; gap: 6px; }
+    #embed-pager button {
+      border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+      border-radius: var(--r-sm); padding: 2px 9px; cursor: pointer; font-size: 14px; line-height: 1;
+    }
+    #embed-pager button:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); }
+    #embed-pager button:disabled { opacity: 0.4; cursor: default; }
+    #ep-label { font-variant-numeric: tabular-nums; min-width: 42px; text-align: center; }
     #embed-msg {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       color: var(--muted); font-size: 14px; text-align: center; padding: 20px;
     }
     .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); display: inline-block; }
+    /* click-to-interact gate: the board loads paused so it never hijacks page scrolling */
+    #embed-play {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px;
+      align-items: center; justify-content: center; cursor: pointer; border: none;
+      background: rgba(255, 255, 255, 0.35);
+    }
+    #embed-play[hidden] { display: none; }
+    #embed-play .ep-icon {
+      width: 64px; height: 64px; border-radius: 50%; background: var(--teal); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 24px; padding-left: 5px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28); transition: transform 0.12s;
+    }
+    #embed-play:hover .ep-icon, #embed-play:focus-visible .ep-icon { transform: scale(1.09); }
+    #embed-play .ep-text {
+      font-size: 13px; font-weight: 700; color: var(--ink);
+      background: rgba(255, 255, 255, 0.92); padding: 3px 12px; border-radius: 999px;
+    }
   </style>
 </head>
 <body>
@@ -36,11 +62,20 @@
     <div id="embed-canvas-wrap">
       <canvas id="embed-canvas"></canvas>
       <div id="embed-msg">Loading board…</div>
+      <button id="embed-play" type="button" hidden aria-label="Click to interact with this board">
+        <span class="ep-icon">▶</span>
+        <span class="ep-text">Click to explore</span>
+      </button>
     </div>
     <div id="embed-bar">
       <span id="embed-title"></span>
       <span id="embed-live" hidden><span class="live-dot"></span> live</span>
       <span class="spacer"></span>
+      <span id="embed-pager">
+        <button id="ep-prev" title="Previous page" aria-label="Previous page">‹</button>
+        <span id="ep-label">1 / 1</span>
+        <button id="ep-next" title="Next page" aria-label="Next page">›</button>
+      </span>
       <span id="embed-zoom">
         <button id="ez-out" title="Zoom out">−</button>
         <button id="ez-fit" title="Fit board">Fit</button>
@@ -55,14 +90,24 @@
   <script src="/js/whiteboard.js"></script>
   <script>
     const token = location.pathname.split('/').filter(Boolean).pop();
+    const opts = new URLSearchParams(location.search);
     const wrap = document.getElementById('embed-canvas-wrap');
     const msg = document.getElementById('embed-msg');
     const viewer = new BoardViewer('embed-canvas');
 
+    // Document-page navigation state
+    let docPages = [];       // sorted page objects (empty for non-doc boards)
+    let pageIdx = 0;         // index into docPages of the page we're showing
+
     function sizeViewer() {
       viewer.setSize(wrap.clientWidth, wrap.clientHeight);
     }
-    window.addEventListener('resize', () => { sizeViewer(); viewer.refit(); });
+    function reflowView() {
+      sizeViewer();
+      if (docPages.length && opts.get('fit') !== 'all') gotoIdx(pageIdx);
+      else viewer.refit();
+    }
+    window.addEventListener('resize', reflowView);
 
     document.getElementById('ez-in').onclick = () => zoomBy(1.25);
     document.getElementById('ez-out').onclick = () => zoomBy(0.8);
@@ -74,6 +119,57 @@
       c.requestRenderAll();
     }
 
+    // ----- page controls (only when the board holds imported document pages) -----
+    const pager = document.getElementById('embed-pager');
+    const epPrev = document.getElementById('ep-prev');
+    const epNext = document.getElementById('ep-next');
+    const epLabel = document.getElementById('ep-label');
+    function paintPager() {
+      epLabel.textContent = `${pageIdx + 1} / ${docPages.length}`;
+      epPrev.disabled = pageIdx <= 0;
+      epNext.disabled = pageIdx >= docPages.length - 1;
+    }
+    function gotoIdx(i) {
+      pageIdx = Math.max(0, Math.min(docPages.length - 1, i));
+      viewer.gotoDocPage(docPages[pageIdx].docPage);
+      paintPager();
+    }
+    epPrev.onclick = () => gotoIdx(pageIdx - 1);
+    epNext.onclick = () => gotoIdx(pageIdx + 1);
+
+    const pagerAllowed = () => docPages.length && opts.get('fit') !== 'all' && opts.get('nav') !== '0';
+
+    function initDocView() {
+      docPages = viewer.getDocPages();
+      if (docPages.length && opts.get('fit') !== 'all') {
+        const start = parseInt(opts.get('page'), 10);
+        pageIdx = Number.isFinite(start) ? Math.max(0, Math.min(docPages.length - 1, start - 1)) : 0;
+        gotoIdx(pageIdx); // center + fit the chosen page
+      }
+      // Keep the page label in sync as the viewer is panned/zoomed by hand (only once activated)
+      if (docPages.length) {
+        viewer.canvas.on('after:render', () => {
+          if (pager.style.display === 'none') return;
+          const n = viewer.getCurrentDocPage();
+          const i = docPages.findIndex((p) => p.docPage === n);
+          if (i >= 0 && i !== pageIdx) { pageIdx = i; paintPager(); }
+        });
+      }
+    }
+
+    // The embed loads paused (a play button) so it never grabs the page's scroll.
+    // Clicking play turns on pan / zoom / paging.
+    let activated = false;
+    const playBtn = document.getElementById('embed-play');
+    function activate() {
+      if (activated) return;
+      activated = true;
+      playBtn.hidden = true;
+      viewer.enableNav(); // pan / pinch / ctrl-scroll zoom, read-only
+      if (pagerAllowed()) pager.style.display = 'flex';
+    }
+    playBtn.addEventListener('click', activate);
+
     fetch('/api/embed/' + encodeURIComponent(token))
       .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.error || 'Not available')))))
       .then((d) => {
@@ -81,8 +177,11 @@
         document.getElementById('embed-title').textContent = d.title || 'Board';
         document.title = (d.title || 'Board') + ' — Signify Learning';
         sizeViewer();
-        viewer.load(d.json);
-        viewer.enableNav(); // pan / pinch / ctrl-scroll zoom, read-only
+        viewer.loadAsync(d.json).then(() => {
+          initDocView();               // fits whole board, then centers the chosen page
+          if (opts.get('autoplay') === '1') activate(); // skip the gate when asked
+          else playBtn.hidden = false;  // otherwise show the play button
+        });
         connectLive();
       })
       .catch((e) => { msg.textContent = e.message; });

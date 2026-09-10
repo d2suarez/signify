@@ -148,3 +148,60 @@ Everyone can have **multiple boards** per class, plus **personal boards** that b
 ## Where data lives
 
 Boards are saved as JSON in `DATA_DIR` (default `classroom-whiteboard/data/`), one file per room. Delete a file to remove that class's boards.
+
+## Backups
+
+A `tar.gz` of `DATA_DIR` is written every 24 hours to `DATA_DIR/backups`, and
+three copies are kept. On the live volume that is about 32 MB a copy, against
+roughly 38 MB of board data — most of it uploaded images, which are already
+compressed and so barely shrink again.
+
+The volume itself is the weak point: one disk in one region, and a backup that
+lives on the disk it is protecting is not really a backup. So there is an
+**optional off-site mirror**, dormant until four environment variables are
+set:
+
+| Variable | What it is |
+|---|---|
+| `R2_ACCOUNT_ID` | Your Cloudflare account id |
+| `R2_BUCKET` | The bucket name |
+| `R2_ACCESS_KEY_ID` | An R2 API token's access key |
+| `R2_SECRET_ACCESS_KEY` | Its secret |
+| `R2_KEEP` | Daily copies to keep off-site (default 30) |
+| `R2_PREFIX` | Key prefix in the bucket (default `whiteboard/`) |
+| `R2_ENDPOINT` / `R2_REGION` | Only to point at B2, S3 or MinIO instead |
+
+With it on, each night's archive is uploaded, the off-site history is pruned
+to `R2_KEEP`, and **one** local copy is kept — so backups can never fill the
+volume again, which they once did. If the upload fails, the full local set is
+kept instead: a broken mirror must never leave fewer copies than having no
+mirror at all.
+
+### Why object storage and not Google Drive
+
+This was written for Drive first, and that was the wrong answer twice over.
+
+**The credential is the whole point.** An R2 token is scoped to one bucket. If
+it leaked it would reach these backups and nothing else — no personal Drive,
+no school account, nothing with somebody's life attached to it. The Drive
+version asked for the `drive` scope: full read and write over everything that
+Google account could see, sitting in an environment variable, to do a job that
+only ever writes one file a night.
+
+**And it could not have worked.** It signed its requests with
+`google-auth-library`, which was never in `package.json` — so the `require`
+threw the first time anybody set the variables, was caught, and the feature
+quietly disabled itself. There is also no way round the underlying problem: a
+service account has no Drive storage of its own, so files it uploads into a
+personal My Drive fail with `storageQuotaExceeded`. It would have needed a
+Workspace Shared Drive.
+
+`offsite.js` speaks plain S3 — SigV4 signed with Node's own crypto, about a
+hundred lines, no SDK. This app's manifest is three dependencies and that is
+worth keeping. `node test/offsite.js` checks the signature against AWS's own
+published reference vector and runs a full upload-and-prune round trip against
+a stub bucket.
+
+## Where data lives
+
+Boards are saved as JSON in `DATA_DIR` (default `classroom-whiteboard/data/`), one file per room. Delete a file to remove that class's boards.

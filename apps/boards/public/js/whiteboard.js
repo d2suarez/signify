@@ -4,6 +4,13 @@
 // Use pointer events so we can tell fingers (pan/pinch) apart from pens and mice
 if (window.fabric) fabric.enablePointerEvents = true;
 
+// Font used for text the user types. It must NOT be Bricolage Grotesque: that
+// variable display font is measured ~5% narrower per character by Fabric than
+// the browser renders it, so the typing caret drifts left of the glyphs. Plain
+// system fonts (Arial et al.) measure exactly as they render. Bricolage stays
+// the UI/CSS font — this only governs on-canvas text objects.
+const TEXT_FONT = 'Arial';
+
 function hexToRgba(hex, alpha) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
   if (!m) return hex;
@@ -66,7 +73,7 @@ const SHAPE_TOOLS = ['line', 'arrow', 'rect', 'ellipse', 'triangle', ...POLY_SHA
 
 // Custom/state props that must survive serialization (document pages are locked
 // images; oid anchors comments; erasable gates the partial eraser)
-const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'hoverCursor', 'isCurve', 'cropX', 'cropY', 'erasable', 'oid'];
+const PERSIST_PROPS = ['selectable', 'evented', 'docPage', 'docMargin', 'hoverCursor', 'isCurve', 'cropX', 'cropY', 'erasable', 'oid'];
 
 // Unit-square outlines for the polygon shapes (scaled during drag)
 function unitPoints(kind) {
@@ -89,6 +96,54 @@ function unitPoints(kind) {
   return [];
 }
 
+// ----- shape-beautify geometry helpers -----
+function _distToSeg(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+// Ramer–Douglas–Peucker: simplify a polyline, keeping corners above tolerance
+function _rdp(pts, eps) {
+  if (pts.length < 3) return pts.slice();
+  let maxD = 0, idx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = _distToSeg(pts[i], pts[0], pts[pts.length - 1]);
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD > eps) {
+    const left = _rdp(pts.slice(0, idx + 1), eps);
+    const right = _rdp(pts.slice(idx), eps);
+    return left.slice(0, -1).concat(right);
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+// Classify a freehand stroke's anchor points as 'line' | 'rect' | 'triangle' | 'ellipse' | null
+function _classifyStroke(pts) {
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+  const diag = Math.hypot(w, h);
+  const first = pts[0], last = pts[pts.length - 1];
+  const gap = Math.hypot(last.x - first.x, last.y - first.y);
+  const closed = gap < 0.25 * diag;
+  if (!closed) {
+    let maxd = 0;
+    for (const p of pts) maxd = Math.max(maxd, _distToSeg(p, first, last));
+    const span = Math.hypot(last.x - first.x, last.y - first.y);
+    if (span > 0 && maxd < 0.12 * span) return { kind: 'line', a: first, b: last };
+    return null; // an open, non-straight scribble — leave it alone
+  }
+  const simp = _rdp(pts, 0.05 * diag);
+  let corners = simp.length - 1; // closed loop repeats the start point
+  if (corners <= 2) corners = 3;
+  if (corners === 3) return { kind: 'triangle' };
+  if (corners === 4) return { kind: 'rect' };
+  return { kind: 'ellipse' };
+}
+
 class Whiteboard {
   constructor(canvasId, container, { onChange, onViewChange, onSelection, onModeChange } = {}) {
     this.container = container;
@@ -98,7 +153,12 @@ class Whiteboard {
       stopContextMenu: true,
     });
     this.onChange = onChange || (() => {});
-    this.onViewChange = onViewChange || (() => {});
+    // Wrap the view-change callback so that, in document mode, every pan/zoom
+    // is fenced to the document bounds before the app reacts — this is what
+    // keeps a PDF from feeling like an infinite, chaotic canvas.
+    const viewCb = onViewChange || (() => {});
+    this.onViewChange = () => { if (this._docMode) this._constrainView(); viewCb(); };
+    this._docMode = false; // true once the board holds a confined document
     this.onSelection = onSelection || (() => {});
     this.onModeChange = onModeChange || (() => {});
     this.onOps = null; // set via enableOps(cb): per-object sync instead of whole-board
@@ -293,6 +353,12 @@ class Whiteboard {
     if (!this.onOps) return;
     clearTimeout(this._opsTimer);
     this._opsTimer = null;
+    if (this.loading) {
+      // mid-enliven the canvas is partial — a 'full' sync now would overwrite
+      // the stored board with a half-loaded one; retry once loading settles
+      this._scheduleOpsFlush();
+      return;
+    }
     let ops;
     if (this._needFullSync) {
       this._needFullSync = false;
@@ -323,6 +389,10 @@ class Whiteboard {
   // Apply remote ops to this canvas without echoing them back
   applyOps(ops, done) {
     const c = this.canvas;
+    // Tag this apply with the current load generation. If the board is switched
+    // (loadJSON bumps _loadSeq) while a slow enliven callback is in flight, we
+    // bail instead of adding the old board's object onto the new canvas.
+    let seq = (this._loadSeq = this._loadSeq || 0);
     const finish = () => {
       c.requestRenderAll();
       this._internal = false;
@@ -331,10 +401,12 @@ class Whiteboard {
     };
     this._internal = true;
     const step = (i) => {
+      if (this._loadSeq !== seq) { this._internal = false; return; } // a board switch superseded us
       if (i >= ops.length) return finish();
       const op = ops[i];
       if (op.t === 'full') {
-        return this.loadJSON(op.json, () => { this._internal = true; step(i + 1); });
+        // loadJSON bumps _loadSeq for its own load; adopt it so we stay current
+        return this.loadJSON(op.json, () => { seq = this._loadSeq; this._internal = true; step(i + 1); });
       }
       if (op.t === 'clear') {
         c.getObjects().slice().forEach((o) => c.remove(o));
@@ -350,6 +422,7 @@ class Whiteboard {
         const activeText = this.getActiveText && this.getActiveText();
         if (activeText && activeText.isEditing && activeText.oid === op.o.oid) return step(i + 1);
         return fabric.util.enlivenObjects([op.o], (objs) => {
+          if (this._loadSeq !== seq) { this._internal = false; return; } // switched mid-enliven
           const nu = objs[0];
           if (nu) {
             const old = op.o.oid ? this.findByOid(op.o.oid) : null;
@@ -384,7 +457,13 @@ class Whiteboard {
     const json = JSON.stringify(this.canvas.toJSON(PERSIST_PROPS));
     if (this._undo[this._undo.length - 1] === json) return;
     this._undo.push(json);
-    if (this._undo.length > 60) this._undo.shift();
+    // Bound the stack by BOTH depth and total bytes. On boards with imported
+    // document pages each snapshot is many MB, so a 60-deep count cap alone let
+    // the undo history grow into hundreds of MB and crash low-end tabs.
+    let bytes = this._undo.reduce((n, s) => n + s.length, 0);
+    while (this._undo.length > 1 && (this._undo.length > 60 || bytes > 24 * 1024 * 1024)) {
+      bytes -= this._undo.shift().length;
+    }
     this._redo.length = 0;
   }
 
@@ -412,10 +491,12 @@ class Whiteboard {
 
   _loadString(s) {
     this._internal = true;
+    this.loading = true;
     this.canvas.loadFromJSON(s, () => {
       this.canvas.backgroundColor = '#ffffff';
       this.canvas.renderAll();
       this._internal = false;
+      this.loading = false;
       this._emitChange();
     });
   }
@@ -424,20 +505,73 @@ class Whiteboard {
     return this.canvas.toJSON(PERSIST_PROPS);
   }
 
-  loadJSON(json, cb) {
+  loadJSON(json, cb, onProgress) {
     this._internal = true;
-    this.canvas.loadFromJSON(json, () => {
-      this.canvas.backgroundColor = '#ffffff';
-      this.canvas.getObjects().forEach((o) => {
-        if (o.type === 'i-text' || o.type === 'text') {
-          o.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
-        }
+    // While a board (possibly a huge one, e.g. 40 PDF page images) is
+    // enlivening, the canvas is empty or partial. `loading` lets callers
+    // refuse to treat that transient state as the board's real content.
+    this.loading = true;
+    // Every load gets a sequence number so a newer load supersedes a slower
+    // older one instead of the two interleaving objects onto the canvas.
+    const seq = (this._loadSeq = (this._loadSeq || 0) + 1);
+    const objs = (json && json.objects) || [];
+
+    // Small boards: fabric's native path, no ceremony.
+    if (!onProgress || objs.length < 10) {
+      this.canvas.loadFromJSON(json, () => {
+        if (this._loadSeq !== seq) return;
+        this.canvas.backgroundColor = '#ffffff';
+        this.canvas.getObjects().forEach((o) => {
+          if (o.type === 'i-text' || o.type === 'text') {
+            o.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+          }
+        });
+        this.canvas.renderAll();
+        this._internal = false;
+        this.loading = false;
+        this._snapshot();
+        this._applyDocMode();
+        if (cb) cb();
       });
-      this.canvas.renderAll();
-      this._internal = false;
-      this._snapshot();
-      if (cb) cb();
-    });
+      return;
+    }
+
+    // Big boards (imported documents etc.): enliven in small batches so the
+    // page stays responsive, content paints progressively, and the caller can
+    // show a real progress bar — vital feedback on slow classroom wifi.
+    const c = this.canvas;
+    c.getObjects().slice().forEach((o) => c.remove(o));
+    c.backgroundColor = '#ffffff';
+    const total = objs.length;
+    const BATCH = 4;
+    onProgress(0, total);
+    const step = (i) => {
+      if (this._loadSeq !== seq) return; // a newer load took over
+      if (i >= total) {
+        c.renderAll();
+        this._internal = false;
+        this.loading = false;
+        this._snapshot();
+        this._applyDocMode();
+        if (cb) cb();
+        return;
+      }
+      fabric.util.enlivenObjects(objs.slice(i, i + BATCH), (enlivened) => {
+        if (this._loadSeq !== seq) return;
+        this._internal = true; // stay gated across async callbacks
+        enlivened.forEach((o) => {
+          if (!o) return;
+          c.add(o);
+          if (o.type === 'i-text' || o.type === 'text') {
+            o.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false });
+          }
+        });
+        onProgress(Math.min(i + BATCH, total), total);
+        c.requestRenderAll();
+        setTimeout(() => step(i + BATCH), 0); // yield so the UI can breathe
+      });
+    };
+    step(0);
   }
 
   getThumb() {
@@ -617,6 +751,14 @@ class Whiteboard {
   clear() {
     this.cancelCrop();
     this.finishCurveEdit(false);
+    // Supersede any in-flight loadJSON. A big board (e.g. a multi-page PDF)
+    // enlivens in async batches; without bumping the load sequence here, a
+    // slow older load keeps painting its objects onto the canvas we just
+    // cleared — which is how clicking "new board" mid-load used to drop the
+    // previous board's content onto the fresh blank one.
+    this._loadSeq = (this._loadSeq || 0) + 1;
+    this.loading = false;
+    this._docMode = false; // a cleared board holds no document pages
     this._queueOp({ t: 'clear' });
     this._internal = true;
     this.canvas.clear();
@@ -699,11 +841,14 @@ class Whiteboard {
 
   // ---------- documents (locked page images you draw on top of) ----------
 
+  // Document mode: pages are locked, stacked in a column, and the board is
+  // fenced to them (see _constrainView). Blank pages and a margin gutter can be
+  // added around them.
   addDocumentPages(dataUrls, done) {
     const c = this.canvas;
     const existing = this.getDocPages();
     let startPage = existing.length;
-    // stack new pages below everything already on the board
+    // stack new pages below everything already on the board, centered on x=0
     let y = 0;
     c.getObjects().forEach((o) => {
       const r = o.getBoundingRect(true, true);
@@ -713,6 +858,8 @@ class Whiteboard {
     const addOne = (i) => {
       if (i >= dataUrls.length) {
         this._internal = false;
+        this._docMode = true;
+        this._applyDocMode();
         this._markFullSync(); // pages were added internally — sync the whole board once
         this.commit();
         this.gotoDocPage(startPage + 1);
@@ -721,10 +868,11 @@ class Whiteboard {
       }
       fabric.Image.fromURL(dataUrls[i], (img) => {
         img.set({
-          left: 0, top: y,
+          left: -img.width / 2, top: y, // centered column
           selectable: false, evented: false, erasable: false,
           hoverCursor: 'default',
           docPage: startPage + i + 1,
+          docMargin: startPage === 0 && i === 0 ? 90 : undefined, // default gutter, stored on page 1
         });
         y += img.height + 24;
         c.add(img);
@@ -733,6 +881,119 @@ class Whiteboard {
       });
     };
     addOne(0);
+  }
+
+  // The other option: drop the pages onto the board as ordinary movable,
+  // resizable image objects (no fence, no page model) — good for referencing.
+  addDocumentObjects(dataUrls, done) {
+    const c = this.canvas;
+    const center = c.getVpCenter();
+    const addOne = (i) => {
+      if (i >= dataUrls.length) { if (done) done(dataUrls.length); return; }
+      fabric.Image.fromURL(dataUrls[i], (img) => {
+        const max = 700;
+        const s = Math.min(1, max / img.width, max / img.height);
+        img.scale(s);
+        img.set({
+          left: center.x - img.getScaledWidth() / 2 + i * 28,
+          top: center.y - img.getScaledHeight() / 2 + i * 28,
+        });
+        c.add(img); // added outside _internal → object:added queues an add op + oid
+        c.setActiveObject(img);
+        c.requestRenderAll();
+        addOne(i + 1);
+      });
+    };
+    addOne(0);
+  }
+
+  // Whether the board is currently a confined document
+  isDocMode() { return !!this._docMode; }
+
+  _applyDocMode() {
+    this._docMode = this.getDocPages().length > 0;
+    // A light gutter behind the white pages sells the "document" feel and makes
+    // the fenced area obvious.
+    this.canvas.backgroundColor = this._docMode ? '#e9eaee' : '#ffffff';
+    if (this._docMode) this._constrainView();
+    this.canvas.requestRenderAll();
+  }
+
+  // The scrollable region in document mode: everything on the board, plus a
+  // margin gutter. Because it tracks all objects, annotations in the gutter are
+  // always reachable and you can never scroll off into empty space.
+  _docFenceBounds() {
+    if (this._fenceCache) return this._fenceCache;
+    const objs = this.canvas.getObjects();
+    if (!objs.length) return null;
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const o of objs) {
+      const br = o.getBoundingRect(true, true);
+      l = Math.min(l, br.left); t = Math.min(t, br.top);
+      r = Math.max(r, br.left + br.width); b = Math.max(b, br.top + br.height);
+    }
+    const m = this.getDocMargin();
+    this._fenceCache = { left: l - m, top: t - m, right: r + m, bottom: b + m };
+    return this._fenceCache;
+  }
+
+  _constrainView() {
+    const c = this.canvas;
+    const cur = c.viewportTransform;
+    const z = cur[0];
+    const bounds = this._docFenceBounds();
+    if (!bounds) return;
+    const W = c.getWidth(), H = c.getHeight();
+    const contentW = (bounds.right - bounds.left) * z;
+    const contentH = (bounds.bottom - bounds.top) * z;
+    let x = cur[4], y = cur[5];
+    if (contentW <= W) x = (W - contentW) / 2 - bounds.left * z;   // smaller than view → center
+    else x = Math.min(-bounds.left * z, Math.max(W - bounds.right * z, x)); // else clamp edges
+    if (contentH <= H) y = (H - contentH) / 2 - bounds.top * z;
+    else y = Math.min(-bounds.top * z, Math.max(H - bounds.bottom * z, y));
+    if (x !== cur[4] || y !== cur[5]) {
+      c.setViewportTransform([z, 0, 0, z, x, y]);
+      c.requestRenderAll();
+    }
+  }
+
+  getDocMargin() {
+    const p = this.getDocPages().find((o) => typeof o.docMargin === 'number');
+    return p ? p.docMargin : 90;
+  }
+
+  setDocMargin(v) {
+    const pages = this.getDocPages();
+    if (!pages.length) return;
+    const val = Math.max(0, Math.min(600, Math.round(v)));
+    // clear any stray margins, keep it authoritative on page 1
+    pages.forEach((p) => { if (p.docMargin !== undefined) { p.set('docMargin', undefined); } });
+    pages[0].set('docMargin', val);
+    if (pages[0].oid) this._queueOp({ t: 'mod', o: this._ser(pages[0]) });
+    this._fenceCache = null; // margin changed → fence changed
+    this._constrainView();
+    this.canvas.requestRenderAll();
+    this.onViewChange();
+  }
+
+  // Append a blank page the same size as the last one, to keep writing.
+  addBlankPage() {
+    const pages = this.getDocPages();
+    if (!pages.length) return null;
+    const last = pages[pages.length - 1];
+    const w = last.getScaledWidth();
+    const h = last.getScaledHeight();
+    const rect = new fabric.Rect({
+      left: last.left, top: last.top + h + 24, width: w, height: h,
+      fill: '#ffffff', stroke: '#d8dbe0', strokeWidth: 1,
+      selectable: false, evented: false, erasable: false, hoverCursor: 'default',
+      docPage: (last.docPage || pages.length) + 1,
+    });
+    this.canvas.add(rect); // outside _internal → object:added queues the add op + oid
+    rect.moveTo(pages.length); // under the drawings
+    this.canvas.requestRenderAll();
+    this.gotoDocPage(rect.docPage);
+    return rect.docPage;
   }
 
   getDocPages() {
@@ -996,6 +1257,31 @@ class Whiteboard {
     this.canvas.requestRenderAll();
   }
 
+  // Add a rendered math equation (a self-contained MathJax SVG string) as a movable vector group.
+  addEquation(svg, color = '#1f2937', targetH = 68) {
+    return new Promise((resolve, reject) => {
+      fabric.loadSVGFromString(svg, (objects, options) => {
+        if (!objects || !objects.length) return reject(new Error('Could not render that equation.'));
+        const grp = fabric.util.groupSVGElements(objects, options);
+        // MathJax glyphs use currentColor — paint them the chosen ink color
+        const paint = (o) => {
+          if (o._objects) o._objects.forEach(paint);
+          else if (o.fill !== null && o.fill !== 'none') o.set('fill', color);
+        };
+        paint(grp);
+        const h = grp.height || 1;
+        const s = Math.max(0.05, targetH / h);
+        grp.scale(s);
+        const c = this.canvas.getVpCenter();
+        grp.set({ left: c.x - (grp.width * s) / 2, top: c.y - (grp.height * s) / 2 });
+        this.canvas.add(grp);
+        this.canvas.setActiveObject(grp);
+        this.canvas.requestRenderAll();
+        resolve(grp);
+      });
+    });
+  }
+
   // ---------- export ----------
 
   downloadView(filename) {
@@ -1055,6 +1341,7 @@ class Whiteboard {
     c.on('mouse:up', (opt) => this._onUp(opt));
 
     c.on('object:added', (e) => {
+      this._fenceCache = null; // content changed → recompute the document fence
       // every object gets a stable id so comments can anchor to it
       if (e.target && !e.target.oid && !e.target.isEditHandle) {
         e.target.oid = 'o' + Math.random().toString(36).slice(2, 11);
@@ -1069,6 +1356,7 @@ class Whiteboard {
       this.commit();
     });
     c.on('object:modified', (e) => {
+      this._fenceCache = null;
       if (!this._internal && e.target) {
         if (e.target.type === 'activeSelection') {
           // group transforms store child coords relative to the selection — full sync is simplest
@@ -1080,6 +1368,7 @@ class Whiteboard {
       this.commit();
     });
     c.on('object:removed', (e) => {
+      this._fenceCache = null;
       if (!this._internal && e.target && e.target.oid && !e.target.isEditHandle) {
         this._queueOp({ t: 'del', oid: e.target.oid });
       }
@@ -1297,6 +1586,10 @@ class Whiteboard {
     finalObj.setCoords();
     c.requestRenderAll();
     this._internal = false;
+    // The shape was added while _internal was true (to suppress per-frame ops
+    // during the drag), so object:added never queued an 'add'. Emit it now, or
+    // in a live class the shape never syncs to peers and never persists.
+    if (finalObj.oid) this._queueOp({ t: 'add', o: this._ser(finalObj) });
     this.commit();
     void origin;
   }
@@ -1328,6 +1621,9 @@ class Whiteboard {
       obj.setCoords();
       this._curve = null;
       this._internal = false;
+      // Same as shapes: the curve was built under _internal, so emit its add
+      // op now or it won't sync/persist in a room.
+      if (obj.oid) this._queueOp({ t: 'add', o: this._ser(obj) });
       this.commit();
       return;
     }
@@ -1611,7 +1907,71 @@ class Whiteboard {
     if (!o || (this._crop && o === this._crop.rect) || o.isEditHandle) return null;
     if (o.type === 'image' && !o.docPage) return 'image';
     if (this._isEditableCurve(o)) return 'curve';
+    if (this.isFreehandPath(o)) return 'stroke';
     return 'object';
+  }
+
+  // A single hand-drawn pen stroke (fabric path with several segments)
+  isFreehandPath(obj) {
+    const o = obj || this.canvas.getActiveObject();
+    return !!(o && o.type === 'path' && Array.isArray(o.path) && o.path.length > 4 && !o.docPage);
+  }
+
+  // Recognize the selected freehand stroke and replace it with a clean shape.
+  // Returns the recognized kind, or null if it couldn't be tidied.
+  beautifyActive() {
+    const c = this.canvas;
+    const o = c.getActiveObject();
+    if (!this.isFreehandPath(o)) return null;
+    const pts = [];
+    for (const seg of o.path) {
+      const n = seg.length;
+      if (n >= 3) pts.push({ x: seg[n - 2], y: seg[n - 1] });
+    }
+    if (pts.length < 3) return null;
+    const res = _classifyStroke(pts);
+    if (!res) return null;
+
+    o.setCoords();
+    const ac = o.aCoords; // scene-space corners
+    const xs = [ac.tl.x, ac.tr.x, ac.br.x, ac.bl.x];
+    const ys = [ac.tl.y, ac.tr.y, ac.br.y, ac.bl.y];
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const w = maxX - minX, h = maxY - minY;
+    const stroke = o.stroke || this.color;
+    const sw = Math.max(1, (o.strokeWidth || 2) * (((o.scaleX || 1) + (o.scaleY || 1)) / 2));
+    const base = {
+      left: minX, top: minY, stroke, strokeWidth: sw,
+      fill: o.fill && o.fill !== 'transparent' ? o.fill : 'transparent',
+      strokeLineJoin: 'round', strokeLineCap: 'round', originX: 'left', originY: 'top',
+    };
+
+    let shape;
+    if (res.kind === 'line') {
+      // decide the diagonal direction from the raw endpoints
+      const dx = res.b.x - res.a.x, dy = res.b.y - res.a.y;
+      let x1, y1, x2, y2;
+      if (h < 0.18 * w) { y1 = y2 = (minY + maxY) / 2; x1 = minX; x2 = maxX; }
+      else if (w < 0.18 * h) { x1 = x2 = (minX + maxX) / 2; y1 = minY; y2 = maxY; }
+      else if ((dx >= 0) === (dy >= 0)) { x1 = minX; y1 = minY; x2 = maxX; y2 = maxY; }
+      else { x1 = minX; y1 = maxY; x2 = maxX; y2 = minY; }
+      shape = new fabric.Line([x1, y1, x2, y2], { stroke, strokeWidth: sw, strokeLineCap: 'round' });
+    } else if (res.kind === 'rect') {
+      shape = new fabric.Rect({ ...base, width: w, height: h, rx: 0, ry: 0 });
+    } else if (res.kind === 'triangle') {
+      shape = new fabric.Triangle({ ...base, width: w, height: h });
+    } else if (res.kind === 'ellipse') {
+      shape = new fabric.Ellipse({ ...base, rx: w / 2, ry: h / 2 });
+    } else {
+      return null;
+    }
+
+    c.remove(o);
+    c.add(shape);
+    c.setActiveObject(shape);
+    c.requestRenderAll();
+    if (this.onSelection) this.onSelection(this.getActiveKind());
+    return res.kind;
   }
 
   // ----- text -----
@@ -1619,6 +1979,12 @@ class Whiteboard {
   _handleText(opt, p) {
     const c = this.canvas;
     if (opt.target && opt.target.isType('i-text')) {
+      // Legacy text typed in the drifting display font: move it to the safe
+      // font so its caret lines up now that it's being edited again.
+      if (/bricolage/i.test(opt.target.fontFamily || '')) {
+        opt.target.set('fontFamily', TEXT_FONT);
+        if (typeof opt.target.initDimensions === 'function') opt.target.initDimensions();
+      }
       c.setActiveObject(opt.target);
       opt.target.enterEditing();
       return;
@@ -1626,7 +1992,7 @@ class Whiteboard {
     const it = new fabric.IText('', {
       left: p.x,
       top: p.y,
-      fontFamily: 'Bricolage Grotesque',
+      fontFamily: TEXT_FONT,
       fontSize: 28,
       fill: this.color,
       opacity: this.opacity,
@@ -1663,6 +2029,41 @@ class BoardViewer {
   }
   refit() {
     fitToContent(this.canvas, 24);
+  }
+  // ---- document pages (imported PDF/doc pages carry a docPage number) ----
+  getDocPages() {
+    return this.canvas.getObjects()
+      .filter((o) => o.docPage)
+      .sort((a, b) => a.docPage - b.docPage);
+  }
+  // Fit a single page and center it in the viewport
+  gotoDocPage(n) {
+    const page = this.getDocPages().find((o) => o.docPage === n);
+    if (!page) return;
+    const c = this.canvas;
+    const w = page.getScaledWidth();
+    const h = page.getScaledHeight();
+    const zoom = Math.min((c.getWidth() - 40) / w, (c.getHeight() - 40) / h, 2);
+    const left = (c.getWidth() - w * zoom) / 2 - page.left * zoom;
+    const top = (c.getHeight() - h * zoom) / 2 - page.top * zoom;
+    c.setViewportTransform([zoom, 0, 0, zoom, left, top]);
+    c.requestRenderAll();
+  }
+  // The page whose center is nearest the center of the current view (pages are shown centered)
+  getCurrentDocPage() {
+    const pages = this.getDocPages();
+    if (!pages.length) return 0;
+    const c = this.canvas;
+    const vpt = c.viewportTransform;
+    const viewMidScene = (c.getHeight() / 2 - vpt[5]) / vpt[3];
+    let best = pages[0].docPage;
+    let bestDist = Infinity;
+    for (const p of pages) {
+      const mid = p.top + p.getScaledHeight() / 2;
+      const d = Math.abs(mid - viewMidScene);
+      if (d < bestDist) { bestDist = d; best = p.docPage; }
+    }
+    return best;
   }
   // Let the viewer scroll-pan, ctrl/pinch-zoom, and drag-pan like the main board
   enableNav() {
@@ -1706,6 +2107,19 @@ class BoardViewer {
     this.canvas.loadFromJSON(json, () => {
       this.canvas.backgroundColor = '#ffffff';
       fitToContent(this.canvas, 24);
+    });
+  }
+  // Like load(), but resolves once the board is fully rendered (images enlivened),
+  // so callers can snapshot it with toDataURL — used by the "export all boards" PDF.
+  loadAsync(json) {
+    return new Promise((resolve) => {
+      if (!json) { this.load(null); return resolve(); }
+      this.canvas.loadFromJSON(json, () => {
+        this.canvas.backgroundColor = '#ffffff';
+        fitToContent(this.canvas, 24);
+        this.canvas.renderAll();
+        resolve();
+      });
     });
   }
   // Apply incremental ops to the read-only view

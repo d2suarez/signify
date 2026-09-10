@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Signify Learning</title>
   <link rel="stylesheet" href="/css/style.css" />
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0A7C6E" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
 </head>
 <body class="landing">
   <div class="landing-card">
@@ -85,11 +88,9 @@
 
     let role = 'teacher';
     let cfg = { authEnabled: false };
-    let session = JSON.parse(localStorage.getItem('wb-session') || 'null');
-    if (session && session.exp && session.exp < Date.now()) {
-      session = null;
-      localStorage.removeItem('wb-session');
-    }
+    // Signed-in state comes from the server. Nothing about the session is
+    // held on this page — it is an httpOnly cookie the browser sends itself.
+    let session = null;
 
     nameInput.value = localStorage.getItem('wb-name') || '';
     roomInput.value = localStorage.getItem('wb-room') || '';
@@ -104,12 +105,7 @@
     }
 
     function sessionPerms() {
-      if (!session) return [];
-      if (Array.isArray(session.perms)) return session.perms;
-      // Sessions issued before custom roles existed carry only a role name
-      if (session.role === 'teacher') return ['teach'];
-      if (session.role === 'admin' || session.role === 'superadmin') return ['teach', 'manage_users', 'manage_boards', 'view_sessions'];
-      return [];
+      return session && Array.isArray(session.perms) ? session.perms : [];
     }
 
     function setRole(r) {
@@ -147,39 +143,22 @@
     joinBtn.onclick = join;
     document.body.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 
-    // ----- Google sign-in -----
+    // ----- sign-in, via Signify ID -----
 
-    function renderGsiButton() {
-      if (!window.google || !google.accounts) { setTimeout(renderGsiButton, 100); return; }
-      google.accounts.id.initialize({ client_id: cfg.clientId, callback: onCredential });
-      google.accounts.id.renderButton(document.getElementById('gsi-button'), {
-        theme: 'outline', size: 'large', width: 320, text: 'signin_with',
-      });
-    }
-
-    async function onCredential(resp) {
-      showError('');
-      try {
-        const r = await fetch('/api/auth/google', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: resp.credential }),
-        });
-        const d = await r.json();
-        if (!r.ok) { showError(d.error || 'Sign-in failed.'); return; }
-        session = d;
-        localStorage.setItem('wb-session', JSON.stringify(d));
-        applyAuthState();
-      } catch {
-        showError('Could not reach the server. Please try again.');
-      }
+    function renderSignInButton() {
+      const host = document.getElementById('gsi-button');
+      if (!host) return;
+      host.innerHTML =
+        '<button class="primary-btn" id="signin-btn" style="width:320px">' +
+        'Sign in with your school account</button>';
+      document.getElementById('signin-btn').onclick = () => {
+        window.location.href = (cfg.signInUrl || '/auth/login') + '?return=' +
+          encodeURIComponent(window.location.pathname);
+      };
     }
 
     document.getElementById('signout-btn').onclick = () => {
-      session = null;
-      localStorage.removeItem('wb-session');
-      if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
-      applyAuthState();
+      window.location.href = cfg.signOutUrl || '/auth/logout';
     };
 
     function applyAuthState() {
@@ -221,7 +200,7 @@
         joinSection.hidden = true;
         document.getElementById('recent-rooms').hidden = true;
         document.getElementById('my-rooms').hidden = true;
-        renderGsiButton();
+        renderSignInButton();
       }
     }
 
@@ -240,7 +219,7 @@
       const canCreate = isSuperSession() || sessionPerms().includes('teach') || sessionPerms().includes('manage_boards');
       document.getElementById('new-room-row').hidden = !canCreate;
       try {
-        const r = await fetch('/api/my/rooms', { headers: { Authorization: 'Bearer ' + session.token } });
+        const r = await fetch('/api/my/rooms', { credentials: 'same-origin' });
         if (!r.ok) { wrap.hidden = !canCreate; return; }
         const d = await r.json();
         const ul = document.getElementById('my-rooms-list');
@@ -325,7 +304,8 @@
     function roomMeta(code, body) {
       return fetch(`/api/room/${code}/meta`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(body),
       });
     }
@@ -336,7 +316,7 @@
       if (!cfg.authEnabled || !session) return;
       const wrap = document.getElementById('personal-boards');
       try {
-        const r = await fetch('/api/boards/personal', { headers: { Authorization: 'Bearer ' + session.token } });
+        const r = await fetch('/api/boards/personal', { credentials: 'same-origin' });
         if (!r.ok) return;
         const boards = await r.json();
         const ul = document.getElementById('personal-boards-list');
@@ -369,7 +349,8 @@
       try {
         const r = await fetch('/api/boards/personal', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+          headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
           body: JSON.stringify({}),
         });
         const d = await r.json();
@@ -386,7 +367,8 @@
       try {
         const r = await fetch('/api/rooms/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+          headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
           body: JSON.stringify({ name }),
         });
         const d = await r.json();
@@ -399,8 +381,7 @@
 
     function loadRooms() {
       if (cfg.authEnabled && (!session || (!isSuperSession() && !sessionPerms().includes('manage_boards')))) return;
-      const headers = session ? { Authorization: 'Bearer ' + session.token } : {};
-      fetch('/api/rooms', { headers }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
+      fetch('/api/rooms', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
         const ul = document.getElementById('rooms-list');
         ul.innerHTML = '';
         if (!roomsData.length) return;
@@ -408,8 +389,8 @@
         roomsData.slice(0, 8).forEach((r) => {
           const li = document.createElement('li');
           const when = r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '';
-          li.innerHTML = `<span class="room-code"></span><span class="room-meta">${r.students} student board${r.students === 1 ? '' : 's'} · ${when}</span>`;
-          li.querySelector('.room-code').textContent = r.code;
+          li.innerHTML = `<span class="room-name"></span><span class="room-meta">${r.students} student board${r.students === 1 ? '' : 's'} · ${when}</span>`;
+          li.querySelector('.room-name').textContent = r.name || r.code;
           li.onclick = () => { roomInput.value = r.code; setRole('teacher'); join(); };
           ul.appendChild(li);
         });
@@ -417,10 +398,20 @@
       }).catch(() => {});
     }
 
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((c) => { cfg = c; applyAuthState(); })
-      .catch(() => applyAuthState());
+    (async () => {
+      try { cfg = await (await fetch('/api/config')).json(); }
+      catch { /* open mode */ }
+      if (cfg.authEnabled) {
+        try {
+          const r = await fetch('/api/me', { credentials: 'same-origin' });
+          if (r.ok) session = await r.json();
+        } catch { /* treated as signed out */ }
+      }
+      // A leftover token from the old sign-in is dead weight now.
+      try { localStorage.removeItem('wb-session'); } catch { /* ignore */ }
+      applyAuthState();
+    })();
   </script>
+  <script src="/vendor/signify-switcher.js" defer></script>
 </body>
 </html>

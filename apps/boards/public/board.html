@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Whiteboard</title>
   <link rel="stylesheet" href="/css/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0A7C6E" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
 </head>
 <body>
   <div id="app">
@@ -22,6 +27,7 @@
       <div class="topbar-group">
         <button id="ctx-crop" class="action-btn ctx-btn" hidden title="Crop the selected image">Crop</button>
         <button id="ctx-curve" class="action-btn ctx-btn" hidden title="Reshape the selected curve">Edit curve</button>
+        <button id="ctx-beautify" class="action-btn ctx-btn" hidden title="Straighten this sketch into a clean shape">Beautify</button>
         <button id="ctx-duplicate" class="action-btn ctx-btn" hidden title="Duplicate selection (Ctrl/⌘+D)">Duplicate</button>
         <button id="ctx-comment" class="action-btn ctx-btn" hidden title="Comment on the selected item">Comment</button>
         <button id="ctx-send" class="action-btn ctx-btn" hidden title="Send the selected items to students">Send to…</button>
@@ -31,6 +37,7 @@
         <button id="msg-btn" class="action-btn" hidden>Messages <span id="msg-unread" class="count-badge" hidden>0</span></button>
         <button id="students-btn" class="action-btn" hidden>Students</button>
         <button id="poll-btn" class="teacher-only action-btn" hidden>Poll</button>
+        <button id="classroom-btn" class="teacher-only action-btn" hidden>Tools</button>
         <button id="features-btn" class="teacher-only action-btn" hidden>Features</button>
         <button id="share-btn" class="teacher-only action-btn" hidden title="Show your board live on every student's screen">Share</button>
         <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
@@ -39,11 +46,16 @@
           <div class="menu">
             <button id="dl-full">Download full board</button>
             <button id="dl-view">Download current view</button>
+            <button id="export-all-btn" class="teacher-only" hidden title="Save every student's current board as one PDF">Export all boards (PDF)</button>
+            <button id="assign-btn" class="teacher-only" hidden title="Assign this board to the whole class as graded work">Assign to class…</button>
+            <button id="assignments-btn" class="teacher-only" hidden title="See turn-ins and grade student work">Assignments…</button>
+            <button id="a11y-btn" title="Accessibility options">Accessibility…</button>
             <div class="menu-sep"></div>
             <button id="fullscreen-btn" title="Full screen">Full screen</button>
             <button id="clear-btn" class="menu-danger" title="Clear the whole board">Clear board</button>
           </div>
         </details>
+        <span data-signify-switcher class="signify-switcher-mount"></span>
       </div>
     </header>
 
@@ -77,6 +89,7 @@
         <button id="ruler-btn" class="insert-opt" title="Add a ruler">📏 <span>Ruler</span></button>
         <button id="graph-btn" class="insert-opt" title="Insert a coordinate graph">📈 <span>Graph</span></button>
         <button id="chart-btn" class="insert-opt" title="Make a chart from a CSV file">📊 <span>Chart from CSV</span></button>
+        <button id="equation-btn" class="insert-opt" title="Insert a math equation">∑ <span>Equation</span></button>
       </div>
       <input id="image-input" type="file" accept="image/*" hidden />
       <input id="doc-input" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.odt,.odp,.ods,.rtf,.txt,.xls,.xlsx" hidden />
@@ -105,6 +118,13 @@
 
     <main id="canvas-wrap">
       <canvas id="board"></canvas>
+      <div id="cursor-layer" aria-hidden="true"></div>
+      <div id="board-loading" hidden role="status" aria-live="polite">
+        <div class="bl-card">
+          <div id="bl-text">Loading board…</div>
+          <div class="bl-bar"><div id="bl-fill"></div></div>
+        </div>
+      </div>
       <div id="zoom-dock" class="zoom-controls">
         <button id="zoom-out" title="Zoom out (Ctrl+scroll)">−</button>
         <button id="zoom-label" title="Reset to 100%">100%</button>
@@ -113,6 +133,9 @@
         <button id="page-prev" title="Previous page" hidden>◀</button>
         <button id="page-label" title="Document page" hidden>1/1</button>
         <button id="page-next" title="Next page" hidden>▶</button>
+        <button id="margin-less" title="Less margin around the document" hidden>Margin −</button>
+        <button id="margin-more" title="More margin around the document" hidden>Margin +</button>
+        <button id="page-add" title="Add a blank page to the document" hidden>＋ Page</button>
       </div>
       <div id="text-toolbar" hidden>
         <button id="tt-bold" title="Bold"><b>B</b></button>
@@ -243,6 +266,28 @@
         <div id="embed-on" hidden>
           <label>Public link</label>
           <input id="embed-url" type="text" readonly />
+          <div class="embed-opts">
+            <div class="embed-opt">
+              <label for="embed-w">Size (px)</label>
+              <div class="embed-size">
+                <input id="embed-w" type="number" min="200" max="4000" value="800" /> ×
+                <input id="embed-h" type="number" min="200" max="4000" value="600" />
+              </div>
+            </div>
+            <div class="embed-opt">
+              <label for="embed-fit">Opening view</label>
+              <select id="embed-fit">
+                <option value="page">First page (documents)</option>
+                <option value="all">Whole board</option>
+              </select>
+            </div>
+            <div class="embed-opt">
+              <label for="embed-start">Start on page</label>
+              <input id="embed-start" type="number" min="1" max="999" value="1" />
+            </div>
+            <label class="embed-check"><input type="checkbox" id="embed-nav" checked /> Show page controls in the embed</label>
+            <label class="embed-check"><input type="checkbox" id="embed-autoplay" /> Start interactive right away (skip the click-to-play)</label>
+          </div>
           <label>Embed code for a webpage</label>
           <textarea id="embed-code" rows="3" readonly></textarea>
           <div class="role-actions">
@@ -250,6 +295,31 @@
             <button id="embed-open" class="btn-view">Preview</button>
             <button id="embed-revoke" class="btn-block">Unpublish</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How to place an added document -->
+  <div id="docmode-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Add <span id="docmode-name">document</span></span>
+        <div><button id="docmode-cancel">✕ Cancel</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">How should this document sit on your board?</p>
+        <div class="docmode-choices">
+          <button id="docmode-doc" class="docmode-choice">
+            <span class="dc-icon">📄</span>
+            <span class="dc-title">As a document</span>
+            <span class="dc-sub">Pages fill the board and it stays fenced in — scroll and zoom without getting lost. Add blank pages and margins to keep working.</span>
+          </button>
+          <button id="docmode-object" class="docmode-choice">
+            <span class="dc-icon">🖼️</span>
+            <span class="dc-title">Place on the board</span>
+            <span class="dc-sub">Drop the pages on as movable, resizable objects — arrange them anywhere, like any other shape or image.</span>
+          </button>
         </div>
       </div>
     </div>
@@ -309,6 +379,11 @@
           <h3>Bulk add</h3>
           <textarea id="roster-bulk" rows="4" placeholder="Paste email addresses separated by commas or new lines"></textarea>
           <button id="roster-bulk-btn" class="primary-sm">Add all</button>
+          <div id="roster-classroom" hidden>
+            <h3>Google Classroom</h3>
+            <button id="roster-classroom-btn" class="btn-view" type="button">Import from Google Classroom</button>
+            <div id="roster-classroom-picker"></div>
+          </div>
         </div>
         <div class="roster-col">
           <h3>Enrolled <span id="roster-count" class="count-badge">0</span></h3>
@@ -396,6 +471,93 @@
           <div><label>Y axis label</label><input id="graph-ylabel" type="text" maxlength="14" value="y" /></div>
         </div>
         <div class="role-actions"><button id="graph-insert" class="primary-sm">Insert graph</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- accessibility options -->
+  <div id="a11y-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Accessibility</span>
+        <div><button id="a11y-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div class="a11y-row">
+          <div><div>Dyslexia-friendly text</div><div class="a11y-desc">Uses the OpenDyslexic font with extra spacing.</div></div>
+          <button id="a11y-dyslexic" class="action-btn a11y-switch" role="switch" aria-checked="false">Off</button>
+        </div>
+        <div class="a11y-row">
+          <div><div>High contrast</div><div class="a11y-desc">Darker text and borders for easier reading.</div></div>
+          <button id="a11y-contrast" class="action-btn a11y-switch" role="switch" aria-checked="false">Off</button>
+        </div>
+        <p class="hint">Tip: press <kbd>Esc</kbd> to close any dialog. Tools have keyboard shortcuts — V select, P pen, T text, E eraser, H hand.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- assign work to the class -->
+  <div id="assign-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Assign to class</span>
+        <div><button id="assign-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">Every student gets their own copy of your current board to work on and turn in.</p>
+        <label>Title</label>
+        <input id="assign-title" type="text" maxlength="80" placeholder="e.g. Fractions practice" />
+        <label>Instructions (optional)</label>
+        <textarea id="assign-instructions" rows="3" maxlength="2000" placeholder="What should students do?"></textarea>
+        <label>Due (optional)</label>
+        <input id="assign-due" type="datetime-local" />
+        <div class="role-actions"><button id="assign-send" class="primary-sm">Assign to class</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- teacher: assignment dashboard + grading -->
+  <div id="assignments-modal" hidden>
+    <div class="modal-box transfer-box wide-box">
+      <div class="modal-head">
+        <span>Assignments</span>
+        <div><button id="assignments-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div id="assignments-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- student: assignment banner on an assignment board -->
+  <div id="assignment-banner" hidden>
+    <div class="ab-main">
+      <span class="ab-badge" id="ab-status">Assignment</span>
+      <span class="ab-title" id="ab-title"></span>
+      <button id="ab-info" class="ab-info" title="Show instructions" hidden>ⓘ</button>
+    </div>
+    <div class="ab-actions">
+      <span id="ab-grade" class="ab-grade" hidden></span>
+      <button id="ab-turnin" class="primary-sm">Turn in</button>
+    </div>
+    <div id="ab-instructions" class="ab-instructions" hidden></div>
+  </div>
+
+  <!-- math equation editor -->
+  <div id="equation-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Insert equation</span>
+        <div><button id="equation-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div id="eqn-symbols" class="eqn-symbols"></div>
+        <label>Type math (LaTeX)</label>
+        <textarea id="eqn-input" rows="2" placeholder="e.g. x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}"></textarea>
+        <label>Preview</label>
+        <div id="eqn-preview" class="eqn-preview"><span class="hint">Your equation appears here.</span></div>
+        <p class="hint">Tip: use <code>^</code> for powers, <code>_</code> for subscripts, <code>\frac{a}{b}</code> for fractions, <code>\sqrt{ }</code> for roots.</p>
+        <div class="role-actions"><button id="eqn-insert" class="primary-sm" disabled>Insert equation</button></div>
       </div>
     </div>
   </div>
@@ -497,6 +659,46 @@
     </div>
   </div>
 
+  <!-- Live-classroom tools: timer + random picker (teacher) -->
+  <div id="classroom-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head"><span>Class tools</span><div><button id="classroom-close">✕ Close</button></div></div>
+      <div class="transfer-body">
+        <h3 class="features-h3">Countdown timer</h3>
+        <div class="timer-presets">
+          <button class="timer-preset" data-sec="60">1 min</button>
+          <button class="timer-preset" data-sec="120">2 min</button>
+          <button class="timer-preset" data-sec="300">5 min</button>
+          <button class="timer-preset" data-sec="600">10 min</button>
+        </div>
+        <div class="add-user-row" style="margin-top:8px">
+          <input id="timer-custom" type="number" min="1" max="60" placeholder="minutes" style="max-width:120px" />
+          <button id="timer-custom-btn" class="primary-sm">Start</button>
+          <button id="timer-stop-btn" class="btn-block">Stop timer</button>
+        </div>
+        <h3 class="features-h3">Random student</h3>
+        <p class="hint">Pick a student at random from the class — everyone sees the reveal.</p>
+        <div class="role-actions"><button id="picker-btn" class="primary-sm">🎲 Pick a student</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Countdown overlay (everyone) -->
+  <div id="timer-chip" hidden><span id="timer-time">0:00</span></div>
+
+  <!-- Random-picker reveal (everyone) -->
+  <div id="picker-overlay" hidden>
+    <div class="picker-card">
+      <div class="picker-label">Random student</div>
+      <div id="picker-name">…</div>
+      <button id="picker-dismiss">Close</button>
+    </div>
+  </div>
+
+  <!-- Reactions bar (students) -->
+  <div id="reactions-bar" hidden></div>
+  <div id="reactions-layer"></div>
+
   <div id="toast" hidden></div>
 
   <script src="/vendor/fabric.min.js"></script>
@@ -504,5 +706,6 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/whiteboard.js"></script>
   <script src="/js/app.js"></script>
+  <script src="/vendor/signify-switcher.js" defer></script>
 </body>
 </html>
