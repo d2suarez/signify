@@ -62,7 +62,7 @@ app.use((req, res, next) => {
     // permits it, Google's calendar embed, and YouTube's no-cookie player —
     // the last of which is not put on the page at all until somebody presses
     // play, so an idle board contacts none of them.
-    "frame-src https://maps.signify.one https://calendar.google.com https://www.youtube-nocookie.com",
+    "frame-src https://maps.signify.one https://calendar.google.com https://www.youtube-nocookie.com https://docs.google.com",
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'self'",

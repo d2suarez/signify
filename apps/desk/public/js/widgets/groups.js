@@ -49,6 +49,7 @@
     name: 'Student groups',
     blurb: 'Split the class into groups or pairs, keeping apart the ones who need to be.',
     icon: 'groups',
+    category: 'class',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
     needsRoster: true,
@@ -67,6 +68,9 @@
     mount(ctx) {
       const s = ctx.state;
       let students = [];
+      // Remembered when the class loads, so printing — one gesture — never
+      // has to wait on a lookup.
+      let className = '';
 
       const controls = el('div.group-controls');
       const output = el('div.group-output');
@@ -88,13 +92,30 @@
 
       async function load() {
         students = [];
+        className = '';
+        let rosterKnown = false;
+
         if (s.classKey) {
-          try { students = await Desk.roster.members(s.classKey); }
-          catch (e) { toast(e.message, 'warn'); }
+          try {
+            students = await Desk.roster.members(s.classKey);
+            rosterKnown = true;
+          } catch (e) { toast(e.message, 'warn'); }
+          try {
+            const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
+            className = (found && found.name) || '';
+          } catch { /* it prints without a name in the heading */ }
         }
-        const ids = new Set(students.map((x) => x.id));
-        s.away = s.away.filter((id) => ids.has(id));
-        s.apart = s.apart.filter(([a, b]) => ids.has(a) && ids.has(b));
+
+        // Only tidy these against a roster we were actually given. A refused
+        // lookup returns nobody, and pruning against nobody throws away every
+        // "away today" mark and every keep-apart pair the teacher has built
+        // up — work that is invisible until the next time groups are made and
+        // two children who must not sit together do.
+        if (rosterKnown) {
+          const ids = new Set(students.map((x) => x.id));
+          s.away = s.away.filter((id) => ids.has(id));
+          s.apart = s.apart.filter(([a, b]) => ids.has(a) && ids.has(b));
+        }
         draw();
       }
 
@@ -168,11 +189,23 @@
         output.append(grid);
 
         if (ctx.expanded) {
-          output.append(el('div.group-row', {}, [
+          output.append(el('div.group-row.no-print', {}, [
             el('button.btn.btn--small', { svg: icon('shuffle', 14), onclick: make }, ' Again'),
+            el('button.btn.btn--small', { svg: icon('print', 14), onclick: printGroups }, ' Print'),
             el('button.btn.btn--small', { svg: icon('save', 14), onclick: saveGrouping }, ' Keep these groups'),
           ]));
         }
+      }
+
+      /** The groups on paper, to hand out or stick on the wall. */
+      function printGroups() {
+        if (!s.groups.length) { toast('There are no groups to print yet.', 'warn'); return; }
+        const heads = s.groups.length;
+        const seated = s.groups.reduce((n, g) => n + g.members.length, 0);
+        Desk.print(output, {
+          title: className || 'Groups',
+          subtitle: `${heads} group${heads === 1 ? '' : 's'}, ${seated} pupil${seated === 1 ? '' : 's'}`,
+        });
       }
 
       function drawAway() {

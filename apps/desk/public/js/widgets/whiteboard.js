@@ -26,6 +26,7 @@
     name: 'Whiteboard',
     blurb: 'The shared drawing board. Opens in its own tab.',
     icon: 'notes',
+    category: 'other',
     size: { w: 3, h: 3 },
     min: { w: 2, h: 2 },
 

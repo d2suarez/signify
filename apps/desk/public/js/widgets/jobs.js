@@ -23,6 +23,7 @@
     name: 'Classroom jobs',
     blurb: 'Who has which job, rotating fairly so the same few do not get everything.',
     icon: 'list',
+    category: 'class',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
     needsRoster: true,
@@ -48,6 +49,9 @@
       const foot = el('div.jobs-foot');
       const settings = el('div.jobs-settings');
 
+      // Remembered when the class loads, so printing does not wait on a lookup.
+      let className = '';
+
       const picker = Desk.roster.picker({
         value: s.classKey,
         onPick: (key) => {
@@ -60,15 +64,32 @@
 
       async function load() {
         students = [];
+        className = '';
+        let rosterKnown = false;
+
         if (s.classKey) {
-          try { students = await Desk.roster.members(s.classKey); }
-          catch (e) { toast(e.message, 'warn'); }
+          try {
+            students = await Desk.roster.members(s.classKey);
+            rosterKnown = true;
+          } catch (e) { toast(e.message, 'warn'); }
+          try {
+            const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
+            className = (found && found.name) || '';
+          } catch { /* it prints without a name in the heading */ }
         }
-        // Anyone who has left drops out; anyone new joins the end, so the
-        // rota survives a change of class list without being rebuilt.
-        const here = new Set(students.map((x) => x.id));
-        s.order = s.order.filter((id) => here.has(id));
-        for (const st of students) if (!s.order.includes(st.id)) s.order.push(st.id);
+
+        // Anyone who has left drops out; anyone new joins the end, so the rota
+        // survives a change of class list without being rebuilt.
+        //
+        // But only when we were actually told who is in the class. A refused
+        // lookup returns nobody, and pruning against nobody empties the rota
+        // and loses the position everybody had rotated to — which is the one
+        // thing a rota is for.
+        if (rosterKnown) {
+          const here = new Set(students.map((x) => x.id));
+          s.order = s.order.filter((id) => here.has(id));
+          for (const st of students) if (!s.order.includes(st.id)) s.order.push(st.id);
+        }
         draw();
       }
 
@@ -116,8 +137,18 @@
         if (!s.order.length) return;
         Desk.append(foot,
           el('button.btn.btn--primary.btn--small', { svg: icon('reset', 14), onclick: rotate }, ' Move everyone along'),
+          el('button.btn.btn--small', { svg: icon('print', 14), onclick: printRota }, ' Print'),
           s.rotatedAt ? el('span.hint', { text: `Last moved ${when(s.rotatedAt)}` }) : null,
         );
+      }
+
+      /** The rota on paper — this is a thing that gets pinned up by the door. */
+      function printRota() {
+        if (!s.order.length) { toast('There is no rota to print yet.', 'warn'); return; }
+        Desk.print(board, {
+          title: className ? `${className} — jobs` : 'Classroom jobs',
+          subtitle: s.rotatedAt ? `Moved along ${when(s.rotatedAt)}` : 'This week',
+        });
       }
 
       function drawSettings() {

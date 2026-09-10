@@ -471,6 +471,28 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 /* ---------------- catalogue ---------------- */
 
 .catalogue { display: flex; flex-direction: column; gap: .35rem; }
+
+/* The search box sticks to the top of the dialog, because the list below it
+   is now long enough to scroll away from whoever is typing into it. */
+.cat-search {
+  position: sticky; top: 0; z-index: 2; margin-bottom: .1rem;
+  background: var(--surface);
+}
+.cat-count { margin: 0; }
+.cat-empty { padding: 1.4rem .2rem; text-align: center; }
+
+/* A drawer heading. Sticky as well, so it is always clear which group the
+   row under your cursor belongs to. */
+.cat-head {
+  position: sticky; top: 2.35rem; z-index: 1;
+  display: flex; align-items: baseline; gap: .45rem; flex-wrap: wrap;
+  padding: .5rem .1rem .25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.cat-head:first-child { padding-top: .2rem; }
+.cat-head-name { margin: 0; font-family: var(--display); font-size: .82rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.cat-head-blurb { font-size: .78rem; color: var(--muted); }
 .cat-item {
   display: flex; align-items: flex-start; gap: .7rem; width: 100%; text-align: left;
   padding: .6rem .7rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer;
@@ -636,6 +658,10 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 .saved { display: flex; flex-direction: column; gap: .3rem; }
 .saved-row { display: flex; align-items: center; gap: .5rem; padding: .3rem .45rem; border: 1px solid var(--line); border-radius: var(--r); }
 .saved-name { flex: 1; font-weight: 550; font-size: .88rem; }
+/* A history row says more than a saved room does, so its label stacks. */
+.saved-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.saved-what .saved-name { flex: none; }
+.saved-what .hint { font-size: .74rem; }
 
 /* ---------------- behaviour ---------------- */
 
@@ -688,6 +714,9 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 /* The room's pixel size is worked out in JS, because aspect-ratio loses to a
    flex parent that has already chosen the height — and a room with
    non-square cells draws round tables as ellipses. */
+/* Wraps the room for printing. On screen it is just a pass-through flex box;
+   on paper it becomes a block so the heading stacks above the plan. */
+.plan-print { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .room-wrap { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .room-box { max-width: 100%; }
 
@@ -1237,3 +1266,102 @@ body.is-seating-drag { user-select: none; }
 .stage.is-present .vid-settings { display: none; }
 .stage.is-present .vid-play { width: 96px; height: 96px; }
 .stage.is-present .vid-title { font-size: 2rem; }
+
+/* ---------------- Google Slides ---------------- */
+
+.slides { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.slides-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .3rem; align-items: center; justify-content: center; }
+.slides-frame { flex: 1; min-height: 160px; width: 100%; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.slides-caption { flex: none; font-size: .85rem; color: var(--muted); }
+.slides-settings { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .slides-settings { display: none; }
+.stage.is-present .slides-caption { font-size: 1.4rem; }
+
+/* ---------------- printing ---------------- */
+
+/* The heading only exists on paper. */
+.print-head { display: none; }
+
+@media print {
+  /* Everything is hidden and the chosen element is made visible again, rather
+     than the element being moved into a print container — moving it would
+     sever its listeners and the observers it is sized by. Visibility, not
+     display, because a hidden ancestor still shows a visible descendant. */
+  html.is-printing body * { visibility: hidden; }
+  html.is-printing .is-print-target,
+  html.is-printing .is-print-target * { visibility: visible; }
+
+  html.is-printing .is-print-target {
+    position: absolute; left: 0; top: 0;
+    width: 100%; margin: 0; padding: 0;
+    background: #fff;
+    /* Borders and fills carry meaning on a seating plan — an empty chair is a
+       dashed one — so they have to survive the browser's ink-saving. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html.is-printing .print-head {
+    display: block; margin: 0 0 .6rem;
+    border-bottom: 1.5px solid #000; padding-bottom: .3rem;
+  }
+  .print-title { font-family: var(--display); font-size: 15pt; margin: 0; color: #000; }
+  .print-meta { font-size: 9pt; color: #333; }
+
+  /* Nothing on paper is clickable, so the controls are only clutter. */
+  html.is-printing .is-print-target .no-print,
+  html.is-printing .is-print-target .btn,
+  html.is-printing .is-print-target .icon-btn,
+  html.is-printing .is-print-target .seg,
+  html.is-printing .is-print-target .swatches,
+  html.is-printing .is-print-target .stepper { display: none !important; }
+
+  @page { margin: 12mm; }
+}
+
+@media print {
+  /* The seating plan on paper. Ink is expensive and a plan is read at arm's
+     length, so the tinted seats become white with a firm outline, an empty
+     chair stays dashed, and every name is black. */
+  html.is-printing .plan-print { display: block; }
+  html.is-printing .plan-print .room-wrap { display: block; }
+  html.is-printing .room-box { max-width: none; margin: 0 auto; }
+  html.is-printing .room { border-color: #000; background-image: none; }
+  html.is-printing .room-front { background: #000; color: #fff; }
+  html.is-printing .desk-surface { border-color: #444; background: #fff; }
+  html.is-printing .seat { border-color: #000; background: #fff; color: #000; }
+  html.is-printing .seat.is-free { border-style: dashed; border-color: #999; }
+  html.is-printing .seat.is-selected { outline: none; }
+  html.is-printing .room-object { border-color: #444; background: #fff; color: #000; }
+}
+
+@media print {
+  /* Fields are for filling in on screen; on paper they are just boxes around
+     the words, so the chrome goes and the text stays. */
+  html.is-printing .is-print-target input,
+  html.is-printing .is-print-target textarea {
+    border: 0 !important; background: transparent !important; padding-left: 0; color: #000;
+  }
+
+  /* Groups and rotas: keep a card whole rather than split across two sheets. */
+  html.is-printing .group-card,
+  html.is-printing .job-row,
+  html.is-printing .check-item { break-inside: avoid; page-break-inside: avoid; }
+  html.is-printing .group-grid { grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+  html.is-printing .group-card { border-color: #000; background: #fff; }
+  html.is-printing .job-row { border-bottom: 1px solid #999; }
+
+  /* A note prints as text that flows, not as a scrolling box. The note's own
+     title bar goes, because the heading above the rule already says it. */
+  html.is-printing .note { background: #fff !important; box-shadow: none; }
+  html.is-printing .note-head { display: none !important; }
+  html.is-printing .note-text { display: none !important; }
+  html.is-printing .note-print { display: block; white-space: pre-wrap; font-size: 11pt; }
+
+  /* A QR poster: big, black, and square. */
+  html.is-printing .qr-holder { width: 60%; margin: 0 auto; }
+  html.is-printing .qr-svg { --qr-bg: #fff; --qr-ink: #000; }
+  html.is-printing .qr-caption { font-size: 12pt; color: #000; text-align: center; margin-top: .4rem; word-break: break-all; }
+}
+
+.note-print { display: none; }

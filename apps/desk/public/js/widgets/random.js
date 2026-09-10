@@ -54,6 +54,7 @@
     name: 'Random number',
     blurb: 'A number in any range, a roll of dice, or a coin — with an option not to repeat itself.',
     icon: 'dice',
+    category: 'other',
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 

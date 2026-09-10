@@ -180,6 +180,34 @@
   const pick = (l) => ({ w: l.w, h: l.h });
 
   const seatId = (deskId, i) => `${deskId}#${i}`;
+
+  /**
+   * Tidies a plan against the class list, in place.
+   *
+   * `rosterKnown` is the important argument and the reason this is its own
+   * function. A desk that has shrunk must give up seats it no longer has —
+   * that depends only on the furniture and is always safe. Dropping a PUPIL,
+   * though, is only safe when we were actually told who is in the class: a
+   * refused roster lookup returns nobody, and treating that as "everybody has
+   * left" deletes the entire arrangement.
+   *
+   * That is not hypothetical. While the sign-in bug was answering 401 to every
+   * roster request, this wiped a term's worth of seating plans — four classes
+   * — and the teacher was left wondering what they had clicked. Silence is
+   * not an empty class.
+   */
+  function prunePlan(p, studentIds, rosterKnown) {
+    if (!p) return p;
+
+    const live = new Set();
+    for (const d of p.desks) for (let i = 0; i < d.seats; i += 1) live.add(seatId(d.id, i));
+    for (const seat of Object.keys(p.seats)) if (!live.has(seat)) delete p.seats[seat];
+
+    if (!rosterKnown) return p;
+    const here = new Set(studentIds);
+    for (const [seat, who] of Object.entries(p.seats)) if (!here.has(who)) delete p.seats[seat];
+    return p;
+  }
   const newId = () => `d${Math.random().toString(36).slice(2, 9)}`;
 
   /**
@@ -363,6 +391,35 @@
     return { add, standing: total - seating };
   }
 
+  // How many previous arrangements to keep per class. Enough to cover a
+  // half-term of weekly changes, small enough that a board full of classes
+  // stays a few tens of kilobytes.
+  const KEEP_HISTORY = 12;
+
+  const samePlan = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  /**
+   * Puts a copy of a plan on the front of its class's history.
+   *
+   * Called before anything that destroys an arrangement, which is the only
+   * moment it matters — a plan being built up seat by seat is not worth a
+   * snapshot per click, and a plan that is about to be shuffled, emptied or
+   * cleared is the one somebody will want back.
+   *
+   * A plan with no desks and nobody in it is not worth keeping, and neither
+   * is one identical to the snapshot already at the front — restoring twice
+   * in a row should not fill the list with copies of the same room.
+   */
+  function keepHistory(history, classKey, plan, why) {
+    if (!plan || (!plan.desks.length && !Object.keys(plan.seats).length)) return history;
+    const list = history[classKey] || (history[classKey] = []);
+    const copy = JSON.parse(JSON.stringify(plan));
+    if (list.length && samePlan(list[0].plan, copy)) return history;
+    list.unshift({ at: Date.now(), why: why || '', plan: copy });
+    list.length = Math.min(list.length, KEEP_HISTORY);
+    return history;
+  }
+
   const STARTERS = [
     { key: 'pairs', label: 'Rows of pairs', make: rowsOfPairs },
     { key: 'fours', label: 'Tables of four', make: tablesOfFour },
@@ -376,6 +433,7 @@
     name: 'Seating plan',
     blurb: 'Arrange the room, then sit the class in it. One plan per class, switched from the same card.',
     icon: 'seating',
+    category: 'class',
     size: { w: 6, h: 7 },
     min: { w: 3, h: 5 },
     needsRoster: true,
@@ -383,11 +441,16 @@
     // Pure, and the one piece of this widget where getting it wrong seats a
     // child on their own — so it is exported and tested directly.
     _shareOut: shareOut,
+    _prunePlan: prunePlan,
+    _keepHistory: keepHistory,
+    _KEEP_HISTORY: KEEP_HISTORY,
 
     init(s) {
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (!s.plans || typeof s.plans !== 'object') s.plans = {};
       if (typeof s.flipped !== 'boolean') s.flipped = false;
+      // classKey -> [{ at, why, plan }], newest first. See keep() below.
+      if (!s.history || typeof s.history !== 'object') s.history = {};
     },
 
     holdsContent(s) {
@@ -400,6 +463,9 @@
       const editable = !!ctx.expanded;
 
       let students = [];
+      // Remembered when the class loads, because printing happens in one
+      // gesture and cannot wait on a lookup.
+      let className = '';
       let short = new Map();         // student id -> what fits in a chair
       let selectedStudent = null;    // tap-to-place
       let selected = null;           // { kind: 'desk' | 'object', id } — what the inspector is showing
@@ -427,11 +493,15 @@
       room.append(frontBar);
       const roomBox = el('div.room-box', {}, room);
       const roomWrap = el('div.room-wrap', {}, roomBox);
+      // What goes on paper: the room and nothing else. A block wrapper rather
+      // than the centring flex box, so the printed heading sits above the
+      // plan instead of beside it.
+      const printArea = el('div.plan-print', {}, roomWrap);
 
       ctx.root.append(el('div.seating', { class: editable ? 'is-editable' : '' }, [
         el('div.plan-head', {}, [picker, toolbar]),
         el('div.plan-stage', {}, [
-          roomWrap,
+          printArea,
           editable ? el('aside.plan-side', {}, [tray, inspector]) : null,
         ]),
       ]));
@@ -460,24 +530,29 @@
 
       async function load() {
         students = [];
+        className = '';
+        // Whether we actually KNOW who is in this class, as opposed to having
+        // failed to ask. The difference is the whole of the next paragraph.
+        let rosterKnown = false;
+
         if (s.classKey) {
-          try { students = await Desk.roster.members(s.classKey); }
-          catch (e) { toast(e.message, 'warn'); }
+          try {
+            students = await Desk.roster.members(s.classKey);
+            rosterKnown = true;
+          } catch (e) { toast(e.message, 'warn'); }
+          try {
+            const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
+            className = (found && found.name) || '';
+          } catch { /* the plan prints without a name in its heading */ }
         }
         short = shortNames(students);
-        const p = plan();
-        if (p) {
-          // A pupil who has left the class must not keep a seat nobody can
-          // see them in — and a desk that has shrunk must give its seats up.
-          const here = new Set(students.map((x) => x.id));
-          const live = new Set();
-          for (const d of p.desks) for (let i = 0; i < d.seats; i += 1) live.add(seatId(d.id, i));
-          for (const [seat, who] of Object.entries(p.seats)) {
-            if (!here.has(who) || !live.has(seat)) delete p.seats[seat];
-          }
-        }
+
+        prunePlan(plan(), students.map((x) => x.id), rosterKnown);
         draw();
       }
+
+      /** Snapshot this class's plan before something destroys it. */
+      const keep = (why) => { if (s.classKey) keepHistory(s.history, s.classKey, plan(), why); };
 
       const seatedIds = () => new Set(Object.values(plan() ? plan().seats : {}));
       const unseated = () => { const taken = seatedIds(); return students.filter((x) => !taken.has(x.id)); };
@@ -521,10 +596,38 @@
         if (p && p.desks.length) {
           toolbar.append(
             el('button.btn.btn--small.btn--primary', { svg: icon('shuffle', 14), onclick: fillAtRandom }, ' Seat at random'),
+            el('button.btn.btn--small', { svg: icon('print', 14), onclick: printPlan }, ' Print'),
             el('button.btn.btn--small', { onclick: clearSeats }, 'Empty the seats'),
             el('button.btn.btn--small', { svg: icon('trash', 14), onclick: clearRoom }, ' Clear the room'),
           );
         }
+      }
+
+      /**
+       * The plan on paper — for the supply teacher, the wall, or a clipboard.
+       *
+       * The room is re-sized for the sheet first. It is drawn at whatever
+       * pixel size its box happens to be, and on a card that is a thumbnail
+       * showing initials; printing that would waste a page. 700px across is
+       * about the printable width of A4 or Letter at portrait, which leaves
+       * every seat wide enough for a real name.
+       *
+       * Which way round it prints follows what is on screen, and the heading
+       * says which — a plan handed to somebody standing at the front and a
+       * plan read from a pupil's desk are mirror images, and one of them is
+       * useless if you cannot tell which you are holding.
+       */
+      function printPlan() {
+        const p = plan();
+        if (!p || !p.desks.length) { toast('There is no plan to print yet.', 'warn'); return; }
+
+        const PRINT_W = 700;
+        Desk.print(printArea, {
+          title: className || 'Seating plan',
+          subtitle: s.flipped ? 'As the class sees it' : 'As you see it from the front',
+          prepare: () => { printing = true; sizeRoom(PRINT_W, PRINT_W); },
+          restore: () => { printing = false; fit(); },
+        });
       }
 
       function drawRoom() {
@@ -636,6 +739,7 @@
           el('div.starter-row', {}, STARTERS.map((st) => el('button.btn.btn--small', {
             text: st.label,
             onclick: () => {
+              keep(`before ${st.label.toLowerCase()}`);
               plan().desks = st.make(count, plan().front);
               plan().seats = {};
               ctx.save(); draw();
@@ -711,6 +815,7 @@
         inspector.append(addObj);
 
         drawRooms();
+        drawHistory();
 
         const desk = selectedDeskObj();
         const object = selectedObject();
@@ -867,6 +972,64 @@
         } catch (e) { toast(e.message, 'warn'); }
       }
 
+      /**
+       * Previous arrangements for this class, newest first.
+       *
+       * Kept because a seating plan is a piece of work — twenty minutes of
+       * knowing who cannot sit next to whom — and until now the only copy of
+       * it was the live one. Anything that overwrites it now leaves a way
+       * back, and restoring is itself undoable.
+       */
+      function drawHistory() {
+        const list = (s.history && s.history[s.classKey]) || [];
+        if (!list.length) return;
+
+        inspector.append(el('h3.section-title', { text: 'Previous arrangements' }));
+        const host = el('div.saved');
+
+        list.forEach((snap, i) => {
+          const seated = Object.keys(snap.plan.seats || {}).length;
+          const desks = (snap.plan.desks || []).length;
+          host.append(el('div.saved-row', {}, [
+            el('div.saved-what', {}, [
+              el('span.saved-name', { text: Desk.when(snap.at) }),
+              el('span.hint', {
+                text: `${seated} seated \u00b7 ${desks} desk${desks === 1 ? '' : 's'}${snap.why ? ` \u00b7 ${snap.why}` : ''}`,
+              }),
+            ]),
+            el('button.btn.btn--small', { text: 'Put back', onclick: () => restore(i) }),
+            el('button.icon-btn.icon-btn--danger', {
+              svg: icon('trash', 14), 'aria-label': 'Forget this one',
+              onclick: () => { list.splice(i, 1); ctx.save(); draw(); },
+            }),
+          ]));
+        });
+        inspector.append(host);
+        inspector.append(el('p.hint', { text: `The last ${KEEP_HISTORY} are kept, and putting one back keeps the current one too.` }));
+      }
+
+      async function restore(i) {
+        const list = (s.history && s.history[s.classKey]) || [];
+        const snap = list[i];
+        if (!snap) return;
+        const seated = Object.keys(snap.plan.seats || {}).length;
+        if (!await Desk.ask({
+          title: `Put back the arrangement from ${Desk.when(snap.at)}?`,
+          body: `${seated} pupil${seated === 1 ? '' : 's'} seated. What is in the room now is kept, so you can change your mind.`,
+          confirmLabel: 'Put it back',
+        })) return;
+
+        keep('before putting an older one back');
+        s.plans[s.classKey] = JSON.parse(JSON.stringify(snap.plan));
+        selected = null;
+        selectedStudent = null;
+        ctx.save();
+        // Pupils who have since left are dropped on the next load, which is
+        // now safe to let happen — it only prunes against a roster it has.
+        load();
+        toast('Put back.');
+      }
+
       async function useRoom(template) {
         const p = plan();
         const seated = Object.keys(p.seats).length;
@@ -877,6 +1040,8 @@
             : 'The furniture in this room is replaced.',
           confirmLabel: 'Use it', danger: true,
         })) return;
+
+        keep(`before using \u201c${template.name}\u201d`);
 
         // Fresh ids, so two classes using the same template do not end up
         // sharing seat ids — and seating is per class, never in a template.
@@ -1018,6 +1183,7 @@
 
       function fillAtRandom() {
         const p = plan();
+        keep('before seating at random');
         const waiting = shuffle(unseated());
         if (!waiting.length) { toast('Everyone already has a seat.', 'warn'); return; }
         if (!allSeats().some((id) => !p.seats[id])) {
@@ -1058,7 +1224,12 @@
 
       async function clearSeats() {
         if (!Object.keys(plan().seats).length) return;
-        if (!await Desk.ask({ title: 'Empty the seats?', body: 'The furniture stays where it is; everybody goes back to the list.', confirmLabel: 'Empty' })) return;
+        if (!await Desk.ask({
+          title: 'Empty the seats?',
+          body: 'The furniture stays where it is; everybody goes back to the list. This arrangement is kept, so you can put it back.',
+          confirmLabel: 'Empty',
+        })) return;
+        keep('before emptying the seats');
         plan().seats = {};
         ctx.save(); draw();
       }
@@ -1066,9 +1237,10 @@
       async function clearRoom() {
         if (!await Desk.ask({
           title: 'Clear the room?',
-          body: 'Every desk and where everyone sits goes, for this class only. Your other classes keep their plans.',
+          body: 'Every desk and where everyone sits goes, for this class only. Your other classes keep their plans, and this arrangement is kept so you can put it back.',
           confirmLabel: 'Clear', danger: true,
         })) return;
+        keep('before clearing the room');
         plan().desks = [];
         plan().objects = [];
         plan().seats = {};
@@ -1239,17 +1411,28 @@
        * initials when there is not. The same plan is a thumbnail on the card
        * and wall-sized on the projector.
        */
-      const fit = () => {
-        const box = roomWrap.getBoundingClientRect();
-        // The front bar sits inside the room now — it can be on any wall —
-        // so the whole box is the room and nothing has to be subtracted.
-        if (box.width < 4 || box.height < 4) return;
-
-        const cw = Math.max(1.5, Math.min(box.width / COLS, box.height / ROWS));
+      const sizeRoom = (width, height) => {
+        if (width < 4 || height < 4) return;
+        const cw = Math.max(1.5, Math.min(width / COLS, height / ROWS));
         roomBox.style.width = `${cw * COLS}px`;
         room.style.height = `${cw * ROWS}px`;
         room.style.setProperty('--cell', `${cw}px`);
         room.classList.toggle('is-tiny', cw * SEAT_W < 44);
+      };
+
+      // Sizing the room for paper changes the layout, which trips the observer
+      // below, which re-fits the room to the screen — mid-print. That is how
+      // the first version of this printed a page of initials at thumbnail
+      // size. While a print is in flight the room's size is not up for
+      // negotiation.
+      let printing = false;
+
+      const fit = () => {
+        if (printing) return;
+        const box = roomWrap.getBoundingClientRect();
+        // The front bar sits inside the room now — it can be on any wall —
+        // so the whole box is the room and nothing has to be subtracted.
+        sizeRoom(box.width, box.height);
       };
       const observer = new ResizeObserver(fit);
       observer.observe(roomWrap);

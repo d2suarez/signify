@@ -65,6 +65,7 @@
     name: 'QR code',
     blurb: 'Put a link on the board for thirty devices to point at, instead of reading a URL out loud.',
     icon: 'qr',
+    category: 'board',
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 
@@ -123,8 +124,17 @@
               oninput: (e) => { s.label = e.target.value; ctx.save(); paint(); },
             }),
           ]),
-          el('div.starter-row', {}, [
+          el('div.starter-row.no-print', {}, [
             el('button.btn.btn--small.btn--primary', { svg: icon('download', 14), onclick: download }, ' Download PNG'),
+            el('button.btn.btn--small', {
+              svg: icon('print', 14),
+              onclick: () => {
+                if (!s.text.trim()) { toast('Nothing to print yet.', 'warn'); return; }
+                // The whole card, so the caption goes with the code — a poster
+                // of an unlabelled QR tells nobody what they are scanning.
+                Desk.print(ctx.root.firstChild, { title: s.label || 'Scan this', subtitle: s.text.trim() });
+              },
+            }, ' Print'),
             el('button.btn.btn--small', {
               svg: icon('copy', 14),
               onclick: async () => {

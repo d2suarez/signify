@@ -17,6 +17,7 @@
     name: 'Stopwatch',
     blurb: 'Count up, and record a lap for each pupil or each round.',
     icon: 'stopwatch',
+    category: 'time',
     size: { w: 4, h: 4 },
     min: { w: 3, h: 4 },
 

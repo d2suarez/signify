@@ -23,6 +23,7 @@
     name: 'Scoreboard',
     blurb: 'Points for teams, houses or tables. Groups rather than named children, on purpose.',
     icon: 'trophy',
+    category: 'class',
     size: { w: 4, h: 4 },
     min: { w: 2, h: 3 },
 

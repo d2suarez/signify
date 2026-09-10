@@ -28,6 +28,7 @@
     name: 'Notes',
     blurb: 'A note to write in, or a checklist to tick off. Big enough to read from the back when you open it.',
     icon: 'notes',
+    category: 'board',
     size: { w: 4, h: 5 },
     min: { w: 2, h: 3 },
 
@@ -68,8 +69,18 @@
         }));
       }
 
+      const printBtn = el('button.icon-btn.no-print', {
+        svg: icon('print', 15), title: 'Print this', 'aria-label': 'Print this note',
+        onclick: () => Desk.print(shell, {
+          title: s.title || (s.mode === 'list' ? 'Checklist' : 'Note'),
+          subtitle: s.mode === 'list'
+            ? `${s.items.filter((i) => i.done).length} of ${s.items.length} done`
+            : '',
+        }),
+      });
+
       const shell = el('div.note', {}, [
-        el('div.note-head', {}, [titleInput, modeToggle]),
+        el('div.note-head', {}, [titleInput, modeToggle, ctx.expanded ? printBtn : null].filter(Boolean)),
         body,
         ctx.expanded ? colourRow : null,
       ]);
@@ -102,12 +113,16 @@
       }
 
       function drawNote() {
+        // A textarea prints only what fits inside its own scroll box, so a
+        // long note would come out with most of it missing. The mirror below
+        // is plain text that grows, hidden on screen and shown on paper.
+        const mirror = el('div.note-print', { text: s.text });
         const area = el('textarea.note-text', {
           value: s.text, spellcheck: 'true',
           placeholder: 'Today we are…',
-          oninput: () => { s.text = area.value; ctx.save(); },
+          oninput: () => { s.text = area.value; mirror.textContent = s.text; ctx.save(); },
         });
-        body.append(area);
+        body.append(area, mirror);
       }
 
       function drawList() {

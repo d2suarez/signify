@@ -34,6 +34,8 @@ window.Desk = window.Desk || {};
     download: '<path d="M12 4v12M8 12l4 4 4-4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
     upload: '<path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
     copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+    print: '<path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/><circle cx="17.5" cy="11" r=".9" fill="currentColor" stroke="none"/>',
+    slides: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M9 20h6"/><path d="M8 8.5h5M8 11.5h8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17.5 9 12l4 4 3-2.5 4 4"/>',
     video: '<rect x="2.5" y="5" width="19" height="14" rx="3.5"/><path d="M10.5 9.2v5.6l4.8-2.8z" fill="currentColor" stroke="none"/>',
     seating: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><rect x="4" y="13" width="5" height="7" rx="1.5"/><rect x="9.5" y="13" width="5" height="7" rx="1.5"/><rect x="15" y="13" width="5" height="7" rx="1.5"/>',

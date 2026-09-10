@@ -11,6 +11,7 @@
 //     name:  'Timer',
 //     blurb: 'Count down to zero.',
 //     icon:  'timer',            // a key from Desk.iconNames
+//     category: 'time',          // which drawer of the catalogue it lives in
 //     size:  { w: 4, h: 5 },     // in grid cells, when first added
 //     min:   { w: 3, h: 4 },
 //     needsRoster: false,        // shown in the "needs a class list" group
@@ -35,6 +36,26 @@ window.Desk = window.Desk || {};
 
   const registry = new Map();
 
+  /**
+   * The drawers of the catalogue, in the order they are shown.
+   *
+   * Grouped by what a teacher is trying to DO, not by how the widget is built
+   * — somebody looking for the seating plan is thinking about their class, not
+   * about the fact that it happens to render an SVG. The order is roughly how
+   * often a primary classroom reaches for them.
+   *
+   * A widget with no category, or one naming a drawer that does not exist,
+   * falls into the last one rather than vanishing from the catalogue.
+   */
+  const CATEGORIES = [
+    { key: 'time', name: 'Time', blurb: 'Counting down, counting up, and what time it is.' },
+    { key: 'class', name: 'Your class', blurb: 'The tools that know who is in the room.' },
+    { key: 'board', name: 'On the board', blurb: 'Things to put in front of thirty people.' },
+    { key: 'calm', name: 'Sound and calm', blurb: 'For settling a room, or livening one up.' },
+    { key: 'other', name: 'Odds and ends', blurb: 'Everything else worth having to hand.' },
+  ];
+  const FALLBACK = CATEGORIES[CATEGORIES.length - 1].key;
+
   function widget(def) {
     if (!def || !def.type) throw new Error('A widget needs a type.');
     if (registry.has(def.type)) throw new Error(`Two widgets both call themselves "${def.type}".`);
@@ -46,6 +67,7 @@ window.Desk = window.Desk || {};
       min: { w: 2, h: 3 },
       needsRoster: false,
       permission: null,
+      category: FALLBACK,
       init() {},
       mount() { return {}; },
     }, def));
@@ -60,5 +82,23 @@ window.Desk = window.Desk || {};
     return all().filter((d) => !d.permission || (me && me.can && me.can[d.permission]));
   }
 
-  Object.assign(Desk, { widget, widgets: { get, all, available } });
+  /**
+   * The catalogue as drawers, in order, with empty ones left out.
+   *
+   * `match` is an optional search term; when it is given, only the widgets
+   * that match come back, and a drawer with nothing left in it disappears
+   * rather than sitting there as an empty heading.
+   */
+  function byCategory(me, match = '') {
+    const needle = String(match || '').trim().toLowerCase();
+    const hit = (d) => !needle || `${d.name} ${d.blurb} ${d.type}`.toLowerCase().includes(needle);
+
+    const known = new Set(CATEGORIES.map((c) => c.key));
+    return CATEGORIES.map((c) => ({
+      ...c,
+      widgets: available(me).filter((d) => (known.has(d.category) ? d.category : FALLBACK) === c.key).filter(hit),
+    })).filter((c) => c.widgets.length);
+  }
+
+  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, CATEGORIES } });
 }(window.Desk));

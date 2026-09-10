@@ -283,6 +283,72 @@ window.Desk = window.Desk || {};
     });
   }
 
+  // ---------- printing ----------
+
+  /**
+   * Prints one element, with a heading, and puts everything back afterwards.
+   *
+   * The page is not rebuilt or reparented for this. Moving a widget's DOM into
+   * a print container would sever every listener on it and kill the
+   * ResizeObserver the seating plan is sized by; instead the rest of the page
+   * is made invisible for the duration and the chosen element is pulled to the
+   * top-left of the sheet. Nothing that was working stops working.
+   *
+   * `prepare` runs before the dialog opens and `restore` after it closes —
+   * that is where a widget resizes itself for paper and then back again.
+   * `restore` runs on afterprint, and also on a timer, because a browser that
+   * never fires afterprint (Safari has form here) must not leave the desk
+   * stuck invisible.
+   */
+  function print(node, { title = '', subtitle = '', prepare = null, restore = null } = {}) {
+    if (!node) return;
+
+    const head = el('div.print-head', {}, [
+      title ? el('h1.print-title', { text: title }) : null,
+      el('div.print-meta', {
+        text: [subtitle, new Date().toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })]
+          .filter(Boolean).join(' \u00b7 '),
+      }),
+    ].filter(Boolean));
+
+    let done = false;
+    const cleanUp = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      window.removeEventListener('afterprint', cleanUp);
+      head.remove();
+      node.classList.remove('is-print-target');
+      document.documentElement.classList.remove('is-printing');
+      try { restore && restore(); } catch (e) { console.error(e); }
+    };
+
+    try { prepare && prepare(); } catch (e) { console.error(e); }
+    node.prepend(head);
+    node.classList.add('is-print-target');
+    document.documentElement.classList.add('is-printing');
+
+    window.addEventListener('afterprint', cleanUp);
+    const timer = setTimeout(cleanUp, 60_000);
+
+    // A frame first, so the layout the widget just asked for has actually
+    // happened before the browser snapshots the page.
+    let started = false;
+    const go = () => {
+      if (started) return;
+      started = true;
+      try { window.print(); }
+      catch (e) { console.error(e); cleanUp(); return; }
+      // Chrome's dialog is modal and blocks here, so by this line the job is
+      // usually done; afterprint still covers the browsers where it is not.
+      setTimeout(cleanUp, 1000);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(go));
+    // Animation frames do not run in a backgrounded tab, and a Print button
+    // that silently does nothing is worse than one that goes a frame early.
+    setTimeout(go, 300);
+  }
+
   // ---------- toast ----------
 
   let toastHost = null;
@@ -346,5 +412,5 @@ window.Desk = window.Desk || {};
     });
   }
 
-  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask });
+  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask, print });
 }(window.Desk));

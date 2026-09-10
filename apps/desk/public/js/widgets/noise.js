@@ -39,6 +39,7 @@
     name: 'Noise meter',
     blurb: 'How loud the room is, as a bar they can watch. Nothing is ever recorded.',
     icon: 'sound',
+    category: 'calm',
     size: { w: 4, h: 4 },
     min: { w: 2, h: 3 },
 

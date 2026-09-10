@@ -150,27 +150,91 @@
     for (const it of Desk.board.items()) onDesk.set(it.type, (onDesk.get(it.type) || 0) + 1);
 
     const list = el('div.catalogue');
-    for (const def of Desk.widgets.available(me)) {
-      const count = onDesk.get(def.type) || 0;
-      list.append(el('button.cat-item', {
+    const count = el('p.dialog-note.cat-count');
+    let firstMatch = null;                 // what Enter in the search box adds
+
+    /** One row in the catalogue. */
+    function row(def) {
+      const already = onDesk.get(def.type) || 0;
+      return el('button.cat-item', {
         onclick: () => { Desk.board.addItem(def.type); close(); },
       }, [
         el('span.cat-icon', { svg: icon(def.icon, 22) }),
         el('span.cat-text', {}, [
           el('span.cat-name', {}, [
             document.createTextNode(def.name),
-            count ? el('span.tag.tag--quiet', { text: `${count} on the desk` }) : null,
+            already ? el('span.tag.tag--quiet', { text: `${already} on the desk` }) : null,
           ]),
           el('span.cat-blurb', { text: def.blurb }),
         ]),
         el('span.cat-plus', { svg: icon('plus', 18) }),
-      ]));
+      ]);
     }
+
+    function draw(term) {
+      Desk.clear(list);
+      firstMatch = null;
+
+      const drawers = Desk.widgets.byCategory(me, term);
+      const found = drawers.reduce((n, d) => n + d.widgets.length, 0);
+
+      if (!found) {
+        list.append(el('p.hint.cat-empty', { text: `Nothing matches “${term}”. Try a word from what it does — “time”, “random”, “sound”.` }));
+        count.textContent = '';
+        return;
+      }
+
+      // Searching flattens the drawers: somebody who has typed a word is
+      // looking for one tool, and headings between three results are noise.
+      if (term.trim()) {
+        count.textContent = `${found} ${found === 1 ? 'tool matches' : 'tools match'} “${term.trim()}”.`;
+        for (const drawer of drawers) {
+          for (const def of drawer.widgets) {
+            if (!firstMatch) firstMatch = def;
+            list.append(row(def));
+          }
+        }
+        return;
+      }
+
+      count.textContent = '';
+      for (const drawer of drawers) {
+        list.append(el('div.cat-head', {}, [
+          el('h3.cat-head-name', { text: drawer.name }),
+          el('span.cat-head-blurb', { text: drawer.blurb }),
+        ]));
+        for (const def of drawer.widgets) {
+          if (!firstMatch) firstMatch = def;
+          list.append(row(def));
+        }
+      }
+    }
+
+    const search = el('input.input.cat-search', {
+      type: 'search',
+      placeholder: 'Search the tools\u2026',
+      'aria-label': 'Search the tools',
+      autocomplete: 'off',
+      // Only the list is rebuilt, never this input — otherwise the caret is
+      // lost after the first letter, which is the bug this app has already
+      // fixed in nine other places.
+      oninput: (e) => draw(e.target.value),
+      onkeydown: (e) => {
+        if (e.key !== 'Enter' || !firstMatch) return;
+        e.preventDefault();
+        Desk.board.addItem(firstMatch.type);
+        close();
+      },
+    });
+
+    draw('');
 
     const scrim = el('div.scrim', { onclick: (e) => { if (e.target === scrim) close(); } }, [
       el('div.dialog.dialog--wide', { role: 'dialog', 'aria-modal': 'true' }, [
         el('h2.dialog-title', { text: 'Add a tool' }),
         el('p.dialog-note', { text: 'Add as many as you like — two timers, three notes. Drag a card by its top edge to move it, and by its bottom-right corner to resize it.' }),
+        search,
+        count,
         list,
         el('div.dialog-actions', {}, [el('button.btn', { text: 'Close', onclick: () => close() })]),
       ]),
@@ -179,6 +243,9 @@
     function close() { scrim.remove(); document.removeEventListener('keydown', onKey); }
     document.addEventListener('keydown', onKey);
     document.body.append(scrim);
+    // Straight into the search box on a keyboard, but not on a touch screen,
+    // where it would throw a keyboard over the list somebody wants to browse.
+    if (!window.matchMedia('(pointer: coarse)').matches) search.focus();
   }
 
   app.openCatalogue = openCatalogue;

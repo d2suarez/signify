@@ -39,6 +39,7 @@
     name: 'Behaviour tracker',
     blurb: 'A private running tally for your own classes. Nobody else can read it, and it clears itself.',
     icon: 'behaviour',
+    category: 'class',
     size: { w: 5, h: 6 },
     min: { w: 3, h: 4 },
     needsRoster: true,

@@ -24,6 +24,7 @@
     name: 'Classroom Atlas',
     blurb: 'The teaching map — Bible, history and world data. Opens right here on the desk.',
     icon: 'globe',
+    category: 'other',
     size: { w: 5, h: 5 },
     min: { w: 2, h: 3 },
 

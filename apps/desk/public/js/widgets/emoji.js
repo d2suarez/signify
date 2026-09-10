@@ -59,6 +59,7 @@
     name: 'Emoji picker',
     blurb: 'Roll one and it is on your clipboard, ready to paste onto a piece of work.',
     icon: 'smile',
+    category: 'other',
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 

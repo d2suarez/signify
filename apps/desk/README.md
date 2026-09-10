@@ -48,6 +48,7 @@ projector.
 | **Google Calendar** | Your calendars — yours, the school's, whatever you subscribe to — each in its own colour, with no OAuth at all. |
 | **Picture** | A picture of your own on the board. Uploaded here, served from here, shared between your own cards. |
 | **YouTube video** | The clip that goes with the lesson. Nothing is sent to YouTube until you press play. |
+| **Google Slides** | The deck for the lesson, on the board. Paste the link, choose which slide it opens on. |
 
 **Sound** in the top bar mutes everything at once — timers, alarms, the
 randomiser — for when a test is on or the class next door can hear you. It is
@@ -200,6 +201,20 @@ bytes, never its name, and everything is served back from this origin with
 page here. A picture uploaded on one card is offered on every other, and
 deleting one asks first, because another card may be showing it.
 
+**Google Slides** uses Google's own `/embed`, so there is no OAuth and no
+token this app holds — the same bargain as the calendar, with the same catch,
+which the card states rather than leaving you to discover: the embed reads
+Google's cookies from inside an iframe on another site, so a deck that is not
+shared shows "you need permission" instead of slides.
+
+Whatever gets pasted is parsed down to a file id before it goes near the
+iframe, and the two kinds of link are told apart — an ordinary
+`/presentation/d/<id>/edit` and a published-to-the-web
+`/presentation/d/e/<id>/pub` embed at different paths. Paste a Doc, a Sheet or
+a Form by mistake and the card says which of those it is, rather than failing
+blankly. It never auto-advances, and it can be told which slide to open on,
+because the deck for third period usually does not start at slide one.
+
 ### No GIF search
 
 There was one, briefly, built against Tenor. Google **shut the Tenor API down
@@ -225,6 +240,65 @@ rather than converting the on-screen SVG. That SVG takes its colours from CSS
 variables, which do not survive into an `<img>` — that route silently produces
 a blank square. The file is black on white at 16px per module, so it survives
 being pasted into a worksheet and printed, and is named after the label.
+
+## Printing
+
+Five widgets print: the **seating plan**, **student groups**, the **jobs
+rota**, **notes and checklists**, and the **QR code** as a poster. All of them
+go through `Desk.print(node, { title, subtitle, prepare, restore })`.
+
+It does not reparent anything. Moving a widget's DOM into a print container
+would sever every listener on it and kill the observer the seating plan is
+sized by, so instead the rest of the page is made invisible for the duration
+and the chosen element is pulled to the top-left of the sheet. A heading with
+the title, a subtitle and the date is put in, and taken out again afterwards.
+
+What paper wants is not what a screen wants, so the print stylesheet undoes a
+fair amount: tinted seats become white with a firm outline, fields lose their
+boxes and keep their words, buttons and toggles disappear entirely, a note's
+textarea is swapped for plain text that flows rather than scrolls, and cards
+are told not to break across two sheets.
+
+Two traps worth knowing before adding a sixth:
+
+- **A widget that sizes itself from a ResizeObserver will fight you.** Sizing
+  the seating plan for paper changes the layout, which trips its observer,
+  which re-fits it to the screen — mid-print. It guards with a flag that makes
+  `fit()` a no-op while a print is in flight.
+- **`requestAnimationFrame` does not fire in a backgrounded tab**, so gating
+  `window.print()` behind one makes the button silently do nothing. There is a
+  timeout racing the frame.
+
+## Finding a tool among twenty-six
+
+The catalogue was one flat list, which was fine at seven tools and is not at
+twenty-six. It now has **a search box and five drawers**:
+
+| Drawer | What is in it |
+|---|---|
+| **Time** | Timer, stopwatch, alarms, clock, countdown |
+| **Your class** | Randomiser, groups, seating, behaviour, scoreboard, jobs |
+| **On the board** | Big message, picture, video, slides, QR code, notes |
+| **Sound and calm** | Calm down, noise meter, soundboard |
+| **Odds and ends** | Weather, calendar, atlas, whiteboard, emoji, random number |
+
+Grouped by what a teacher is trying to *do*, not by how the widget is built —
+somebody hunting for the seating plan is thinking about their class, not about
+the fact that it happens to draw an SVG.
+
+**Searching flattens the drawers.** Somebody who has typed a word is looking
+for one tool, and headings between three results are noise. It matches names
+and blurbs both, so "sound" finds the soundboard *and* the timer, whose blurb
+mentions the sound it makes at the end. Enter adds the first match, so adding
+a timer is `Add a tool`, `tim`, Enter.
+
+A widget whose `category` names a drawer that does not exist falls into the
+last one rather than vanishing — the catalogue is the only place anybody can
+add a tool from, so a typo in one widget file must not quietly remove it from
+the app. There is a test for exactly that.
+
+The search box does not steal focus on a touch screen, where a keyboard would
+cover the list somebody wants to browse.
 
 ## Typing into a widget
 
@@ -324,6 +398,55 @@ a change that quietly started trading a lone child for a fuller room would
 fail rather than look plausible. Where the room makes both impossible — an odd
 class across two-seat desks — it does as well as the arithmetic allows, and
 seats everyone rather than refusing.
+
+**It prints.** A plan on paper is what gets left for a supply teacher, pinned
+by the door, or carried round on a clipboard, and none of those want a browser
+open. The room is re-sized for the sheet first: on a card it is a thumbnail
+showing initials, and printing that would waste a page, so it goes to about
+the printable width of A4 at portrait, which leaves every seat wide enough for
+a name. Seats print white with a firm outline and an empty chair stays dashed
+— a plan is read at arm's length and ink is expensive.
+
+The heading names the class, the date, and **which way round it is**, because
+a plan handed to somebody at the front and a plan read from a pupil's desk are
+mirror images and one of them is useless if you cannot tell which you are
+holding. It prints whichever view is on screen.
+
+Two things that had to be got right, both found by actually printing it:
+sizing the room for paper changes the layout, which trips the ResizeObserver,
+which re-fits the room to the *screen* — mid-print. The first version printed
+a page of initials at thumbnail size. And `Desk.print` cannot rely on an
+animation frame to know the layout has settled, because animation frames do
+not run in a backgrounded tab; there is a timeout racing the frame, so a Print
+button never silently does nothing.
+
+**Every arrangement is kept.** A seating plan is twenty minutes of knowing who
+cannot sit next to whom, and until recently the only copy of it was the live
+one. Anything that overwrites a plan — seating at random, emptying the seats,
+clearing the room, applying a saved room or a starter layout — now takes a
+copy first, and the last twelve are listed in the panel with the date, how
+many were seated, and what was about to happen to it. Putting one back is
+itself undoable, because it takes a copy of the current room on the way.
+
+### The plans that were lost, and why
+
+This existed because of a real loss, and the cause is worth writing down.
+
+`load()` prunes a plan against the class list: a pupil who has left must not
+keep a seat nobody can see them in. It did that against whatever the roster
+lookup returned — and a **refused** lookup returns nobody. So while the
+sign-in bug was answering `401` to every roster request, the widget concluded
+that every pupil had left every class, deleted every seat, and the next save
+made it permanent. Four classes went that way in an afternoon. Nobody had
+clicked anything.
+
+Two things now stand between that and a teacher's work. `prunePlan` takes a
+`rosterKnown` flag and only drops pupils when the class list was actually
+fetched — **silence is not an empty class** — and it is a pure function with
+tests, one of which asserts exactly that. The same fix went into the group
+maker, which was throwing away keep-apart pairs, and the jobs rota, which was
+losing the position everybody had rotated to. And the history above means the
+next thing to get this wrong leaves a way back.
 
 **The spare seats move around too.** Both the desks and the chairs within each
 desk are shuffled, so the empty places are somewhere different every time
@@ -480,7 +603,7 @@ workspace `.claude/launch.json`.
 npm test
 ```
 
-116 checks, no server and no database: the store runs against a throwaway
+134 checks, no server and no database: the store runs against a throwaway
 directory, and the grid packing is loaded into a stub of just enough browser.
 
 ## Deploying

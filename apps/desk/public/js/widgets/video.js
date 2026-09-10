@@ -73,6 +73,7 @@
     name: 'YouTube video',
     blurb: 'The clip that goes with the lesson, on the board — nothing loads until you press play.',
     icon: 'video',
+    category: 'board',
     size: { w: 5, h: 4 },
     min: { w: 3, h: 3 },
 

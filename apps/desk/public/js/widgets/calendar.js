@@ -44,6 +44,7 @@
     name: 'Google Calendar',
     blurb: 'Your own Google calendar, embedded. No sign-in beyond the one your browser already has.',
     icon: 'calendar',
+    category: 'other',
     size: { w: 5, h: 5 },
     min: { w: 3, h: 4 },
 

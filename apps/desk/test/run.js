@@ -528,6 +528,92 @@ describe('seating a class at random', () => {
   };
   const alone = (seats) => seats.filter((n) => n === 1).length;
 
+  const prunePlan = loadWidget('seating')._prunePlan;
+
+  /** A plan with two two-seat desks and four pupils in them. */
+  const fullPlan = () => ({
+    desks: [{ id: 'd1', seats: 2 }, { id: 'd2', seats: 2 }],
+    seats: { 'd1#0': 'ava', 'd1#1': 'noah', 'd2#0': 'mia', 'd2#1': 'leo' },
+    objects: [], front: 'top',
+  });
+
+  const seatingDef = loadWidget('seating');
+  const keepHistory = seatingDef._keepHistory;
+  const KEEP = seatingDef._KEEP_HISTORY;
+
+  it('keeps a copy of an arrangement before anything destroys it', () => {
+    const h = {};
+    keepHistory(h, '9REL', fullPlan(), 'before emptying the seats');
+    equal(h['9REL'].length, 1);
+    equal(Object.keys(h['9REL'][0].plan.seats).length, 4, 'the whole arrangement, not a reference');
+    equal(h['9REL'][0].why, 'before emptying the seats');
+  });
+
+  it('snapshots a copy, so changing the plan afterwards cannot rewrite history', () => {
+    const h = {};
+    const live = fullPlan();
+    keepHistory(h, '9REL', live, '');
+    live.seats = {};                       // the destruction the snapshot was for
+    equal(Object.keys(h['9REL'][0].plan.seats).length, 4, 'the copy is untouched');
+  });
+
+  it('does not fill the list with identical copies', () => {
+    const h = {};
+    keepHistory(h, '9REL', fullPlan(), 'a');
+    keepHistory(h, '9REL', fullPlan(), 'b');
+    equal(h['9REL'].length, 1, 'putting one back twice is not two snapshots');
+  });
+
+  it('does not bother keeping an empty room', () => {
+    const h = {};
+    keepHistory(h, '9REL', { desks: [], seats: {}, objects: [], front: 'top' }, '');
+    equal(h['9REL'], undefined, 'there is nothing there to want back');
+  });
+
+  it('keeps the newest and lets the oldest go', () => {
+    const h = {};
+    for (let i = 0; i < KEEP + 6; i += 1) {
+      const p = fullPlan();
+      p.seats['d1#0'] = `pupil-${i}`;      // each one different
+      keepHistory(h, '9REL', p, `change ${i}`);
+    }
+    equal(h['9REL'].length, KEEP, 'the list has a ceiling');
+    equal(h['9REL'][0].why, `change ${KEEP + 5}`, 'newest first');
+  });
+
+  it('keeps each class\u2019s history to itself', () => {
+    const h = {};
+    keepHistory(h, '9REL', fullPlan(), '');
+    keepHistory(h, '11REL', fullPlan(), '');
+    equal(Object.keys(h).sort(), ['11REL', '9REL']);
+  });
+
+  it('NEVER empties a plan because the class list could not be fetched', () => {
+    // The bug that lost a term of seating plans: a refused roster lookup
+    // returns nobody, and "nobody is in this class" was read as "everybody
+    // has left". Four classes were wiped and the teacher had clicked nothing.
+    const p = prunePlan(fullPlan(), [], false);
+    equal(Object.keys(p.seats).length, 4, 'silence is not an empty class');
+  });
+
+  it('does drop a pupil who really has left, when the list actually loaded', () => {
+    const p = prunePlan(fullPlan(), ['ava', 'noah', 'mia'], true);
+    equal(Object.keys(p.seats).sort(), ['d1#0', 'd1#1', 'd2#0'], 'Leo has gone, the rest stay');
+  });
+
+  it('gives up seats a shrunken desk no longer has, either way', () => {
+    // This one depends on the furniture, not the roster, so it is safe even
+    // when the lookup failed.
+    const shrunk = fullPlan();
+    shrunk.desks[1].seats = 1;
+    equal(Object.keys(prunePlan(shrunk, [], false).seats).sort(), ['d1#0', 'd1#1', 'd2#0']);
+  });
+
+  it('empties the plan when the class genuinely has nobody in it', () => {
+    const p = prunePlan(fullPlan(), [], true);
+    equal(Object.keys(p.seats).length, 0, 'an empty class that we asked about is empty');
+  });
+
   it('seats seven across three threes without stranding anybody', () => {
     // The reported bug: filling seats in order gives 3,3,1 and that last
     // child sits on their own all lesson.
@@ -858,6 +944,96 @@ describe('a YouTube link', () => {
 });
 
 // ===================================================================
+describe('a Google Slides link', () => {
+  const deck = loadWidget('slides')._deckFrom;
+
+  it('reads the deck out of an ordinary share link', () => {
+    const id = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms';
+    for (const link of [
+      `https://docs.google.com/presentation/d/${id}/edit#slide=id.p`,
+      `https://docs.google.com/presentation/d/${id}/edit?usp=sharing`,
+      `https://docs.google.com/presentation/d/${id}/view`,
+      `https://docs.google.com/presentation/d/${id}/`,
+      `docs.google.com/presentation/d/${id}/edit`,
+    ]) {
+      const got = deck(link);
+      equal(got && got.id, id, `did not read ${link}`);
+      equal(got.published, false, 'an ordinary deck, not a published one');
+    }
+  });
+
+  it('knows a published-to-the-web deck from a normal one', () => {
+    // They embed at different paths, so which it is has to survive the parse.
+    const pub = '2PACX-1vQfakeidfakeidfakeidfakeidfakeidfakeid';
+    const got = deck(`https://docs.google.com/presentation/d/e/${pub}/pub?start=false`);
+    equal(got.id, pub);
+    equal(got.published, true);
+  });
+
+  it('says what a Doc or a Form actually is, rather than failing blankly', () => {
+    equal(deck('https://docs.google.com/document/d/abcdefghijklmno/edit').wrongKind, 'document');
+    equal(deck('https://docs.google.com/spreadsheets/d/abcdefghijklmno/edit').wrongKind, 'spreadsheets');
+    equal(deck('https://docs.google.com/forms/d/abcdefghijklmno/viewform').wrongKind, 'forms');
+  });
+
+  it('refuses anything that is not a Google deck', () => {
+    // Only an id ever reaches the iframe, so no pasted string can frame
+    // somewhere else on this origin.
+    for (const bad of [
+      '', '   ', 'not a link',
+      'https://evil.test/presentation/d/abcdefghijklmno/edit',
+      'https://docs.google.com.evil.test/presentation/d/abcdefghijklmno/edit',
+      'javascript:alert(1)',
+      'https://docs.google.com/presentation/d/short/edit',
+    ]) {
+      const got = deck(bad);
+      assert(!got || !got.id, `${bad} should not have been accepted`);
+    }
+  });
+});
+
+// ===================================================================
+describe('the catalogue', () => {
+  const Desk = loadRegistry();
+  const me = { can: { behaviour: true } };
+
+  it('puts every widget in a drawer that exists', () => {
+    const drawers = Desk.widgets.byCategory(me);
+    const filed = drawers.reduce((n, d) => n + d.widgets.length, 0);
+    equal(filed, Desk.widgets.available(me).length, 'nothing fell out of the catalogue');
+    assert(drawers.length >= 4, 'more than one drawer');
+    assert(drawers.every((d) => d.name && d.widgets.length), 'no empty drawers are shown');
+  });
+
+  it('files a widget with a nonsense category rather than losing it', () => {
+    // The failure that matters: a typo in one widget silently removing it
+    // from the only place anybody can add it from.
+    Desk.widget({ type: 'test-oddity', name: 'Oddity', category: 'nowhere', blurb: 'x' });
+    const drawers = Desk.widgets.byCategory(me);
+    const found = drawers.flatMap((d) => d.widgets).find((w) => w.type === 'test-oddity');
+    assert(!!found, 'it is still in the catalogue');
+    equal(drawers[drawers.length - 1].widgets.some((w) => w.type === 'test-oddity'), true, 'in the last drawer');
+  });
+
+  it('searches names and blurbs, and drops drawers that empty out', () => {
+    const hits = Desk.widgets.byCategory(me, 'timer');
+    const names = hits.flatMap((d) => d.widgets).map((w) => w.type);
+    assert(names.includes('timer'), 'the timer is found by its name');
+    assert(hits.every((d) => d.widgets.length), 'no drawer comes back empty');
+
+    const byBlurb = Desk.widgets.byCategory(me, 'sleeps').flatMap((d) => d.widgets).map((w) => w.type);
+    equal(byBlurb, ['countdown'], 'a word from the blurb finds it too');
+
+    equal(Desk.widgets.byCategory(me, 'zzzznotathing').length, 0, 'and nonsense finds nothing');
+  });
+
+  it('never offers a tool this teacher may not have', () => {
+    const without = Desk.widgets.byCategory({ can: {} }).flatMap((d) => d.widgets).map((w) => w.type);
+    assert(!without.includes('behaviour'), 'the behaviour tracker needs its permission');
+  });
+});
+
+// ===================================================================
 describe('countdowns to several days', () => {
   const countdown = loadWidget('countdown');
 
@@ -976,6 +1152,42 @@ function loadUtil() {
   // rather than anything in Node's own scope.
   sandbox.Desk._doc = sandbox.document;
   return sandbox.Desk;
+}
+
+/**
+ * The real registry with every widget file loaded into it.
+ *
+ * The catalogue is the only way anybody adds a tool, so "is every widget
+ * actually in it" is worth asserting against the real list rather than a
+ * hand-written one that would drift the first time somebody adds a file.
+ */
+function loadRegistry() {
+  // Memoised on the function itself: `describe` blocks run before a `let` at
+  // the bottom of this file has been initialised, and a top-level cache
+  // variable would be in its temporal dead zone when they call this.
+  if (loadRegistry.cache) return loadRegistry.cache;
+  const noop = () => {};
+  const sandbox = { console, setTimeout, clearTimeout, URL, URLSearchParams };
+  sandbox.window = sandbox;
+  sandbox.document = fakeDom();
+  vm.createContext(sandbox);
+
+  const run = (rel) => vm.runInContext(
+    fs.readFileSync(path.join(__dirname, '..', 'public', 'js', rel), 'utf8'), sandbox, { filename: rel });
+
+  run('util.js');
+  run('registry.js');
+  Object.assign(sandbox.Desk, {
+    icon: () => '', iconEl: () => ({}),
+    roster: { picker: () => ({}), members: async () => [], onChange: () => noop },
+    api: {}, sound: { play: noop },
+  });
+
+  const dir = path.join(__dirname, '..', 'public', 'js', 'widgets');
+  for (const f of fs.readdirSync(dir).sort()) run(path.join('widgets', f));
+
+  loadRegistry.cache = sandbox.Desk;
+  return loadRegistry.cache;
 }
 
 /** Runs public/js/board.js with a stub browser, and hands back its geometry. */

@@ -32,6 +32,7 @@
     name: 'Calm down',
     blurb: 'A shape to breathe along with, for settling a class or one child who needs a minute.',
     icon: 'heart',
+    category: 'calm',
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 

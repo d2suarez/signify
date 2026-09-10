@@ -31,6 +31,7 @@
     name: 'Big message',
     blurb: 'One line, as large as the screen allows. For the instruction you would otherwise say twice.',
     icon: 'message',
+    category: 'board',
     size: { w: 4, h: 3 },
     min: { w: 2, h: 2 },
 

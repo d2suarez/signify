@@ -66,6 +66,7 @@
     name: 'Soundboard',
     blurb: 'Pads you tap for a chime, a fanfare or a rude noise. Comes with a CC0 pack, and you can add your own.',
     icon: 'speaker',
+    category: 'calm',
     size: { w: 4, h: 4 },
     min: { w: 2, h: 3 },
 
