@@ -164,6 +164,33 @@ Restore is deliberately hard to misuse:
   an undo. That snapshot is the only backup stored server-side; downloaded
   ones leave with the person who downloaded them.
 
+## Problem reports
+
+Every app that carries the shared switcher (`client/signify-switcher.js`) gets
+a **Report a problem** link at the foot of its panel. It opens a short form —
+*something isn't working*, *something is wrong*, or *something else* — and
+posts it to the app's own `/auth/report`, which `client/signify-auth.js`
+forwards here with the person's token. Signify ID reads who sent it, their
+school and the app off that token, never off the request body.
+
+With **Include technical details** left ticked, a report also carries the page
+address (query string stripped, because that is where join codes live), the
+browser, screen size, language and time zone, any text the person had
+highlighted, and the last ten script errors on the page.
+
+They land on the console's **Problem reports** page: every school's for a
+super admin, their own school's for anyone holding `core:triage_reports`
+(local admins, by default). Closed reports are erased 180 days after closing,
+any report at the retention limit, and all of a person's reports with their
+account.
+
+An app can open the same form from its own help menu:
+
+```js
+SignifyReport.open();            // let the person choose
+SignifyReport.open('mistake');   // start on "something is wrong"
+```
+
 ## Endpoints
 
 | Path | For |
@@ -173,6 +200,8 @@ Restore is deliberately hard to misuse:
 | `/signin` | The page people see |
 | `/admin` | The console |
 | `/api/v1/me`, `/api/v1/classes`, `/api/v1/classes/:id/members`, `/api/v1/shares-class` | Roster questions an app asks |
+| `/api/v1/reports` | A problem report, forwarded from an app's `/auth/report` |
+| `/api/admin/reports`, `/api/admin/reports/:id`, `/api/admin/reports/new` | Triage in the console, and the console's own reports |
 | `/api/admin/roster/preview`, `/api/admin/roster/apply` | CSV import |
 | `/api/admin/backups`, `/api/admin/restore/preview`, `/api/admin/restore/apply` | Backup and restore |
 | `/healthz` | Liveness |

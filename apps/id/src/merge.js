@@ -29,6 +29,8 @@ const SIMPLE_REFS = [
   ['user_app_access', 'set_by'],
   ['audit_log', 'actor_user_id'],
   ['platform_admins', 'granted_by'],
+  ['reports', 'user_id'],
+  ['reports', 'closed_by'],
 ];
 
 async function load(id) {

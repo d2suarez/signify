@@ -24,6 +24,7 @@
       <button data-page="classes">Classes</button>
       <button data-page="roles">Roles</button>
       <div class="nav-group">Governance</div>
+      <button data-page="reports" hidden>Problem reports</button>
       <button data-page="audit">Audit log</button>
       <button data-page="compliance">Compliance</button>
       <button data-page="backups">Backups</button>
@@ -41,6 +42,7 @@
         <span class="chip chip-blue" id="whoRole"></span>
         <a class="btn btn-sm btn-quiet" href="/logout" style="margin-left:auto">Sign out</a>
       </div>
+      <button class="btn btn-sm btn-quiet report-own" id="reportOwn" type="button">Report a problem</button>
     </div>
   </aside>
 
@@ -49,7 +51,11 @@
   </main>
 </div>
 
+<div id="noticeRoot"></div>
 <div id="modalRoot"></div>
 <script src="/js/admin.js"></script>
+<!-- The fleet's shared "Report a problem" form. No app grid here (empty apps
+     endpoint); reports go through the console's own session-backed route. -->
+<script src="/vendor/signify-switcher.js" data-apps-endpoint="" data-report-endpoint="/api/admin/reports/new" defer></script>
 </body>
 </html>

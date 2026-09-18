@@ -1428,7 +1428,7 @@ function section(title) { console.log(`\n${title}`); }
     ok('every line reads as a sentence', thin.length === 0, thin.map((d) => d.text).join(' | '));
 
     const uncategorised = inventory.DISCLOSURES.filter(
-      (d) => !['identity', 'school', 'technical', 'operational'].includes(d.category));
+      (d) => !['identity', 'school', 'technical', 'operational', 'request'].includes(d.category));
     ok('every line sits under a heading the page renders', uncategorised.length === 0);
 
     const empty = inventory.DISCLOSURES.filter((d) => !d.covers || !d.covers.length);
@@ -1537,6 +1537,368 @@ function section(title) { console.log(`\n${title}`); }
       returning.includes('https://maps.signify.one/auth/login'));
     ok('naming it, so the button says where it goes', returning.includes('Classroom Atlas'));
     ok('never quietly to the console instead', !returning.includes('href="/signin"'));
+  }
+
+  section('Asking for an account');
+  {
+    const survey = require('../src/access-survey');
+    const views = require('../src/views');
+
+    // ---- only the person who signed in can answer ----
+    const someone = await identity.resolveUser({
+      provider: 'google', subject: 'google-sub-frank', email: 'frank@elsewhere.org',
+      name: 'Frank Ortiz', hostedDomain: 'elsewhere.org',
+    });
+    const token = survey.sign(someone.user.id);
+    eq('a fresh token names who signed in', survey.verify(token), someone.user.id);
+    const [uid, exp, sig] = token.split('.');
+    eq('a token re-pointed at someone else is refused',
+      survey.verify(['00000000-0000-0000-0000-000000000000', exp, sig].join('.')), null);
+    eq('so is one with its expiry pushed back', survey.verify([uid, String(Number(exp) + 1), sig].join('.')), null);
+    eq('and one past its expiry', survey.verify(token, Date.now() + survey.TOKEN_MS + 1000), null);
+    eq('and anything that is not a token at all', survey.verify('nonsense'), null);
+
+    // ---- reading answers ----
+    const appKeys = ['classroom-atlas', 'teachers-desk'];
+
+    // The reason the first question exists.
+    const student = survey.normalise({
+      respondent: 'student', interested_apps: 'classroom-atlas', school_name: 'Somewhere Middle', grade_levels: '6',
+    }, appKeys);
+    ok('a student can send the form', student.ok);
+    eq('and nothing beyond the first answer is kept from a student',
+      [student.answers.school_name, student.answers.interested_apps, student.answers.grade_levels],
+      ['', [], []]);
+
+    const bare = survey.normalise({ respondent: 'educator' }, appKeys);
+    ok('an educator has to say which apps, which school and what job',
+      !bare.ok && ['interested_apps', 'school_name', 'job_title'].every((k) => bare.errors[k]));
+    ok('nobody gets past without answering the first question', !survey.normalise({}, appKeys).ok);
+
+    const noSchool = survey.normalise({
+      respondent: 'educator', interested_apps: ['teachers-desk'], not_at_school: 'on',
+      job_title: 'Tutor', school_name: 'typed before ticking the box',
+    }, appKeys);
+    ok('ticking "not at a school" stands in for a school name', noSchool.ok);
+    eq('and a school typed anyway is not kept', noSchool.answers.school_name, '');
+
+    const messy = survey.normalise({
+      respondent: 'educator', interested_apps: ['classroom-atlas', 'made-up-app'],
+      school_name: '  Riverside   High ', job_title: 'x'.repeat(500),
+      google_accounts: 'google', usage_scope: 'school', student_count: '100-500', start_when: 'next-year',
+      heard_from: 'edtech-unpacked', heard_from_other: 'dropped, because "somewhere else" was not chosen',
+      subjects: ['math', 'astrology'], subjects_other: 'dropped too',
+      grade_levels: ['9', '14', 'K'],
+    }, appKeys);
+    ok('a real submission is accepted', messy.ok);
+    eq('an app nobody registered is dropped', messy.answers.interested_apps, ['classroom-atlas']);
+    eq('whitespace is tidied', messy.answers.school_name, 'Riverside High');
+    eq('long text is capped', messy.answers.job_title.length, survey.TEXT_LIMIT);
+    eq('"somewhere else" text is kept only when that was chosen', messy.answers.heard_from_other, '');
+    eq('an unknown subject is dropped', messy.answers.subjects, ['math']);
+    eq('grade levels come back in school order, unknown ones dropped', messy.answers.grade_levels, ['K', '9']);
+
+    const hidden = survey.normalise({
+      respondent: 'other', interested_apps: 'other', interested_other: 'Maps' + String.fromCharCode(0, 7) + 'for home',
+    }, appKeys);
+    eq('invisible characters do not survive', hidden.answers.interested_other, 'Maps for home');
+    ok('someone who is not an educator is not made to give a school or a job', hidden.ok);
+    const vague = survey.normalise({ respondent: 'other', interested_apps: 'other' }, appKeys);
+    ok('"something else" on its own needs saying what', !vague.ok && !!vague.errors.interested_apps);
+
+    // ---- stored, read back, described ----
+    await db.query(
+      `INSERT INTO access_requests (user_id, email, came_from_app) VALUES ($1, $2, 'classroom-atlas')`,
+      [someone.user.id, 'frank@elsewhere.org']);
+    const open = await survey.currentRequest(someone.user.id);
+    ok('the open request is found for the person who signed in', !!open && open.email === 'frank@elsewhere.org');
+    eq('a first visit starts with the app they came from already ticked',
+      survey.valuesFromRequest(open).interested_apps, ['classroom-atlas']);
+
+    ok('answers are saved to the open request', !!(await survey.save(open.id, messy.answers)));
+    const saved = await survey.currentRequest(someone.user.id);
+    eq('lists survive the round trip', [saved.interested_apps, saved.subjects, saved.grade_levels],
+      [['classroom-atlas'], ['math'], ['K', '9']]);
+
+    const apps = [{ client_id: 'classroom-atlas', name: 'Classroom Atlas', launch_url: 'https://maps.signify.one/' }];
+    const described = survey.describe(saved, apps);
+    eq('the console gets app names, not keys', described.apps, ['Classroom Atlas']);
+    eq('and where the answer came from, in words', described.heardFrom, 'The EdTech Unpacked podcast');
+    eq('and which app they were opening', described.cameFrom, 'Classroom Atlas');
+    eq('and whether their school is on Google, in words', described.googleAccounts, 'Yes, Google Workspace');
+    eq('the planning answers survive the round trip', [saved.usage_scope, saved.student_count, saved.start_when],
+      ['school', '100-500', 'next-year']);
+
+    // ---- the pages ----
+    const form = views.requestAccessPage({ request: saved, apps });
+    ok('the form offers the registered apps', form.includes('value="classroom-atlas"') && form.includes('maps.signify.one'));
+    ok('it posts back to itself', form.includes('action="/request-access"'));
+    ok('the student question comes before everything else',
+      form.indexOf('name="respondent"') < form.indexOf('name="interested_apps"'));
+    ok('there is no open comment box anywhere on it', !form.includes('<textarea'));
+    ok('it says how long the answers are kept', form.includes(survey.ANSWER_RETENTION_DAYS + ' days'));
+    ok('what was saved comes back ticked', /value="math" checked/.test(form));
+
+    const afterMistake = views.requestAccessPage({
+      request: saved, apps, values: { respondent: 'educator' }, errors: { job_title: 'Give your job title.' } });
+    ok('a mistake is shown beside its question', afterMistake.includes('Give your job title.'));
+
+    const thanks = views.requestReceivedPage({ request: saved, apps });
+    ok('an educator is told what happens next', thanks.includes('What happens next'));
+    ok('and can change their answers', thanks.includes('/request-access?edit=1'));
+    const studentThanks = views.requestReceivedPage({ request: { ...saved, respondent: 'student' }, apps });
+    ok('a student is told that accounts come from a school, and nothing about a reply',
+      studentThanks.includes('come from a school') && !studentThanks.includes('What happens next'));
+
+    const signin = views.signinPage({});
+    ok('a sign-in that matched no school goes on to the questions instead of an error',
+      /e\.data && e\.data\.next/.test(signin) && !/showError\(e\.message\);\s*\}\);/.test(signin));
+
+    const policyPage = views.privacyPolicyPage({ retentionDays: 400 });
+    ok('the privacy policy has a section for it', policyPage.includes('Asking for an account'));
+
+    // ---- the four planning questions ----
+    const schoolWithoutGoogleAnswer = survey.normalise({
+      respondent: 'educator', interested_apps: 'teachers-desk', school_name: 'Oak Hill', job_title: 'Teacher',
+    }, appKeys);
+    ok('someone at a school has to say whether it uses Google accounts',
+      !schoolWithoutGoogleAnswer.ok && !!schoolWithoutGoogleAnswer.errors.google_accounts);
+    const tutor = survey.normalise({
+      respondent: 'educator', interested_apps: 'teachers-desk', not_at_school: 'on', job_title: 'Tutor',
+      google_accounts: 'microsoft', student_count: 'a thousand', start_when: 'now',
+    }, appKeys);
+    ok('someone with no school is not asked about one', tutor.ok);
+    eq('and a Google answer sent anyway is not kept', tutor.answers.google_accounts, '');
+    eq('a range nobody offered is dropped', tutor.answers.student_count, '');
+    eq('a real choice is kept', tutor.answers.start_when, 'now');
+    ok('the Google question is marked as about the school, so it hides for someone without one',
+      /<fieldset class="school-only">\s*<legend>Does your school use Google accounts/.test(views.requestAccessPage({ request: saved, apps })));
+
+    // ---- telling super admins ----
+    const makeAdmin = async (sub, email) => {
+      const r = await identity.resolveUser({ provider: 'google', subject: sub, email, name: email, hostedDomain: 'school.edu' });
+      await db.query('INSERT INTO platform_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [r.user.id]);
+      return r.user.id;
+    };
+    const grace = await makeAdmin('google-sub-grace', 'grace.ops@school.edu');
+    const ivy = await makeAdmin('google-sub-ivy', 'ivy.ops@school.edu');
+
+    ok('an admin who has never looked is told about open requests', (await survey.newRequestsFor(grace)).count >= 1);
+    await survey.markRequestsSeen(grace);
+    eq('once they have looked, nothing is new', (await survey.newRequestsFor(grace)).count, 0);
+    ok('and another admin still has their own to see', (await survey.newRequestsFor(ivy)).count >= 1);
+
+    const hank = await identity.resolveUser({
+      provider: 'google', subject: 'google-sub-hank', email: 'hank@elsewhere.org', name: 'Hank Moss', hostedDomain: 'elsewhere.org' });
+    const hankRequest = await db.one(
+      `INSERT INTO access_requests (user_id, email) VALUES ($1, 'hank@elsewhere.org') RETURNING id`, [hank.user.id]);
+    eq('a request arriving afterwards is new', (await survey.newRequestsFor(grace)).count, 1);
+
+    await survey.markRequestsSeen(grace);
+    await survey.save(hankRequest.id, tutor.answers);
+    eq('and answering the questions later makes it new again', (await survey.newRequestsFor(grace)).count, 1);
+
+    // The page reads the list, then marks it seen. An answer landing between
+    // those two moments was never on screen and must not be swallowed.
+    const beforeReading = (await db.one('SELECT now() AS at')).at;
+    await survey.save(hankRequest.id, tutor.answers);
+    await survey.markRequestsSeen(grace, beforeReading);
+    eq('an answer that lands while the list is being read still counts as new',
+      (await survey.newRequestsFor(grace)).count, 1);
+
+    const hankSaved = await db.one('SELECT * FROM access_requests WHERE id = $1', [hankRequest.id]);
+    const hankDescribed = survey.describe(hankSaved, apps);
+    eq('the console gets the planning answers in words', hankDescribed.startWhen, 'As soon as possible');
+
+    // Through the very query the Requests page uses, not a hand-picked row.
+    // The page once named its columns and left these four out: saved, tested,
+    // and still invisible to the admin deciding the request.
+    const listedFrank = (await survey.listRequests()).find((r) => r.id === open.id);
+    const throughPage = survey.describe(listedFrank, apps);
+    eq('the Requests page query carries every answer to the console',
+      [throughPage.googleAccounts, throughPage.usageScope, throughPage.studentCount, throughPage.startWhen, throughPage.school],
+      ['Yes, Google Workspace', 'The whole school', '100 to 500', 'Next school year', 'Riverside High']);
+    await db.query(`UPDATE access_requests SET status = 'declined', decided_at = now() WHERE id = $1`, [hankRequest.id]);
+    await survey.markRequestsSeen(grace);
+    eq('a request that has been decided is no longer counted', (await survey.newRequestsFor(grace)).count, 0);
+
+    // ---- retention ----
+    const recent = await db.one(
+      `INSERT INTO access_requests (user_id, email, status, decided_at, respondent, job_title)
+       VALUES ($1, 'frank@elsewhere.org', 'approved', now() - interval '10 days', 'educator', 'Tutor')
+       RETURNING id`, [someone.user.id]);
+    await db.query(
+      `UPDATE access_requests SET status = 'declined', decided_at = now() - interval '91 days' WHERE id = $1`, [open.id]);
+
+    eq('answers to a request decided 91 days ago are cleared', await survey.clearDecidedAnswers(), 1);
+    const cleared = await db.one(
+      'SELECT respondent, school_name, job_title, grade_levels, google_accounts, start_when, status FROM access_requests WHERE id = $1', [open.id]);
+    ok('leaving no answers behind',
+      cleared.respondent === null && cleared.school_name === '' && cleared.job_title === '' &&
+      cleared.grade_levels.length === 0 && cleared.google_accounts === '' && cleared.start_when === '');
+    eq('but keeping the record that someone asked and what was decided', cleared.status, 'declined');
+    const kept = await db.one('SELECT job_title FROM access_requests WHERE id = $1', [recent.id]);
+    eq('a request decided ten days ago keeps its answers', kept.job_title, 'Tutor');
+    eq('and running the sweep again changes nothing', await survey.clearDecidedAnswers(), 0);
+  }
+
+  section('Problem reports');
+  {
+    const reports = require('../src/reports');
+    const merge = require('../src/merge');
+
+    // A fresh token for Carla at Oakwood, through the real authorize and token
+    // endpoints — the one an app's /auth/report forwards on her behalf.
+    const mint = async (userId) => {
+      const sess = await sessions.create(userId, { ip: '10.0.0.40', userAgent: 'report-test', isMinor: false });
+      const v = crypto.randomBytes(32).toString('base64url');
+      const ch = crypto.createHash('sha256').update(v).digest('base64url');
+      const a = await fetch(`${base}/authorize?response_type=code&client_id=atlas` +
+        `&redirect_uri=${encodeURIComponent('http://localhost:4000/auth/callback')}` +
+        `&scope=openid+profile+email+roles&state=r&code_challenge=${ch}&code_challenge_method=S256`,
+        { headers: { cookie: `${sessions.COOKIE}=${encodeURIComponent(sess.raw)}` }, redirect: 'manual' });
+      const code = new URL(a.headers.get('location')).searchParams.get('code');
+      return (await fetch(`${base}/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+        body: new URLSearchParams({ grant_type: 'authorization_code', code,
+          redirect_uri: 'http://localhost:4000/auth/callback', code_verifier: v }).toString(),
+      })).json();
+    };
+    const carlaTokens = await mint(claimed.user.id);
+    const file = (token, body) => fetch(`${base}/api/v1/reports`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+
+    // ---- intake ----
+    const sent = await file(carlaTokens.id_token, {
+      kind: 'mistake',
+      message: 'Jericho is on the wrong side of the Jordan on the Joshua map.',
+      pageUrl: 'https://maps.signify.one/passage?ref=Josh+6&join=K7QX#token=abc',
+      // Trying to file it as somebody else, from somewhere else.
+      userId: bobUser.id, tenantId: other.id, appName: 'Whiteboard',
+      context: {
+        userAgent: 'Mozilla/5.0 (test)', viewport: '1280x800', language: 'en-GB',
+        selection: 'Jericho', cookie: 'sid=stolen', localStorage: { a: 1 },
+        errors: Array.from({ length: 14 }, (_, i) => ({
+          message: `TypeError ${i}`, source: 'https://maps.signify.one/js/app.js?v=51', line: i, col: 2,
+          at: '2026-09-17T10:00:00.000Z',
+        })),
+      },
+    });
+    eq('a signed-in person can file a report from an app', sent.status, 201);
+    const sentBody = await sent.json();
+    ok('and is handed back a short reference', /^R-[A-HJ-NP-Z2-9]{5}$/.test(sentBody.ref), sentBody.ref);
+
+    const row = await db.one('SELECT * FROM reports WHERE ref = $1', [sentBody.ref]);
+    ok('who sent it comes from the token, not the body',
+      row.user_id === claimed.user.id && row.tenant_id === tenant.id);
+    eq('and so does which app it came from', [row.app_id, row.app_name], [client.id, 'Classroom Atlas']);
+    eq('the query string and fragment are stripped from the page address',
+      row.page_url, 'https://maps.signify.one/passage');
+    ok('fields nobody asked for are dropped from the details',
+      !('cookie' in row.context) && !('localStorage' in row.context) && row.context.selection === 'Jericho');
+    eq('only the last ten script errors are kept', row.context.errors.length, 10);
+    eq('and their addresses lose their query strings too',
+      row.context.errors[0].source, 'https://maps.signify.one/js/app.js');
+
+    const bare = await (await file(carlaTokens.id_token, {
+      kind: 'bug', message: 'The timer froze.', includeDetails: false,
+      context: { userAgent: 'x', selection: 'private text' },
+    })).json();
+    const bareRow = await db.one('SELECT context FROM reports WHERE ref = $1', [bare.ref]);
+    eq('unticking "include details" sends none of them', bareRow.context, {});
+
+    eq('a report with no kind is refused', (await file(carlaTokens.id_token, { message: 'hello there' })).status, 400);
+    eq('so is one that says nothing', (await file(carlaTokens.id_token, { kind: 'bug', message: '  ' })).status, 400);
+    eq('so is one far too long', (await file(carlaTokens.id_token, { kind: 'bug', message: 'x'.repeat(reports.MESSAGE_MAX + 1) })).status, 400);
+    eq('and nobody can file one without signing in', (await file(null, { kind: 'bug', message: 'anonymous' })).status, 401);
+
+    // Two sent so far; fill the rest of the hour's allowance.
+    for (let i = 0; i < reports.PER_HOUR - 2; i += 1) {
+      await reports.create({ userId: claimed.user.id, tenantId: tenant.id, appName: 'Classroom Atlas' },
+        { kind: 'other', message: `flood ${i}` });
+    }
+    eq('one person cannot flood the list', (await file(carlaTokens.id_token, { kind: 'bug', message: 'one more' })).status, 429);
+    await db.query(`UPDATE reports SET created_at = now() - interval '2 hours' WHERE message LIKE 'flood %'`);
+
+    // ---- triage, and who may see what ----
+    const elsewhere = await reports.create(
+      { userId: riversideUser.user.id, tenantId: other.id, appName: 'Classroom Whiteboard' },
+      { kind: 'bug', message: 'Riverside: the pen lags on Chromebooks.' });
+
+    const asSuper = await reports.list(superAdminActor, {});
+    ok('a platform admin sees every school’s reports',
+      asSuper.ok && asSuper.reports.some((r) => r.ref === elsewhere.report.ref) && asSuper.reports.some((r) => r.ref === sentBody.ref));
+    ok('with the reporter named', asSuper.reports.find((r) => r.ref === sentBody.ref).reporter_email === 'carla@school.edu');
+
+    const localAdmin = { ...localAdminActor, tenantId: tenant.id, isSuper: false };
+    const asLocal = await reports.list(localAdmin, { tenantId: other.id });
+    ok('a local admin sees their own school’s reports',
+      asLocal.ok && asLocal.reports.some((r) => r.ref === sentBody.ref));
+    ok('and never another school’s, even when they ask for it by id',
+      !asLocal.reports.some((r) => r.ref === elsewhere.report.ref));
+
+    const teacher = { userId: claimed.user.id, isSuper: false, tenantId: tenant.id,
+      perms: rbac.collapse(rbac.BUILTIN_ROLES.find((r) => r.key === 'teacher').permissions) };
+    ok('a teacher cannot read the list at all', !(await reports.list(teacher, {})).ok);
+    eq('and sees a count of zero rather than an error', await reports.newCount(teacher), 0);
+
+    const crossUpdate = await reports.update(localAdmin, elsewhere.report.id, { status: 'fixed' });
+    eq('a local admin cannot close another school’s report', crossUpdate.status, 403);
+
+    const newBefore = await reports.newCount(localAdmin);
+    const fixed = await reports.update(localAdmin, row.id, { status: 'fixed', resolution: 'Moved Jericho west of the river.' });
+    ok('closing a report stamps when and by whom',
+      fixed.ok && fixed.report.status === 'fixed' && !!fixed.report.closed_at);
+    eq('and it drops out of the new count', await reports.newCount(localAdmin), newBefore - 1);
+    const closedRow = await db.one('SELECT closed_by FROM reports WHERE id = $1', [row.id]);
+    eq('closed_by is the administrator who did it', closedRow.closed_by, localAdmin.userId);
+
+    const reopened = await reports.update(localAdmin, row.id, { status: 'investigating' });
+    ok('reopening clears the closed stamp', reopened.ok && reopened.report.closed_at === null);
+    eq('an unknown status is refused', (await reports.update(localAdmin, row.id, { status: 'maybe' })).status, 400);
+    const open = await reports.list(superAdminActor, { status: 'open' });
+    ok('the "open" filter leaves out closed reports',
+      open.reports.every((r) => !reports.CLOSED.includes(r.status)));
+
+    // ---- the person's own record ----
+    const carlaOwn = await reports.forUser(claimed.user.id);
+    ok('a FERPA export includes what someone reported',
+      carlaOwn.some((r) => r.message.startsWith('Jericho')) && !carlaOwn.some((r) => r.message.startsWith('Riverside')));
+
+    // ---- merging ----
+    const twin = await db.one(`INSERT INTO users (email, display_name) VALUES ('carla.personal@gmail.com','Carla') RETURNING id`);
+    await reports.create({ userId: twin.id, tenantId: null, appName: 'Classroom Atlas' }, { kind: 'bug', message: 'Reported before the school account existed.' });
+    const mergePreview = await merge.preview({ keepId: claimed.user.id, fromId: twin.id, actor: superAdminActor });
+    eq('merging two accounts moves the reports across', mergePreview.moving && mergePreview.moving['reports.user_id'], 1);
+
+    // ---- retention ----
+    await db.query(`UPDATE reports SET closed_at = now() - interval '181 days', status = 'fixed' WHERE id = $1`, [elsewhere.report.id]);
+    const recentClosed = await reports.create({ userId: bobUser.id, tenantId: tenant.id, appName: 'Classroom Atlas' }, { kind: 'bug', message: 'Closed last week.' });
+    await db.query(`UPDATE reports SET closed_at = now() - interval '7 days', status = 'fixed' WHERE id = $1`, [recentClosed.report.id]);
+    const ancient = await reports.create({ userId: bobUser.id, tenantId: tenant.id, appName: 'Classroom Atlas' }, { kind: 'bug', message: 'Nobody ever looked at this.' });
+    await db.query(`UPDATE reports SET created_at = now() - interval '401 days' WHERE id = $1`, [ancient.report.id]);
+
+    eq('the sweep erases the expired reports and nothing else', await reports.purgeExpired(), 2);
+    ok('a report closed 181 days ago is gone', !(await db.one('SELECT 1 FROM reports WHERE id = $1', [elsewhere.report.id])));
+    ok('an open one past the retention limit is gone too', !(await db.one('SELECT 1 FROM reports WHERE id = $1', [ancient.report.id])));
+    ok('one closed last week is kept', !!(await db.one('SELECT 1 FROM reports WHERE id = $1', [recentClosed.report.id])));
+
+    // ---- erasure ----
+    const gone = await db.one(`INSERT INTO users (email, display_name) VALUES ('leaver@school.edu','Leaver') RETURNING id`);
+    await reports.create({ userId: gone.id, tenantId: tenant.id, appName: 'Classroom Atlas' }, { kind: 'mistake', message: 'My own words.' });
+    await db.query('DELETE FROM users WHERE id = $1', [gone.id]);
+    eq('erasing a person erases what they reported', Number((await db.one('SELECT COUNT(*) AS n FROM reports WHERE user_id = $1', [gone.id])).n), 0);
+
+    // ---- the permission ----
+    ok('local admins hold the triage permission for their school',
+      rbac.BUILTIN_ROLES.find((r) => r.key === 'local_admin').permissions
+        .some((g) => g.permission === 'core:triage_reports' && g.scope === 'tenant'));
+    ok('and it is marked administrative, so a teacher cannot mint it into a role',
+      rbac.ADMIN_PERMISSIONS.has('core:triage_reports'));
   }
 
   section('Audit trail');

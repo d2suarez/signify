@@ -14,6 +14,7 @@ const views = require('./views');
 const audit = require('./audit');
 const sessions = require('./sessions');
 const identity = require('./identity');
+const survey = require('./access-survey');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -104,12 +105,29 @@ async function completeSignIn(req, res, profile, continueTo) {
     // attempt becomes a request an administrator can see and act on — and a
     // second attempt bumps the same request rather than making a new one.
     if (block.code === 'no_tenant') {
+      // Which app they were on their way to, if any — it is the obvious
+      // first answer to "which apps are you interested in".
+      let cameFrom = null;
+      const fromApp = /[?&]client_id=([^&]+)/.exec(safeContinue(continueTo));
+      if (fromApp) {
+        try {
+          const known = await db.one('SELECT client_id FROM apps WHERE client_id = $1', [decodeURIComponent(fromApp[1])]);
+          cameFrom = known ? known.client_id : null;
+        } catch { /* a malformed client_id names no app */ }
+      }
+
       await db.query(
-        `INSERT INTO access_requests (user_id, email) VALUES ($1, $2)
+        `INSERT INTO access_requests (user_id, email, came_from_app) VALUES ($1, $2, $3)
          ON CONFLICT (user_id) WHERE status = 'pending'
-         DO UPDATE SET attempts = access_requests.attempts + 1, last_seen_at = now()`,
-        [user.id, user.email]);
-      block.message = 'Your account is not attached to a school yet. An administrator has been asked to approve it — you will be able to sign in once they do.';
+         DO UPDATE SET attempts = access_requests.attempts + 1, last_seen_at = now(),
+                       came_from_app = COALESCE(EXCLUDED.came_from_app, access_requests.came_from_app)`,
+        [user.id, user.email, cameFrom]);
+      block.message = 'Your account is not attached to a school yet.';
+
+      // Rather than a dead end, a few questions. The signed cookie is the only
+      // way onto that page, and only this sign-in can have produced it.
+      res.cookie(survey.COOKIE, survey.sign(user.id), survey.cookieOptions());
+      block.next = survey.PATH;
     }
 
     await audit.record({
@@ -118,7 +136,7 @@ async function completeSignIn(req, res, profile, continueTo) {
       action: block.code === 'no_tenant' ? 'access.requested' : 'signin.blocked',
       detail: { code: block.code }, ip: req.ip,
     });
-    return res.status(403).json({ error: block.message, code: block.code });
+    return res.status(403).json({ error: block.message, code: block.code, next: block.next });
   }
 
   const session = await sessions.create(user.id, {
@@ -205,6 +223,56 @@ router.post('/auth/dev', async (req, res) => {
     name: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     hostedDomain: email.split('@')[1],
   }, (req.body || {}).continue);
+});
+
+// ---------- asking for an account ----------
+// Reached only straight after a verified Google sign-in that matched no
+// school, carrying a short-lived signed cookie naming who signed in.
+
+function surveyUser(req) {
+  return survey.verify(sessions.parseCookies(req)[survey.COOKIE]);
+}
+
+router.get('/request-access', async (req, res) => {
+  const userId = surveyUser(req);
+  if (!userId) return res.redirect('/signin');
+  const request = await survey.currentRequest(userId);
+  if (!request) {
+    // Decided since they last looked. Signing in again says what happened.
+    res.clearCookie(survey.COOKIE, { path: survey.PATH });
+    return res.redirect('/signin');
+  }
+
+  const apps = await survey.surveyApps();
+  res.set('Cache-Control', 'no-store');
+  if (request.survey_submitted_at && request.respondent && req.query.edit !== '1') {
+    return res.send(views.requestReceivedPage({ request, apps }));
+  }
+  res.send(views.requestAccessPage({ request, apps }));
+});
+
+router.post('/request-access', async (req, res) => {
+  const userId = surveyUser(req);
+  if (!userId) return res.redirect(303, '/signin');
+  const request = await survey.currentRequest(userId);
+  if (!request) return res.redirect(303, '/signin');
+
+  const apps = await survey.surveyApps();
+  const result = survey.normalise(req.body, apps.map((a) => a.client_id));
+  res.set('Cache-Control', 'no-store');
+  if (!result.ok) {
+    return res.status(400).send(views.requestAccessPage({ request, apps, values: req.body, errors: result.errors }));
+  }
+
+  await survey.save(request.id, result.answers);
+  // Only the kind of respondent goes in the log. The answers themselves stay
+  // on the request, where the retention sweep can clear them.
+  await audit.record({
+    actorUserId: userId, actorEmail: request.email,
+    action: 'access.request_answered', targetType: 'user', targetId: userId,
+    detail: { respondent: result.answers.respondent }, ip: req.ip, userAgent: req.get('user-agent'),
+  });
+  res.redirect(303, survey.PATH);
 });
 
 router.get('/logout', async (req, res) => {

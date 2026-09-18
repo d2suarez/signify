@@ -15,6 +15,7 @@ const keys = require('./keys');
 const audit = require('./audit');
 const catalog = require('./catalog');
 const rbac = require('./rbac');
+const reports = require('./reports');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -199,6 +200,28 @@ router.get('/classes/:id/members', async (req, res) => {
     });
   }
   res.json({ members: rows });
+});
+
+/**
+ * "Report a problem", from inside any app.
+ *
+ * Who sent it is read off the verified token — person, school and app — and
+ * never off the body, so a report cannot be filed in somebody else's name or
+ * against an app it did not come from. The app forwards this on the person's
+ * behalf from its own origin (/auth/report in signify-auth.js), the same way
+ * it proxies the switcher's app list.
+ */
+router.post('/reports', express.json({ limit: '32kb' }), async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+
+  const result = await reports.create(
+    { userId: c.userId, tenantId: c.tenantId, appId: c.app.id, appName: c.app.name },
+    req.body);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+
+  res.set('Cache-Control', 'no-store');
+  res.status(201).json({ ok: true, ref: result.report.ref });
 });
 
 /**

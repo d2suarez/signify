@@ -1923,6 +1923,252 @@ function restoreDialog() {
 
 // ---------- people waiting for an account ----------
 
+// What someone said about themselves when they asked. Folded away so a long
+// list of requests stays scannable; a line a person skipped is left out.
+function requestAnswers(a) {
+  function line(label, value) {
+    if (!value || (Array.isArray(value) && !value.length)) return '';
+    return '<dt>' + esc(label) + '</dt><dd>' + esc(Array.isArray(value) ? value.join(', ') : value) + '</dd>';
+  }
+  return '<details class="answers"><summary>Answers</summary><dl>' +
+    line('Describes themselves as', a.respondentLabel) +
+    line('Interested in', a.apps) +
+    line('Was opening', a.cameFrom) +
+    line('School', a.school) +
+    line('Job title', a.jobTitle) +
+    line('School uses', a.googleAccounts) +
+    line('Who would use it', a.usageScope) +
+    line('Students', a.studentCount) +
+    line('Wants to start', a.startWhen) +
+    line('Subjects', a.subjects) +
+    line('Grade levels', a.gradeLevels) +
+    line('Heard about Signify.one from', a.heardFrom) +
+    '</dl></details>';
+}
+
+// ---------- problem reports ----------
+// Everything people have flagged with "Report a problem", from every app. A
+// super admin sees all of it; a local admin with core:triage_reports sees
+// their own school's. The server decides that — this only draws it.
+
+var REPORT_STATUS = {
+  new:           { label: 'New',            chip: 'chip-blue' },
+  investigating: { label: 'Looking into it', chip: 'chip-yellow' },
+  fixed:         { label: 'Fixed',          chip: 'chip-green' },
+  wont_fix:      { label: 'Won’t fix',  chip: 'chip-grey' },
+  duplicate:     { label: 'Duplicate',      chip: 'chip-grey' },
+};
+var REPORT_KIND = {
+  bug:     { label: 'Not working',    chip: 'chip-red' },
+  mistake: { label: 'Something wrong', chip: 'chip-yellow' },
+  other:   { label: 'Other',          chip: 'chip-grey' },
+};
+
+function reportChip(map, key) {
+  var m = map[key] || { label: key, chip: 'chip-grey' };
+  return '<span class="chip ' + m.chip + '">' + esc(m.label) + '</span>';
+}
+
+function reportBadge(count) {
+  var btn = document.querySelector('#nav button[data-page="reports"]');
+  if (!btn) return;
+  var badge = btn.querySelector('.nav-count');
+  if (!count) { if (badge) badge.remove(); btn.removeAttribute('aria-label'); return; }
+  if (!badge) { badge = document.createElement('span'); badge.className = 'nav-count'; btn.appendChild(badge); }
+  badge.textContent = count;
+  btn.setAttribute('aria-label', 'Problem reports, ' + count + ' new');
+}
+
+function refreshReportBadge() {
+  if (!can('core:triage_reports', 'tenant')) return Promise.resolve();
+  return api('/reports/summary').then(function (d) { reportBadge(d.new); }).catch(function () {});
+}
+
+// Runs once the console knows who is looking.
+function initReports() {
+  var btn = document.querySelector('#nav button[data-page="reports"]');
+  if (btn) btn.hidden = !can('core:triage_reports', 'tenant');
+  var own = document.getElementById('reportOwn');
+  if (own) own.onclick = function () {
+    if (window.SignifyReport) window.SignifyReport.open();
+    else toast('The report form did not load. Reload the page and try again.', true);
+  };
+  refreshReportBadge();
+}
+
+function reportDetail(r) {
+  var c = r.context || {};
+  var row = function (label, value) {
+    return value ? '<dt>' + esc(label) + '</dt><dd>' + value + '</dd>' : '';
+  };
+  var page = /^https?:\/\//.test(r.page_url || '')
+    ? '<a href="' + esc(r.page_url) + '" target="_blank" rel="noopener noreferrer">' + esc(r.page_url) + '</a>'
+    : '';
+  var errors = (c.errors || []).map(function (e) {
+    var where = e.source ? ' <span class="muted">' + esc(e.source) + (e.line != null ? ':' + esc(e.line) + (e.col != null ? ':' + esc(e.col) : '') : '') + '</span>' : '';
+    return '<li><span class="code">' + esc(e.message) + '</span>' + where + '</li>';
+  }).join('');
+
+  return '<div class="report-msg">' + esc(r.message) + '</div>' +
+    '<dl class="report-meta">' +
+      row('Reference', '<span class="code">' + esc(r.ref) + '</span>') +
+      row('Sent', esc(new Date(r.created_at).toLocaleString())) +
+      row('From', esc(r.reporter_name || 'An erased account') +
+        (r.reporter_email ? ' <span class="muted">&lt;' + esc(r.reporter_email) + '&gt;</span>' : '')) +
+      row('School', esc(r.tenant_name || '')) +
+      row('App', esc(r.app_name)) +
+      row('Page', page) +
+      row('Highlighted', c.selection ? '<q>' + esc(c.selection) + '</q>' : '') +
+      row('Browser', esc(c.userAgent || '')) +
+      row('Screen', esc([c.viewport && ('window ' + c.viewport), c.screen && ('screen ' + c.screen)].filter(Boolean).join(', '))) +
+      row('Language', esc([c.language, c.timezone].filter(Boolean).join(' · '))) +
+      row('Errors', errors ? '<ol class="report-errors">' + errors + '</ol>' : '') +
+    '</dl>' +
+    (!c.userAgent && !errors ? '<p class="small muted">No technical details were included.</p>' : '') +
+    '<div class="field"><label for="rp_status">Status</label><select id="rp_status">' +
+      Object.keys(REPORT_STATUS).map(function (k) {
+        return '<option value="' + k + '"' + (k === r.status ? ' selected' : '') + '>' + esc(REPORT_STATUS[k].label) + '</option>';
+      }).join('') +
+    '</select></div>' +
+    '<div class="field"><label for="rp_note">Note <span class="muted small">(for administrators only)</span></label>' +
+      '<textarea id="rp_note" rows="3" maxlength="2000" placeholder="What was done, or why not.">' + esc(r.resolution || '') + '</textarea></div>' +
+    (r.closed_at ? '<p class="small muted">Closed ' + esc(when(r.closed_at)) + (r.closed_by_name ? ' by ' + esc(r.closed_by_name) : '') + '.</p>' : '');
+}
+
+pages.reports = function () {
+  if (!can('core:triage_reports', 'tenant')) {
+    document.getElementById('main').innerHTML =
+      head('Problem reports', 'What people have flagged from inside the apps.') +
+      '<div class="notice notice-info"><strong>Not part of your role</strong>' +
+      'Reading problem reports needs the “Read and close problem reports” permission.</div>';
+    return Promise.resolve();
+  }
+
+  var f = state.cache.reportFilter || (state.cache.reportFilter = { status: 'open', kind: '', app: '' });
+  var q = [];
+  if (state.tenantId) q.push('tenant_id=' + encodeURIComponent(state.tenantId));
+  if (f.status) q.push('status=' + encodeURIComponent(f.status));
+  if (f.kind) q.push('kind=' + encodeURIComponent(f.kind));
+  if (f.app) q.push('app=' + encodeURIComponent(f.app));
+
+  return api('/reports' + (q.length ? '?' + q.join('&') : '')).then(function (d) {
+    var byId = {};
+    var rows = d.reports.map(function (r) {
+      byId[r.id] = r;
+      return '<tr class="clickable" data-id="' + esc(r.id) + '" tabindex="0">' +
+        '<td class="muted small" style="white-space:nowrap">' + esc(when(r.created_at)) + '</td>' +
+        '<td>' + reportChip(REPORT_KIND, r.kind) + '</td>' +
+        '<td><div class="report-snippet">' + esc(r.message) + '</div>' +
+          '<div class="small muted">' + esc(r.app_name) +
+            (r.tenant_name && !state.tenantId ? ' · ' + esc(r.tenant_name) : '') + '</div></td>' +
+        '<td class="small">' + esc(r.reporter_name || '—') + '</td>' +
+        '<td>' + reportChip(REPORT_STATUS, r.status) + '</td>' +
+      '</tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">' +
+      (f.status === 'open' ? 'Nothing open. Everything reported has been dealt with.' : 'No reports match.') + '</td></tr>';
+
+    var opt = function (value, label, current) {
+      return '<option value="' + esc(value) + '"' + (value === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+    };
+
+    document.getElementById('main').innerHTML =
+      head('Problem reports', 'What people have flagged with “Report a problem”, from every app. Closed reports are erased 180 days after closing.') +
+      '<div class="toolbar">' +
+        '<select id="rfStatus" aria-label="Status" style="width:auto">' +
+          opt('open', 'Open', f.status) + opt('new', 'New', f.status) + opt('investigating', 'Looking into it', f.status) +
+          opt('fixed', 'Fixed', f.status) + opt('wont_fix', 'Won’t fix', f.status) + opt('duplicate', 'Duplicate', f.status) +
+          opt('', 'Everything', f.status) +
+        '</select>' +
+        '<select id="rfKind" aria-label="Kind" style="width:auto">' +
+          opt('', 'Any kind', f.kind) + opt('bug', 'Not working', f.kind) + opt('mistake', 'Something wrong', f.kind) + opt('other', 'Other', f.kind) +
+        '</select>' +
+        '<select id="rfApp" aria-label="App" style="width:auto">' + opt('', 'Every app', f.app) +
+          d.apps.map(function (a) { return opt(a, a, f.app); }).join('') +
+        '</select>' +
+      '</div>' +
+      '<div class="card"><div class="table-wrap"><table><thead><tr>' +
+        '<th>When</th><th>Kind</th><th>What they said</th><th>From</th><th>Status</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+
+    ['rfStatus', 'rfKind', 'rfApp'].forEach(function (id, i) {
+      document.getElementById(id).onchange = function () {
+        f[['status', 'kind', 'app'][i]] = this.value;
+        setPage('reports');
+      };
+    });
+
+    function openReport(r) {
+      modal({
+        title: (REPORT_KIND[r.kind] || {}).label || 'Report',
+        subtitle: r.app_name + ' · ' + when(r.created_at),
+        confirm: 'Save',
+        body: reportDetail(r),
+        onConfirm: function (m) {
+          return api('/reports/' + encodeURIComponent(r.id), { method: 'PATCH', body: {
+            status: m.querySelector('#rp_status').value,
+            resolution: m.querySelector('#rp_note').value,
+          } }).then(function () {
+            toast('Report ' + r.ref + ' updated.');
+            refreshReportBadge();
+            setPage('reports');
+          });
+        },
+      });
+      // A new report that has been opened has been seen. Moving it on is one
+      // less thing to remember, and it can still be set back.
+      if (r.status === 'new') {
+        var sel = document.querySelector('#rp_status');
+        if (sel) sel.value = 'investigating';
+      }
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('tr[data-id]'), function (tr) {
+      var go = function () { openReport(byId[tr.dataset.id]); };
+      tr.onclick = go;
+      tr.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  });
+};
+
+// ---------- new account requests ----------
+// When a super admin opens the console and someone has asked for an account
+// since they last looked, a card says so and the Requests button carries a
+// count. The card can be put off; the count stays until the page is opened.
+function requestBadge(count) {
+  var btn = document.querySelector('#nav button[data-page="requests"]');
+  if (!btn) return;
+  var badge = btn.querySelector('.nav-count');
+  if (!count) {
+    if (badge) badge.remove();
+    btn.removeAttribute('aria-label');
+    return;
+  }
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'nav-count';
+    btn.appendChild(badge);
+  }
+  badge.textContent = count;
+  btn.setAttribute('aria-label', 'Requests, ' + count + ' new');
+}
+
+function announceNewRequests(count) {
+  requestBadge(count);
+  var root = document.getElementById('noticeRoot');
+  root.innerHTML =
+    '<div class="notify" role="status">' +
+      '<div class="notify-title">' + (count === 1 ? 'A new account request' : esc(count) + ' new account requests') + '</div>' +
+      '<div class="small muted">' + (count === 1 ? 'Someone has' : 'People have') +
+        ' asked for an account since you last looked.</div>' +
+      '<div class="notify-actions">' +
+        '<button class="btn btn-sm btn-primary" data-review>Review</button>' +
+        '<button class="btn btn-sm btn-quiet" data-later>Later</button>' +
+      '</div>' +
+    '</div>';
+  root.querySelector('[data-review]').onclick = function () { root.innerHTML = ''; setPage('requests'); };
+  root.querySelector('[data-later]').onclick = function () { root.innerHTML = ''; };
+}
+
 pages.requests = function () {
   if (!state.actor.isSuper) {
     document.getElementById('main').innerHTML =
@@ -1939,6 +2185,10 @@ pages.requests = function () {
     api('/tenants'),
     api('/roles'),
   ]).then(function (r) {
+    // Looking at the page is what the notice was asking for.
+    requestBadge(0);
+    document.getElementById('noticeRoot').innerHTML = '';
+
     var requests = r[0].requests;
     var unassigned = r[1].users;
     var tenants = r[2].tenants;
@@ -1948,9 +2198,18 @@ pages.requests = function () {
     var decided = requests.filter(function (q) { return q.status !== 'pending'; });
 
     var openRows = open.map(function (q) {
-      return '<tr data-req="' + esc(q.id) + '">' +
-        '<td><div style="font-weight:550">' + esc(q.display_name || q.email) + '</div>' +
-        '<div class="small muted">' + esc(q.email) + '</div></td>' +
+      var a = q.answers || {};
+      var summary = a.answered
+        ? esc([a.jobTitle, a.school].filter(Boolean).join(' \u00b7 '))
+        : '<span class="faint">Has not answered the questions yet' +
+          (a.cameFrom ? ' \u00b7 was opening ' + esc(a.cameFrom) : '') + '</span>';
+      return '<tr data-req="' + esc(q.id) + '" style="vertical-align:top">' +
+        '<td><div style="font-weight:550">' + esc(q.display_name || q.email) +
+          (a.respondent === 'student' ? ' <span class="chip chip-red">Says they are a student</span>' : '') +
+          (a.googleAccountsKey === 'microsoft' ? ' <span class="chip chip-yellow">Microsoft school</span>' : '') + '</div>' +
+        '<div class="small muted">' + esc(q.email) + '</div>' +
+        '<div class="small" style="margin-top:.2rem">' + summary + '</div>' +
+        (a.answered ? requestAnswers(a) : '') + '</td>' +
         '<td class="muted small">' + esc(when(q.requested_at)) + '</td>' +
         '<td class="muted small">' + esc(q.attempts) + ' attempt' + (Number(q.attempts) === 1 ? '' : 's') + '</td>' +
         '<td style="text-align:right;white-space:nowrap">' +
@@ -2162,6 +2421,9 @@ api('/bootstrap').then(function (d) {
     sel.onchange = function () { state.tenantId = this.value; setPage(state.page); };
     wrap.hidden = false;
   }
+
+  if (d.newRequests && d.newRequests.count) announceNewRequests(d.newRequests.count);
+  initReports();
 
   Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
     b.onclick = function () { setPage(b.dataset.page); };

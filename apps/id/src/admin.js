@@ -19,6 +19,8 @@ const sessions = require('./sessions');
 const identity = require('./identity');
 const guards = require('./guards');
 const directory = require('./directory');
+const reports = require('./reports');
+const survey = require('./access-survey');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -83,6 +85,9 @@ router.get('/bootstrap', async (req, res) => {
     tenants,
     policyVersion: config.policyVersion,
     retentionDays: config.retentionDays,
+    // For a super admin: requests that arrived, or were answered, since they
+    // last opened the Requests page. The console turns this into a notice.
+    newRequests: actor.isSuper ? await survey.newRequestsFor(actor.userId) : null,
   });
 });
 
@@ -401,7 +406,7 @@ router.get('/users/:id/export', async (req, res) => {
   const user = await db.one('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return fail(res, 404, 'No such person.');
 
-  const [identities, memberships, classes, guardiansOf, childrenOf, sessionRows, disclosures] = await Promise.all([
+  const [identities, memberships, classes, guardiansOf, childrenOf, sessionRows, disclosures, reported] = await Promise.all([
     db.many('SELECT provider, subject, email_at_link, hosted_domain, linked_at, last_login_at FROM identities WHERE user_id = $1', [user.id]),
     db.many(`SELECT m.status, m.grade_level, m.graduation_year, m.school_year, m.created_at, r.key AS role, t.name AS school
                FROM memberships m JOIN roles r ON r.id = m.role_id JOIN tenants t ON t.id = m.tenant_id
@@ -414,6 +419,7 @@ router.get('/users/:id/export', async (req, res) => {
                FROM guardian_links g JOIN users u ON u.id = g.student_id WHERE g.guardian_id = $1`, [user.id]),
     sessions.listForUser(user.id),
     audit.list({ targetId: user.id, limit: 500 }),
+    reports.forUser(user.id),
   ]);
 
   await audit.from(req, {
@@ -441,6 +447,7 @@ router.get('/users/:id/export', async (req, res) => {
     children: childrenOf,
     sessions: sessionRows,
     activity_and_disclosures: disclosures,
+    problem_reports: reported,
   });
 });
 
@@ -1106,18 +1113,27 @@ router.post('/compliance/authorization', async (req, res) => {
 router.get('/requests', async (req, res) => {
   const actor = guards.requirePlatformAdmin(req, res, 'Reviewing account requests');
   if (!actor) return;
-  const rows = await db.many(
-    `SELECT r.id, r.email, r.requested_at, r.attempts, r.last_seen_at, r.status,
-            r.decided_at, r.note, u.display_name, u.picture_url, u.id AS user_id,
-            d.email AS decided_by_email, t.name AS tenant_name
-       FROM access_requests r
-       JOIN users u ON u.id = r.user_id
-       LEFT JOIN users d ON d.id = r.decided_by
-       LEFT JOIN tenants t ON t.id = r.tenant_id
-      WHERE u.deleted_at IS NULL
-      ORDER BY (r.status = 'pending') DESC, r.last_seen_at DESC
-      LIMIT 200`);
-  res.json({ requests: rows });
+  // Taken before the list is read: anything answered after this moment was
+  // not on the page, and must still count as new next time.
+  const { at: lookedAt } = await db.one('SELECT now() AS at');
+  const rows = await survey.listRequests();
+
+  // Opening this page is looking at them, so the "new" count starts again
+  // from here — for this admin only.
+  await survey.markRequestsSeen(actor.userId, lookedAt);
+
+  // The answers leave here already put into words, so the console never has
+  // to know what a stored key stands for.
+  const apps = await db.many('SELECT client_id, name FROM apps');
+  res.json({
+    requests: rows.map((r) => ({
+      id: r.id, email: r.email, requested_at: r.requested_at, attempts: r.attempts,
+      last_seen_at: r.last_seen_at, status: r.status, decided_at: r.decided_at, note: r.note,
+      display_name: r.display_name, picture_url: r.picture_url, user_id: r.user_id,
+      decided_by_email: r.decided_by_email, tenant_name: r.tenant_name,
+      answers: survey.describe(r, apps),
+    })),
+  });
 });
 
 router.post('/requests/:id/approve', async (req, res) => {
@@ -1508,6 +1524,60 @@ router.delete('/platform/admins/:id', async (req, res) => {
   await db.query('DELETE FROM platform_admins WHERE user_id = $1', [req.params.id]);
   await audit.from(req, { action: 'platform_admin.revoked', targetType: 'user', targetId: req.params.id, detail: {} });
   res.json({ ok: true });
+});
+
+// ---------- problem reports ----------
+// What people have flagged from inside the apps. A platform admin sees every
+// school's; a local admin holding core:triage_reports sees their own. The
+// scoping lives in reports.scopeFor so the list, the count and the update can
+// never disagree about who may see what.
+
+router.get('/reports', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  const result = await reports.list(actor, {
+    tenantId: req.query.tenant_id, status: req.query.status,
+    kind: req.query.kind, app: req.query.app, limit: req.query.limit,
+  });
+  if (!result.ok) return fail(res, 403, result.error);
+  res.set('Cache-Control', 'no-store');
+  res.json({ reports: result.reports, apps: result.apps });
+});
+
+// For the nav badge. Answers 0 rather than 403 to someone without the
+// permission, so the console can ask on every load without special-casing.
+router.get('/reports/summary', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  res.set('Cache-Control', 'no-store');
+  res.json({ new: await reports.newCount(actor) });
+});
+
+router.patch('/reports/:id', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  const b = req.body || {};
+  const result = await reports.update(actor, req.params.id, { status: b.status, resolution: b.resolution });
+  if (!result.ok) return fail(res, result.status || 400, result.error);
+
+  await audit.from(req, {
+    tenantId: result.report.tenant_id, action: 'report.updated',
+    targetType: 'report', targetId: result.report.id,
+    detail: { ref: result.report.ref, from: result.from, to: result.report.status },
+  });
+  res.json({ ok: true, report: result.report });
+});
+
+// The console is an app too, and has problems of its own. It files through
+// the session rather than a token, so it gets its own door.
+router.post('/reports/new', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  const result = await reports.create(
+    { userId: actor.userId, tenantId: actor.tenantId, appId: null, appName: 'Signify ID console' },
+    req.body);
+  if (!result.ok) return fail(res, result.status, result.error);
+  res.status(201).json({ ok: true, ref: result.report.ref });
 });
 
 module.exports = router;

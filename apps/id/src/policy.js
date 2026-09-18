@@ -30,8 +30,10 @@
 // ---------------------------------------------------------------
 // ===================================================================
 
-const VERSION = '2026-08-31';
-const EFFECTIVE = '31 August 2026';
+// 2026-09-15: people asking for an account now answer questions about
+// themselves, so what is collected changed.
+const VERSION = '2026-09-15';
+const EFFECTIVE = '15 September 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

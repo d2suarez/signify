@@ -144,7 +144,11 @@ function signinPage({ continueTo = '/admin', error = '', appName = '', reauth = 
       credentials: 'same-origin',
     });
     const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || 'Sign-in failed. Please try again.');
+    if (!res.ok) {
+      var failure = new Error(data.error || 'Sign-in failed. Please try again.');
+      failure.data = data;
+      throw failure;
+    }
     return data;
   }
 
@@ -153,10 +157,17 @@ function signinPage({ continueTo = '/admin', error = '', appName = '', reauth = 
   // sign-in falls back to the admin console — including one that arrived here
   // mid-way through an app's OAuth flow, which then simply never finishes and
   // strands the teacher on this site instead of the app they came from.
+  // A sign-in that matched no school is not an error to show: the server says
+  // where to go next, which is the questions for asking for an account.
+  function failed(e) {
+    if (e.data && e.data.next) { window.location.href = e.data.next; return; }
+    showError(e.message);
+  }
+
   window.onGoogleCredential = function (response) {
     post('/auth/google', { credential: response.credential, continue: CONTINUE })
       .then(function (d) { window.location.href = d.next || CONTINUE; })
-      .catch(function (e) { showError(e.message); });
+      .catch(failed);
   };
 
   var devform = document.getElementById('devform');
@@ -164,7 +175,7 @@ function signinPage({ continueTo = '/admin', error = '', appName = '', reauth = 
     e.preventDefault();
     post('/auth/dev', { email: document.getElementById('devemail').value, continue: CONTINUE })
       .then(function (d) { window.location.href = d.next || CONTINUE; })
-      .catch(function (er) { showError(er.message); });
+      .catch(failed);
   });
 </script>`);
 }
@@ -231,19 +242,24 @@ function privacyPolicyPage({ retentionDays }) {
     school: 'Their place in the school',
     technical: 'Records of use',
     operational: 'Administrative notes',
+    request: 'Asking for an account',
   };
   const CATEGORY_INTROS = {
     identity: 'The information that identifies a person.',
     school: 'What a person is allowed to do, and which classes they are in.',
     technical: 'Kept so the school can see who did what, and so an account being misused can be spotted. Not used to build a picture of a student.',
     operational: 'Notes an administrator has written about an account.',
+    request: 'Only ever about someone who does not have an account yet and asks for one.',
   };
 
   // One line per thing collected, not one per database column. The grouping
   // is checked against the schema by the test suite, so it can shorten the
   // list without ever leaving something out of it.
   const grouped = inventory.disclosuresByCategory();
-  const collected = ['identity', 'school', 'technical', 'operational']
+  // Rendered from the titles rather than a second list of categories: a
+  // separate list let a new section pass every coverage check and still never
+  // reach the page.
+  const collected = Object.keys(CATEGORY_TITLES)
     .filter((cat) => grouped[cat] && grouped[cat].length)
     .map((cat) => `
       <h3>${esc(CATEGORY_TITLES[cat] || cat)}</h3>
@@ -435,4 +451,200 @@ function privacyPolicyPage({ retentionDays }) {
 </div>`);
 }
 
-module.exports = { shell, esc, errorPage, signinPage, signedOutPage, privacyPage, privacyPolicyPage, brand };
+// ---------- asking for an account ----------
+// Shown straight after a sign-in that matched no school. The questions come
+// from src/access-survey.js; this only lays them out.
+
+function requestAccessPage({ request, apps, values, errors = {} }) {
+  const survey = require('./access-survey');
+  const v = values ? survey.formValues(values) : survey.valuesFromRequest(request);
+  const on = (yes) => (yes ? ' checked' : '');
+  const problem = (key) => (errors[key] ? `<div class="field-error">${esc(errors[key])}</div>` : '');
+  const host = (url) => { try { return new URL(url).host; } catch { return ''; } };
+  const limit = survey.TEXT_LIMIT;
+  const radios = (name, options, current) => options.map((o) => `
+          <label class="choice"><input type="radio" name="${name}" value="${esc(o.key)}"${on(current === o.key)}>
+            <span>${esc(o.label)}</span></label>`).join('');
+
+  const respondents = survey.RESPONDENTS.map((r) => `
+          <label class="choice"><input type="radio" name="respondent" value="${esc(r.key)}"${on(v.respondent === r.key)} required>
+            <span>${esc(r.label)}</span></label>`).join('');
+
+  const appChoices = (apps || []).map((a) => `
+          <label class="choice"><input type="checkbox" name="interested_apps" value="${esc(a.client_id)}"${on(v.interested_apps.includes(a.client_id))}>
+            <span>${esc(a.name)} <span class="faint small">${esc(host(a.launch_url))}</span></span></label>`).join('');
+
+  const heard = survey.HEARD_FROM.map((h) => `
+          <label class="choice"><input type="radio" name="heard_from" value="${esc(h.key)}"${h.key === 'other' ? ' id="heard_other"' : ''}${on(v.heard_from === h.key)}>
+            <span>${esc(h.label)}</span></label>`).join('');
+
+  const subjects = survey.SUBJECTS.map((x) => `
+          <label class="choice"><input type="checkbox" name="subjects" value="${esc(x.key)}"${x.key === 'other' ? ' id="subjects_other"' : ''}${on(v.subjects.includes(x.key))}>
+            <span>${esc(x.label)}</span></label>`).join('');
+
+  const grades = survey.GRADE_LEVELS.map((g) => `
+          <label class="grade-pill"><input type="checkbox" name="grade_levels" value="${esc(g)}"${on(v.grade_levels.includes(g))}><span>${esc(g)}</span></label>`).join('');
+
+  const summary = Object.keys(errors).length ? `
+    <div class="notice notice-danger"><strong>A few answers need another look</strong>Each one is marked below.</div>` : '';
+
+  return shell('Ask for an account', `
+<div class="sheet-wrap" style="align-items:start">
+  <div class="sheet sheet-wide">
+    ${brand}
+    <h1>Ask for an account</h1>
+    <p class="muted">You signed in as <strong>${esc(request.email)}</strong>, which is not part of a
+    school using Signify.one Apps yet. A few questions help decide what to set up. Every request is
+    read by the person who runs Signify.one Apps.</p>
+    ${summary}
+    <form class="survey" method="post" action="${survey.PATH}">
+      <fieldset>
+        <legend>Which describes you?</legend>
+        <div class="choice-list">${respondents}
+        </div>
+        ${problem('respondent')}
+      </fieldset>
+
+      <div class="notice notice-info survey-student-note">
+        <strong>Student accounts come from a school</strong>
+        A student does not ask for an account here. If a teacher would like to use Signify.one Apps
+        with a class, the teacher signs in and asks. Send this and nothing more is asked.
+      </div>
+
+      <div class="survey-details">
+        <fieldset>
+          <legend>Which apps are you interested in?</legend>
+          <div class="choice-grid">${appChoices}
+            <label class="choice"><input type="checkbox" name="interested_apps" value="other" id="apps_other"${on(v.interested_apps.includes('other'))}>
+              <span>Something else</span></label>
+          </div>
+          <div class="other-text other-apps">
+            <input type="text" name="interested_other" maxlength="${limit}" value="${esc(v.interested_other)}"
+                   placeholder="What are you looking for?" aria-label="What are you looking for?">
+          </div>
+          ${problem('interested_apps')}
+        </fieldset>
+
+        <fieldset>
+          <legend>Your school</legend>
+          <div class="school-name">
+            <input type="text" name="school_name" maxlength="${limit}" value="${esc(v.school_name)}"
+                   placeholder="Name of your school" aria-label="Name of your school" autocomplete="organization">
+          </div>
+          <label class="choice" style="margin-top:.45rem"><input type="checkbox" name="not_at_school" id="not_at_school"${on(v.not_at_school)}>
+            <span>I do not work at a school</span></label>
+          ${problem('school_name')}
+        </fieldset>
+
+        <fieldset>
+          <legend>Job title</legend>
+          <input type="text" name="job_title" maxlength="${limit}" value="${esc(v.job_title)}"
+                 placeholder="For example: Grade 7 science teacher" aria-label="Job title" autocomplete="organization-title">
+          ${problem('job_title')}
+        </fieldset>
+
+        <fieldset class="school-only">
+          <legend>Does your school use Google accounts for staff and students?</legend>
+          <div class="choice-grid">${radios('google_accounts', survey.GOOGLE_ACCOUNTS, v.google_accounts)}
+          </div>
+          <div class="hint">Signify.one Apps sign people in with Google, so this decides whether your school can use them.</div>
+          ${problem('google_accounts')}
+        </fieldset>
+
+        <fieldset>
+          <legend>Who would use the apps? <span class="optional">Optional</span></legend>
+          <div class="choice-grid">${radios('usage_scope', survey.USAGE_SCOPE, v.usage_scope)}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Roughly how many students? <span class="optional">Optional</span></legend>
+          <div class="choice-grid">${radios('student_count', survey.STUDENT_COUNT, v.student_count)}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>When would you like to start? <span class="optional">Optional</span></legend>
+          <div class="choice-grid">${radios('start_when', survey.START_WHEN, v.start_when)}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>How did you hear about Signify.one? <span class="optional">Optional</span></legend>
+          <div class="choice-grid">${heard}
+          </div>
+          <div class="other-text other-heard">
+            <input type="text" name="heard_from_other" maxlength="${limit}" value="${esc(v.heard_from_other)}"
+                   placeholder="Where?" aria-label="Where did you hear about Signify.one?">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>What subjects do you teach? <span class="optional">Optional</span></legend>
+          <div class="choice-grid">${subjects}
+          </div>
+          <div class="other-text other-subjects">
+            <input type="text" name="subjects_other" maxlength="${limit}" value="${esc(v.subjects_other)}"
+                   placeholder="Which other subjects?" aria-label="Which other subjects?">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Which grade levels? <span class="optional">Optional</span></legend>
+          <div class="grade-pills">${grades}
+          </div>
+        </fieldset>
+      </div>
+
+      <button class="btn btn-primary" type="submit">Send request</button>
+      <p class="small faint" style="margin:1rem 0 0">Only an administrator sees these answers. They are
+      cleared ${survey.ANSWER_RETENTION_DAYS} days after the request is decided.
+      <a href="/privacy-policy">Privacy policy</a></p>
+    </form>
+  </div>
+</div>`);
+}
+
+function requestReceivedPage({ request, apps }) {
+  const survey = require('./access-survey');
+  const student = request.respondent === 'student';
+  const first = String(request.display_name || '').trim().split(/\s+/)[0];
+
+  const appList = (apps || []).map((a) => `
+      <li><a href="${esc(a.launch_url)}">${esc(a.name)}</a>${a.description ? ` — ${esc(a.description)}` : ''}</li>`).join('');
+
+  const body = student ? `
+    <h1>Student accounts come from a school</h1>
+    <p class="muted">Signify.one Apps are used by schools, and a school sets up its students’ accounts.
+    Nobody asks for a student account on their own. If your class would like to use them, ask your
+    teacher to sign in with their school account and ask for access.</p>` : `
+    <h1>Your request is in</h1>
+    <p class="muted">Thank you${first ? `, ${esc(first)}` : ''}. Your answers have been sent, and any reply
+    goes to <strong>${esc(request.email)}</strong>.</p>
+    <h2 style="font-size:1rem;margin-top:1.25rem">What happens next</h2>
+    <ol class="steps">
+      <li>The person who runs Signify.one Apps reads your request.</li>
+      <li>If the apps suit what you need, your account is set up.</li>
+      <li>After that, signing in takes you straight to the apps.</li>
+    </ol>`;
+
+  return shell('Request received', `
+<div class="sheet-wrap" style="align-items:start">
+  <div class="sheet sheet-wide">
+    ${brand}
+    ${body}
+    ${appList ? `<h2 style="font-size:1rem;margin-top:1.25rem">The apps</h2>
+    <ul class="steps">${appList}
+    </ul>` : ''}
+    <div class="row" style="gap:.5rem;margin-top:1rem">
+      <a class="btn" href="${survey.PATH}?edit=1" style="flex:none">Change my answers</a>
+      <a class="btn btn-quiet" href="/privacy-policy" style="flex:none">Privacy policy</a>
+    </div>
+    <p class="small faint" style="margin:1rem 0 0">Signing in again before the request is decided
+    brings you back to this page.</p>
+  </div>
+</div>`);
+}
+
+module.exports = {
+  requestAccessPage, requestReceivedPage, shell, esc, errorPage, signinPage, signedOutPage, privacyPage, privacyPolicyPage, brand };

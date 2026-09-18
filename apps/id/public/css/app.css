@@ -449,3 +449,100 @@ pre.code { display: block; padding: .75rem; white-space: pre-wrap; box-shadow: v
 .stat-row .stat { padding: .7rem .8rem; }
 .stat-row .stat .n { font-size: 1.4rem; }
 .stat-row .stat .k { font-size: .68rem; margin-top: .25rem; }
+
+/* ---------- asking for an account ---------- */
+
+.sheet-wide { max-width: 40rem; }
+.survey fieldset { border: 0; padding: 0; margin: 0 0 1.35rem; min-width: 0; }
+.survey legend { font-weight: 600; font-size: .92rem; margin-bottom: .45rem; padding: 0; }
+.survey .optional { font-weight: 400; color: var(--muted); font-size: .8rem; }
+.choice-list { display: grid; gap: .35rem; }
+.choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .35rem .5rem; }
+.choice {
+  display: flex; align-items: flex-start; gap: .5rem; margin: 0;
+  padding: .45rem .6rem; font-weight: 450; font-size: .88rem;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); box-shadow: var(--shadow-1); cursor: pointer;
+}
+.choice:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); }
+.choice input { margin: .18rem 0 0; accent-color: var(--blue); flex: none; }
+.grade-pills { display: flex; flex-wrap: wrap; gap: .35rem; }
+.grade-pill { position: relative; margin: 0; }
+.grade-pill input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.grade-pill span {
+  display: inline-block; min-width: 2.5rem; text-align: center;
+  padding: .32rem .6rem; font-size: .85rem; font-weight: 550;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); box-shadow: var(--shadow-1);
+}
+.grade-pill input:checked + span { background: var(--blue); border-color: var(--blue-dark); color: #fff; }
+.grade-pill input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+.other-text { margin-top: .45rem; }
+.field-error { color: var(--red-dark); font-size: .8rem; font-weight: 550; margin-top: .3rem; }
+.steps { padding-left: 1.2rem; margin: .4rem 0 1rem; }
+.steps li { margin-bottom: .35rem; font-size: .9rem; }
+
+/* The student note and the "something else" boxes only appear when they
+   apply. Where a browser cannot tell, everything simply stays visible. */
+.survey-student-note { display: none; }
+@supports selector(:has(*)) {
+  .survey:has(input[name=respondent][value=student]:checked) .survey-student-note { display: block; }
+  .survey:has(input[name=respondent][value=student]:checked) .survey-details { display: none; }
+  .survey .other-apps, .survey .other-heard, .survey .other-subjects { display: none; }
+  .survey:has(#apps_other:checked) .other-apps,
+  .survey:has(#heard_other:checked) .other-heard,
+  .survey:has(#subjects_other:checked) .other-subjects { display: block; }
+  .survey:has(#not_at_school:checked) .school-name,
+  .survey:has(#not_at_school:checked) .school-only { display: none; }
+}
+
+/* The same answers, as an administrator reads them. */
+.answers { margin-top: .35rem; }
+.answers summary { cursor: pointer; font-size: .8rem; font-weight: 550; color: var(--blue); }
+.answers dl {
+  display: grid; grid-template-columns: max-content 1fr; gap: .2rem .8rem;
+  margin: .45rem 0 .2rem; font-size: .82rem;
+}
+.answers dt { color: var(--muted); }
+.answers dd { margin: 0; }
+
+.survey .hint { font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+
+/* ---------- console notifications ---------- */
+
+.nav-count {
+  float: right; min-width: 1.35rem; padding: .05rem .4rem;
+  border-radius: var(--r-sm); background: var(--red); color: #fff;
+  font-size: .72rem; font-weight: 650; line-height: 1.4; text-align: center;
+  box-shadow: var(--shadow-1);
+}
+.notify {
+  position: fixed; top: 1rem; right: 1rem; z-index: 45;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: .8rem .9rem;
+  background: var(--surface);
+  border: 1px solid var(--line); border-left: 3px solid var(--blue);
+  border-radius: var(--r); box-shadow: var(--shadow-3);
+}
+.notify-title { font-family: var(--display); font-weight: 650; margin-bottom: .15rem; }
+.notify-actions { display: flex; gap: .4rem; margin-top: .6rem; }
+
+/* ---------- problem reports ---------- */
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: rgba(29, 78, 216, .035); }
+tr.clickable:focus-visible { outline: 2px solid #1D4ED8; outline-offset: -2px; }
+.report-snippet {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; max-width: 46rem; white-space: pre-wrap;
+}
+.report-msg {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 1rem;
+  padding: .75rem .875rem; background: #F7F6F3; border-radius: 8px; line-height: 1.5;
+}
+.report-meta { display: grid; grid-template-columns: 7.5rem 1fr; gap: .35rem .75rem; margin: 0 0 1rem; font-size: .875rem; }
+.report-meta dt { color: #6B7280; }
+.report-meta dd { margin: 0; overflow-wrap: anywhere; }
+.report-errors { margin: 0; padding-left: 1.1rem; }
+.report-errors li + li { margin-top: .25rem; }
+.report-own { width: 100%; margin-top: .6rem; justify-content: center; }
+

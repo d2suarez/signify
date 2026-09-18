@@ -79,6 +79,7 @@ const INVENTORY = {
     granted_by: { personal: true, category: 'technical', purpose: 'Which existing operator granted platform access to another.', exposed: 'admin' },
     note:       { personal: true, category: 'operational', purpose: 'A note saying why someone holds platform access.', exposed: 'admin' },
     created_at: { personal: true, category: 'technical', purpose: 'The date platform access was granted.', exposed: 'admin' },
+    requests_seen_at: { personal: true, category: 'technical', purpose: 'When a platform operator last opened the list of requests for an account, so the console can say whether new ones have arrived since.', exposed: 'admin' },
   },
 
   access_requests: {
@@ -94,6 +95,47 @@ const INVENTORY = {
     tenant_id:    N('Which school they were admitted to, if they were.'),
     role_id:      N('Which role they were given, if any.'),
     note:         { personal: true, category: 'operational', purpose: 'A note an administrator wrote when deciding a request for an account.', exposed: 'admin' },
+    // What someone says about themselves when asking (migration 008). Each
+    // purpose renders as a standalone line, so none leans on a pronoun.
+    came_from_app:       { personal: true, category: 'technical', purpose: 'Which app a person was trying to open when they asked for an account.', exposed: 'admin' },
+    respondent:          { personal: true, category: 'school', purpose: 'Whether a person asking for an account said they work in education, are a student, or are someone else.', exposed: 'admin' },
+    interested_apps:     { personal: true, category: 'school', purpose: 'Which Signify.one Apps a person asking for an account said they are interested in.', exposed: 'admin' },
+    interested_other:    { personal: true, category: 'school', purpose: 'Anything other than the listed apps that a person asking for an account said they are looking for.', exposed: 'admin' },
+    school_name:         { personal: true, category: 'school', purpose: 'The school a person asking for an account said they work at.', exposed: 'admin' },
+    not_at_school:       { personal: true, category: 'school', purpose: 'Whether a person asking for an account said they do not work at a school.', exposed: 'admin' },
+    job_title:           { personal: true, category: 'school', purpose: 'The job title a person asking for an account gave.', exposed: 'admin' },
+    heard_from:          { personal: true, category: 'school', purpose: 'How a person asking for an account said they heard about Signify.one.', exposed: 'admin' },
+    heard_from_other:    { personal: true, category: 'school', purpose: 'Where else a person asking for an account said they heard about Signify.one.', exposed: 'admin' },
+    subjects:            { personal: true, category: 'school', purpose: 'The subjects a person asking for an account said they teach.', exposed: 'admin' },
+    subjects_other:      { personal: true, category: 'school', purpose: 'Subjects outside the listed ones that a person asking for an account said they teach.', exposed: 'admin' },
+    grade_levels:        { personal: true, category: 'school', purpose: 'The grade levels a person asking for an account said they teach.', exposed: 'admin' },
+    google_accounts:     { personal: true, category: 'school', purpose: 'Whether a person asking for an account said their school uses Google accounts, Microsoft accounts, something else, or is not sure.', exposed: 'admin' },
+    usage_scope:         { personal: true, category: 'school', purpose: 'Whether a person asking for an account said the apps would be used in their own classes, by a team, or across a whole school.', exposed: 'admin' },
+    student_count:       { personal: true, category: 'school', purpose: 'The rough number of students a person asking for an account said would use the apps, as a range.', exposed: 'admin' },
+    start_when:          { personal: true, category: 'school', purpose: 'When a person asking for an account said they would like to start using the apps.', exposed: 'admin' },
+    survey_submitted_at: { personal: true, category: 'technical', purpose: 'When a person asking for an account answered the questions about themselves.', exposed: 'admin' },
+  },
+
+  // ---------- problem reports (migration 010) ----------
+  // Sent from "Report a problem" inside any app. Erased with the account that
+  // sent them; closed ones are erased 180 days after closing regardless.
+  reports: {
+    id:         N('Internal reference for one problem report.'),
+    ref:        N('A short code for one problem report, so it can be quoted back to the person who sent it.'),
+    created_at: { personal: true, category: 'technical', purpose: 'When a person reported a problem.', exposed: 'admin' },
+    user_id:    { personal: true, category: 'identity', purpose: 'Which person reported a problem, so it can be followed up and so it is erased along with their account.', exposed: 'admin' },
+    tenant_id:  N('Which school a problem report came from, so that school’s administrators can see it.'),
+    app_id:     N('Which registered app a problem report was sent from.'),
+    app_name:   { personal: true, category: 'technical', purpose: 'The name of the app a person was using when they reported a problem.', exposed: 'admin' },
+    kind:       { personal: true, category: 'technical', purpose: 'Whether a person said something was not working, was wrong, or was something else.', exposed: 'admin' },
+    message:    { personal: true, category: 'technical', purpose: 'What a person wrote when reporting a problem.', exposed: 'admin' },
+    page_url:   { personal: true, category: 'technical', purpose: 'The page a person was on when they reported a problem, without anything after a question mark.', exposed: 'admin' },
+    context:    { personal: true, category: 'technical', purpose: 'Technical details sent with a problem report unless the person unticks the box: browser, screen size, language, time zone, recent error messages from the page, and any text they had highlighted.', exposed: 'admin' },
+    status:     { personal: true, category: 'technical', purpose: 'Whether a problem report is new, being looked into, fixed, not going to be fixed, or a duplicate.', exposed: 'admin' },
+    resolution: { personal: true, category: 'operational', purpose: 'A note an administrator wrote about how a problem report was dealt with.', exposed: 'admin' },
+    updated_at: { personal: true, category: 'technical', purpose: 'When a problem report was last changed.', exposed: 'admin' },
+    closed_at:  { personal: true, category: 'technical', purpose: 'When a problem report was closed. Closed reports are erased 180 days later.', exposed: 'admin' },
+    closed_by:  { personal: true, category: 'technical', purpose: 'Which administrator closed a problem report.', exposed: 'admin' },
   },
 
   // ---------- classes ----------
@@ -388,17 +430,11 @@ const DISCLOSURES = [
   },
   {
     category: 'technical',
-    text: 'A record of what administrators do: who did it, what they changed, which record it concerned, when, and from where.',
+    text: 'A record of what administrators do: who did it, what they changed, which record it concerned, when, and from where, and when a platform operator last looked at the requests for an account.',
     covers: ['audit_log.ts', 'audit_log.actor_user_id', 'audit_log.target_id', 'audit_log.detail',
              'audit_log.ip', 'audit_log.user_agent', 'memberships.added_by', 'guardian_links.verified_by',
-             'platform_admins.granted_by', 'classes.created_by', 'roles.customised_by',
+             'platform_admins.granted_by', 'platform_admins.requests_seen_at', 'classes.created_by', 'roles.customised_by',
              'user_app_access.set_by'],
-  },
-  {
-    category: 'technical',
-    text: 'If someone has asked for an account: when they asked, how many times they have tried since, and how it was decided.',
-    covers: ['access_requests.requested_at', 'access_requests.attempts', 'access_requests.last_seen_at',
-             'access_requests.status', 'access_requests.decided_at', 'access_requests.decided_by'],
   },
   {
     category: 'technical',
@@ -411,6 +447,34 @@ const DISCLOSURES = [
     category: 'operational',
     text: 'Short notes an administrator has written: why someone has been given wide access, or why a request for an account was decided as it was.',
     covers: ['platform_admins.note', 'access_requests.note'],
+  },
+
+  {
+    category: 'technical',
+    text: 'If someone reports a problem from inside an app: what they wrote, whether they said something was not working or was wrong, which app and page they were on (without anything after a question mark in the address), and when. Unless they untick the box, also their browser, screen size, language and time zone, any recent error messages from the page, and any text they had highlighted. Then how the report was handled, by which administrator, and when. A report is erased with the account that sent it, and 180 days after it is closed.',
+    covers: ['reports.created_at', 'reports.user_id', 'reports.app_name', 'reports.kind',
+             'reports.message', 'reports.page_url', 'reports.context', 'reports.status',
+             'reports.resolution', 'reports.updated_at', 'reports.closed_at', 'reports.closed_by'],
+  },
+
+  // ---- asking for an account ----
+  // Only ever about someone who does not have an account yet.
+  {
+    category: 'request',
+    text: 'If someone without an account asks for one: when they asked, which app they were trying to open, how many times they have tried since, when they answered the questions about themselves, and how the request was decided.',
+    covers: ['access_requests.requested_at', 'access_requests.attempts', 'access_requests.last_seen_at',
+             'access_requests.status', 'access_requests.decided_at', 'access_requests.decided_by',
+             'access_requests.came_from_app', 'access_requests.survey_submitted_at'],
+  },
+  {
+    category: 'request',
+    text: 'The answers someone asking for an account gives about themselves: whether they work in education, are a student or are someone else; which apps they are interested in; the school they work at, or that they do not work at one; their job title; whether that school uses Google accounts; who would use the apps, roughly how many students, and when they would like to start; the subjects and grade levels they teach; and how they heard about Signify.one. A student is asked nothing beyond the first question. The answers are cleared 90 days after the request is decided.',
+    covers: ['access_requests.respondent', 'access_requests.interested_apps', 'access_requests.interested_other',
+             'access_requests.school_name', 'access_requests.not_at_school', 'access_requests.job_title',
+             'access_requests.heard_from', 'access_requests.heard_from_other', 'access_requests.subjects',
+             'access_requests.subjects_other', 'access_requests.grade_levels',
+             'access_requests.google_accounts', 'access_requests.usage_scope',
+             'access_requests.student_count', 'access_requests.start_when'],
   },
 ];
 

@@ -80,17 +80,46 @@ async function purgeExpiredBackups() {
   return rowCount;
 }
 
+// What someone said about themselves when asking for an account is only
+// needed to decide the request. The privacy policy says those answers are
+// cleared 90 days after the decision; this is what makes that sentence true.
+async function clearDecidedRequestAnswers() {
+  const cleared = await require('./access-survey').clearDecidedAnswers();
+  if (cleared) {
+    await audit.record({
+      action: 'retention.request_answers_cleared',
+      detail: { count: cleared, note: 'Answers given when asking for an account, cleared 90 days after the request was decided.' },
+    });
+  }
+  return cleared;
+}
+
+// Problem reports: 180 days after closing, or at the retention limit if
+// nobody ever closed them. See reports.purgeExpired for why both.
+async function purgeExpiredReports() {
+  const n = await require('./reports').purgeExpired();
+  if (n) {
+    await audit.record({
+      action: 'retention.reports_purged',
+      detail: { count: n, note: 'Problem reports past their retention window were deleted.' },
+    });
+  }
+  return n;
+}
+
 async function runOnce() {
   try {
-    const [sess, purged, dormant, snapshots, rotated] = await Promise.all([
+    const [sess, purged, dormant, snapshots, rotated, answers, reportsGone] = await Promise.all([
       purgeExpiredSessions(),
       purgeDueUsers(),
       flagDormantAccounts(),
       purgeExpiredBackups(),
       keys.rotateIfDue(),
+      clearDecidedRequestAnswers(),
+      purgeExpiredReports(),
     ]);
-    if (sess || purged || dormant || snapshots || rotated) {
-      console.log(`Maintenance: ${sess} sessions cleared, ${purged} records purged, ${dormant} flagged dormant, ${snapshots} snapshots expired${rotated ? ', signing key rotated' : ''}.`);
+    if (sess || purged || dormant || snapshots || rotated || answers || reportsGone) {
+      console.log(`Maintenance: ${sess} sessions cleared, ${purged} records purged, ${dormant} flagged dormant, ${snapshots} snapshots expired, ${answers} request answers cleared, ${reportsGone} reports expired${rotated ? ', signing key rotated' : ''}.`);
     }
   } catch (e) {
     console.error('Maintenance sweep failed:', e.message);
@@ -105,4 +134,4 @@ function start() {
   return timer;
 }
 
-module.exports = { start, runOnce, purgeDueUsers, flagDormantAccounts, purgeExpiredSessions, purgeExpiredBackups };
+module.exports = { start, runOnce, purgeDueUsers, flagDormantAccounts, purgeExpiredSessions, purgeExpiredBackups, clearDecidedRequestAnswers, purgeExpiredReports };

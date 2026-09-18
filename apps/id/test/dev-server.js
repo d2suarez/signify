@@ -76,6 +76,11 @@ const { PglitePool } = require('./pglite-pool');
                ARRAY['openid','profile','email','roles'],'demo','active')`,
       [secrets.hash('demo-secret')]);
     const app = await db.one("SELECT id FROM apps WHERE client_id = 'demo-app'");
+    // A launch address is what puts an app in the switcher and in the list a
+    // person asking for an account chooses from.
+    await db.query(
+      "UPDATE apps SET launch_url = 'http://localhost:3011/', short_name = 'Demo', description = 'A stand-in app for walking the sign-in round trip locally.' WHERE id = $1",
+      [app.id]);
     const t = await db.one("SELECT id FROM tenants WHERE slug = 'demo'");
     if (t) await db.query('INSERT INTO app_tenants (app_id, tenant_id, enabled) VALUES ($1,$2,true)', [app.id, t.id]);
     console.log('Demo app registered. Run: node test/dev-app.js  (then open http://localhost:3011)');
