@@ -62,21 +62,31 @@
 
       ctx.root.append(el('div.jobs', {}, [picker, board, foot, settings]));
 
+      // Held in locals across the awaits, and discarded if a newer load has
+      // started. Opening the card into the big view mounts this twice, and the
+      // two loads used to trample a shared `students` — see the long note in
+      // seating.js.
+      let loadSeq = 0;
       async function load() {
-        students = [];
-        className = '';
+        const mine = ++loadSeq;
+        let got = [];
+        let name = '';
         let rosterKnown = false;
 
         if (s.classKey) {
           try {
-            students = await Desk.roster.members(s.classKey);
+            got = await Desk.roster.members(s.classKey);
             rosterKnown = true;
           } catch (e) { toast(e.message, 'warn'); }
           try {
             const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
-            className = (found && found.name) || '';
+            name = (found && found.name) || '';
           } catch { /* it prints without a name in the heading */ }
         }
+
+        if (mine !== loadSeq) return;
+        students = got;
+        className = name;
 
         // Anyone who has left drops out; anyone new joins the end, so the rota
         // survives a change of class list without being rebuilt.

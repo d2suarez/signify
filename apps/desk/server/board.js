@@ -18,6 +18,59 @@ const MAX_ROWS = 400;
 const MAX_ITEMS = 40;
 const MAX_BOARD_BYTES = 256 * 1024;
 
+// How many previous versions of a board to keep, and how often to take one
+// just because time has passed. The targeted snapshots below are the ones
+// that matter; the periodic one is there so an ordinary bad afternoon is also
+// recoverable.
+const HISTORY_KEEP = 30;
+const HISTORY_EVERY_MS = 30 * 60 * 1000;
+
+/**
+ * How many pupils are seated in each seating widget on a board.
+ *
+ * Counted per widget and per class, because "the board still has six plans"
+ * is not the same as "the six plans still have anybody in them" — and the
+ * second is the thing that has twice gone missing.
+ */
+function seatCounts(items) {
+  const out = {};
+  for (const it of items || []) {
+    if (it.type !== 'seating') continue;
+    const plans = (it.state && it.state.plans) || {};
+    for (const [key, plan] of Object.entries(plans)) {
+      out[`${it.id}:${key}`] = Object.keys((plan && plan.seats) || {}).length;
+    }
+  }
+  return out;
+}
+
+/** Which plans lost pupils between two boards, and how many. */
+function seatsLost(before, after) {
+  const a = seatCounts(before);
+  const b = seatCounts(after);
+  const lost = [];
+  for (const [key, was] of Object.entries(a)) {
+    const now = b[key] == null ? 0 : b[key];
+    if (now < was) lost.push({ key, was, now });
+  }
+  return lost;
+}
+
+/**
+ * Keeps a copy of a board before it is overwritten.
+ *
+ * Always when the save would remove seated pupils, and otherwise at most every
+ * half hour. The first is the point: a seating plan is twenty minutes of work
+ * and it has twice been emptied by something nobody has yet caught in the act,
+ * so the copy is taken on the way past whether or not the cause is understood.
+ */
+function keepHistory(uid, board, why) {
+  const db = store.load();
+  const list = db.boardHistory[uid] || (db.boardHistory[uid] = []);
+  list.unshift({ rev: board.rev, at: Date.now(), why, items: JSON.parse(JSON.stringify(board.items)) });
+  list.length = Math.min(list.length, HISTORY_KEEP);
+}
+
 // What a brand-new teacher's desk looks like. Enough to be useful before
 // anything is configured, and small enough not to be a wall of widgets.
 const STARTER = [
@@ -41,10 +94,17 @@ const int = (v, lo, hi, fallback) => {
 // teacher who sets their room's colours up wants them on the laptop AND on
 // the machine driving the projector.
 const THEMES = ['auto', 'light', 'dark'];
-const ACCENTS = ['blue', 'green', 'purple', 'red', 'orange', 'teal', 'pink', 'slate'];
+const ACCENTS = ['blue', 'green', 'purple', 'red', 'orange', 'teal', 'pink', 'slate', 'custom'];
+// Six hex digits and nothing else. The value goes straight into a CSS custom
+// property, so this is the gate that stops a saved preference from carrying
+// anything but a colour into the stylesheet.
+const HEX = /^#[0-9a-f]{6}$/i;
 const FITS = ['cover', 'contain', 'tile'];
+// How much furniture a widget sits in. 'card' is the panel with a title bar;
+// 'bare' drops both and lets the tool itself be the object on the desk.
+const CHROMES = ['card', 'bare'];
 
-const DEFAULT_PREFS = { theme: 'auto', accent: 'blue', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+const DEFAULT_PREFS = { theme: 'auto', accent: 'blue', accentHex: '#1D4ED8', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
 
 function cleanPrefs(input) {
   const p = (input && typeof input === 'object') ? input : {};
@@ -52,6 +112,8 @@ function cleanPrefs(input) {
   return {
     theme: THEMES.includes(p.theme) ? p.theme : DEFAULT_PREFS.theme,
     accent: ACCENTS.includes(p.accent) ? p.accent : DEFAULT_PREFS.accent,
+    accentHex: HEX.test(String(p.accentHex || '')) ? String(p.accentHex).toLowerCase() : DEFAULT_PREFS.accentHex,
+    chrome: CHROMES.includes(p.chrome) ? p.chrome : DEFAULT_PREFS.chrome,
     // Either an uploaded asset id or one of the built-in patterns. Never a
     // URL: a background that can point anywhere is a background that can
     // report every teacher's IP to somebody else's server.
@@ -115,6 +177,21 @@ function saveBoard(user, incoming) {
     return { tooBig: true };
   }
 
+  // Before anything is overwritten. A save that empties a seating plan is
+  // said out loud with the numbers, because twice now a term's work has gone
+  // and there was nothing in the log to say when or how much.
+  const lost = seatsLost(current.items, items);
+  const history = db.boardHistory[user.uid] || [];
+  const lastKept = history.length ? history[0].at : 0;
+  if (lost.length) {
+    for (const l of lost) {
+      console.warn(`desk: board ${user.uid} rev ${current.rev}→${current.rev + 1} — ${l.key} lost seats ${l.was}→${l.now}`);
+    }
+    keepHistory(user.uid, current, `before losing ${lost.reduce((n, l) => n + (l.was - l.now), 0)} seated pupil(s)`);
+  } else if (Date.now() - lastKept > HISTORY_EVERY_MS) {
+    keepHistory(user.uid, current, 'periodic');
+  }
+
   current.items = items;
   if (incoming.prefs) current.prefs = cleanPrefs(incoming.prefs);
   current.rev += 1;
@@ -136,4 +213,40 @@ function resetBoard(user) {
   return current;
 }
 
-module.exports = { boardFor, saveBoard, resetBoard, cleanPrefs, COLUMNS, MAX_ITEMS, STARTER, DEFAULT_PREFS, ACCENTS };
+/** The kept versions of this teacher's board, newest first, without the bulk. */
+function listHistory(user) {
+  const db = store.load();
+  return (db.boardHistory[user.uid] || []).map((h) => ({
+    rev: h.rev,
+    at: h.at,
+    why: h.why,
+    seated: Object.values(seatCounts(h.items)).reduce((n, x) => n + x, 0),
+    plans: Object.keys(seatCounts(h.items)).length,
+  }));
+}
+
+/**
+ * Puts a kept version back as the live board.
+ *
+ * The board as it stands is kept first, so this is as undoable as everything
+ * else here.
+ */
+function restoreHistory(user, rev) {
+  const db = store.load();
+  const snap = (db.boardHistory[user.uid] || []).find((h) => h.rev === Number(rev));
+  if (!snap) return null;
+
+  const current = boardFor(user);
+  keepHistory(user.uid, current, 'before putting an earlier desk back');
+  current.items = JSON.parse(JSON.stringify(snap.items));
+  current.rev += 1;
+  current.updatedAt = Date.now();
+  store.save();
+  return { ok: true, rev: current.rev };
+}
+
+module.exports = {
+  boardFor, saveBoard, resetBoard, cleanPrefs, listHistory, restoreHistory,
+  COLUMNS, MAX_ITEMS, STARTER, DEFAULT_PREFS, ACCENTS,
+  _seatCounts: seatCounts, _seatsLost: seatsLost,
+};

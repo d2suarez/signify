@@ -46,7 +46,9 @@ window.Desk = window.Desk || {};
     { key: 'tile', label: 'Tile' },
   ];
 
-  const DEFAULTS = { theme: 'auto', accent: 'blue', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+  const DEFAULTS = { theme: 'auto', accent: 'blue', accentHex: '#1d4ed8', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+
+  const HEX = /^#[0-9a-f]{6}$/i;
 
   let current = { ...DEFAULTS };
   let backdrop = null;
@@ -60,6 +62,15 @@ window.Desk = window.Desk || {};
     if (current.theme === 'auto') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', current.theme);
     root.setAttribute('data-accent', current.accent);
+    root.setAttribute('data-chrome', current.chrome);
+    // The chosen colour goes in as its own property and the stylesheet decides
+    // what to do with it — including lifting it in dark mode, where a colour
+    // picked against white is usually too dense to read.
+    if (current.accent === 'custom' && HEX.test(current.accentHex || '')) {
+      root.style.setProperty('--accent-pick', current.accentHex);
+    } else {
+      root.style.removeProperty('--accent-pick');
+    }
 
     if (!backdrop) {
       backdrop = el('div#backdrop', { 'aria-hidden': 'true' });
@@ -110,7 +121,66 @@ window.Desk = window.Desk || {};
           onclick: () => { set({ accent: a.key }); draw(); },
         }));
       }
+      // ...and one more that is whatever the teacher wants. The swatch shows
+      // the colour it would apply, so the row reads as nine choices rather
+      // than eight and a setting.
+      swatches.append(el('button.accent.accent--custom', {
+        'data-accent-swatch': 'custom',
+        title: 'A colour of your own', 'aria-label': 'A colour of your own',
+        'aria-pressed': String(current.accent === 'custom'),
+        class: current.accent === 'custom' ? 'is-on' : '',
+        style: { '--accent-pick': current.accentHex || DEFAULTS.accentHex },
+        onclick: () => { set({ accent: 'custom' }); draw(); },
+      }, el('span', { svg: icon('palette', 13) })));
+
       body.append(swatches);
+
+      if (current.accent === 'custom') {
+        const hexBox = el('input.input.accent-hex', {
+          type: 'text', value: current.accentHex || DEFAULTS.accentHex, maxlength: 7,
+          spellcheck: 'false', 'aria-label': 'Colour as a hex code',
+          // Only on leaving the field: a half-typed "#1d4" is not a colour,
+          // and repainting the whole desk on every keystroke is a strobe.
+          onchange: (e) => {
+            const v = e.target.value.trim();
+            if (!HEX.test(v)) { e.target.value = current.accentHex; toast('A colour looks like #1D4ED8.', 'warn'); return; }
+            set({ accent: 'custom', accentHex: v.toLowerCase() });
+            draw();
+          },
+        });
+
+        body.append(el('div.accent-custom', {}, [
+          el('input.accent-picker', {
+            type: 'color', value: current.accentHex || DEFAULTS.accentHex,
+            'aria-label': 'Pick a colour',
+            // `input` fires continuously while the picker is dragged, which is
+            // exactly what makes it feel live — the desk recolours under the
+            // dialog as you move. Only the save is held back.
+            oninput: (e) => { apply({ ...current, accent: 'custom', accentHex: e.target.value }); hexBox.value = e.target.value; },
+            onchange: (e) => { set({ accent: 'custom', accentHex: e.target.value }); draw(); },
+          }),
+          hexBox,
+        ]));
+      }
+
+      body.append(el('h3.section-title', { text: 'How the tools sit' }));
+      const chromes = el('div.seg');
+      for (const c of [
+        { key: 'card', label: 'On cards', blurb: 'Each tool in a panel with its name at the top.' },
+        { key: 'bare', label: 'Floating', blurb: 'No panel and no title bar — the tool itself is the object.' },
+      ]) {
+        chromes.append(el('button.seg-btn', {
+          text: c.label, title: c.blurb,
+          class: current.chrome === c.key ? 'is-on' : '',
+          onclick: () => { set({ chrome: c.key }); draw(); },
+        }));
+      }
+      body.append(chromes);
+      body.append(el('p.hint', {
+        text: current.chrome === 'bare'
+          ? 'Names, and the buttons to open or remove a tool, appear when you point at it.'
+          : 'The familiar arrangement: a panel round each tool, with its name and buttons along the top.',
+      }));
 
       body.append(el('h3.section-title', { text: 'Light or dark' }));
       const modes = el('div.seg');

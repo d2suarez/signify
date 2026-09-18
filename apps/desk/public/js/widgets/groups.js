@@ -90,21 +90,31 @@
 
       ctx.root.append(el('div.groups', {}, [picker, controls, output, extra]));
 
+      // Held in locals across the awaits, and discarded if a newer load has
+      // started. A widget opened into the big view is mounted twice, and the
+      // two loads used to trample a shared `students` — see the long note in
+      // seating.js for the afternoon that cost.
+      let loadSeq = 0;
       async function load() {
-        students = [];
-        className = '';
+        const mine = ++loadSeq;
+        let got = [];
+        let name = '';
         let rosterKnown = false;
 
         if (s.classKey) {
           try {
-            students = await Desk.roster.members(s.classKey);
+            got = await Desk.roster.members(s.classKey);
             rosterKnown = true;
           } catch (e) { toast(e.message, 'warn'); }
           try {
             const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
-            className = (found && found.name) || '';
+            name = (found && found.name) || '';
           } catch { /* it prints without a name in the heading */ }
         }
+
+        if (mine !== loadSeq) return;
+        students = got;
+        className = name;
 
         // Only tidy these against a roster we were actually given. A refused
         // lookup returns nobody, and pruning against nobody throws away every

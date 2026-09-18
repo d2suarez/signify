@@ -28,6 +28,7 @@
     blurb: 'A picture of your own on the board — a diagram, a photo, today’s objective.',
     icon: 'image',
     category: 'board',
+    fills: true,
     size: { w: 4, h: 4 },
     min: { w: 2, h: 2 },
 

@@ -39,6 +39,8 @@ projector.
 | **Countdown to a day** | Sleeps until the trip or the holidays — several days on one card, the nearest one in big figures. Counts by calendar date, so "3 days" means three more mornings. |
 | **Big message** | One line, as large as the screen allows, for the instruction you would otherwise say twice. |
 | **Calm down** | A shape to breathe along with. Honours `prefers-reduced-motion`. |
+| **Music** | Tidy-up music or a reading playlist — Spotify, Apple Music, SoundCloud or YouTube. Nothing loads until you press play. |
+| **Calculator** | Shows the sum as well as the answer, and does times and divide first. Keyboard works. |
 | **Scoreboard** | Points for teams, houses or tables — groups rather than named children, on purpose. |
 | **Classroom jobs** | Who has which job, rotating by position so everyone moves along one each time. |
 | **Noise meter** | How loud the room is. Nothing is ever recorded; the mic is off until you switch it on. |
@@ -214,6 +216,36 @@ iframe, and the two kinds of link are told apart — an ordinary
 a Form by mistake and the card says which of those it is, rather than failing
 blankly. It never auto-advances, and it can be told which slide to open on,
 because the deck for third period usually does not start at slide one.
+
+**Music** takes a link from Spotify, Apple Music, SoundCloud or YouTube and
+uses that service's own embed — no OAuth, no API key, nothing this app holds.
+As with the video widget, the iframe is not created until Play is pressed, so
+a desk left open on a projector has told Spotify nothing.
+
+What a teacher gets depends on being signed in to that service in that
+browser: signed in, Spotify and Apple Music play in full; signed out, they
+play a preview. That is the service's rule and the card says so rather than
+looking broken. SoundCloud and YouTube play whatever is public.
+
+Everything pasted is parsed down to a **service, a kind and an id**, and the
+embed URL is rebuilt from those three — no pasted string is ever put in an
+iframe, and a query string cannot ride along. The card also mentions, once,
+that playing commercial music to a room is a public performance and that
+schools normally cover it with a licence.
+
+**The calculator** shows the sum above the answer, which is the reason it is
+not just a phone calculator: a class watching a teacher work something out
+needs to see what was typed, not only what came out. It also does **times and
+divide before plus and minus** — `2 + 3 × 4` is 14, not 20 — which in a maths
+lesson is not a preference but the thing being taught.
+
+There is no `eval` anywhere near it. The expression is tokenised and worked out
+in two passes, so the only thing a string of characters can turn into is a
+number; a sum that is not finished says so rather than guessing, and dividing
+by zero returns nothing rather than putting `Infinity` on the board. Pressing
+`=` carries the answer forward, which is how anybody actually uses one, and
+the big view keeps a tape of the last twenty. The keyboard works, but only
+while the card is the one open.
 
 ### No GIF search
 
@@ -428,7 +460,63 @@ copy first, and the last twelve are listed in the panel with the date, how
 many were seated, and what was about to happen to it. Putting one back is
 itself undoable, because it takes a copy of the current room on the way.
 
+### Earlier versions of a desk
+
+Every save that would **remove seated pupils** causes the server to keep a copy
+of the board as it stood first, under **Earlier versions of this desk** in the
+account menu. It also keeps one every half hour regardless. Thirty are held;
+putting one back keeps the current desk too.
+
+This is deliberately not a fix for any particular bug. Seating plans have gone
+missing twice, and the second time was after the specific cause of the first
+had been found and fixed — the logs were clean, the rosters were healthy, the
+pupil ids matched, and the plans were empty anyway. When you cannot yet name
+the cause, the honest engineering is to make the loss recoverable and to make
+the event visible, and then keep looking. A save that empties a plan now writes
+a line naming the widget, the class and the numbers:
+
+```
+desk: board 21943ccb rev 613→614 — w_q3f1glx8z:signify:1ea63891… lost seats 23→0
+```
+
 ### The plans that were lost, and why
+
+Two causes, found a week apart, and the second was the real one.
+
+**The first** was pruning against a refused lookup. `load()` tidies a plan
+against the class list — a pupil who has left must not keep a seat nobody can
+see them in — and it did that against whatever the roster returned. A
+**refused** lookup returns nobody. So while the sign-in bug was answering
+`401` to every roster request, the widget concluded that every pupil had left
+every class and deleted every seat. `prunePlan` now takes a `rosterKnown` flag
+and only drops pupils when the class list actually arrived: **silence is not
+an empty class.**
+
+**The second** survived that fix, and it was a race — one this codebase had
+built the conditions for and then widened. `students` was a variable in the
+widget's closure, assigned straight from the await. `load()` awaits twice,
+once for the roster and once for the class name. And opening a card into the
+big view does not move the widget, it **mounts a second copy of it**, which
+starts its own `load()`.
+
+So: the second load reset the shared `students` to `[]` while the first was
+still waiting on its second await. The first then woke up, pruned the plan
+against an empty list — with its own `rosterKnown` still true, because its own
+fetch had succeeded — and emptied the room. The next save made it permanent.
+
+The symptom was exactly what it sounds like, and exactly how it was reported:
+*the plan is there on the card, and gone the moment you expand it.*
+
+The second await was added later than the first, for the print heading's class
+name, which widened a window that had always been there. `load()` now keeps
+everything in locals until its awaits are done, and bows out entirely if a
+newer load has started — the same shape in the group maker and the jobs rota,
+which were quietly losing keep-apart pairs and rota positions the same way.
+
+The tests missed it because every one of them called `load()` on its own.
+There is now one that races two, which is what opening a card actually does.
+
+### The earlier symptom, and why the first fix was not enough
 
 This existed because of a real loss, and the cause is worth writing down.
 
@@ -557,6 +645,165 @@ A refused lookup is also reported as refused: the response carries `signifyOk`,
 so the pickers say "could not load your classes" rather than "you have none".
 The two are entirely different things to put in front of a teacher.
 
+## What this holds about pupils
+
+There is a page at **`/what-is-held`** — no sign-in, no JavaScript — listing
+every place this app stores anything, what is in it, what it says about a
+pupil, and how long it stays. It is linked from the account menu, and it is
+meant to be sent to whoever is asking, who usually does not have an account
+here.
+
+It lives in `server/inventory.js`, next to the code it describes, and **a test
+refuses to pass if the store gains a collection the page does not mention**. A
+privacy note that quietly drifts away from the software is worse than none.
+The retention window on the page is read from the same constant the sweep
+uses, so the two cannot disagree either.
+
+### Cards end where their content ends
+
+A card is no taller than what is in it. That is the difference between a board
+of tools and a board of boxes with a tool floating in the middle of each — and
+it is the whole reason the reference this was drawn from looks alive.
+
+`align-self: start` does the hugging, but `max-height: 100%` is the other half
+and is not optional: a grid item placed at `start` is **not** clipped by its
+area, so a card whose content outgrew its slot would simply draw over its
+neighbour. Capped, it scrolls instead.
+
+A few widgets genuinely want every pixel they were given — a seating plan sized
+by an observer, an embedded video, a clock face that scales, a note whose
+textarea should reach the bottom. Those declare `fills: true` and keep the old
+behaviour. Everything else hugs.
+
+**Tidy up the desk** (in the account menu) measures each card's content and
+resizes its slot to match, then lets the board fall together on the packing
+rules that were already there. It fits in both directions: shrinking is the
+point, but a card that is scrolling inside itself is worse than one with air
+in it, so those grow — capped, so that a behaviour tracker with thirty names
+does not take the whole desk. Newly added tools fit themselves two frames
+after they draw.
+
+Nothing reflows on its own. A desk that rearranged itself on load would move
+work somebody had placed on purpose.
+
+*(One trap, met the hard way: the timer's dial took its size from a `flex: 1`
+face. Fine while every card was stretched to its slot; an ellipse the moment
+cards started ending where their content ends. Anything round wants a width and
+an `aspect-ratio`, not whatever height happened to be left over.)*
+
+## Two ways a tool can sit
+
+**Appearance → How the tools sit** switches the whole board between them.
+Cards is the default and nobody has to learn it.
+
+**On cards** is the familiar arrangement: a panel round each tool with its name
+and buttons along the top.
+
+**Floating** removes both. The tool itself is the object on the desk — no
+panel, no title bar — which is what finally lets a clock be round rather than a
+circle drawn inside a rounded rectangle. Two things that costs, and what
+answers each:
+
+- *Where does one tool end and the next begin?* The surface and the shadow move
+  off the card and onto the tool's own content, so each one is still a distinct
+  object standing slightly proud of the desk. Pointing at one draws a soft
+  dashed halo round the whole of its area.
+- *How do you move, resize or open it?* The title bar is not deleted, it is
+  **floated**: it appears just above the tool when you point at it, carrying
+  the same grip, name and buttons it always had. Dragging still works, because
+  it is still the same element — and the resize corner is still in the corner.
+
+The clock and the calm-down circle are the two that currently take a shape of
+their own in this mode; the rest are rounded rectangles that happen to have no
+card behind them. Giving each tool its own outline is per-widget work rather
+than a switch.
+
+*(A trap worth naming: `aspect-ratio` loses to a flex-assigned height, so a
+widget that is a flex child needs `flex: none` before a ratio will make it
+round. The clock was an ellipse until it got one.)*
+
+## Depth, not outline
+
+Cards are **slabs sitting proud of the desk**, not rectangles with a line round
+them. What sells that is the shadow: three at widening radii plus a highlight
+along the top edge where the light catches. The border is a hairline of the
+accent rather than a grey rule — enough to stop the edge dissolving on a
+washed-out projector, not enough to read as a box. Hovering lifts a card a
+single pixel, the way you would pick one off a table.
+
+The same idea runs down through the controls, because a surface that is
+consistent about light is what makes the whole thing read as physical:
+
+- **Buttons are raised** and fully rounded — small versions of the same slab.
+- **Fields are recessed**, with an inset shadow. A field is somewhere to put
+  something, so it reads as a shallow well rather than another slab stacked on
+  top.
+- **Pressed keys go in.** On the calculator the shadow inverts on `:active`,
+  which is the whole point of everything else standing out.
+
+The desk behind it all is tinted with the accent, so the board is the colour
+of whatever has been chosen rather than a neutral grey with coloured things on
+it.
+
+*(An earlier pass gave each widget its own outline shape — round for a clock, a
+folded corner for a note. That was a misreading of "card stock", which meant
+thickness rather than shape, and it has been removed. One radius for
+everything; the depth does the work.)*
+
+## Colour
+
+Nine accents: eight chosen ones, and **a colour of your own** with a full
+picker. The desk recolours live as the picker is dragged; only the save waits.
+
+Everything in the stylesheet still reads `--accent`, so nothing had to learn
+that a custom colour is possible: `theme.js` sets `--accent-pick` and one rule
+points `--accent` at it. In dark mode a custom colour is **lifted** the same
+way the eight presets are — a colour chosen against a white dialog is usually
+too dense to read on near-black, and a teacher who picks navy should not get a
+desk they cannot see.
+
+The hex is validated on the server as six hex digits and nothing else, because
+the value ends up in a CSS custom property and a preference that can carry
+arbitrary text into a stylesheet is not a preference.
+
+Cards carry **a breath of the accent** in the top corner, fading out before
+the middle — enough to tie a card to the chosen colour, not enough to fight a
+number that has to be read from the back of a classroom.
+
+## Where pupils are actually added
+
+Two kinds of class list sit side by side in **Class lists** (in the account
+menu), and only one of them is editable here:
+
+- **Classes from Signify ID** — your real timetabled classes. These are read,
+  never written, so removing a pupil there removes them here. The row links
+  straight to the identity service, because "Managed centrally" answered half
+  the question and left a teacher hunting for an Edit button that was never
+  going to exist.
+- **Lists you type yourself** — the club, the set, the class that has not been
+  imported. These have an **Edit** button, and `Make a list` at the bottom
+  creates one. This is the only editor in the app, and the only place the
+  name nudge below appears.
+
+### First name and an initial
+
+The class-list editor counts how many names include a full surname and offers
+to shorten them in one click — "Ava Bennett" becomes "Ava B.", and "Mia D."
+and "Leo" are left alone. Every tool here works perfectly well with that much,
+and it is the right amount to hold about a child.
+
+It is a nudge and never a rule. The test is the last word of the name, which
+reads "Mary Jo" as a surname and is wrong; plenty of families do not divide a
+name this way at all; and a teacher of sixth-formers may have every reason to
+type names in full. So it counts and offers, and corrects nobody.
+
+Worth being clear about what this does and does not do: naming is data
+minimisation, not a compliance switch. What keeps this app clear of COPPA is
+that **pupils have no accounts and never sign in** — its users are teachers,
+and a teacher typing a name into their own planning tool is not a child
+handing over information. Short names are simply less to hold, which is a good
+enough reason on its own.
+
 ## Behaviour notes
 
 These are records about named children, so:
@@ -603,7 +850,7 @@ workspace `.claude/launch.json`.
 npm test
 ```
 
-134 checks, no server and no database: the store runs against a throwaway
+166 checks, no server and no database: the store runs against a throwaway
 directory, and the grid packing is loaded into a stub of just enough browser.
 
 ## Deploying

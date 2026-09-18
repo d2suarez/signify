@@ -12,6 +12,7 @@
 //     blurb: 'Count down to zero.',
 //     icon:  'timer',            // a key from Desk.iconNames
 //     category: 'time',          // which drawer of the catalogue it lives in
+//     fills: true,               // needs the whole card; otherwise it hugs
 //     size:  { w: 4, h: 5 },     // in grid cells, when first added
 //     min:   { w: 3, h: 4 },
 //     needsRoster: false,        // shown in the "needs a class list" group
@@ -56,6 +57,7 @@ window.Desk = window.Desk || {};
   ];
   const FALLBACK = CATEGORIES[CATEGORIES.length - 1].key;
 
+
   function widget(def) {
     if (!def || !def.type) throw new Error('A widget needs a type.');
     if (registry.has(def.type)) throw new Error(`Two widgets both call themselves "${def.type}".`);
@@ -67,6 +69,10 @@ window.Desk = window.Desk || {};
       min: { w: 2, h: 3 },
       needsRoster: false,
       permission: null,
+      // Most tools are a handful of controls and should be no taller than
+      // they are. The few that genuinely want the room they are given — a
+      // seating plan, an embedded video, a clock face that scales — say so.
+      fills: false,
       category: FALLBACK,
       init() {},
       mount() { return {}; },

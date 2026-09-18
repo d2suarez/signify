@@ -56,6 +56,7 @@
     blurb: 'The deck for the lesson, on the board — paste the link and it is there.',
     icon: 'slides',
     category: 'board',
+    fills: true,
     size: { w: 6, h: 5 },
     min: { w: 3, h: 3 },
 

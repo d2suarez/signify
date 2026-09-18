@@ -163,7 +163,13 @@ window.Desk = window.Desk || {};
 
   function cardFor(item) {
     const def = Desk.widgets.get(item.type);
-    const node = el('section.card', { 'data-id': item.id, 'data-type': item.type });
+    const node = el('section.card', {
+      'data-id': item.id, 'data-type': item.type,
+      // A card is only as tall as what is in it, unless the widget says it
+      // needs the room. That is the difference between a board of tools and a
+      // board of boxes with a tool floating in the middle of each.
+      class: def && def.fills ? 'is-fluid' : '',
+    });
     node.style.setProperty('--x', item.x);
     node.style.setProperty('--y', item.y);
     node.style.setProperty('--w', item.w);
@@ -302,6 +308,69 @@ window.Desk = window.Desk || {};
 
   // ---------- adding and removing ----------
 
+  /**
+   * How many grid rows a card actually needs, from what is in it.
+   *
+   * A card that hugs its content has already collapsed to its natural height
+   * by the time this runs, so the measurement is simply what it is on screen.
+   * The arithmetic is the grid's own: n rows stand `n * row + (n - 1) * gap`
+   * tall, so the number of rows is that, solved for n and rounded up.
+   *
+   * Returns null for a card that fills — there is nothing to measure, because
+   * its height is whatever it was given.
+   */
+  function rowsNeeded(item) {
+    const inst = board.instances.get(item.id);
+    const def = Desk.widgets.get(item.type);
+    if (!inst || !inst.node || (def && def.fills)) return null;
+
+    const style = getComputedStyle(board.root);
+    const row = parseFloat(style.getPropertyValue('--row')) || 54;
+    const gap = parseFloat(style.gap) || 14;
+
+    // The CONTENT's height, not the card's. The card is capped at its slot so
+    // that it can never draw over its neighbour, which means measuring the
+    // card itself can only ever report "it fits" — it would never notice a
+    // widget that had outgrown its slot and was quietly scrolling inside.
+    const head = inst.node.querySelector('.card-head');
+    const body = inst.node.querySelector('.card-body');
+    if (!body) return null;
+    const height = (head ? head.offsetHeight : 0) + body.scrollHeight + 2;
+    if (height < 4) return null;
+
+    const n = Math.ceil((height + gap) / (row + gap));
+    return clamp(n, def ? def.min.h : 2, 40);
+  }
+
+  /**
+   * Fits every card to the height it actually needs, then lets the board fall
+   * together.
+   *
+   * Both ways. Shrinking is the point — a tool should not sit in the middle of
+   * a box of air — but a card whose content has outgrown its slot is scrolling
+   * inside itself, which is worse, so this grows those too. Growth is capped
+   * so that a behaviour tracker with thirty names on it does not take the
+   * whole desk.
+   */
+  const TIDY_MAX_ROWS = 12;
+
+  function tidy() {
+    if (stacked()) return 0;
+    let changed = 0;
+    for (const item of board.items) {
+      const need = rowsNeeded(item);
+      if (need == null || need === item.h) continue;
+      item.h = need > item.h ? Math.min(need, Math.max(item.h, TIDY_MAX_ROWS)) : need;
+      changed += 1;
+    }
+    if (!changed) return 0;
+    resolve(board.items, null);
+    compact(board.items);
+    render();
+    markDirty();
+    return changed;
+  }
+
   function addItem(type) {
     const def = Desk.widgets.get(type);
     if (!def) return;
@@ -316,6 +385,18 @@ window.Desk = window.Desk || {};
     node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     node?.classList.add('is-new');
     setTimeout(() => node?.classList.remove('is-new'), 1400);
+    // Two frames later the card has drawn and can be measured, so a tool
+    // arrives at the size it needs rather than at a guess from its manifest.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const need = rowsNeeded(item);
+      if (need != null && need !== item.h) {
+        item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+        resolve(board.items, null);
+        compact(board.items);
+        render();
+        markDirty();
+      }
+    }));
     return item;
   }
 
@@ -470,7 +551,7 @@ window.Desk = window.Desk || {};
   function setPrefs(prefs) { board.prefs = prefs; markDirty(); }
 
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, COLUMNS,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, COLUMNS,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so
     // they are exported and tested directly rather than by dragging things.

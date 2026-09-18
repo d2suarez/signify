@@ -159,7 +159,17 @@ window.Desk = window.Desk || {};
               },
             }));
           } else {
-            row.append(el('span.hint', { text: 'Managed centrally' }));
+            // "Managed centrally" answered half the question and left the
+            // other half — WHERE — to be guessed at. A teacher looking for
+            // somewhere to add a pupil to their real class needs the address,
+            // not the fact that it is not here.
+            const identity = (Desk.config && Desk.config.identityUrl) || '';
+            row.append(identity
+              ? el('a.hint.list-row-where', {
+                href: `${identity}/classes`, target: '_blank', rel: 'noreferrer',
+                title: 'Classes imported from Signify ID are edited there, and the change appears here',
+              }, `Edit in ${new URL(identity).host} \u2197`)
+              : el('span.hint', { text: 'Managed centrally' }));
           }
           body.append(row);
         }
@@ -176,9 +186,52 @@ window.Desk = window.Desk || {};
           value: students.map((s) => s.name).join('\n'),
         });
 
+        // A nudge, not a rule. Only this desk ever sees these names, but a
+        // first name and an initial is enough to run a lesson and is less to
+        // hold about a child — which matters most for the youngest classes,
+        // where it is also what keeps them clear of COPPA's definition of
+        // personal information. Counted live, offered with one button, and
+        // ignorable: a teacher of sixth-formers may want names in full.
+        const nudge = el('div.name-nudge');
+
+        function countFull() {
+          return namesArea.value.split('\n').map((x) => x.trim()).filter(Boolean)
+            .filter(Desk.showsFamilyName).length;
+        }
+
+        function drawNudge() {
+          Desk.clear(nudge);
+          const n = countFull();
+          if (!n) { nudge.hidden = true; return; }
+          nudge.hidden = false;
+          nudge.append(
+            el('span.hint', {
+              text: `${n} name${n === 1 ? ' includes' : 's include'} a full surname.`,
+            }),
+            el('button.btn.btn--small', {
+              type: 'button',
+              onclick: () => {
+                namesArea.value = namesArea.value.split('\n')
+                  .map((line) => (line.trim() ? Desk.shortenName(line) : line)).join('\n');
+                drawNudge();
+                namesArea.focus();
+              },
+            }, 'Shorten to initials'),
+          );
+        }
+
+        // Only the nudge is redrawn, never the textarea somebody is typing in.
+        namesArea.addEventListener('input', drawNudge);
+        drawNudge();
+
         Desk.clear(body).append(
           el('label.field', {}, [el('span.field-label', { text: 'What is this list called?' }), nameInput]),
-          el('label.field', {}, [el('span.field-label', { text: 'Who is on it?' }), namesArea]),
+          el('label.field', {}, [
+            el('span.field-label', { text: 'Who is on it?' }),
+            namesArea,
+            el('p.hint', { text: 'A first name and an initial \u2014 “Ava B.” \u2014 is enough for every tool here, and is the right amount to hold about a child. Full names are fine too if that is what your class needs.' }),
+            nudge,
+          ]),
           el('div.dialog-actions', {}, [
             el('button.btn', { text: 'Back', onclick: () => draw() }),
             el('button.btn.btn--primary', { text: 'Save', onclick: save }),

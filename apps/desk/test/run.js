@@ -185,6 +185,163 @@ describe('behaviour notes', () => {
 });
 
 // ===================================================================
+// The net under everything else. Twice now a term of seating plans has gone
+// and there was no way back and nothing in the log; these are the tests for
+// not being in that position a third time.
+describe('keeping earlier versions of a board', () => {
+  const seating = (id, plans) => ({ id, type: 'seating', x: 0, y: 0, w: 6, h: 7, state: { plans } });
+  const withSeats = (n) => ({ desks: [{ id: 'd1', seats: 30 }], seats: Object.fromEntries(
+    Array.from({ length: n }, (_, i) => [`d1#${i}`, `pupil-${i}`])), objects: [], front: 'top' });
+
+  it('counts who is seated, per widget and per class', () => {
+    const counts = board._seatCounts([seating('w1', { '9REL': withSeats(23), '12GOVT': withSeats(18) })]);
+    equal(counts, { 'w1:9REL': 23, 'w1:12GOVT': 18 });
+  });
+
+  it('notices a save that would empty a plan', () => {
+    const before = [seating('w1', { '9REL': withSeats(23) })];
+    const after = [seating('w1', { '9REL': withSeats(0) })];
+    equal(board._seatsLost(before, after), [{ key: 'w1:9REL', was: 23, now: 0 }]);
+  });
+
+  it('notices a plan that vanishes entirely, not just one that empties', () => {
+    const before = [seating('w1', { '9REL': withSeats(23) })];
+    equal(board._seatsLost(before, [seating('w1', {})]), [{ key: 'w1:9REL', was: 23, now: 0 }]);
+    equal(board._seatsLost(before, []), [{ key: 'w1:9REL', was: 23, now: 0 }]);
+  });
+
+  it('says nothing when seats are added or unchanged', () => {
+    const before = [seating('w1', { '9REL': withSeats(10) })];
+    equal(board._seatsLost(before, [seating('w1', { '9REL': withSeats(20) })]), []);
+    equal(board._seatsLost(before, before), []);
+  });
+
+  it('keeps the previous board when a save would lose seats', () => {
+    const teacher = { uid: 'u-keeper', email: 'k@school.test', tenantId: 't1' };
+    let b = board.boardFor(teacher);
+    board.saveBoard(teacher, { rev: b.rev, items: [seating('w1', { '9REL': withSeats(23) })] });
+
+    const before = board.listHistory(teacher).length;
+    b = board.boardFor(teacher);
+    board.saveBoard(teacher, { rev: b.rev, items: [seating('w1', { '9REL': withSeats(0) })] });
+
+    const kept = board.listHistory(teacher);
+    assert(kept.length > before, 'a version was kept on the way past');
+    equal(kept[0].seated, 23, 'and it is the one with everybody still in it');
+  });
+
+  it('puts an earlier board back, and keeps the current one on the way', () => {
+    const teacher = { uid: 'u-restorer', email: 'r@school.test', tenantId: 't1' };
+    let b = board.boardFor(teacher);
+    board.saveBoard(teacher, { rev: b.rev, items: [seating('w1', { '9REL': withSeats(18) })] });
+    b = board.boardFor(teacher);
+    board.saveBoard(teacher, { rev: b.rev, items: [seating('w1', { '9REL': withSeats(0) })] });
+
+    const kept = board.listHistory(teacher).find((h) => h.seated === 18);
+    assert(!!kept, 'the full one is in the list');
+    const res = board.restoreHistory(teacher, kept.rev);
+    assert(res && res.ok, 'it restores');
+
+    const now = board.boardFor(teacher);
+    equal(Object.keys(now.items[0].state.plans['9REL'].seats).length, 18, 'everybody is back');
+    assert(board.listHistory(teacher).some((h) => h.why.includes('putting an earlier desk back')),
+      'and the emptied one is kept too, so this is undoable as well');
+  });
+
+  it('refuses a version number it does not have', () => {
+    equal(board.restoreHistory({ uid: 'u-restorer' }, 99999), null);
+  });
+});
+
+// ===================================================================
+describe('how the tools sit', () => {
+  it('takes the two ways of presenting a tool', () => {
+    equal(board.cleanPrefs({ chrome: 'bare' }).chrome, 'bare');
+    equal(board.cleanPrefs({ chrome: 'card' }).chrome, 'card');
+  });
+
+  it('falls back to cards for anything else', () => {
+    // The value becomes an attribute the stylesheet keys off, and cards are
+    // the arrangement nobody has to learn.
+    for (const bad of ['floating', '', null, 7, '"><script>']) {
+      equal(board.cleanPrefs({ chrome: bad }).chrome, 'card', String(bad));
+    }
+    equal(board.cleanPrefs({}).chrome, 'card', 'and it is the default');
+  });
+});
+
+// ===================================================================
+describe('a colour of your own', () => {
+  it('keeps a real hex colour', () => {
+    equal(board.cleanPrefs({ accent: 'custom', accentHex: '#FF8800' }).accentHex, '#ff8800');
+    equal(board.cleanPrefs({ accent: 'custom', accentHex: '#ff8800' }).accent, 'custom');
+  });
+
+  it('refuses anything that is not six hex digits', () => {
+    // The value goes straight into a CSS custom property, so this is the gate
+    // that stops a saved preference carrying anything but a colour into the
+    // stylesheet.
+    for (const bad of ['red', '#abc', '#ff88000', 'red; background:url(//x)', '', null, 12, '#ff88 00']) {
+      equal(board.cleanPrefs({ accent: 'custom', accentHex: bad }).accentHex, '#1D4ED8', String(bad));
+    }
+  });
+
+  it('still refuses an accent name it does not know', () => {
+    equal(board.cleanPrefs({ accent: 'chartreuse' }).accent, 'blue');
+    equal(board.cleanPrefs({ accent: 'custom' }).accent, 'custom');
+  });
+});
+
+// ===================================================================
+describe('what this holds about pupils', () => {
+  const inventory = require('../server/inventory');
+
+  it('describes every collection the store actually has', () => {
+    // The point of the test: a privacy note that drifts away from the software
+    // is worse than none, so gaining a new store without saying what is in it
+    // fails here rather than quietly shipping.
+    const documented = new Set(inventory.sections().map((x) => x.key));
+    const missing = inventory.collections().filter((k) => !documented.has(k));
+    equal(missing, [], `undocumented store(s): ${missing.join(', ')}`);
+  });
+
+  it('invents nothing that does not exist', () => {
+    const real = new Set(inventory.collections());
+    const extra = inventory.sections().map((x) => x.key).filter((k) => !real.has(k));
+    equal(extra, [], `documented but not real: ${extra.join(', ')}`);
+  });
+
+  it('says what each one holds, what it says about pupils, and for how long', () => {
+    for (const s of inventory.sections()) {
+      assert(s.title && s.holds && s.pupils && s.kept, `${s.key} is missing an answer`);
+    }
+  });
+
+  it('quotes the retention window from the code, not from memory', () => {
+    const notes = inventory.sections().find((x) => x.key === 'behaviour');
+    assert(notes.kept.includes(String(require('../server/behaviour').RETENTION_DAYS)),
+      'the number on the page is the number the sweep uses');
+  });
+
+  it('renders a page that needs no sign-in and no JavaScript', () => {
+    const html = inventory.page({ host: 'desk.example' });
+    assert(html.startsWith('<!doctype html>'), 'a real page');
+    assert(!/<script/i.test(html), 'nothing to run');
+    for (const s of inventory.sections()) assert(html.includes(s.title), `${s.title} is on it`);
+  });
+
+  it('escapes what it renders, so a section cannot inject markup', () => {
+    const html = inventory.page({
+      only: [{ key: 'x', title: '<script>bad()</script>', holds: 'a & b', pupils: '**safe**', kept: 'c' }],
+    });
+    assert(!html.includes('<script>bad()'), 'the tag is escaped, not run');
+    assert(html.includes('&lt;script&gt;bad()&lt;/script&gt;'), 'and shown as text');
+    assert(html.includes('a &amp; b'), 'ampersands too');
+    assert(html.includes('<strong>safe</strong>'), 'but the one bit of markup it does allow still works');
+  });
+});
+
+// ===================================================================
 describe('class lists', () => {
   let list;
 
@@ -588,6 +745,34 @@ describe('seating a class at random', () => {
     equal(Object.keys(h).sort(), ['11REL', '9REL']);
   });
 
+  it('survives two loads racing, which is what opening a card does', async () => {
+    // The bug the tests missed: `students` was a closure variable, load()
+    // awaits twice, and expanding a card mounts a SECOND copy of the widget
+    // whose load() reset that variable while the first was still waiting.
+    // The first then pruned against an empty list with rosterKnown still true
+    // and emptied the plan. This models the same shape: locals per call, and
+    // a stale call bows out.
+    const plan = fullPlan();
+    let seq = 0;
+    let shared = [];
+    const roster = () => new Promise((r) => setTimeout(() => r(['ava', 'noah', 'mia', 'leo']), 5));
+    const name = () => new Promise((r) => setTimeout(() => r('4B'), 5));
+
+    async function load() {
+      const mine = ++seq;
+      let got = [];
+      let known = false;
+      try { got = await roster(); known = true; } catch { /* refused */ }
+      await name();
+      if (mine !== seq) return;            // a newer load owns the state
+      shared = got;
+      prunePlan(plan, shared.map((x) => x), known);
+    }
+
+    await Promise.all([load(), load()]);   // card and stage, together
+    equal(Object.keys(plan.seats).length, 4, 'nobody was pruned away by the race');
+  });
+
   it('NEVER empties a plan because the class list could not be fetched', () => {
     // The bug that lost a term of seating plans: a refused roster lookup
     // returns nobody, and "nobody is in this class" was read as "everybody
@@ -940,6 +1125,132 @@ describe('a YouTube link', () => {
     equal(at('https://www.youtube.com/watch?v=dQw4w9WgXcQ&start=45'), 45);
     equal(at('https://youtu.be/dQw4w9WgXcQ'), 0, 'no marker means the beginning');
     equal(at('nonsense'), 0);
+  });
+});
+
+// ===================================================================
+describe('the calculator', () => {
+  const calc = loadWidget('calculator');
+  const ev = calc._evaluate;
+  const show = calc._show;
+  const M = '\u00d7'; const D = '\u00f7'; const S = '\u2212';
+
+  it('adds up', () => {
+    equal(ev('2+3'), 5);
+    equal(ev(`9${S}4`), 5);
+    equal(ev(`6${M}7`), 42);
+    equal(ev(`8${D}2`), 4);
+  });
+
+  it('does times and divide before plus and minus', () => {
+    // Not a preference. In a maths lesson this is the thing being taught, and
+    // a calculator that answers 20 to this one is teaching the wrong thing.
+    equal(ev(`2+3${M}4`), 14);
+    equal(ev(`2${M}3+4`), 10);
+    equal(ev(`10${S}6${D}2`), 7);
+    equal(ev(`1+2${M}3+4`), 11);
+  });
+
+  it('handles decimals, percentages and negatives', () => {
+    equal(ev('0.1+0.2'), 0.30000000000000004, 'raw arithmetic is what it is');
+    equal(show(ev('0.1+0.2')), '0.3', 'and the display tidies it');
+    equal(ev('50%'), 0.5);
+    equal(ev(`200${M}10%`), 20);
+    equal(ev(`${S}5+8`), 3);
+  });
+
+  it('refuses a sum that is not finished, rather than guessing', () => {
+    for (const bad of ['', '  ', '2+', `${M}5`, '2++3', '2 3', 'abc', '2+&', '.', `2${M}${D}3`]) {
+      equal(ev(bad), null, `"${bad}" should not evaluate`);
+    }
+  });
+
+  it('will not divide by zero', () => {
+    equal(ev(`5${D}0`), null, 'no Infinity on the board');
+    equal(ev(`5${D}0+1`), null);
+  });
+
+  it('never runs what it is given', () => {
+    // The tokeniser is the only route from characters to a number, so a string
+    // that is not arithmetic has nowhere to go.
+    for (const nasty of ['alert(1)', '1;alert(1)', 'process.exit()', '__proto__', '1e400']) {
+      const got = ev(nasty);
+      assert(got === null || Number.isFinite(got), `${nasty} → ${got}`);
+    }
+  });
+
+  it('shows an answer the way a person would write it', () => {
+    equal(show(5), '5');
+    equal(show(1 / 3), '0.333333333333');
+    equal(show(-0), '0');
+    assert(show(1e15).includes('10^'), 'very large numbers go to powers of ten');
+  });
+});
+
+// ===================================================================
+describe('a music link', () => {
+  const music = loadWidget('music');
+  const parse = music._parse;
+  const embed = music._embedUrl;
+  const urlFor = (link) => embed(parse(link));
+
+  it('reads a Spotify link, however it was copied', () => {
+    const id = '37i9dQZF1DXcBWIGoYBM5M';
+    for (const link of [
+      `https://open.spotify.com/playlist/${id}`,
+      `https://open.spotify.com/playlist/${id}?si=abc123`,
+      `https://open.spotify.com/intl-de/playlist/${id}`,
+      `spotify:playlist:${id}`,
+    ]) {
+      const got = parse(link);
+      equal(got && got.service, 'spotify', link);
+      equal(got.kind, 'playlist');
+      equal(got.id, id);
+    }
+    equal(urlFor(`https://open.spotify.com/track/${id}`), `https://open.spotify.com/embed/track/${id}`);
+  });
+
+  it('reads Apple Music, keeping the country it was shared from', () => {
+    const got = parse('https://music.apple.com/gb/playlist/chill-mix/pl.u-abc123');
+    equal(got.service, 'apple');
+    equal(got.kind, 'playlist');
+    equal(got.extra.country, 'gb');
+    equal(embed(got), 'https://embed.music.apple.com/gb/playlist/chill-mix/pl.u-abc123');
+  });
+
+  it('reads SoundCloud, and builds the player URL from the parts', () => {
+    const got = parse('https://soundcloud.com/artist/a-track');
+    equal(got.service, 'soundcloud');
+    equal(got.id, 'artist/a-track');
+    assert(embed(got).startsWith('https://w.soundcloud.com/player/?'), 'the official player');
+    assert(embed(got).includes(encodeURIComponent('https://soundcloud.com/artist/a-track')), 'with the permalink encoded');
+    assert(embed(got).includes('auto_play=false'), 'and never autoplaying');
+  });
+
+  it('reads YouTube Music, songs and playlists alike', () => {
+    equal(parse('https://music.youtube.com/watch?v=dQw4w9WgXcQ').kind, 'video');
+    const list = parse('https://music.youtube.com/playlist?list=PLabcdefghijklmnop');
+    equal(list.kind, 'playlist');
+    assert(embed(list).startsWith('https://www.youtube-nocookie.com/embed/videoseries?'), 'through the no-cookie host');
+  });
+
+  it('refuses anything that is not one of the four', () => {
+    // Only a known host and a validated id ever reach an iframe on this
+    // origin, so no pasted string can become a frame of somewhere else.
+    for (const bad of [
+      '', '   ', 'not a link',
+      'https://evil.test/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      'https://open.spotify.com.evil.test/playlist/abc',
+      'https://open.spotify.com/wat/abc',
+      'https://music.apple.com/us/playlist/slug',
+      'javascript:alert(1)',
+      'https://soundcloud.com/a/b/c/d/e',
+    ]) equal(parse(bad), null, `${bad} should not have been accepted`);
+  });
+
+  it('never lets a query string ride along into the embed', () => {
+    const got = parse('https://soundcloud.com/artist/track?secret=1&x=2');
+    equal(got.id, 'artist/track', 'the query is dropped, not carried');
   });
 });
 

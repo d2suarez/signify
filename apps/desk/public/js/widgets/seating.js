@@ -434,6 +434,7 @@
     blurb: 'Arrange the room, then sit the class in it. One plan per class, switched from the same card.',
     icon: 'seating',
     category: 'class',
+    fills: true,
     size: { w: 6, h: 7 },
     min: { w: 3, h: 5 },
     needsRoster: true,
@@ -528,23 +529,52 @@
       const selectedDeskObj = () => (selected && selected.kind === 'desk' ? plan().desks.find((d) => d.id === selected.id) : null);
       const selectedObject = () => (selected && selected.kind === 'object' ? plan().objects.find((o) => o.id === selected.id) : null);
 
+      /**
+       * Loads the class, then tidies the plan against it.
+       *
+       * Everything here is held in LOCALS until the awaits are done, and the
+       * result is thrown away if another load has started meanwhile. Both of
+       * those matter, and the reason is the bug that emptied a term of seating
+       * plans:
+       *
+       * `students` used to be assigned straight into the closure variable, and
+       * this function awaits twice — once for the roster, once for the class
+       * name. Opening a card into the big view mounts a second copy of the
+       * widget, which starts its own load; that second load reset the shared
+       * `students` to [] while the first was still waiting on its second
+       * await. The first then pruned the plan against an empty list it had no
+       * business believing, with `rosterKnown` still true from its own
+       * successful fetch — so every seat went, and the next save made it
+       * permanent. It looked exactly like what the teacher reported: the plan
+       * is there on the card, and gone the moment you expand it.
+       */
+      let loadSeq = 0;
       async function load() {
-        students = [];
-        className = '';
+        const mine = ++loadSeq;
+        let got = [];
+        let name = '';
         // Whether we actually KNOW who is in this class, as opposed to having
-        // failed to ask. The difference is the whole of the next paragraph.
+        // failed to ask. The difference is the whole of prunePlan.
         let rosterKnown = false;
 
         if (s.classKey) {
           try {
-            students = await Desk.roster.members(s.classKey);
+            got = await Desk.roster.members(s.classKey);
             rosterKnown = true;
           } catch (e) { toast(e.message, 'warn'); }
           try {
             const found = (await Desk.roster.classes()).find((c) => c.key === s.classKey);
-            className = (found && found.name) || '';
+            name = (found && found.name) || '';
           } catch { /* the plan prints without a name in its heading */ }
         }
+
+        // A newer load started while this one was waiting: it has asked the
+        // same questions more recently, so the answers here are stale and must
+        // not be allowed to touch the plan.
+        if (mine !== loadSeq) return;
+
+        students = got;
+        className = name;
         short = shortNames(students);
 
         prunePlan(plan(), students.map((x) => x.id), rosterKnown);

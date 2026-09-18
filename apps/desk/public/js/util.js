@@ -283,6 +283,34 @@ window.Desk = window.Desk || {};
     });
   }
 
+  // ---------- pupils' names ----------
+
+  /**
+   * Does this name show a family name in full?
+   *
+   * The test is the LAST word: one letter, with or without a full stop, is an
+   * initial; anything longer is a surname. Everything before it is left alone,
+   * because a child with two given names has two given names.
+   *
+   * Deliberately a hint and never a rule. "Mary Jo" reads as a surname to this
+   * and is not one, plenty of families do not divide a name this way at all,
+   * and a teacher of sixth-formers may have every reason to type names in
+   * full. So it counts and offers; it does not correct anybody.
+   */
+  function showsFamilyName(name) {
+    const parts = String(name == null ? '' : name).trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 2) return false;
+    return parts[parts.length - 1].replace(/\.$/, '').length > 1;
+  }
+
+  /** "Ava Bennett" → "Ava B." Names already short come back untouched. */
+  function shortenName(name) {
+    const parts = String(name == null ? '' : name).trim().split(/\s+/).filter(Boolean);
+    if (!showsFamilyName(parts.join(' '))) return parts.join(' ');
+    const last = parts[parts.length - 1].replace(/\.$/, '');
+    return [...parts.slice(0, -1), `${last[0].toUpperCase()}.`].join(' ');
+  }
+
   // ---------- printing ----------
 
   /**
@@ -412,5 +440,5 @@ window.Desk = window.Desk || {};
     });
   }
 
-  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask, print });
+  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask, print, showsFamilyName, shortenName });
 }(window.Desk));

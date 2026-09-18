@@ -30,6 +30,9 @@ const EMPTY = {
   // Sounds and pictures a teacher uploaded. The bytes live beside this file
   // on the volume; see server/assets.js for why so little is trusted.
   assets: {},      // id  -> { id, ownerUid, label, type, kind, bytes, path, createdAt }
+  // Previous versions of a board, kept so that work which disappears can be
+  // got back. See server/board.js — this exists because it twice was not.
+  boardHistory: {},// uid -> [ { rev, at, why, items } ]  newest first
 };
 
 let db = null;
@@ -84,4 +87,4 @@ function flushSync() {
 
 const id = (prefix) => `${prefix}_${crypto.randomBytes(9).toString('base64url')}`;
 
-module.exports = { load, save, flushSync, id, DATA_DIR, FILE, _blank: blank };
+module.exports = { load, save, flushSync, id, DATA_DIR, FILE, EMPTY, _blank: blank };

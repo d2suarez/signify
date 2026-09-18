@@ -20,6 +20,7 @@ const groups = require('./server/groups');
 const templates = require('./server/templates');
 const assets = require('./server/assets');
 const video = require('./server/video');
+const inventory = require('./server/inventory');
 const weather = require('./server/weather');
 
 const PORT = process.env.PORT || 8770;
@@ -62,7 +63,9 @@ app.use((req, res, next) => {
     // permits it, Google's calendar embed, and YouTube's no-cookie player —
     // the last of which is not put on the page at all until somebody presses
     // play, so an idle board contacts none of them.
-    "frame-src https://maps.signify.one https://calendar.google.com https://www.youtube-nocookie.com https://docs.google.com",
+    // Each one is a music or document embed the teacher has to ask for by
+    // pasting a link, and none of them is loaded until Play is pressed.
+    "frame-src https://maps.signify.one https://calendar.google.com https://www.youtube-nocookie.com https://docs.google.com https://open.spotify.com https://embed.music.apple.com https://w.soundcloud.com",
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -166,7 +169,25 @@ app.put('/api/board', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
   const result = board.saveBoard(u, req.body || {});
   if (result.tooBig) return bad(res, 413, 'This desk is holding too much to save. Try shortening a note.');
-  if (result.conflict) return res.status(409).json({ error: 'This desk was changed somewhere else.', board: result.board });
+  if (result.conflict) {
+    // Logged because a conflict makes the browser reload, and a reload throws
+    // away whatever had not been saved. Two tabs quietly fighting looks
+    // exactly like work disappearing on its own, and nothing recorded it.
+    console.warn(`desk: board ${u.uid} save refused — sent rev ${req.body && req.body.rev}, current ${result.board.rev}`);
+    return res.status(409).json({ error: 'This desk was changed somewhere else.', board: result.board });
+  }
+  ok(res, result);
+});
+
+app.get('/api/board/history', (req, res) => {
+  const u = auth.requireDesk(req, res); if (!u) return;
+  ok(res, { versions: board.listHistory(u) });
+});
+
+app.post('/api/board/history/:rev/restore', (req, res) => {
+  const u = auth.requireDesk(req, res); if (!u) return;
+  const result = board.restoreHistory(u, req.params.rev);
+  if (!result) return bad(res, 404, 'There is no kept version with that number.');
   ok(res, result);
 });
 
@@ -361,6 +382,13 @@ app.delete('/api/assets/:id', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
   if (!assets.remove(u, req.params.id)) return bad(res, 404, 'That file is not yours.');
   ok(res, { deleted: true });
+});
+
+// What this app holds about pupils. Deliberately open: an administrator
+// asking the question should not need an account to read the answer.
+app.get('/what-is-held', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.type('html').send(inventory.page({ host: CANONICAL_HOST || req.get('host') }));
 });
 
 // ---------------- static ----------------

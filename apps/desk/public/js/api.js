@@ -78,6 +78,8 @@ window.Desk = window.Desk || {};
     board: () => request('GET', '/api/board'),
     saveBoard: (payload) => request('PUT', '/api/board', payload),
     resetBoard: () => request('POST', '/api/board/reset'),
+    boardHistory: () => request('GET', '/api/board/history'),
+    restoreBoard: (rev) => request('POST', `/api/board/history/${encodeURIComponent(rev)}/restore`),
 
     classes: () => request('GET', '/api/classes'),
     members: (key) => request('GET', `/api/classes/${encodeURIComponent(key)}/members`),

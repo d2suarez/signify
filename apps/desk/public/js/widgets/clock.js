@@ -79,6 +79,7 @@
     blurb: 'Hands or digits, any timezone, in your colours. The face with hands is the one a class can learn to read.',
     icon: 'clock',
     category: 'time',
+    fills: true,
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 

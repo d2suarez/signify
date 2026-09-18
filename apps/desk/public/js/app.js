@@ -8,7 +8,7 @@
 (function (Desk) {
   'use strict';
 
-  const { el, icon } = Desk;
+  const { el, icon, toast } = Desk;
 
   const app = {};
   let config = null;
@@ -18,6 +18,10 @@
     const shell = document.getElementById('app');
     try {
       config = await Desk.api.config();
+      // Shared, so other modules can link to the identity service without
+      // fetching it again — the class-list dialog needs it to say WHERE a
+      // centrally managed class is actually edited.
+      Desk.config = config;
     } catch {
       shell.replaceChildren(message('The desk is not answering', 'Try again in a moment.'));
       return;
@@ -37,6 +41,7 @@
     Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
     drawChrome(shell);
     Desk.board.init({ root: document.getElementById('board'), data, me });
+    if (location.hash === '#versions') openHistory();
   }
 
   // ---------- the screens before the board ----------
@@ -98,9 +103,19 @@
         me.school ? el('span.tag', { text: me.school }) : null,
         me.role ? el('span.hint', { text: me.role }) : null,
       ]),
-      el('button.menu-item', { svg: icon('list', 16), onclick: () => { hideMenu(); Desk.roster.manage(); } }, ' Class lists'),
       el('button.menu-item', { svg: icon('palette', 16), onclick: () => { hideMenu(); Desk.theme.open(); } }, ' Appearance'),
+      // Only ever shrinks and closes gaps, so it is safe to offer without a
+      // confirmation: nothing a teacher has placed moves sideways, and no
+      // card grows under anything.
+      el('button.menu-item', { svg: icon('collapse', 16), onclick: () => {
+        hideMenu();
+        const n = Desk.board.tidy();
+        toast(n ? `${n} card${n === 1 ? '' : 's'} pulled in to fit.` : 'Everything already fits.');
+      } }, ' Tidy up the desk'),
       el('button.menu-item', { svg: icon('reset', 16), onclick: () => { hideMenu(); Desk.board.reset(); } }, ' Reset my desk'),
+      // A link rather than a dialog, so it can be sent to somebody who does
+      // not have an account here — which is usually who is asking.
+      el('a.menu-item', { href: '/what-is-held', target: '_blank', rel: 'noreferrer', svg: icon('lock', 16) }, ' What this holds about pupils'),
       config.identityUrl ? el('a.menu-item', { href: config.identityUrl, rel: 'noreferrer', svg: icon('person', 16) }, ' My account') : null,
       el('a.menu-item.menu-item--danger', { href: config.signOutUrl, svg: icon('close', 16) }, ' Sign out'),
     ]);
@@ -127,9 +142,18 @@
     paintMute();
     Desk.sound.onChange(paintMute);
 
+    // Class lists sits in the bar rather than in the menu: it is reached
+    // between lessons, by somebody who is looking at the desk rather than at
+    // their own account.
+    const listsBtn = el('button.btn.lists-btn', {
+      title: 'Class lists',
+      onclick: () => Desk.roster.manage(),
+    }, [el('span', { svg: icon('list', 16) }), el('span.lists-label', { text: 'Classes' })]);
+
     const bar = el('header.topbar', {}, [
       el('div.brand', {}, [el('span.brand-mark', { svg: icon('timer', 20) }), el('span', { text: 'Teacher’s Desk' })]),
       el('div.topbar-spacer'),
+      listsBtn,
       muteBtn,
       el('button.btn.btn--primary', { svg: icon('plus', 16), onclick: openCatalogue }, ' Add a tool'),
       el('div.user', {}, [userBtn, menu]),
@@ -141,6 +165,76 @@
 
     shell.replaceChildren(bar, el('main#board.board', { 'aria-label': 'Your desk' }));
     document.getElementById('board').style.setProperty('--cols', String(Desk.board.COLUMNS));
+  }
+
+  // ---------- getting an earlier desk back ----------
+
+  /**
+   * Every version of this desk the server kept, newest first.
+   *
+   * Deliberately NOT in the menu. "Earlier versions of this desk" is a
+   * developer's idea of a feature, and a teacher opening it mid-lesson is
+   * more likely to be confused by it than helped. It stays reachable at
+   * `/#versions`, and as `Desk.app.openHistory()`, so a desk that has lost
+   * something can still be put right — the copies themselves are taken on the
+   * server whether or not anybody ever opens this.
+   *
+   * The server takes a copy on its way past any save that would remove seated
+   * pupils, which is the shape every loss here has had. This is how a teacher
+   * gets their afternoon back without anybody looking at a JSON file.
+   */
+  async function openHistory() {
+    const list = el('div.catalogue');
+    const scrim = el('div.scrim', { onclick: (e) => { if (e.target === scrim) close(); } }, [
+      el('div.dialog.dialog--wide', { role: 'dialog', 'aria-modal': 'true' }, [
+        el('h2.dialog-title', { text: 'Earlier versions of this desk' }),
+        el('p.dialog-note', {
+          text: 'A copy is kept whenever something is about to remove pupils from a seating plan, and every half hour besides. Putting one back keeps the desk as it stands now, so you can change your mind.',
+        }),
+        list,
+        el('div.dialog-actions', {}, [el('button.btn', { text: 'Close', onclick: () => close() })]),
+      ]),
+    ]);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    function close() { scrim.remove(); document.removeEventListener('keydown', onKey); }
+    document.addEventListener('keydown', onKey);
+    document.body.append(scrim);
+
+    list.append(el('p.hint', { text: 'Looking…' }));
+    let versions = [];
+    try { versions = (await Desk.api.boardHistory()).versions || []; }
+    catch (e) { Desk.clear(list).append(el('p.hint', { text: e.message })); return; }
+
+    Desk.clear(list);
+    if (!versions.length) {
+      list.append(el('p.hint', { text: 'Nothing kept yet. One will be as soon as there is anything worth keeping.' }));
+      return;
+    }
+
+    for (const v of versions) {
+      list.append(el('div.saved-row', {}, [
+        el('div.saved-what', {}, [
+          el('span.saved-name', { text: Desk.when(v.at) }),
+          el('span.hint', { text: `${v.seated} seated across ${v.plans} plan${v.plans === 1 ? '' : 's'} · ${v.why}` }),
+        ]),
+        el('button.btn.btn--small', {
+          text: 'Put this back',
+          onclick: async () => {
+            const sure = await Desk.ask({
+              title: `Go back to the desk as it was at ${Desk.when(v.at)}?`,
+              body: `It had ${v.seated} pupils seated. The desk as it stands now is kept too, so this is not a one-way door.`,
+              confirmLabel: 'Put it back',
+            });
+            if (!sure) return;
+            try {
+              await Desk.api.restoreBoard(v.rev);
+              close();
+              window.location.reload();
+            } catch (e) { toast(e.message, 'warn'); }
+          },
+        }),
+      ]));
+    }
   }
 
   // ---------- adding a tool ----------
@@ -249,6 +343,11 @@
   }
 
   app.openCatalogue = openCatalogue;
+  app.openHistory = openHistory;
+
+  // A way back for a desk that has lost something, without a menu item that
+  // would puzzle everybody who has not lost anything.
+  window.addEventListener('hashchange', () => { if (location.hash === '#versions') openHistory(); });
   Desk.app = app;
 
   start().catch((e) => {
