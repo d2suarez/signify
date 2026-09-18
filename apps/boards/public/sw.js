@@ -64,6 +64,10 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;   // cross-origin (Google, etc.) passes through
   if (url.pathname.startsWith('/api')) return;   // live data: never cache
+  // Who is signed in, and their app list. Even as an offline fallback a
+  // cached copy would show one person's identity to whoever used the device
+  // next, so these always go to the network.
+  if (url.pathname.startsWith('/auth/')) return;
   // socket.io transport must always hit the network; the client LIB is cacheable
   // (needed so the page can even boot offline).
   if (url.pathname.startsWith('/socket.io/') && url.pathname !== '/socket.io/socket.io.js') return;
@@ -76,7 +80,11 @@ self.addEventListener('fetch', (e) => {
 
   // Heavy, stable vendor libs, fonts, icons & the socket.io client lib:
   // cache-first (instant, refresh in the background).
-  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/icons/') || url.pathname === '/socket.io/socket.io.js') {
+  // The shared Signify chrome is the exception under /vendor/: it changes with
+  // the fleet rather than with this app, so it takes the network-first path
+  // below and a fix to it lands on the next load, not the one after.
+  if ((url.pathname.startsWith('/vendor/') && url.pathname !== '/vendor/signify-switcher.js')
+      || url.pathname.startsWith('/icons/') || url.pathname === '/socket.io/socket.io.js') {
     e.respondWith(cacheFirst(req));
     return;
   }

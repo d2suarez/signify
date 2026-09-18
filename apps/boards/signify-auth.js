@@ -6,7 +6,8 @@
 // a version conflict into a project.
 //
 //   const signify = require('./signify-auth');
-//   signify.mount(app);                       // adds /auth/login, /auth/callback, /auth/logout
+//   signify.mount(app);                       // adds /auth/login, /auth/callback, /auth/logout,
+//                                             // /auth/me, /auth/apps and /auth/report
 //   app.use(signify.middleware);              // sets req.user on every request
 //   app.get('/api/x', signify.requireUser, ...);
 //   app.post('/api/y', signify.requirePerm('atlas:grade', 'class'), ...);
@@ -346,10 +347,11 @@ function mount(app, options = {}) {
   // — browsers stopped sending those in third-party contexts — so the server
   // asks on the page's behalf with the token it already holds.
   app.get(`${prefix}/apps`, async (req, res) => {
+    await resolve(req, res);
     if (!req.user) return res.status(401).json({ error: 'Not signed in.' });
     try {
       const upstream = await fetch(`${ISSUER}/api/v1/my-apps`, {
-        headers: { authorization: `Bearer ${parseCookies(req)[TOKEN_COOKIE] || ''}` },
+        headers: { authorization: `Bearer ${req.signifyToken || ''}` },
         signal: AbortSignal.timeout(5000),
       });
       if (!upstream.ok) return res.status(502).json({ error: 'Could not reach Signify ID.' });
@@ -363,10 +365,61 @@ function mount(app, options = {}) {
     }
   });
 
+  /**
+   * "Report a problem", from the shared widget in signify-switcher.js.
+   *
+   * Forwarded to Signify ID from this app's own origin with the person's
+   * token, for the same reason the app list is: the browser cannot carry the
+   * identity session cross-origin. Signify ID reads who sent it — person,
+   * school, app — off the token, so nothing in this body can change that.
+   */
+  app.post(`${prefix}/report`, async (req, res) => {
+    await resolve(req, res);
+    if (!req.user) return res.status(401).json({ error: 'Please sign in again to send a report.' });
+    let body = req.body;
+    if (body === undefined) {
+      try { body = await readJson(req, 32 * 1024); }
+      catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    }
+    try {
+      const upstream = await fetch(`${ISSUER}/api/v1/reports`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${req.signifyToken || ''}` },
+        body: JSON.stringify(body || {}),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await upstream.json().catch(() => ({}));
+      res.set('Cache-Control', 'no-store');
+      res.status(upstream.status).json(data);
+    } catch (e) {
+      res.status(502).json({ error: 'Could not reach Signify ID. Please try again in a moment.' });
+    }
+  });
+
   // Handy for the browser: who am I, in JSON.
-  app.get(`${prefix}/me`, (req, res) => {
+  app.get(`${prefix}/me`, async (req, res) => {
+    await resolve(req, res);
     if (!req.user) return res.status(401).json({ signedIn: false });
     res.json({ signedIn: true, user: req.user });
+  });
+}
+
+// A JSON body, for an app that has not installed express.json() ahead of
+// mount(). Capped, because this is reachable by anyone who can reach the app.
+function readJson(req, limit) {
+  return new Promise((resolveBody, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { const e = new Error('That report is too large.'); e.status = 413; reject(e); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try { resolveBody(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}); }
+      catch { const e = new Error('That report could not be read.'); e.status = 400; reject(e); }
+    });
+    req.on('error', reject);
   });
 }
 
@@ -402,11 +455,29 @@ function renew(refreshToken) {
 
 // ---------- middleware ----------
 
-async function middleware(req, res, next) {
-  if (!ENABLED) return next();
+/**
+ * Works out who is signed in and sets req.user, renewing an expired ID token
+ * on the way if a refresh token allows it.
+ *
+ * Safe to run more than once on the same request: the second call returns at
+ * once. That matters because mount() registers routes that need req.user, and
+ * every app in the fleet calls mount() BEFORE app.use(middleware) — so those
+ * routes ran first, saw no user, and answered 401 to people who were signed
+ * in. /auth/apps did exactly that, which is why the app switcher never
+ * appeared anywhere. Those routes now call resolve() themselves, and the
+ * order an app wires things up in no longer matters.
+ */
+async function resolve(req, res) {
+  if (req.signifyResolved) return;
+  req.signifyResolved = true;
+  if (!ENABLED) return;
   try {
     const cookies = parseCookies(req);
     let claims = await verifyJwt(cookies[TOKEN_COOKIE], 'id');
+    // The token that is valid for THIS request. After a renewal the browser's
+    // cookie header still holds the expired one, so anything forwarding a
+    // token upstream has to use this instead of re-reading the cookie.
+    if (claims) req.signifyToken = cookies[TOKEN_COOKIE];
 
     // Expired ID token but a refresh token in hand: renew silently. This is
     // also the moment a block or role change on the identity service takes
@@ -415,7 +486,7 @@ async function middleware(req, res, next) {
       try {
         const tokens = await renew(cookies[REFRESH_COOKIE]);
         claims = await verifyJwt(tokens.id_token, 'id');
-        if (claims) storeTokens(res, tokens);
+        if (claims) { storeTokens(res, tokens); req.signifyToken = tokens.id_token; }
       } catch (e) {
         // Refused refresh means the session is genuinely over.
         clearCookie(res, TOKEN_COOKIE);
@@ -444,6 +515,10 @@ async function middleware(req, res, next) {
   } catch (e) {
     console.error('signify-auth: middleware error —', e.message);
   }
+}
+
+async function middleware(req, res, next) {
+  await resolve(req, res);
   next();
 }
 
@@ -523,7 +598,7 @@ async function isInSameClass(req, otherUserId) {
   if (!req.user) return false;
   try {
     const res = await fetch(`${ISSUER}/api/v1/shares-class?a=${encodeURIComponent(req.user.id)}&b=${encodeURIComponent(otherUserId)}`, {
-      headers: { authorization: `Bearer ${parseCookies(req)[TOKEN_COOKIE] || ''}` },
+      headers: { authorization: `Bearer ${req.signifyToken || parseCookies(req)[TOKEN_COOKIE] || ''}` },
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return false;
@@ -533,7 +608,7 @@ async function isInSameClass(req, otherUserId) {
 }
 
 module.exports = {
-  mount, middleware, requireUser, requirePerm, has, isInSameClass, declarePermissions,
+  mount, middleware, resolve, requireUser, requirePerm, has, isInSameClass, declarePermissions,
   verifyCookieSession,
   ENABLED, ISSUER, CLIENT_ID,
   _internal: { verifyJwt, parseCookies, sign, unsign },
