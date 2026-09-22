@@ -469,6 +469,7 @@
       let className = '';
       let short = new Map();         // student id -> what fits in a chair
       let selectedStudent = null;    // tap-to-place
+      let named = null;              // whose full name is showing, when not editing
       let selected = null;           // { kind: 'desk' | 'object', id } — what the inspector is showing
       let dragging = null;
       let ghost = null;
@@ -708,9 +709,15 @@
               el('span.seat-name', { text: who ? (short.get(who.id) || who.name) : '', title: who ? who.name : '' }),
               el('span.seat-initials', { text: who ? initials(who.name) : '' }),
             ]);
+            if (who) seat.dataset.who = who.id;
             if (editable) {
               seat.addEventListener('pointerdown', (e) => onSeatDown(e, id, who));
               seat.addEventListener('click', () => onSeatClick(id, who));
+            } else if (who) {
+              // Read-only, a tap has nothing to move — so it answers "who is
+              // that?", which a chair-sized first name cannot when two pupils
+              // share one.
+              seat.addEventListener('click', () => { named = named === who.id ? null : who.id; showFullName(); });
             }
             node.append(seat);
           });
@@ -720,6 +727,35 @@
           }
           room.append(node);
         }
+        showFullName();
+      }
+
+      /**
+       * The full name of the pupil in hand (or tapped, when not editing),
+       * floated over their chair. It hangs off the desk, not the seat, because
+       * a seat clips its text — which is the whole problem — and it is placed
+       * in the room's own grid units so it moves with the room when the room
+       * resizes, rather than being measured once and left behind.
+       */
+      function showFullName() {
+        for (const t of room.querySelectorAll('.seat-tag')) t.remove();
+        for (const d of room.querySelectorAll('.desk.has-tag')) d.classList.remove('has-tag');
+        const id = editable ? selectedStudent : named;
+        const who = id && studentById(id);
+        const seat = who && room.querySelector(`.seat[data-who="${CSS.escape(String(id))}"]`);
+        if (!seat) return;
+        const desk = seat.parentElement;
+        const n = (el, k) => parseFloat(el.style.getPropertyValue(k)) || 0;
+        const x = n(desk, '--x') + n(seat, '--bx') + n(seat, '--bw') / 2;   // room columns
+        const y = n(desk, '--y') + n(seat, '--by');                          // room rows
+        const tag = el('div.seat-tag', {
+          text: who.name, role: 'status',
+          class: [y < 3 ? 'is-below' : '', x < 6 ? 'is-left' : x > COLS - 6 ? 'is-right' : ''].filter(Boolean).join(' '),
+          style: { '--bx': seat.style.getPropertyValue('--bx'), '--by': seat.style.getPropertyValue('--by'),
+                   '--bw': seat.style.getPropertyValue('--bw'), '--bh': seat.style.getPropertyValue('--bh') },
+        });
+        desk.classList.add('has-tag');
+        desk.append(tag);
       }
 
       /**

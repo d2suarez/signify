@@ -513,6 +513,13 @@ window.Desk = window.Desk || {};
     }, 500);
   }
 
+  function select(card) {
+    for (const c of board.root.querySelectorAll('.card.is-selected')) {
+      if (c !== card) c.classList.remove('is-selected');
+    }
+    if (card) card.classList.add('is-selected');
+  }
+
   // ---------- boot ----------
 
   function init({ root, data, me }) {
@@ -525,6 +532,21 @@ window.Desk = window.Desk || {};
       .filter((i) => { const d = Desk.widgets.get(i.type); return !d || !d.permission || (me.can && me.can[d.permission]); });
     render();
     startClocks();
+
+    // The tool you are using is the one that shows its controls. Pointing at
+    // a tool does nothing — that flickered as the mouse crossed the board.
+    // Touching it (clicking a button, tapping the clock) selects it; touching
+    // the desk, or Escape, puts the controls away again.
+    document.addEventListener('pointerdown', (e) => {
+      const card = e.target.closest && e.target.closest('.card');
+      if (card && board.root.contains(card)) select(card);
+      else if (!e.target.closest('.stage, .modal, .scrim, .menu, .toast')) select(null);
+    });
+    document.addEventListener('focusin', (e) => {
+      const card = e.target.closest && e.target.closest('.card');
+      if (card && board.root.contains(card)) select(card);
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
 
     let wasStacked = stacked();
     window.addEventListener('resize', Desk.debounce(() => {

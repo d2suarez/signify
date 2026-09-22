@@ -876,6 +876,25 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
    teacher who is sitting where. */
 .room.is-tiny .seat-name { display: none; }
 .room.is-tiny .seat-initials { display: block; font-size: calc(var(--cell, 8px) * 1.5); }
+/* A pupil's full name, shown over their chair when tapped. Positioned in the
+   desk's own units, the same way the seat is, so it follows the room. */
+.desk.has-tag { z-index: 6; }
+.seat-tag {
+  position: absolute; z-index: 6; pointer-events: none; white-space: nowrap;
+  left: calc((var(--bx) + var(--bw) / 2) / var(--w) * 100%);
+  top: calc(var(--by) / var(--h) * 100%);
+  transform: translate(-50%, calc(-100% - 4px));
+  padding: .2rem .5rem; border-radius: 999px;
+  background: var(--ink); color: var(--surface);
+  font-size: .8rem; font-weight: 600; line-height: 1.2; box-shadow: var(--lift);
+}
+.seat-tag.is-below { top: calc((var(--by) + var(--bh)) / var(--h) * 100%); transform: translate(-50%, 4px); }
+.seat-tag.is-left { left: calc(var(--bx) / var(--w) * 100%); transform: translate(0, calc(-100% - 4px)); }
+.seat-tag.is-left.is-below { transform: translate(0, 4px); }
+.seat-tag.is-right { left: calc((var(--bx) + var(--bw)) / var(--w) * 100%); transform: translate(-100%, calc(-100% - 4px)); }
+.seat-tag.is-right.is-below { transform: translate(-100%, 4px); }
+@media print { .seat-tag { display: none; } }
+html.is-printing .seat-tag { display: none; }
 
 /* Everything in the room that is not a desk: the teacher's own desk, a
    bookcase, the door, a rug. Drawn plainly and labelled by the teacher —
@@ -1603,10 +1622,10 @@ body.is-seating-drag { user-select: none; }
    goes, and what is left is the thing you came for.
    Two problems that creates, and what answers each:
      * Where does one end and the next begin? Each tool keeps the surface and
-       the shadow — they move from the card onto the content — and pointing at
-       one draws a soft halo round the whole of its area.
+       the shadow — they move from the card onto the content — and the tool
+       in use gets a faint hairline round the whole of its area.
      * How do you move, resize or open it? The title bar is not deleted, it is
-       floated: it appears just above the tool when pointed at, carrying the
+       floated: it appears just above the tool once you touch it, carrying the
        same grip, name and buttons it always had. Dragging still works because
        it is still the same element.
 */
@@ -1631,32 +1650,36 @@ body.is-seating-drag { user-select: none; }
   padding: .7rem .75rem;
 }
 
-/* The halo. Drawn outside the content so it never moves anything, and only
-   while the pointer is on this tool — enough to say "this much is one thing". */
+/* The outline. A single hairline a few pixels outside the tool, in a whisper
+   of the accent — enough to say "this much is one thing", never a frame. It
+   appears only on the tool you are using, not on whatever the pointer
+   happens to cross on its way across the board. */
 [data-chrome="bare"] .card::after {
-  content: ''; position: absolute; inset: -6px; border-radius: calc(var(--r-panel) + 8px);
-  border: 1.5px dashed color-mix(in srgb, var(--accent) 38%, transparent);
-  opacity: 0; transition: opacity .14s; pointer-events: none;
+  content: ''; position: absolute; inset: -5px; border-radius: calc(var(--r-panel) + 6px);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  opacity: 0; transition: opacity .2s; pointer-events: none;
 }
-[data-chrome="bare"] .card:hover::after,
-[data-chrome="bare"] .card:focus-within::after { opacity: 1; }
+[data-chrome="bare"] .card.is-selected::after { opacity: 1; }
 
-/* The title bar, floated above the tool and only when wanted. */
+/* The title bar, floated above the tool and only on the one in use. */
 [data-chrome="bare"] .card-head {
   position: absolute; left: 0; right: 0; bottom: 100%; z-index: 4;
-  margin-bottom: 5px; padding: .18rem .3rem;
+  margin-bottom: 7px; padding: .18rem .3rem;
   border: 1px solid var(--cut-edge); border-radius: 999px;
   background: var(--surface); box-shadow: var(--lift);
   opacity: 0; transform: translateY(4px); pointer-events: none;
-  transition: opacity .14s, transform .14s;
+  transition: opacity .18s, transform .18s;
 }
-[data-chrome="bare"] .card:hover > .card-head,
-[data-chrome="bare"] .card:focus-within > .card-head {
+[data-chrome="bare"] .card.is-selected > .card-head {
   opacity: 1; transform: none; pointer-events: auto;
 }
 [data-chrome="bare"] .card-head .card-actions { opacity: 1; }
 /* The top row of the board has nothing above it to float into. */
-[data-chrome="bare"] .card[style*="--y: 0"] .card-head { bottom: auto; top: 100%; margin: 5px 0 0; }
+[data-chrome="bare"] .card[style*="--y: 0"] .card-head { bottom: auto; top: 100%; margin: 7px 0 0; }
+
+/* The resize corner belongs to the selected tool too. */
+[data-chrome="bare"] .card:hover .card-resize { opacity: 0; }
+[data-chrome="bare"] .card.is-selected .card-resize { opacity: .8; }
 
 [data-chrome="bare"] .card-resize { right: -4px; bottom: -4px; }
 
@@ -1687,3 +1710,11 @@ body.is-seating-drag { user-select: none; }
   justify-content: center; padding: 8%;
 }
 [data-chrome="bare"] .card[data-type="breathing"] .breathe-settings { display: none; }
+
+/* The Signify app switcher pins itself top-right (a 40px button, 12px in) —
+   it loads before the top bar exists, so it cannot mount inside it. It marks
+   the page once it is actually showing, and only then does the bar make room
+   on the right, so a signed-out visitor never sees a gap. The big view gets
+   the same room, or its close button would sit underneath the switcher. */
+[data-signify-switcher-ready] .topbar,
+[data-signify-switcher-ready] .stage-head { padding-right: 64px; }
