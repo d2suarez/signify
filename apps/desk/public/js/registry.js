@@ -48,12 +48,17 @@ window.Desk = window.Desk || {};
    * A widget with no category, or one naming a drawer that does not exist,
    * falls into the last one rather than vanishing from the catalogue.
    */
+  /* Each category carries a colour and a shape, and a tool never has either of
+     its own: a teacher learns "red circle means time" once, and it holds
+     across the board, the filter chips and the readouts in the header. */
   const CATEGORIES = [
-    { key: 'time', name: 'Time', blurb: 'Counting down, counting up, and what time it is.' },
-    { key: 'class', name: 'Your class', blurb: 'The tools that know who is in the room.' },
-    { key: 'board', name: 'On the board', blurb: 'Things to put in front of thirty people.' },
-    { key: 'calm', name: 'Sound and calm', blurb: 'For settling a room, or livening one up.' },
-    { key: 'other', name: 'Odds and ends', blurb: 'Everything else worth having to hand.' },
+    { key: 'time', name: 'Time', role: 'p1', shape: 'circle', blurb: 'Counting down, counting up, and what time it is.' },
+    { key: 'class', name: 'Your class', role: 'p2', shape: 'square', blurb: 'The tools that know who is in the room.' },
+    { key: 'board', name: 'On the board', role: 'p3', shape: 'triangle', blurb: 'Things to put in front of thirty people.' },
+    { key: 'calm', name: 'Sound and calm', role: 'p4', shape: 'arch', blurb: 'For settling a room, or livening one up.' },
+    // Odds and ends are deliberately colourless — a fifth colour would make
+    // the other four mean less.
+    { key: 'other', name: 'Odds and ends', role: null, shape: 'ring', blurb: 'Everything else worth having to hand.' },
   ];
   const FALLBACK = CATEGORIES[CATEGORIES.length - 1].key;
 
@@ -74,6 +79,19 @@ window.Desk = window.Desk || {};
       // seating plan, an embedded video, a clock face that scales — say so.
       fills: false,
       category: FALLBACK,
+      // 'block' fills the whole card with its category colour — for the tools
+      // that are read at a glance from the back of the room. 'card' is white
+      // with a coloured marker, for the tools you lean in and work with.
+      tone: 'card',
+      // What this tool says in the island at the top of the board, if
+      // anything: { value, caption, progress }. A tool with nothing worth
+      // reading from across the room simply does not offer one.
+      readout: null,
+      // Almost always the category's own colour. Two tools are deliberately
+      // not: a clock is teal and a noise meter yellow, so that a board full
+      // of time tools is not a wall of red. The SHAPE still says which family
+      // the tool belongs to, which is what a teacher actually learns.
+      role: null,
       init() {},
       mount() { return {}; },
     }, def));
@@ -106,5 +124,21 @@ window.Desk = window.Desk || {};
     })).filter((c) => c.widgets.length);
   }
 
-  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, CATEGORIES } });
+  const category = (key) => CATEGORIES.find((c) => c.key === key) || CATEGORIES[CATEGORIES.length - 1];
+
+  /**
+   * The little shape that says which family a tool belongs to. One element,
+   * drawn entirely in CSS from the shape name, so it costs nothing to put one
+   * on a card, a chip, a readout in the header or a heading in the catalogue.
+   */
+  function marker(categoryKey, size) {
+    const c = category(categoryKey);
+    return Desk.el('span.shape', {
+      'data-shape': c.shape,
+      'aria-hidden': 'true',
+      style: size ? { '--shape-size': `${size}px` } : {},
+    });
+  }
+
+  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, category, marker, CATEGORIES } });
 }(window.Desk));

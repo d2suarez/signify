@@ -273,8 +273,8 @@ describe('how the tools sit', () => {
 // ===================================================================
 describe('a colour of your own', () => {
   it('keeps a real hex colour', () => {
-    equal(board.cleanPrefs({ accent: 'custom', accentHex: '#FF8800' }).accentHex, '#ff8800');
-    equal(board.cleanPrefs({ accent: 'custom', accentHex: '#ff8800' }).accent, 'custom');
+    equal(board.cleanPrefs({ palette: 'custom', accentHex: '#FF8800' }).accentHex, '#ff8800');
+    equal(board.cleanPrefs({ palette: 'custom', accentHex: '#ff8800' }).palette, 'custom');
   });
 
   it('refuses anything that is not six hex digits', () => {
@@ -282,13 +282,24 @@ describe('a colour of your own', () => {
     // that stops a saved preference carrying anything but a colour into the
     // stylesheet.
     for (const bad of ['red', '#abc', '#ff88000', 'red; background:url(//x)', '', null, 12, '#ff88 00']) {
-      equal(board.cleanPrefs({ accent: 'custom', accentHex: bad }).accentHex, '#1D4ED8', String(bad));
+      equal(board.cleanPrefs({ palette: 'custom', accentHex: bad }).accentHex, '#EC3013', String(bad));
     }
   });
 
-  it('still refuses an accent name it does not know', () => {
-    equal(board.cleanPrefs({ accent: 'chartreuse' }).accent, 'blue');
-    equal(board.cleanPrefs({ accent: 'custom' }).accent, 'custom');
+  it('still refuses a palette name it does not know', () => {
+    equal(board.cleanPrefs({ palette: 'chartreuse' }).palette, 'primary');
+    equal(board.cleanPrefs({ palette: 'custom' }).palette, 'custom');
+  });
+
+  it('carries a board saved under the old accents into its palette', () => {
+    // Nobody should have to choose their colours again because the scheme
+    // underneath them changed.
+    equal(board.cleanPrefs({ accent: 'teal' }).palette, 'ocean');
+    equal(board.cleanPrefs({ accent: 'pink' }).palette, 'berry');
+    equal(board.cleanPrefs({ accent: 'red' }).palette, 'mono-red');
+    equal(board.cleanPrefs({ accent: 'slate' }).palette, 'primary');
+    equal(board.cleanPrefs({ accent: 'custom', accentHex: '#ff8800' }).palette, 'custom',
+      'and a colour of their own is still their own');
   });
 });
 
@@ -647,13 +658,13 @@ describe('how the desk looks', () => {
   it('starts on the defaults', () => {
     const b = board.boardFor(bruno);
     equal(b.prefs.theme, 'auto');
-    equal(b.prefs.accent, 'blue');
+    equal(b.prefs.palette, 'primary');
   });
 
   it('keeps only colours it actually has', () => {
-    const p = board.cleanPrefs({ theme: 'midnight', accent: 'chartreuse', backgroundDim: 500 });
+    const p = board.cleanPrefs({ theme: 'midnight', palette: 'chartreuse', backgroundDim: 500 });
     equal(p.theme, 'auto', 'an unknown mode falls back');
-    equal(p.accent, 'blue', 'so does an unknown accent');
+    equal(p.palette, 'primary', 'so does an unknown palette');
     equal(p.backgroundDim, 90, 'and the scrim is clamped');
   });
 
@@ -667,10 +678,10 @@ describe('how the desk looks', () => {
 
   it('saves alongside the widgets, and survives a reset of the board', () => {
     const rev = board.boardFor(bruno).rev;
-    board.saveBoard(bruno, { rev, items: [], prefs: { theme: 'dark', accent: 'teal' } });
-    equal(board.boardFor(bruno).prefs.accent, 'teal');
+    board.saveBoard(bruno, { rev, items: [], prefs: { theme: 'dark', palette: 'ocean' } });
+    equal(board.boardFor(bruno).prefs.palette, 'ocean');
     board.resetBoard(bruno);
-    equal(board.boardFor(bruno).prefs.accent, 'teal', 'resetting the tools does not repaint the room');
+    equal(board.boardFor(bruno).prefs.palette, 'ocean', 'resetting the tools does not repaint the room');
   });
 });
 

@@ -150,21 +150,111 @@
       onclick: () => Desk.roster.manage(),
     }, [el('span', { svg: icon('list', 16) }), el('span.lists-label', { text: 'Classes' })]);
 
-    const bar = el('header.topbar', {}, [
-      el('div.brand', {}, [el('span.brand-mark', { svg: icon('timer', 20) }), el('span', { text: 'Teacher’s Desk' })]),
-      el('div.topbar-spacer'),
-      listsBtn,
-      muteBtn,
-      el('button.btn.btn--primary', { svg: icon('plus', 16), onclick: openCatalogue }, ' Add a tool'),
-      el('div.user', {}, [userBtn, menu]),
+    // The mark is the three shapes the board itself uses — time, your class,
+    // the board — rather than a picture of a clock. Same alphabet everywhere.
+    const brand = el('div.brand', {}, [
+      el('span.brand-mark', {}, [
+        el('span.shape', { 'data-shape': 'circle', style: { '--role': 'var(--p1)' } }),
+        el('span.shape', { 'data-shape': 'square', style: { '--role': 'var(--p2)' } }),
+        el('span.shape', { 'data-shape': 'triangle', style: { '--role': 'var(--p3)' } }),
+      ]),
+      el('span.brand-word', { text: 'Teacher’s Desk' }),
     ]);
+
+    const island = el('div.island', { 'aria-label': 'What your tools are saying', role: 'status' });
+
+    const bar = el('header.topbar', {}, [
+      brand,
+      island,
+      el('div.topbar-tools', {}, [
+        listsBtn,
+        muteBtn,
+        el('button.btn.btn--primary.add-btn', { svg: icon('plus', 16), onclick: openCatalogue }, ' Add a tool'),
+        el('div.user', {}, [userBtn, menu]),
+      ]),
+    ]);
+
+    /* The island is the board read from across the room: whatever the tools
+       are saying, gathered into one pill. It is rebuilt rather than patched
+       because there are at most four items in it — and a readout that has
+       stopped being worth showing has to be able to leave. */
+    function paintIsland() {
+      const said = Desk.board.readouts(islandRoom());
+      // Nothing running, nothing to say. An empty pill is furniture.
+      if (!said.length) { island.replaceChildren(); island.hidden = true; return; }
+      island.hidden = false;
+      const parts = [];
+      said.forEach((r, i) => {
+        if (i) parts.push(el('span.island-rule', { 'aria-hidden': 'true' }));
+        parts.push(el('button.island-item', {
+          title: `${r.caption} — open it`,
+          onclick: () => Desk.board.openStage(r.id),
+        }, [
+          Desk.widgets.marker(r.category, 10),
+          el('span.island-text', {}, [
+            el('span.island-value', { text: r.value }),
+            r.caption ? el('span.island-caption', { text: r.caption }) : null,
+          ]),
+          typeof r.progress === 'number'
+            ? el('span.island-bar', { style: { '--fill': r.progress }, 'aria-hidden': 'true' })
+            : null,
+        ]));
+      });
+      island.replaceChildren(...parts);
+    }
+
+    // As the window narrows the island gives things up rather than shrinking
+    // them: the timer and the last pick are what survive.
+    function islandRoom() {
+      const w = window.innerWidth;
+      if (w < 880) return 2;
+      if (w < 1280) return 3;
+      return 4;
+    }
+
+    setInterval(paintIsland, 1000);
+    paintIsland();
 
     function toggleMenu() { menu.hidden = !menu.hidden; if (!menu.hidden) setTimeout(() => document.addEventListener('pointerdown', away), 0); }
     function hideMenu() { menu.hidden = true; document.removeEventListener('pointerdown', away); }
     function away(e) { if (!menu.contains(e.target) && e.target !== userBtn) hideMenu(); }
 
-    shell.replaceChildren(bar, el('main#board.board', { 'aria-label': 'Your desk' }));
-    document.getElementById('board').style.setProperty('--cols', String(Desk.board.COLUMNS));
+    /* The chips are a way of quietening the board, not of rearranging it:
+       choosing one hides the cards that are not that family, and the layout
+       underneath is untouched. Nothing is saved — a filter is for the next
+       minute, not for the next term. */
+    const filters = el('nav.filters', { 'aria-label': 'Show one kind of tool' });
+    let showing = 'all';
+
+    function paintFilters() {
+      const pick = (key) => () => { showing = key; paintFilters(); applyFilter(); };
+      const chips = [el('button.filter.is-on', {
+        class: showing === 'all' ? 'filter is-on' : 'filter',
+        'aria-pressed': String(showing === 'all'), onclick: pick('all'),
+      }, el('span', { text: 'All tools' }))];
+      for (const c of Desk.widgets.CATEGORIES) {
+        if (c.key === 'other') continue;
+        chips.push(el('button.filter', {
+          class: showing === c.key ? 'filter is-on' : 'filter',
+          'aria-pressed': String(showing === c.key), onclick: pick(c.key),
+        }, [Desk.widgets.marker(c.key, 12), el('span', { text: c.name })]));
+      }
+      filters.replaceChildren(...chips);
+    }
+
+    function applyFilter() {
+      for (const card of document.querySelectorAll('.card')) {
+        const def = Desk.widgets.get(card.dataset.type);
+        const mine = showing === 'all' || (def && def.category === showing);
+        card.classList.toggle('is-filtered-out', !mine);
+      }
+    }
+
+    paintFilters();
+    document.addEventListener('desk:rendered', applyFilter);
+
+    shell.replaceChildren(bar, filters, el('main#board.board', { 'aria-label': 'Your desk' }));
+    // The board decides its own column count from its width, in render().
   }
 
   // ---------- getting an earlier desk back ----------
@@ -294,6 +384,7 @@
       count.textContent = '';
       for (const drawer of drawers) {
         list.append(el('div.cat-head', {}, [
+          Desk.widgets.marker(drawer.key, 12),
           el('h3.cat-head-name', { text: drawer.name }),
           el('span.cat-head-blurb', { text: drawer.blurb }),
         ]));

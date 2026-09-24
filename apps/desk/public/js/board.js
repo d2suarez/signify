@@ -19,7 +19,19 @@ window.Desk = window.Desk || {};
   const { el, icon, clamp, toast } = Desk;
 
   const COLUMNS = 12;
-  const STACK_BELOW = 820;
+  const STACK_BELOW = 520;
+
+  /* How many columns the board has, decided by the board's own width rather
+     than the window's — the same desk in a narrower app is a narrower desk.
+     Twelve is the layout the teacher arranged; eight and four are packings of
+     it. */
+  const WIDE_AT = 1280;
+  const MEDIUM_AT = 880;
+  function columnsFor(width) {
+    if (width >= WIDE_AT) return 12;
+    if (width >= MEDIUM_AT) return 8;
+    return 4;
+  }
 
   const board = {
     rev: 0,
@@ -85,6 +97,8 @@ window.Desk = window.Desk || {};
   }
 
   const stacked = () => window.innerWidth < STACK_BELOW;
+  /* Cards only stay where they were put while all twelve columns are there. */
+  const packing = () => !stacked() && board.root && columnsFor(board.root.clientWidth) < COLUMNS;
 
   // ---------- saving ----------
 
@@ -165,6 +179,12 @@ window.Desk = window.Desk || {};
     const def = Desk.widgets.get(item.type);
     const node = el('section.card', {
       'data-id': item.id, 'data-type': item.type,
+      // The category decides the colour and the shape; the tone decides
+      // whether that colour fills the card or just marks it. Both are written
+      // here so the stylesheet can do the rest without a line of JavaScript.
+      'data-category': def ? def.category : 'other',
+      'data-role': def && def.role ? def.role : '',
+      'data-tone': def ? def.tone : 'card',
       // A card is only as tall as what is in it, unless the widget says it
       // needs the room. That is the difference between a board of tools and a
       // board of boxes with a tool floating in the middle of each.
@@ -177,7 +197,9 @@ window.Desk = window.Desk || {};
 
     const head = el('header.card-head', {}, [
       el('span.card-grip', { svg: icon('drag', 16), title: 'Drag to move' }),
-      el('span.card-icon', { svg: icon(def ? def.icon : 'notes', 18) }),
+      // The shape says which family the tool belongs to. It replaces the
+      // per-tool icon: thirty different icons taught nothing, four shapes do.
+      Desk.widgets.marker(def ? def.category : 'other'),
       el('h2.card-title', { text: def ? def.name : item.type }),
       el('div.card-actions', {}, [
         el('button.icon-btn', { title: 'Open larger', 'aria-label': 'Open larger', svg: icon('expand', 16), onclick: () => openStage(item.id) }),
@@ -194,6 +216,9 @@ window.Desk = window.Desk || {};
   function render() {
     const root = board.root;
     document.body.classList.toggle('is-stacked', stacked());
+    const cols = stacked() ? 1 : columnsFor(root.clientWidth);
+    root.dataset.cols = String(cols);
+    root.style.setProperty('--cols', String(cols));
 
     const order = board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
     const present = new Set(order.map((i) => i.id));
@@ -224,6 +249,10 @@ window.Desk = window.Desk || {};
         el('button.btn.btn--primary', { text: 'Add a tool', onclick: () => Desk.app.openCatalogue() }),
       ]));
     }
+
+    // Said once, here, so anything that decorates cards — the filter chips,
+    // for one — can catch the ones that have only just been created.
+    document.dispatchEvent(new CustomEvent('desk:rendered'));
   }
 
   function position(node, item) {
@@ -254,34 +283,120 @@ window.Desk = window.Desk || {};
 
     const start = { x: event.clientX, y: event.clientY, ix: item.x, iy: item.y, iw: item.w, ih: item.h };
     const before = board.items.map((i) => ({ ...i }));
+    /* Where everything else was when the drag began. Each update puts the
+       other cards BACK here before working out who is in the way, so being
+       shoved aside is never cumulative: carry a card across four columns and
+       the ones it passes step aside and then step back, instead of being
+       pushed down the board again on every frame. That accumulation is what
+       sent a card to the bottom of the desk when it was only passed over. */
+    const origin = new Map(board.items.map((i) => [i.id, { x: i.x, y: i.y }]));
+
+    /* Lays the board out again around the card in hand.
+       
+       Every other card starts from where it was when the drag began and is
+       placed in that same order, sliding down only as far as it must to clear
+       what is already down. Two things follow, and both are the difference
+       between a board that helps and one that panics:
+       
+       nothing accumulates — a card passed over twice is not pushed twice, it
+       is placed once from its original home; and the order holds — the card
+       that was at the top of a column is still the card at the top of that
+       column, instead of being sent to the bottom of the desk because two
+       cards momentarily tied for the same row. */
+    const relayout = () => {
+      const others = board.items.filter((i) => i !== item);
+      others.sort((a, b) => {
+        const oa = origin.get(a.id) || a;
+        const ob = origin.get(b.id) || b;
+        return oa.y - ob.y || oa.x - ob.x;
+      });
+
+      const placed = [item];
+      for (const other of others) {
+        const o = origin.get(other.id) || { x: other.x, y: other.y };
+        other.x = o.x;
+        other.y = o.y;
+        // Straight down until it is clear. A card only ever gives way
+        // downwards, so the shape of the board a teacher built is kept.
+        while (placed.some((p) => hits(p, other))) other.y += 1;
+        placed.push(other);
+      }
+
+      repositionAll();
+      position(node, item);
+    };
 
     node.classList.add(mode === 'move' ? 'is-dragging' : 'is-resizing');
     document.body.classList.add('is-arranging');
     node.setPointerCapture(event.pointerId);
     event.preventDefault();
 
+    /* Moving a card used to rearrange the board on every pixel: the moment
+       the cursor crossed a column the neighbours leapt, and crossing three
+       columns quickly threw them across the desk. Two rules calm it down.
+
+       One: a new position has to be MEANT. The card follows the cursor
+       immediately — that is the teacher's own hand — but the rest of the
+       board does not answer until the cursor has settled on a cell for a
+       moment.
+
+       Two: when the board does answer, it moves a single column and a single
+       row at a time. Drag a card four columns across and its neighbours walk
+       aside one step at a time rather than teleporting. */
+    const SETTLE_MS = 160;
+    let want = { x: start.ix, y: start.iy };
+    let wantAt = 0;
+    let pointer = { dx: 0, dy: 0 };
+    let ticking = 0;
+
+    const drawGhost = () => {
+      // Measured from where the card has actually landed, so it sits under
+      // the cursor however far behind the committed position has fallen.
+      node.style.setProperty('--drag-x', `${pointer.dx - (item.x - start.ix) * pitchX}px`);
+      node.style.setProperty('--drag-y', `${pointer.dy - (item.y - start.iy) * pitchY}px`);
+    };
+
+    const stepTowards = () => {
+      const towards = (from, to) => (to === from ? from : from + Math.sign(to - from));
+      const nx = towards(item.x, want.x);
+      const ny = towards(item.y, want.y);
+      if (nx === item.x && ny === item.y) return false;
+      item.x = nx;
+      item.y = ny;
+      relayout();
+      return true;
+    };
+
+    const tick = () => {
+      ticking = requestAnimationFrame(tick);
+      if (mode !== 'move') return;
+      if (performance.now() - wantAt < SETTLE_MS) return;
+      if (stepTowards()) { wantAt = performance.now(); drawGhost(); }
+    };
+    ticking = requestAnimationFrame(tick);
+
     const onMove = (e) => {
-      const dx = e.clientX - start.x;
-      const dy = e.clientY - start.y;
+      pointer = { dx: e.clientX - start.x, dy: e.clientY - start.y };
 
       if (mode === 'move') {
-        item.x = clamp(start.ix + Math.round(dx / pitchX), 0, COLUMNS - item.w);
-        item.y = Math.max(0, start.iy + Math.round(dy / pitchY));
-        // Follow the cursor between snaps, measured from wherever the card
-        // has actually landed rather than from where it began.
-        node.style.setProperty('--drag-x', `${dx - (item.x - start.ix) * pitchX}px`);
-        node.style.setProperty('--drag-y', `${dy - (item.y - start.iy) * pitchY}px`);
-      } else {
-        item.w = clamp(start.iw + Math.round(dx / pitchX), def.min.w, COLUMNS - item.x);
-        item.h = Math.max(def.min.h, start.ih + Math.round(dy / pitchY));
+        const x = clamp(start.ix + Math.round(pointer.dx / pitchX), 0, COLUMNS - item.w);
+        const y = Math.max(0, start.iy + Math.round(pointer.dy / pitchY));
+        if (x !== want.x || y !== want.y) { want = { x, y }; wantAt = performance.now(); }
+        drawGhost();
+        return;
       }
 
-      resolve(board.items, item);
-      repositionAll();
-      position(node, item);
+      // Resizing is the teacher sizing their own card, so it answers at once.
+      item.w = clamp(start.iw + Math.round(pointer.dx / pitchX), def.min.w, COLUMNS - item.x);
+      item.h = Math.max(def.min.h, start.ih + Math.round(pointer.dy / pitchY));
+      relayout();
     };
 
     const onUp = () => {
+      cancelAnimationFrame(ticking);
+      // Wherever the cursor was let go is where the card belongs, however far
+      // the one-step-at-a-time walk had got to.
+      if (mode === 'move') { item.x = want.x; item.y = want.y; relayout(); }
       node.releasePointerCapture(event.pointerId);
       node.removeEventListener('pointermove', onMove);
       node.removeEventListener('pointerup', onUp);
@@ -335,7 +450,11 @@ window.Desk = window.Desk || {};
     const head = inst.node.querySelector('.card-head');
     const body = inst.node.querySelector('.card-body');
     if (!body) return null;
-    const height = (head ? head.offsetHeight : 0) + body.scrollHeight + 2;
+    // The card's own padding counts: it is the difference between a tool that
+    // fits and one that scrolls inside a card that believes it fits.
+    const box = getComputedStyle(inst.node);
+    const pad = parseFloat(box.paddingTop) + parseFloat(box.paddingBottom);
+    const height = (head ? head.offsetHeight : 0) + body.scrollHeight + pad + 2;
     if (height < 4) return null;
 
     const n = Math.ceil((height + gap) / (row + gap));
@@ -371,6 +490,26 @@ window.Desk = window.Desk || {};
     return changed;
   }
 
+  /**
+   * A card keeps the size it was given. It is set once, when the tool is
+   * first put down, and after that only the teacher changes it — by dragging
+   * the corner, or by asking the desk to tidy.
+   *
+   * It is tempting to have cards follow their contents, and an earlier
+   * version did. But a randomiser that picks a name with a descender, or a
+   * list that gains a row, would resize itself mid-lesson and shove its
+   * neighbours down the board. A tool that reflows while you are looking at
+   * it is worse than a tool that is slightly the wrong size, so what the
+   * contents do inside the card is the widget's business: the display sizes
+   * are measured against the card, which is why they fit it.
+   */
+  function sizeOnce(item) {
+    const need = rowsNeeded(item);
+    if (need == null || need === item.h) return false;
+    item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+    return true;
+  }
+
   function addItem(type) {
     const def = Desk.widgets.get(type);
     if (!def) return;
@@ -388,9 +527,7 @@ window.Desk = window.Desk || {};
     // Two frames later the card has drawn and can be measured, so a tool
     // arrives at the size it needs rather than at a guess from its manifest.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      const need = rowsNeeded(item);
-      if (need != null && need !== item.h) {
-        item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+      if (sizeOnce(item)) {
         resolve(board.items, null);
         compact(board.items);
         render();
@@ -548,10 +685,15 @@ window.Desk = window.Desk || {};
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
 
-    let wasStacked = stacked();
-    window.addEventListener('resize', Desk.debounce(() => {
-      if (stacked() !== wasStacked) { wasStacked = stacked(); render(); }
-    }, 150));
+    // Redraw when the shape of the board changes, not on every pixel of a
+    // window drag: the layout only actually differs at the two breakpoints.
+    let shape = `${stacked()}:${columnsFor(root.clientWidth)}`;
+    const watchShape = Desk.debounce(() => {
+      const now = `${stacked()}:${columnsFor(root.clientWidth)}`;
+      if (now !== shape) { shape = now; render(); }
+    }, 150);
+    window.addEventListener('resize', watchShape);
+    if (typeof ResizeObserver === 'function') new ResizeObserver(watchShape).observe(root);
   }
 
   async function reset() {
@@ -572,8 +714,31 @@ window.Desk = window.Desk || {};
   /** Colour and background live on the same document as the widgets. */
   function setPrefs(prefs) { board.prefs = prefs; markDirty(); }
 
+  /**
+   * What the tools on this board have to say, for the island at the top: the
+   * first of each kind that offers a readout and actually has something to
+   * report. Board order decides, so a teacher with two timers sees the one
+   * they put down first.
+   */
+  function readouts(limit = 4) {
+    const out = [];
+    const seen = new Set();
+    const order = board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    for (const item of order) {
+      const def = Desk.widgets.get(item.type);
+      if (!def || !def.readout || seen.has(item.type)) continue;
+      let said = null;
+      try { said = def.readout(item.state); } catch (e) { console.error(e); }
+      if (!said || !said.value) continue;
+      seen.add(item.type);
+      out.push({ ...said, type: item.type, category: def.category, id: item.id });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, COLUMNS,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, COLUMNS,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so
     // they are exported and tested directly rather than by dragging things.

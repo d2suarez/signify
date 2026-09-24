@@ -450,6 +450,8 @@
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (!s.plans || typeof s.plans !== 'object') s.plans = {};
       if (typeof s.flipped !== 'boolean') s.flipped = false;
+      // Which of the three room sizes the walls are set to.
+      if (!['small', 'medium', 'large'].includes(s.room)) s.room = 'medium';
       // classKey -> [{ at, why, plan }], newest first. See keep() below.
       if (!s.history || typeof s.history !== 'object') s.history = {};
     },
@@ -475,6 +477,59 @@
       let ghost = null;
 
       const room = el('div.room', { style: { '--cols': COLS, '--rows': ROWS } });
+
+      /**
+       * How big the room is.
+       *
+       * Not how big the desks are: the desks are a fixed size in cells, and
+       * the room is the walls around them. A small room with six desks in it
+       * draws those desks large, because they take more of it — which is the
+       * same thing a real classroom does. The teacher picks the room; the
+       * plan underneath never changes, so it reads the same to everyone.
+       *
+       * The room is never smaller than the furniture standing in it, or a
+       * desk would be outside the wall.
+       */
+      const ROOMS = [
+        { key: 'small', label: 'Small', cols: 24 },
+        { key: 'medium', label: 'Medium', cols: 34 },
+        { key: 'large', label: 'Large', cols: COLS },
+      ];
+      const ROOM_RATIO = ROWS / COLS;
+
+      function viewOf(p) {
+        const chosen = ROOMS.find((r) => r.key === s.room) || ROOMS[1];
+        let cols = chosen.cols;
+        let rows = Math.round(cols * ROOM_RATIO);
+        for (const d of (p ? p.desks : [])) {
+          const l = layout(d);
+          cols = Math.max(cols, d.x + l.w);
+          rows = Math.max(rows, d.y + l.h);
+        }
+        for (const o of (p ? p.objects : [])) {
+          cols = Math.max(cols, o.x + o.w);
+          rows = Math.max(rows, o.y + o.h);
+        }
+        return { cols: clamp(Math.ceil(cols), 12, COLS), rows: clamp(Math.ceil(rows), 8, ROWS), ox: 0, oy: 0 };
+      }
+
+      // The walls only move when the teacher moves them, or when a piece of
+      // furniture would otherwise end up outside them.
+      let view = { cols: COLS, rows: ROWS, ox: 0, oy: 0 };
+      let viewKey = '';
+
+      function refreshView(p) {
+        if (dragging) return;
+        const key = `${s.classKey}|${s.room}|${p ? p.desks.length : 0}|${p ? p.objects.length : 0}`;
+        const outside = p && [
+          ...p.desks.map((d) => { const l = layout(d); return { x: d.x, y: d.y, w: l.w, h: l.h }; }),
+          ...p.objects,
+        ].some((b) => b.x + b.w > view.cols || b.y + b.h > view.rows);
+        if (key === viewKey && !outside) return;
+        viewKey = key;
+        view = viewOf(p);
+      }
+
       const tray = el('div.plan-tray');
       const toolbar = el('div.plan-toolbar');
       const inspector = el('div.plan-inspector');
@@ -669,6 +724,10 @@
         if (!p) { room.dataset.front = 'top'; room.append(el('p.hint.room-note', { text: 'Choose a class list to begin.' })); return; }
 
         room.dataset.front = p.front;
+        refreshView(p);
+        room.style.setProperty('--cols', String(view.cols));
+        room.style.setProperty('--rows', String(view.rows));
+        fit();
         drawObjects(p);
         if (!p.desks.length && !p.objects.length) { drawStarters(); return; }
 
@@ -681,8 +740,8 @@
           // right-hand one. Getting only the desks the right way round makes
           // every pair read backwards, which is worse than not flipping.
           const l = s.flipped ? mirror(layout(desk), axis) : layout(desk);
-          const x = s.flipped && axis === 'x' ? COLS - desk.x - l.w : desk.x;
-          const y = s.flipped && axis === 'y' ? ROWS - desk.y - l.h : desk.y;
+          const x = (s.flipped && axis === 'x' ? COLS - desk.x - l.w : desk.x) - view.ox;
+          const y = (s.flipped && axis === 'y' ? ROWS - desk.y - l.h : desk.y) - view.oy;
 
           const node = el('div.desk', {
             'data-id': desk.id,
@@ -766,8 +825,8 @@
       function drawObjects(p) {
         const axis = mirrorAxis();
         for (const o of p.objects) {
-          const x = s.flipped && axis === 'x' ? COLS - o.x - o.w : o.x;
-          const y = s.flipped && axis === 'y' ? ROWS - o.y - o.h : o.y;
+          const x = (s.flipped && axis === 'x' ? COLS - o.x - o.w : o.x) - view.ox;
+          const y = (s.flipped && axis === 'y' ? ROWS - o.y - o.h : o.y) - view.oy;
           const node = el(`div.room-object.room-object--${o.shape}`, {
             'data-id': o.id,
             class: isSelected('object', o.id) ? 'is-selected' : '',
@@ -784,6 +843,12 @@
           }
           room.append(node);
         }
+      }
+
+      function setRoom(key) {
+        s.room = key;
+        ctx.save();
+        draw();
       }
 
       function addObject(shapeKey) {
@@ -865,6 +930,19 @@
           }));
         }
         inspector.append(fronts);
+
+        // How big the room is. Fewer desks in a smaller room means bigger
+        // desks — the same thing a real classroom does.
+        inspector.append(el('h3.section-title', { text: 'Room size' }));
+        const rooms = el('div.seg.seg--tiny');
+        for (const r of ROOMS) {
+          rooms.append(el('button.seg-btn', {
+            text: r.label,
+            class: s.room === r.key ? 'is-on' : '',
+            onclick: () => setRoom(r.key),
+          }));
+        }
+        inspector.append(rooms);
 
         inspector.append(el('h3.section-title', { text: 'Add a desk' }));
         const add = el('div.starter-row');
@@ -1320,7 +1398,7 @@
 
       function cellSize() {
         const r = room.getBoundingClientRect();
-        return { cw: r.width / COLS, ch: r.height / ROWS, rect: r };
+        return { cw: r.width / view.cols, ch: r.height / view.rows, rect: r };
       }
 
       function onChipDown(e, studentId) { startStudentDrag(e, studentId, null); }
@@ -1479,9 +1557,9 @@
        */
       const sizeRoom = (width, height) => {
         if (width < 4 || height < 4) return;
-        const cw = Math.max(1.5, Math.min(width / COLS, height / ROWS));
-        roomBox.style.width = `${cw * COLS}px`;
-        room.style.height = `${cw * ROWS}px`;
+        const cw = Math.max(1.5, Math.min(width / view.cols, height / view.rows));
+        roomBox.style.width = `${cw * view.cols}px`;
+        room.style.height = `${cw * view.rows}px`;
         room.style.setProperty('--cell', `${cw}px`);
         room.classList.toggle('is-tiny', cw * SEAT_W < 44);
       };

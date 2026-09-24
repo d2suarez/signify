@@ -33,6 +33,7 @@
     blurb: 'Count down to zero, with a sound at the end. Keeps counting past zero so you can see how far over you are.',
     icon: 'timer',
     category: 'time',
+    tone: 'block',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
 
@@ -48,6 +49,18 @@
     },
 
     holdsContent: (s) => (s.running ? 'It is running now.' : ''),
+
+    // In the island a timer is worth reading only while it is actually
+    // running — a stopped one is noise at the top of the board.
+    readout(s) {
+      if (!s.running) return null;
+      const left = remaining(s);
+      return {
+        value: duration(Math.abs(left)),
+        caption: s.title || (left < 0 ? 'Over' : 'Left'),
+        progress: s.durationMs > 0 ? clamp(left / s.durationMs, 0, 1) : 0,
+      };
+    },
 
     mount(ctx) {
       const s = ctx.state;
@@ -263,6 +276,12 @@
         ringValue.classList.toggle('is-over', over);
         ringValue.classList.toggle('is-low', low);
 
+        // On the card the time that has gone is a shadow creeping in from the
+        // right, over the whole block — readable from the back of the room
+        // without reading a number at all. It is set on the CARD rather than
+        // on the body inside it: custom properties inherit downwards, and the
+        // shadow is drawn by the card so that it covers the padding too.
+        (ctx.root.closest('.card') || ctx.root).style.setProperty('--elapsed', String(1 - fraction));
         barFill.style.width = `${fraction * 100}%`;
         barFill.classList.toggle('is-over', over);
         barFill.classList.toggle('is-low', low);

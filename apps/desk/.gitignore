@@ -3,3 +3,4 @@ data/*.json
 data/uploads/
 .env
 .DS_Store
+design-shots/
