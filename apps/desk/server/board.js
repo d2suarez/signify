@@ -94,7 +94,18 @@ const int = (v, lo, hi, fallback) => {
 // teacher who sets their room's colours up wants them on the laptop AND on
 // the machine driving the projector.
 const THEMES = ['auto', 'light', 'dark'];
-const ACCENTS = ['blue', 'green', 'purple', 'red', 'orange', 'teal', 'pink', 'slate', 'custom'];
+const PALETTES = ['primary', 'garden', 'berry', 'ocean', 'mono-red', 'custom'];
+// What a board saved under the old eight-accent scheme becomes. Read once, on
+// the way out of the store, so a teacher who chose "teal" two terms ago opens
+// their desk on Ocean rather than back at the default.
+const ACCENT_TO_PALETTE = {
+  blue: 'primary', slate: 'primary',
+  green: 'garden', orange: 'garden',
+  teal: 'ocean',
+  purple: 'berry', pink: 'berry',
+  red: 'mono-red',
+  custom: 'custom',
+};
 // Six hex digits and nothing else. The value goes straight into a CSS custom
 // property, so this is the gate that stops a saved preference from carrying
 // anything but a colour into the stylesheet.
@@ -104,14 +115,15 @@ const FITS = ['cover', 'contain', 'tile'];
 // 'bare' drops both and lets the tool itself be the object on the desk.
 const CHROMES = ['card', 'bare'];
 
-const DEFAULT_PREFS = { theme: 'auto', accent: 'blue', accentHex: '#1D4ED8', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+const DEFAULT_PREFS = { theme: 'auto', palette: 'primary', accentHex: '#EC3013', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
 
 function cleanPrefs(input) {
   const p = (input && typeof input === 'object') ? input : {};
   const n = Math.round(Number(p.backgroundDim));
   return {
     theme: THEMES.includes(p.theme) ? p.theme : DEFAULT_PREFS.theme,
-    accent: ACCENTS.includes(p.accent) ? p.accent : DEFAULT_PREFS.accent,
+    palette: PALETTES.includes(p.palette) ? p.palette
+      : (ACCENT_TO_PALETTE[p.accent] || DEFAULT_PREFS.palette),
     accentHex: HEX.test(String(p.accentHex || '')) ? String(p.accentHex).toLowerCase() : DEFAULT_PREFS.accentHex,
     chrome: CHROMES.includes(p.chrome) ? p.chrome : DEFAULT_PREFS.chrome,
     // Either an uploaded asset id or one of the built-in patterns. Never a
@@ -247,6 +259,6 @@ function restoreHistory(user, rev) {
 
 module.exports = {
   boardFor, saveBoard, resetBoard, cleanPrefs, listHistory, restoreHistory,
-  COLUMNS, MAX_ITEMS, STARTER, DEFAULT_PREFS, ACCENTS,
+  COLUMNS, MAX_ITEMS, STARTER, DEFAULT_PREFS, PALETTES, ACCENT_TO_PALETTE,
   _seatCounts: seatCounts, _seatsLost: seatsLost,
 };
