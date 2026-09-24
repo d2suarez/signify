@@ -2008,3 +2008,66 @@ body.is-seating-drag { user-select: none; }
   .topbar { gap: 8px; }
   .island { display: none; }
 }
+
+/* ---------------- the seating plan, restyled ----------------
+   A room is furniture on paper: the tables are the inset grey, the chairs are
+   white cards on them, and the front of the room is a plain bar rather than a
+   tinted strip. The teacher's own desk is the one thing drawn as an outline,
+   because it is where they are rather than where a pupil sits. */
+.room { border-radius: var(--r-panel); border-color: var(--line); }
+.room-front {
+  color: var(--ink); background: var(--line); border-radius: 9px;
+  font-size: .7rem; font-weight: 800; letter-spacing: .1em;
+}
+.desk-surface { background: var(--desk); border: 0; border-radius: var(--r); }
+/* The teacher's desk, and anything else the teacher labels themselves. */
+.room-object { border-radius: var(--r); }
+.room-object--box, .room-object--strip { border: 2px solid var(--ink); background: transparent; }
+
+.seat {
+  border-radius: var(--r); border: 0; background: var(--surface);
+  box-shadow: var(--shadow-2); font-size: .95rem; font-weight: 600;
+  color: var(--ink);
+}
+.seat.is-taken { background: var(--surface); color: var(--ink); font-weight: 600; }
+.seat.is-selected, .seat.is-taken.is-selected {
+  background: var(--p2); color: var(--p2-ink); outline: none; box-shadow: var(--shadow-3);
+}
+.seat.is-free {
+  background: transparent; box-shadow: none;
+  border: 2px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+}
+/* The seat a pupil is about to land in, while one is in hand. */
+.seat.is-drop {
+  background: color-mix(in srgb, var(--p2) 10%, var(--surface));
+  border: 2px dashed var(--p2); box-shadow: none; color: var(--p2);
+}
+.seat-tag { border-radius: var(--r-sm); font-weight: 800; }
+
+/* The edit view: a room on the left, everything that is not the room on the
+   right, in a column wide enough to hold a class list. */
+.plan-side, .stage-body .plan-side { width: 320px; gap: .6rem; }
+.stage .stage-title { font-size: 1.6rem; font-weight: 800; font-stretch: 112%; letter-spacing: -.02em; }
+.tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
+.tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
+
+/* Below 1100px the panel goes above the room rather than beside it, and the
+   page scrolls — a side panel squeezed to nothing helps nobody. */
+@media (max-width: 1100px) {
+  .plan-stage { flex-direction: column; }
+  /* The room stays at the top, and keeps a height of its own: stacked, the
+     flex row that used to give it its size is gone, and a room measured
+     against nothing collapses to nothing. */
+  .plan-stage { overflow: auto; }
+  .plan-stage .plan-print { order: -1; flex: none; width: 100%; min-height: 52vh; }
+  .plan-side, .stage-body .plan-side { width: auto; max-height: none; }
+}
+
+/* ---------------- the catalogue ----------------
+   Each family keeps its shape here too, so "Add a tool" is arranged by the
+   same alphabet as the board itself. */
+.cat-head-name { color: var(--ink); font-weight: 800; letter-spacing: .08em; }
+.cat-item { border-radius: var(--r-panel); box-shadow: var(--shadow-2); border: 0; background: var(--surface); }
+.cat-item:hover { box-shadow: var(--shadow-3); }
+.cat-head { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.cat-search { border-radius: var(--r); }

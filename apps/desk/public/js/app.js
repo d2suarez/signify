@@ -384,6 +384,7 @@
       count.textContent = '';
       for (const drawer of drawers) {
         list.append(el('div.cat-head', {}, [
+          Desk.widgets.marker(drawer.key, 12),
           el('h3.cat-head-name', { text: drawer.name }),
           el('span.cat-head-blurb', { text: drawer.blurb }),
         ]));
