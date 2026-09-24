@@ -63,7 +63,16 @@
     }
     shell.replaceChildren(el('div.centre', {}, [
       el('div.centre-card', {}, [
-        el('div.brand.brand--big', {}, [el('span.brand-mark', { svg: icon('timer', 26) }), el('span', { text: 'Teacher’s Desk' })]),
+        // The same three shapes as the board's own mark: the sign-in screen is
+        // the first thing a teacher sees, and it should be the same app.
+        el('div.brand.brand--big', {}, [
+          el('span.brand-mark', {}, [
+            el('span.shape', { 'data-shape': 'circle', style: { '--role': 'var(--p1)' } }),
+            el('span.shape', { 'data-shape': 'square', style: { '--role': 'var(--p2)' } }),
+            el('span.shape', { 'data-shape': 'triangle', style: { '--role': 'var(--p3)' } }),
+          ]),
+          el('span.brand-word', { text: 'Teacher’s Desk' }),
+        ]),
         el('p.centre-body', {
           text: config.authEnabled
             ? 'Timers, alarms, notes, groups and a private behaviour tally — on one board that stays as you leave it.'
