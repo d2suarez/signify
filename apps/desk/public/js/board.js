@@ -165,6 +165,11 @@ window.Desk = window.Desk || {};
     const def = Desk.widgets.get(item.type);
     const node = el('section.card', {
       'data-id': item.id, 'data-type': item.type,
+      // The category decides the colour and the shape; the tone decides
+      // whether that colour fills the card or just marks it. Both are written
+      // here so the stylesheet can do the rest without a line of JavaScript.
+      'data-category': def ? def.category : 'other',
+      'data-tone': def ? def.tone : 'card',
       // A card is only as tall as what is in it, unless the widget says it
       // needs the room. That is the difference between a board of tools and a
       // board of boxes with a tool floating in the middle of each.
@@ -177,7 +182,9 @@ window.Desk = window.Desk || {};
 
     const head = el('header.card-head', {}, [
       el('span.card-grip', { svg: icon('drag', 16), title: 'Drag to move' }),
-      el('span.card-icon', { svg: icon(def ? def.icon : 'notes', 18) }),
+      // The shape says which family the tool belongs to. It replaces the
+      // per-tool icon: thirty different icons taught nothing, four shapes do.
+      Desk.widgets.marker(def ? def.category : 'other'),
       el('h2.card-title', { text: def ? def.name : item.type }),
       el('div.card-actions', {}, [
         el('button.icon-btn', { title: 'Open larger', 'aria-label': 'Open larger', svg: icon('expand', 16), onclick: () => openStage(item.id) }),
@@ -335,7 +342,11 @@ window.Desk = window.Desk || {};
     const head = inst.node.querySelector('.card-head');
     const body = inst.node.querySelector('.card-body');
     if (!body) return null;
-    const height = (head ? head.offsetHeight : 0) + body.scrollHeight + 2;
+    // The card's own padding counts: it is the difference between a tool that
+    // fits and one that scrolls inside a card that believes it fits.
+    const box = getComputedStyle(inst.node);
+    const pad = parseFloat(box.paddingTop) + parseFloat(box.paddingBottom);
+    const height = (head ? head.offsetHeight : 0) + body.scrollHeight + pad + 2;
     if (height < 4) return null;
 
     const n = Math.ceil((height + gap) / (row + gap));

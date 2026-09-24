@@ -219,19 +219,23 @@ p { margin: 0 0 .6rem; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
-  padding: .45rem .85rem; border-radius: 999px; cursor: pointer;
+  padding: .5rem .85rem; border-radius: var(--r); cursor: pointer; min-height: 44px;
   border: 1px solid transparent; background: var(--surface); color: var(--ink);
-  font-weight: 550; white-space: nowrap;
+  font-weight: 800; white-space: nowrap;
   /* The same idea as a card, an order of magnitude smaller: a button is a
      small raised thing, not a rectangle with a line round it. */
-  box-shadow: 0 1px 2px rgba(64,72,120,.06), 0 3px 8px rgba(64,72,120,.07);
-  transition: background .12s, box-shadow .12s, transform .06s;
+  box-shadow: var(--shadow-2);
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+              filter var(--dur-fast) var(--ease), transform 60ms var(--ease);
 }
 .btn:hover { box-shadow: 0 2px 4px rgba(64,72,120,.08), 0 6px 14px rgba(64,72,120,.10); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .5; cursor: default; box-shadow: none; }
-.btn--primary { background: var(--blue); color: var(--on-accent); }
-.btn--primary:hover { background: var(--blue-dark); border-color: var(--blue-dark); }
+.btn--primary { background: var(--p2); color: var(--p2-ink); }
+.btn--primary:hover { filter: brightness(.94); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; }
+.btn--small { min-height: 34px; border-radius: var(--r-sm); }
 .btn--danger { background: var(--red); border-color: var(--red); color: var(--on-accent); }
 .btn--danger:hover { background: var(--red-dark); border-color: var(--red-dark); }
 .btn--ghost { background: transparent; box-shadow: none; }
@@ -370,24 +374,39 @@ p { margin: 0 0 .6rem; }
   grid-row: calc(var(--y) + 1) / span var(--h);
   position: relative;
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  /* A breath of the accent in the top corner, fading out well before the
-     middle. Enough to tie a card to the chosen colour; not enough to fight
-     anything drawn on top of it, which on this board is usually a number that
-     has to be read from the back of a classroom. */
-  background:
-    linear-gradient(152deg,
-      color-mix(in srgb, var(--accent) 7%, var(--surface)) 0%,
-      var(--surface) 58%);
-  /* Thickness, not outline. The card is a slab sitting proud of the desk, and
-     what sells that is the shadow — three of them at widening radii, plus a
-     highlight along the top edge where the light catches. The border is a
-     hairline of the accent rather than a grey rule: enough to keep the edge
-     from dissolving on a washed-out projector, not enough to read as a box. */
-  border: 1px solid var(--cut-edge);
+  /* Numerals are sized against the card they sit in rather than the window,
+     so a timer dragged wider genuinely grows. */
+  container-type: inline-size;
+  /* Paper on a desk: flat white, no border, and the whole effect carried by
+     the shadow stack. Nothing is drawn round a card. */
+  background: var(--surface);
+  border: 0;
   border-radius: var(--r-panel);
-  box-shadow: var(--lift);
-  transition: box-shadow .18s ease, transform .18s ease;
+  box-shadow: var(--shadow-3);
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
+
+.card > .card-head, .card > .card-body { padding-left: 0; padding-right: 0; }
+.card { padding: 20px 24px 24px; }
+
+/* The category decides the colour. Every card gets --role and --role-ink,
+   whether or not it chooses to fill itself with them. */
+.card[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
+.card[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+.card[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+.card[data-category="calm"]  { --role: var(--p4); --role-ink: var(--p4-ink); }
+.card[data-category="other"] { --role: var(--ink); --role-ink: var(--surface); }
+
+/* A block is a tool you read from the back of the room: the card is the
+   colour, and everything on it is the ink that colour carries. */
+.card[data-tone="block"][data-category]:not([data-category="other"]) {
+  background: var(--role);
+  color: var(--role-ink);
+}
+.card[data-tone="block"]:not([data-category="other"]) .card-title,
+.card[data-tone="block"]:not([data-category="other"]) .hint,
+.card[data-tone="block"]:not([data-category="other"]) .muted { color: inherit; }
+.card[data-tone="block"]:not([data-category="other"]) .hint { opacity: .8; }
 
 /* The default: the card ends where its content ends. `align-self` is what
    does it — the grid still reserves the row span, but the card no longer
@@ -415,19 +434,84 @@ p { margin: 0 0 .6rem; }
 @keyframes pop { from { transform: scale(.94); box-shadow: 0 0 0 4px var(--blue-soft); } }
 
 .card-head {
-  display: flex; align-items: center; gap: .35rem;
-  padding: .4rem .45rem .4rem .25rem;
-  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: .45rem;
+  padding: 0 0 .1rem;
   cursor: grab; touch-action: none;
 }
-.card.is-dragging .card-head { cursor: grabbing; }
-.card-grip { display: flex; color: var(--faint); }
-.card-icon { display: flex; color: var(--blue); }
-.card-title { margin: 0; font-size: .86rem; font-weight: 650; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-title {
+  margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .81rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+}
 .card-actions { display: flex; gap: .1rem; opacity: 0; transition: opacity .12s; }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 
-.card-body { flex: 1; min-height: 0; overflow: auto; padding: .6rem .7rem .7rem; display: flex; flex-direction: column; gap: .5rem; }
+.card-body { flex: 1; min-height: 0; overflow: auto; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+
+/* ---------------- the four shapes ----------------
+   Time is a circle, your class a square, the board a triangle, sound and calm
+   an arch. Odds and ends get a hollow ring — deliberately not a fifth colour,
+   because a fifth would make the other four mean less. */
+.shape {
+  --shape-size: 14px;
+  display: inline-block; flex: none;
+  width: var(--shape-size); height: var(--shape-size);
+  background: var(--role, var(--ink));
+}
+.shape[data-shape="circle"] { border-radius: 50%; }
+.shape[data-shape="square"] { border-radius: var(--radius-xs); }
+.shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+/* An arch is a half-disc: flat on the ground, round over the top. */
+.shape[data-shape="arch"] {
+  height: calc(var(--shape-size) / 2);
+  border-radius: var(--shape-size) var(--shape-size) 0 0;
+}
+.shape[data-shape="ring"] {
+  width: calc(var(--shape-size) - 2px); height: calc(var(--shape-size) - 2px);
+  background: none; border: 2px solid currentColor; border-radius: 50%; opacity: .8;
+}
+/* On a block the marker is the ink, not the colour — the card is already the
+   colour, and a marker in the same hue would vanish into it. */
+.card[data-tone="block"]:not([data-category="other"]) .shape { background: currentColor; }
+.card[data-tone="block"] .shape[data-shape="ring"] { background: none; }
+
+
+/* Inside a block card the page's own accent would be a third colour fighting
+   the two already there, so the buttons are drawn from the block itself: the
+   main action is the card's colour on white, and everything beside it is an
+   outline in the ink the card is already using. */
+.card[data-tone="block"]:not([data-category="other"]) .btn {
+  background: transparent; color: inherit;
+  border: 2px solid currentColor; box-shadow: none;
+}
+.card[data-tone="block"]:not([data-category="other"]) .btn--primary,
+.card[data-tone="block"]:not([data-category="other"]) .btn--danger {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+.card[data-tone="block"]:not([data-category="other"]) .btn.is-on,
+.card[data-tone="block"]:not([data-category="other"]) .chip.is-on,
+.card[data-tone="block"]:not([data-category="other"]) .seg-btn.is-on {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+.card[data-tone="block"]:not([data-category="other"]) .chip,
+.card[data-tone="block"]:not([data-category="other"]) .seg-btn {
+  background: transparent; color: inherit; border: 2px solid currentColor; box-shadow: none;
+}
+.card[data-tone="block"]:not([data-category="other"]) .seg { background: transparent; border-color: currentColor; }
+/* Muted greys are invisible on a saturated ground: on a block, "quieter" is
+   the same ink at less than full strength. */
+.card[data-tone="block"]:not([data-category="other"]) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
+  --muted: currentColor; --faint: currentColor; --ink: currentColor;
+}
+.card[data-tone="block"]:not([data-category="other"]) .muted,
+.card[data-tone="block"]:not([data-category="other"]) .hint,
+.card[data-tone="block"]:not([data-category="other"]) .small,
+.card[data-tone="block"]:not([data-category="other"]) .pick-count,
+.card[data-tone="block"]:not([data-category="other"]) label { color: inherit; opacity: .85; }
+.card[data-tone="block"]:not([data-category="other"]) .input,
+.card[data-tone="block"]:not([data-category="other"]) .select {
+  background: rgba(255,255,255,.16); color: inherit; border-color: currentColor;
+}
+
 .card-resize {
   position: absolute; right: 0; bottom: 0; width: 18px; height: 18px;
   cursor: nwse-resize; touch-action: none; opacity: 0; transition: opacity .12s;

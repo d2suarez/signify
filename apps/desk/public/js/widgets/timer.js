@@ -33,6 +33,7 @@
     blurb: 'Count down to zero, with a sound at the end. Keeps counting past zero so you can see how far over you are.',
     icon: 'timer',
     category: 'time',
+    tone: 'block',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
 
