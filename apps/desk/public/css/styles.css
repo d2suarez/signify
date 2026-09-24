@@ -452,10 +452,14 @@ p { margin: 0 0 .6rem; }
 }
 
 .card > .card-head, .card > .card-body { padding-left: 0; padding-right: 0; }
-.card { padding: 20px 24px 24px; }
+/* Less at the foot than at the sides: a wide margin under content that has
+   been cut off reads as a mistake rather than as a margin. */
+.card { padding: 18px 22px 14px; }
 
 /* The category decides the colour. Every card gets --role and --role-ink,
    whether or not it chooses to fill itself with them. */
+.card { --card-bg: var(--surface); }
+.card[data-tone="block"]:not([data-category="other"]) { --card-bg: var(--role); }
 .card[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
 .card[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
 .card[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
@@ -517,6 +521,28 @@ p { margin: 0 0 .6rem; }
 .card-actions { display: flex; gap: .1rem; opacity: 0; transition: opacity .12s; }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 
+/* Where content runs past the edge of a card, the edge says so: the card's
+   own colour fades out at the top and bottom, and a soft shadow sits under
+   the fade. Both are painted by the scroll box itself — the fades scroll with
+   the content and uncover the shadow only while there is more of it, so a box
+   whose content fits shows nothing at all, and no JavaScript has to watch a
+   scroll position to keep it honest.
+
+   It is on the card body AND on the lists that scroll inside widgets, since
+   from the teacher's side those are the same thing: something continues and
+   the card does not say so.
+
+   This is also why the bottom padding is small: the cue lives in the last few
+   pixels of the card, and a deep margin under a cut-off line looks like a
+   layout fault instead. */
+.card-body, .sw-laps, .note-text, .alarm-list, .beh-grid,
+.calc-tape, .group-output, .jobs-list, .score-list, .plan-side, .cat-list {
+  background:
+    linear-gradient(var(--card-bg, var(--surface)) 40%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--card-bg, var(--surface)) 65%) bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(32,30,29,.15), transparent) top / 100% 11px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(32,30,29,.15), transparent) bottom / 100% 11px no-repeat scroll;
+}
 .card-body { flex: 1; min-height: 0; overflow: auto; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
 
 /* ---------------- the four shapes ----------------
@@ -1467,16 +1493,20 @@ body.is-seating-drag { user-select: none; }
 /* ---------------- QR ---------------- */
 
 .qr { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
-.qr-face { flex: 1; min-height: 70px; display: flex; align-items: center; justify-content: center; }
-.qr-holder { width: min(100%, 240px); }
-.qr-svg { width: 100%; height: auto; display: block; border-radius: 3px; }
+/* The code is square and the card is not, so whichever of the two runs out
+   first decides: the holder takes the height it is given, keeps its square,
+   and never grows past the width. A QR code that has to be scrolled to is a
+   QR code nobody scans. */
+.qr-face { flex: 1 1 auto; min-height: 60px; display: flex; align-items: center; justify-content: center; }
+.qr-holder { height: 100%; max-height: 100%; aspect-ratio: 1; width: auto; max-width: min(100%, 240px); }
+.qr-svg { width: 100%; height: 100%; display: block; border-radius: 3px; }
 /* Always dark-on-light, whatever the theme: a scanner wants contrast in that
    direction and an inverted QR is one many phones refuse. */
 .qr { --qr-bg: #ffffff; --qr-ink: #111111; }
 .qr-caption { font-size: .82rem; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
 .qr-controls { display: flex; flex-direction: column; gap: .35rem; }
-.stage-body .qr-holder { width: min(100%, 46vh); }
-.stage.is-present .qr-holder { width: min(70vw, 66vh); }
+.stage-body .qr-holder { max-width: min(100%, 46vh); }
+.stage.is-present .qr-holder { max-width: min(70vw, 66vh); }
 .stage.is-present .qr-controls { display: none; }
 
 /* ---------------- embedded / launched apps ---------------- */
@@ -1941,8 +1971,11 @@ body.is-seating-drag { user-select: none; }
   background: rgba(0,0,0,.16); pointer-events: none;
   transition: width 1s linear;
 }
-/* Everything the teacher reads or presses sits above it. */
-.card[data-tone="block"][data-type="timer"] > * { position: relative; z-index: 1; }
+/* Everything the teacher reads or presses sits above it — except the resize
+   corner, which is positioned against the card and must stay that way, or it
+   drops into the flow and turns up in the bottom-left. */
+.card[data-tone="block"][data-type="timer"] > *:not(.card-resize) { position: relative; z-index: 1; }
+.card-resize { z-index: 2; }
 .card[data-type="timer"] .timer-controls .btn { min-height: 52px; }
 .card[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
 

@@ -283,34 +283,120 @@ window.Desk = window.Desk || {};
 
     const start = { x: event.clientX, y: event.clientY, ix: item.x, iy: item.y, iw: item.w, ih: item.h };
     const before = board.items.map((i) => ({ ...i }));
+    /* Where everything else was when the drag began. Each update puts the
+       other cards BACK here before working out who is in the way, so being
+       shoved aside is never cumulative: carry a card across four columns and
+       the ones it passes step aside and then step back, instead of being
+       pushed down the board again on every frame. That accumulation is what
+       sent a card to the bottom of the desk when it was only passed over. */
+    const origin = new Map(board.items.map((i) => [i.id, { x: i.x, y: i.y }]));
+
+    /* Lays the board out again around the card in hand.
+       
+       Every other card starts from where it was when the drag began and is
+       placed in that same order, sliding down only as far as it must to clear
+       what is already down. Two things follow, and both are the difference
+       between a board that helps and one that panics:
+       
+       nothing accumulates — a card passed over twice is not pushed twice, it
+       is placed once from its original home; and the order holds — the card
+       that was at the top of a column is still the card at the top of that
+       column, instead of being sent to the bottom of the desk because two
+       cards momentarily tied for the same row. */
+    const relayout = () => {
+      const others = board.items.filter((i) => i !== item);
+      others.sort((a, b) => {
+        const oa = origin.get(a.id) || a;
+        const ob = origin.get(b.id) || b;
+        return oa.y - ob.y || oa.x - ob.x;
+      });
+
+      const placed = [item];
+      for (const other of others) {
+        const o = origin.get(other.id) || { x: other.x, y: other.y };
+        other.x = o.x;
+        other.y = o.y;
+        // Straight down until it is clear. A card only ever gives way
+        // downwards, so the shape of the board a teacher built is kept.
+        while (placed.some((p) => hits(p, other))) other.y += 1;
+        placed.push(other);
+      }
+
+      repositionAll();
+      position(node, item);
+    };
 
     node.classList.add(mode === 'move' ? 'is-dragging' : 'is-resizing');
     document.body.classList.add('is-arranging');
     node.setPointerCapture(event.pointerId);
     event.preventDefault();
 
+    /* Moving a card used to rearrange the board on every pixel: the moment
+       the cursor crossed a column the neighbours leapt, and crossing three
+       columns quickly threw them across the desk. Two rules calm it down.
+
+       One: a new position has to be MEANT. The card follows the cursor
+       immediately — that is the teacher's own hand — but the rest of the
+       board does not answer until the cursor has settled on a cell for a
+       moment.
+
+       Two: when the board does answer, it moves a single column and a single
+       row at a time. Drag a card four columns across and its neighbours walk
+       aside one step at a time rather than teleporting. */
+    const SETTLE_MS = 160;
+    let want = { x: start.ix, y: start.iy };
+    let wantAt = 0;
+    let pointer = { dx: 0, dy: 0 };
+    let ticking = 0;
+
+    const drawGhost = () => {
+      // Measured from where the card has actually landed, so it sits under
+      // the cursor however far behind the committed position has fallen.
+      node.style.setProperty('--drag-x', `${pointer.dx - (item.x - start.ix) * pitchX}px`);
+      node.style.setProperty('--drag-y', `${pointer.dy - (item.y - start.iy) * pitchY}px`);
+    };
+
+    const stepTowards = () => {
+      const towards = (from, to) => (to === from ? from : from + Math.sign(to - from));
+      const nx = towards(item.x, want.x);
+      const ny = towards(item.y, want.y);
+      if (nx === item.x && ny === item.y) return false;
+      item.x = nx;
+      item.y = ny;
+      relayout();
+      return true;
+    };
+
+    const tick = () => {
+      ticking = requestAnimationFrame(tick);
+      if (mode !== 'move') return;
+      if (performance.now() - wantAt < SETTLE_MS) return;
+      if (stepTowards()) { wantAt = performance.now(); drawGhost(); }
+    };
+    ticking = requestAnimationFrame(tick);
+
     const onMove = (e) => {
-      const dx = e.clientX - start.x;
-      const dy = e.clientY - start.y;
+      pointer = { dx: e.clientX - start.x, dy: e.clientY - start.y };
 
       if (mode === 'move') {
-        item.x = clamp(start.ix + Math.round(dx / pitchX), 0, COLUMNS - item.w);
-        item.y = Math.max(0, start.iy + Math.round(dy / pitchY));
-        // Follow the cursor between snaps, measured from wherever the card
-        // has actually landed rather than from where it began.
-        node.style.setProperty('--drag-x', `${dx - (item.x - start.ix) * pitchX}px`);
-        node.style.setProperty('--drag-y', `${dy - (item.y - start.iy) * pitchY}px`);
-      } else {
-        item.w = clamp(start.iw + Math.round(dx / pitchX), def.min.w, COLUMNS - item.x);
-        item.h = Math.max(def.min.h, start.ih + Math.round(dy / pitchY));
+        const x = clamp(start.ix + Math.round(pointer.dx / pitchX), 0, COLUMNS - item.w);
+        const y = Math.max(0, start.iy + Math.round(pointer.dy / pitchY));
+        if (x !== want.x || y !== want.y) { want = { x, y }; wantAt = performance.now(); }
+        drawGhost();
+        return;
       }
 
-      resolve(board.items, item);
-      repositionAll();
-      position(node, item);
+      // Resizing is the teacher sizing their own card, so it answers at once.
+      item.w = clamp(start.iw + Math.round(pointer.dx / pitchX), def.min.w, COLUMNS - item.x);
+      item.h = Math.max(def.min.h, start.ih + Math.round(pointer.dy / pitchY));
+      relayout();
     };
 
     const onUp = () => {
+      cancelAnimationFrame(ticking);
+      // Wherever the cursor was let go is where the card belongs, however far
+      // the one-step-at-a-time walk had got to.
+      if (mode === 'move') { item.x = want.x; item.y = want.y; relayout(); }
       node.releasePointerCapture(event.pointerId);
       node.removeEventListener('pointermove', onMove);
       node.removeEventListener('pointerup', onUp);
