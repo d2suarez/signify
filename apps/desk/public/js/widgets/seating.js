@@ -655,9 +655,39 @@
       // ---------------- drawing ----------------
 
       function draw() {
+        /* The side panel is rebuilt from scratch on every change — that is
+           what keeps it honest about the desk you have selected. But a rebuilt
+           panel starts at the top, and a teacher who has scrolled down to the
+           rotate button was being thrown back up the moment they used it. So
+           the panel's own scroll position is kept across the rebuild: it is
+           the teacher's place in the page, not the panel's. */
+        const keep = holdScroll();
         drawToolbar();
         drawRoom();
         if (editable) { drawTray(); drawInspector(); }
+        keep();
+      }
+
+      /**
+       * Remembers where the panel is scrolled to, and puts it back.
+       *
+       * Which element actually scrolls depends on the width: the side panel
+       * beside the room on a wide screen, the whole stage below about 1100px
+       * where the panel sits under it. Both are asked, and only the one that
+       * had been scrolled is restored.
+       */
+      function holdScroll() {
+        const marks = ['.plan-side', '.plan-stage'].map((sel) => {
+          const node = ctx.root.querySelector(sel);
+          return { sel, top: node ? node.scrollTop : 0 };
+        });
+        return () => {
+          for (const mark of marks) {
+            if (!mark.top) continue;
+            const node = ctx.root.querySelector(mark.sel);
+            if (node) node.scrollTop = mark.top;
+          }
+        };
       }
 
       function drawToolbar() {
