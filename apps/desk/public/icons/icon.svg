@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Teacher's Desk">
-  <!-- The board's own alphabet: time is a circle, your class a square, the
-       board a triangle — three shapes in a row, standing on one line, as they
-       do in the header. -->
-  <rect width="512" height="512" rx="96" fill="#f3f2f2"/>
-  <circle cx="136" cy="304" r="48" fill="#ec3013"/>
-  <rect x="208" y="256" width="96" height="96" rx="11" fill="#1f4fd1"/>
-  <path d="M376 256 424 352 328 352Z" fill="#f5c400"/>
+  <!-- The three shapes of the board — time, your class, the board — filling
+       the tile edge to edge, with nothing behind them. A favicon is 16px
+       across on a tab of any colour, so the shapes are the icon. -->
+  <circle cx="128" cy="128" r="128" fill="#ec3013"/>
+  <rect x="256" y="0" width="256" height="256" fill="#1f4fd1"/>
+  <path d="M256 256 512 512 0 512Z" fill="#f5c400"/>
 </svg>

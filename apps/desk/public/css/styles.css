@@ -479,17 +479,18 @@ p { margin: 0 0 .6rem; }
 .card[data-tone="block"]:not([data-category="other"]) .muted { color: inherit; }
 .card[data-tone="block"]:not([data-category="other"]) .hint { opacity: .8; }
 
-/* The default: the card ends where its content ends. `align-self` is what
-   does it — the grid still reserves the row span, but the card no longer
-   stretches to fill it, so a timer is the height of a timer.
+/* A card fills the slot it was given, and the slot is measured from the
+   tool's own content the moment it is put down. That measurement is the
+   reason there is no empty space in a card; filling the slot afterwards is
+   the reason the card does not change shape while the teacher is using it.
 
-   `max-height` is the other half and is not optional: without it a card whose
-   content outgrows its slot simply draws over whatever is underneath, because
-   a grid item positioned at `start` is not clipped by its area. Capped, it
-   scrolls instead — and "Tidy up the desk" resizes the slot so it does not
-   have to. */
-.card:not(.is-fluid) { align-self: start; max-height: 100%; }
-.card:not(.is-fluid) .card-body { flex: 0 1 auto; overflow: auto; }
+   The earlier version let the card end where its content ended, which looked
+   right in a screenshot and was wrong in a classroom: a randomiser landing on
+   a longer name, or a list gaining a row, resized the card under the
+   teacher's hand. The card now holds still and the contents fit themselves to
+   it. */
+.card:not(.is-fluid) { align-self: stretch; max-height: 100%; }
+.card:not(.is-fluid) .card-body { flex: 1 1 auto; overflow: auto; }
 
 /* The exceptions, which want every pixel they were given: a seating plan
    sized by an observer, an embedded video, a clock face that scales. */
@@ -899,11 +900,19 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 
 /* ---------------- randomiser ---------------- */
 
-.pick-face { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem; min-height: 60px; text-align: center; }
+/* The face holds whatever name comes up without changing shape. Names are
+   not one length — "Mia" and "Konstantinos" both have to land in the same
+   box, or the card reflows on every draw and the buttons move under the
+   teacher's finger. */
+.pick-face {
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .25rem;
+  min-height: 60px; text-align: center; overflow: hidden;
+}
 .pick-name {
   font-family: var(--display); font-weight: 700; letter-spacing: -.02em;
   font-size: clamp(1.3rem, 5.5cqw, 2.6rem); line-height: 1.1;
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; width: 100%; overflow: hidden;
 }
 .pick-name.is-rolling { color: var(--faint); }
 .pick-name.is-landed { animation: land .5s cubic-bezier(.2,1.5,.4,1); color: var(--blue); }
@@ -1922,13 +1931,18 @@ body.is-seating-drag { user-select: none; }
   justify-content: flex-start; align-items: flex-end;
 }
 .card[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
-.card[data-tone="block"][data-type="timer"] .card-body::after {
-  content: ''; position: absolute; inset: 0 0 0 auto;
+/* The shadow belongs to the CARD, not to the body inside it: on the body it
+   stopped at the padding and left a red margin at the top, bottom and sides,
+   which read as a stripe rather than as time running out. */
+.card[data-tone="block"][data-type="timer"] { overflow: hidden; }
+.card[data-tone="block"][data-type="timer"]::before {
+  content: ''; position: absolute; inset: 0 0 0 auto; z-index: 0;
   width: calc(var(--elapsed, 0) * 100%);
   background: rgba(0,0,0,.16); pointer-events: none;
   transition: width 1s linear;
 }
-.card[data-tone="block"][data-type="timer"] .card-body { position: relative; overflow: hidden; }
+/* Everything the teacher reads or presses sits above it. */
+.card[data-tone="block"][data-type="timer"] > * { position: relative; z-index: 1; }
 .card[data-type="timer"] .timer-controls .btn { min-height: 52px; }
 .card[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
 
@@ -1967,7 +1981,8 @@ body.is-seating-drag { user-select: none; }
 .card[data-tone="block"][data-type="clock"] .clock-date { text-align: left; }
 
 /* The randomiser's whole job is one name, as big as the card allows. */
-.card[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; margin-top: auto; }
+.card[data-tone="block"][data-type="randomiser"] .pick-face { align-items: stretch; margin-top: auto; }
+.card[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; }
 .card[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
 
 /* Groups are the one place four colours appear at once: the tiles cycle
@@ -2054,8 +2069,6 @@ body.is-seating-drag { user-select: none; }
    right, in a column wide enough to hold a class list. */
 .plan-side, .stage-body .plan-side { width: 320px; gap: .6rem; }
 .stage .stage-title { font-size: 1.6rem; font-weight: 800; font-stretch: 112%; letter-spacing: -.02em; }
-.zoom-row { display: flex; gap: .3rem; }
-.zoom-row .btn { flex: 1; }
 .tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
 .tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
 

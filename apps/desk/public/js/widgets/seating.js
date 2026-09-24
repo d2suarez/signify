@@ -450,8 +450,8 @@
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (!s.plans || typeof s.plans !== 'object') s.plans = {};
       if (typeof s.flipped !== 'boolean') s.flipped = false;
-      // 1 is "fit the room to the furniture"; above pushes in, below pulls back.
-      if (typeof s.zoom !== 'number' || !(s.zoom > 0)) s.zoom = 1;
+      // Which of the three room sizes the walls are set to.
+      if (!['small', 'medium', 'large'].includes(s.room)) s.room = 'medium';
       // classKey -> [{ at, why, plan }], newest first. See keep() below.
       if (!s.history || typeof s.history !== 'object') s.history = {};
     },
@@ -479,62 +479,57 @@
       const room = el('div.room', { style: { '--cols': COLS, '--rows': ROWS } });
 
       /**
-       * Which part of the floor the room shows.
+       * How big the room is.
        *
-       * A plan with six desks in it used to draw six small desks adrift in an
-       * empty hall, because the room was always the full forty-eight by
-       * thirty-two whatever was on it. So the view is the furniture's own
-       * bounding box with a margin round it: fewer desks, bigger desks. The
-       * teacher can overrule it — `zoom` above 1 pushes in, below 1 pulls
-       * back — and the numbers underneath never change, so a plan looks the
-       * same to everyone however they are looking at it.
+       * Not how big the desks are: the desks are a fixed size in cells, and
+       * the room is the walls around them. A small room with six desks in it
+       * draws those desks large, because they take more of it — which is the
+       * same thing a real classroom does. The teacher picks the room; the
+       * plan underneath never changes, so it reads the same to everyone.
+       *
+       * The room is never smaller than the furniture standing in it, or a
+       * desk would be outside the wall.
        */
-      const MIN_VIEW = 14;
+      const ROOMS = [
+        { key: 'small', label: 'Small', cols: 24 },
+        { key: 'medium', label: 'Medium', cols: 34 },
+        { key: 'large', label: 'Large', cols: COLS },
+      ];
+      const ROOM_RATIO = ROWS / COLS;
+
       function viewOf(p) {
-        const z = Number(s.zoom) > 0 ? Number(s.zoom) : 1;
-        let minX = COLS, minY = ROWS, maxX = 0, maxY = 0, any = false;
-        const note = (x, y, w, h) => { any = true; minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h); };
-        for (const d of (p ? p.desks : [])) { const l = layout(d); note(d.x, d.y, l.w, l.h); }
-        for (const o of (p ? p.objects : [])) note(o.x, o.y, o.w, o.h);
-        if (!any) return { cols: COLS, rows: ROWS, ox: 0, oy: 0 };
-
-        // Room to put another desk down without the floor jumping.
-        const pad = 3;
-        let cols = clamp(Math.ceil((maxX - minX) + pad * 2), MIN_VIEW, COLS);
-        let rows = clamp(Math.ceil((maxY - minY) + pad * 2), Math.round(MIN_VIEW * ROWS / COLS), ROWS);
-        cols = clamp(Math.round(cols / z), MIN_VIEW, COLS);
-        rows = clamp(Math.round(rows / z), 8, ROWS);
-
-        // Centred on the furniture, then pushed back inside the walls.
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        const ox = clamp(Math.round(cx - cols / 2), 0, Math.max(0, COLS - cols));
-        const oy = clamp(Math.round(cy - rows / 2), 0, Math.max(0, ROWS - rows));
-        return { cols, rows, ox, oy };
+        const chosen = ROOMS.find((r) => r.key === s.room) || ROOMS[1];
+        let cols = chosen.cols;
+        let rows = Math.round(cols * ROOM_RATIO);
+        for (const d of (p ? p.desks : [])) {
+          const l = layout(d);
+          cols = Math.max(cols, d.x + l.w);
+          rows = Math.max(rows, d.y + l.h);
+        }
+        for (const o of (p ? p.objects : [])) {
+          cols = Math.max(cols, o.x + o.w);
+          rows = Math.max(rows, o.y + o.h);
+        }
+        return { cols: clamp(Math.ceil(cols), 12, COLS), rows: clamp(Math.ceil(rows), 8, ROWS), ox: 0, oy: 0 };
       }
 
-      // The view is held still once it is chosen. Recomputing it on every
-      // draw meant that moving a desk re-framed the floor around it — the
-      // desk stayed under the cursor and the whole room slid instead, which
-      // reads as "my desk did not move". So it is only re-chosen when the
-      // question has actually changed: another class, another zoom, a desk
-      // added or taken away, or furniture that has gone outside the walls
-      // of the view we are showing.
+      // The walls only move when the teacher moves them, or when a piece of
+      // furniture would otherwise end up outside them.
       let view = { cols: COLS, rows: ROWS, ox: 0, oy: 0 };
       let viewKey = '';
 
       function refreshView(p) {
         if (dragging) return;
-        const key = `${s.classKey}|${s.zoom}|${s.front}|${s.flipped}|${p ? p.desks.length : 0}|${p ? p.objects.length : 0}`;
+        const key = `${s.classKey}|${s.room}|${p ? p.desks.length : 0}|${p ? p.objects.length : 0}`;
         const outside = p && [
           ...p.desks.map((d) => { const l = layout(d); return { x: d.x, y: d.y, w: l.w, h: l.h }; }),
           ...p.objects,
-        ].some((b) => b.x < view.ox || b.y < view.oy
-          || b.x + b.w > view.ox + view.cols || b.y + b.h > view.oy + view.rows);
+        ].some((b) => b.x + b.w > view.cols || b.y + b.h > view.rows);
         if (key === viewKey && !outside) return;
         viewKey = key;
         view = viewOf(p);
       }
+
       const tray = el('div.plan-tray');
       const toolbar = el('div.plan-toolbar');
       const inspector = el('div.plan-inspector');
@@ -850,8 +845,8 @@
         }
       }
 
-      function setZoom(z) {
-        s.zoom = clamp(Number(z) || 1, 0.5, 3);
+      function setRoom(key) {
+        s.room = key;
         ctx.save();
         draw();
       }
@@ -936,26 +931,18 @@
         }
         inspector.append(fronts);
 
-        // How big the desks are drawn. The room fits itself to the furniture
-        // on its own; this is for the teacher who wants it closer, or wants
-        // the whole floor in view while they plan where things go.
-        inspector.append(el('h3.section-title', { text: 'How big the desks look' }));
-        const zoomRow = el('div.zoom-row', {}, [
-          el('button.btn.btn--small', {
-            title: 'Smaller desks, more floor', 'aria-label': 'Smaller desks',
-            text: '−', onclick: () => setZoom((Number(s.zoom) || 1) / 1.25),
-          }),
-          el('button.btn.btn--small', {
-            text: 'Fit', title: 'Size the room to the desks that are in it',
-            class: !s.zoom || Number(s.zoom) === 1 ? 'is-on' : '',
-            onclick: () => setZoom(1),
-          }),
-          el('button.btn.btn--small', {
-            title: 'Bigger desks, less floor', 'aria-label': 'Bigger desks',
-            text: '+', onclick: () => setZoom((Number(s.zoom) || 1) * 1.25),
-          }),
-        ]);
-        inspector.append(zoomRow);
+        // How big the room is. Fewer desks in a smaller room means bigger
+        // desks — the same thing a real classroom does.
+        inspector.append(el('h3.section-title', { text: 'Room size' }));
+        const rooms = el('div.seg.seg--tiny');
+        for (const r of ROOMS) {
+          rooms.append(el('button.seg-btn', {
+            text: r.label,
+            class: s.room === r.key ? 'is-on' : '',
+            onclick: () => setRoom(r.key),
+          }));
+        }
+        inspector.append(rooms);
 
         inspector.append(el('h3.section-title', { text: 'Add a desk' }));
         const add = el('div.starter-row');

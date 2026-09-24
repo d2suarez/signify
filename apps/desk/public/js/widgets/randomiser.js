@@ -47,6 +47,32 @@
       let rolling = null;
 
       const nameEl = el('div.pick-name', { text: s.last ? s.last.name : '—' });
+
+      /**
+       * Puts a name in the box at the biggest size that fits it.
+       *
+       * Names are not one length. At a fixed size "Mia" leaves the card half
+       * empty and "Konstantinos Papadopoulos" spills out of it — and a name
+       * that changes the shape of the card as it lands is the thing that made
+       * this widget jump about while it was drawing. So the card holds still
+       * and the TYPE moves: start at the size the card would like, and come
+       * down until the name is inside it.
+       */
+      function showName(text) {
+        nameEl.textContent = text;
+        nameEl.style.fontSize = '';
+        const box = nameEl.parentElement;
+        if (!box || !box.clientHeight) return;
+        const start = parseFloat(getComputedStyle(nameEl).fontSize) || 24;
+        let size = start;
+        // Twelve steps of 8% reaches a third of the starting size, which is
+        // smaller than any real name needs.
+        for (let i = 0; i < 12; i += 1) {
+          if (nameEl.scrollWidth <= nameEl.clientWidth + 1 && nameEl.scrollHeight <= box.clientHeight + 1) break;
+          size *= 0.92;
+          nameEl.style.fontSize = `${size}px`;
+        }
+      }
       const countEl = el('div.pick-count');
       const pickBtn = el('button.btn.btn--primary.btn--wide.pick-btn', { onclick: pick }, 'Pick someone');
       const body = el('div.pick-extra');
@@ -104,7 +130,14 @@
         // Roll through the names, slowing down, then land on the winner.
         const reel = shuffle(students.length > 1 ? students : candidates);
         const startedAt = performance.now();
-        const RUN = 1500;
+        /* How long the draw takes is the whole game of it. Usually one to
+           five seconds; about one time in eight it keeps going, up to ten,
+           and a class notices that immediately — the long one is the one
+           they hold their breath for. The winner is chosen BEFORE any of
+           this, so the suspense cannot change who is picked. */
+        const RUN = Math.random() < 0.125
+          ? 5000 + Math.random() * 5000
+          : 1000 + Math.random() * 4000;
         let i = 0;
         let nextAt = 0;
 
@@ -118,7 +151,7 @@
             s.last = { id: winner.id, name: winner.name, at: Date.now() };
             if (!s.drawn.includes(winner.id)) s.drawn.push(winner.id);
             ctx.save();
-            nameEl.textContent = winner.name;
+            showName(winner.name);
             nameEl.classList.add('is-landed');
             setTimeout(() => nameEl.classList.remove('is-landed'), 900);
             Desk.sound.play('rise');
@@ -126,9 +159,11 @@
             return;
           }
           if (now >= nextAt) {
-            // 45ms at the start, easing out to about 260ms at the end.
+            // 45ms between names at the start, easing out to about 260ms at
+            // the end whatever the run length — a ten-second draw is ten
+            // seconds of slowing down, not eight seconds of standing still.
             nextAt = now + 45 + 215 * (t * t);
-            nameEl.textContent = reel[i % reel.length].name;
+            showName(reel[i % reel.length].name);
             i += 1;
             if (s.sound !== 'none') Desk.sound.play('tick');
           }
@@ -150,8 +185,8 @@
         else if (s.noRepeats) countEl.textContent = `${left} of ${total} still to have a turn`;
         else countEl.textContent = `${total} in the class`;
 
-        if (!s.last) nameEl.textContent = students.length ? 'Ready' : '—';
-        else if (!rolling) nameEl.textContent = s.last.name;
+        if (!s.last) showName(students.length ? 'Ready' : '—');
+        else if (!rolling) showName(s.last.name);
 
         Desk.clear(body);
         body.append(el('label.check-inline', {}, [
@@ -200,6 +235,12 @@
 
       return {
         frame() { if (rolling) rolling(performance.now()); },
+        // Animation frames stop while the tab is in the background, so a
+        // teacher who starts a draw and switches to their slides would come
+        // back to a spinner that never landed and a button that never came
+        // back. This runs on a plain interval, and finishes the draw if the
+        // frames have stopped arriving.
+        tick() { if (rolling) rolling(performance.now()); },
         destroy() { offRoster(); picker.destroy && picker.destroy(); },
       };
     },
