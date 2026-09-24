@@ -1965,17 +1965,20 @@ body.is-seating-drag { user-select: none; }
    stopped at the padding and left a red margin at the top, bottom and sides,
    which read as a stripe rather than as time running out. */
 .card[data-tone="block"][data-type="timer"] { overflow: hidden; }
+/* Over everything, not behind it. Behind, the card's own colour — including
+   the fade that marks scrollable content — was painted on top of the shadow
+   and cut bands across it. Over, it simply dims whatever it crosses, digits
+   included, which is what the design asks for: the part of the card that has
+   gone is darker, end of story. It never takes a click. */
 .card[data-tone="block"][data-type="timer"]::before {
-  content: ''; position: absolute; inset: 0 0 0 auto; z-index: 0;
+  content: ''; position: absolute; inset: 0 0 0 auto; z-index: 3;
   width: calc(var(--elapsed, 0) * 100%);
   background: rgba(0,0,0,.16); pointer-events: none;
   transition: width 1s linear;
 }
-/* Everything the teacher reads or presses sits above it — except the resize
-   corner, which is positioned against the card and must stay that way, or it
-   drops into the flow and turns up in the bottom-left. */
-.card[data-tone="block"][data-type="timer"] > *:not(.card-resize) { position: relative; z-index: 1; }
-.card-resize { z-index: 2; }
+/* The resize corner stays above the shadow, since it is a control rather
+   than part of the face of the card. */
+.card[data-tone="block"][data-type="timer"] > .card-resize { z-index: 4; }
 .card[data-type="timer"] .timer-controls .btn { min-height: 52px; }
 .card[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
 
