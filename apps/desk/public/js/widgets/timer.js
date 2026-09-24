@@ -276,6 +276,10 @@
         ringValue.classList.toggle('is-over', over);
         ringValue.classList.toggle('is-low', low);
 
+        // On the card the time that has gone is a shadow creeping in from the
+        // right, over the whole block — readable from the back of the room
+        // without reading a number at all.
+        ctx.root.style.setProperty('--elapsed', String(1 - fraction));
         barFill.style.width = `${fraction * 100}%`;
         barFill.classList.toggle('is-over', over);
         barFill.classList.toggle('is-low', low);

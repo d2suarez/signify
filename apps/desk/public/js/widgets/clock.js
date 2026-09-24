@@ -80,6 +80,7 @@
     icon: 'clock',
     category: 'time',
     tone: 'block',
+    role: 'p4',
     fills: true,
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },

@@ -87,6 +87,11 @@ window.Desk = window.Desk || {};
       // anything: { value, caption, progress }. A tool with nothing worth
       // reading from across the room simply does not offer one.
       readout: null,
+      // Almost always the category's own colour. Two tools are deliberately
+      // not: a clock is teal and a noise meter yellow, so that a board full
+      // of time tools is not a wall of red. The SHAPE still says which family
+      // the tool belongs to, which is what a teacher actually learns.
+      role: null,
       init() {},
       mount() { return {}; },
     }, def));

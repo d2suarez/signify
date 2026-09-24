@@ -457,6 +457,12 @@ p { margin: 0 0 .6rem; }
 .card[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
 .card[data-category="calm"]  { --role: var(--p4); --role-ink: var(--p4-ink); }
 .card[data-category="other"] { --role: var(--ink); --role-ink: var(--surface); }
+/* A tool may take a colour that is not its family's, so that a board of time
+   tools is not a wall of one hue. The shape it wears does not change. */
+.card[data-role="p1"] { --role: var(--p1); --role-ink: var(--p1-ink); }
+.card[data-role="p2"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+.card[data-role="p3"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+.card[data-role="p4"] { --role: var(--p4); --role-ink: var(--p4-ink); }
 
 /* A block is a tool you read from the back of the room: the card is the
    colour, and everything on it is the ink that colour carries. */
@@ -561,7 +567,12 @@ p { margin: 0 0 .6rem; }
 /* Muted greys are invisible on a saturated ground: on a block, "quieter" is
    the same ink at less than full strength. */
 .card[data-tone="block"]:not([data-category="other"]) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
+  /* Everything drawn on a block is the block's ink. A numeral in the page's
+     accent would be a third colour on a card that already has two — and on
+     the red timer, blue figures are the one thing you cannot read. */
   --muted: currentColor; --faint: currentColor; --ink: currentColor;
+  --accent: currentColor; --blue: currentColor; --red: currentColor;
+  --p1: currentColor; --p2: currentColor; --p3: currentColor; --p4: currentColor;
 }
 .card[data-tone="block"]:not([data-category="other"]) .muted,
 .card[data-tone="block"]:not([data-category="other"]) .hint,
@@ -1868,3 +1879,91 @@ body.is-seating-drag { user-select: none; }
    the same room, or its close button would sit underneath the switcher. */
 [data-signify-switcher-ready] .topbar,
 [data-signify-switcher-ready] .stage-head { padding-right: 64px; }
+
+/* ---------------- the timer as a block ----------------
+   On a card the ring is gone: the digits are the tool, sized against the card
+   itself, and the time already spent creeps in from the right as a shadow
+   over the whole block. The ring comes back when the timer is presented,
+   where there is room for it. */
+.card[data-type="timer"] .timer-ring,
+.card[data-type="timer"] .timer-bar { display: none; }
+.card[data-type="timer"] .timer-digits,
+.card[data-type="timer"] .timer-input {
+  font-size: var(--fluid-hero); line-height: .85; text-align: left;
+}
+.card[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
+.card[data-type="timer"] .timer { position: relative; gap: .5rem; }
+.card[data-type="timer"] .timer-face { display: block; }
+/* The value sits at the foot of the card, with the controls under it. */
+.card[data-type="timer"] .timer-face { margin-top: auto; }
+.card[data-tone="block"][data-type="timer"] .card-body::after {
+  content: ''; position: absolute; inset: 0 0 0 auto;
+  width: calc(var(--elapsed, 0) * 100%);
+  background: rgba(0,0,0,.16); pointer-events: none;
+  transition: width 1s linear;
+}
+.card[data-tone="block"][data-type="timer"] .card-body { position: relative; overflow: hidden; }
+.card[data-type="timer"] .timer-controls .btn { min-height: 52px; }
+.card[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
+
+/* Presented, the ring is worth having again. */
+.stage .timer-ring { display: block; }
+
+/* ---------------- the clock and the picked name as blocks ---------------- */
+.card[data-tone="block"][data-type="clock"] .clock-digits { font-size: var(--fluid-display-l); line-height: .85; }
+.card[data-tone="block"][data-type="randomiser"] .pick-name {
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  letter-spacing: -.04em; line-height: .85; font-size: var(--fluid-display-m);
+}
+.card[data-tone="block"] .card-body > * { margin-top: auto; }
+
+/* ---------------- stage 5: the tools that are read at a glance ---------------- */
+
+/* The noise meter states keep their meaning — quiet is green, loud is the
+   warning colour — but the card behind them is yellow, so the bars are drawn
+   in the card's own ink and it is their HEIGHT that says how loud it is. */
+.card[data-tone="block"][data-type="noise"] .noise-word {
+  font-size: var(--fluid-display-s); font-weight: 800; font-stretch: 112%;
+  letter-spacing: -.04em; line-height: .85; text-align: left; margin-top: auto;
+}
+.card[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
+.card[data-tone="block"][data-type="noise"] .noise-fill--silent,
+.card[data-tone="block"][data-type="noise"] .noise-fill--whisper,
+.card[data-tone="block"][data-type="noise"] .noise-fill--work { background: currentColor; }
+.card[data-tone="block"][data-type="noise"] .noise-fill--loud { background: rgba(0,0,0,.45); }
+
+/* A clock on the board is a time, not a dial: big figures, the date as a
+   quiet line above them. The face with hands is still there when it is the
+   face the teacher chose. */
+.card[data-tone="block"][data-type="clock"] .clock { align-items: stretch; }
+.card[data-tone="block"][data-type="clock"] .clock-digital { margin-top: auto; align-items: flex-start; }
+.card[data-tone="block"][data-type="clock"] .clock-zone,
+.card[data-tone="block"][data-type="clock"] .clock-date { text-align: left; }
+
+/* The randomiser's whole job is one name, as big as the card allows. */
+.card[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; margin-top: auto; }
+.card[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
+
+/* Groups are the one place four colours appear at once: the tiles cycle
+   through the roles, so two groups are never the same colour side by side. */
+.group-card {
+  border-radius: var(--r); padding: 12px 14px; border: 0;
+  background: var(--group-colour, var(--desk)); color: var(--group-ink, var(--ink));
+}
+.group-grid > :nth-child(4n+1) { --group-colour: var(--p1); --group-ink: var(--p1-ink); }
+.group-grid > :nth-child(4n+2) { --group-colour: var(--p2); --group-ink: var(--p2-ink); }
+.group-grid > :nth-child(4n+3) { --group-colour: var(--p3); --group-ink: var(--p3-ink); }
+.group-grid > :nth-child(4n+4) { --group-colour: var(--p4); --group-ink: var(--p4-ink); }
+.group-grid > * .group-title, .group-grid > * .group-title-text { color: inherit; }
+
+/* Scores: the two sides of a class are the two ends of the palette. */
+.score-row--accent { border-left-color: var(--p2); }
+.score-row--red { border-left-color: var(--p1); }
+.score-row.is-leading { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p2) 45%, transparent); }
+
+/* Notes take their tints from the roles rather than from four unrelated
+   pastels — the same yellow, blue and green the rest of the board uses. */
+.note[data-colour="yellow"] { --note-bg: color-mix(in srgb, var(--p3) 12%, var(--surface)); }
+.note[data-colour="blue"]   { --note-bg: color-mix(in srgb, var(--p2) 12%, var(--surface)); }
+.note[data-colour="green"]  { --note-bg: color-mix(in srgb, var(--green) 12%, var(--surface)); }
+.note[data-colour="pink"]   { --note-bg: color-mix(in srgb, var(--p1) 12%, var(--surface)); }

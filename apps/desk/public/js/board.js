@@ -149,13 +149,23 @@ window.Desk = window.Desk || {};
       save: markDirty,
       expand: () => openStage(item.id),
     }) || {};
-    board.instances.set(item.id, { def, item, api, node });
+    // The card follows its content. Observing the body rather than the card
+    // is deliberate: the card's own height is whatever the grid gave it, so
+    // watching that would only ever report what we already decided.
+    let watch = null;
+    if (typeof ResizeObserver === 'function' && !(def && def.fills)) {
+      watch = new ResizeObserver(() => growToFit());
+      watch.observe(body);
+      for (const child of body.children) watch.observe(child);
+    }
+    board.instances.set(item.id, { def, item, api, node, watch });
   }
 
   function unmountInstance(id) {
     const inst = board.instances.get(id);
     if (!inst) return;
     try { inst.api.destroy && inst.api.destroy(); } catch (e) { console.error(e); }
+    if (inst.watch) inst.watch.disconnect();
     board.instances.delete(id);
   }
 
@@ -169,6 +179,7 @@ window.Desk = window.Desk || {};
       // whether that colour fills the card or just marks it. Both are written
       // here so the stylesheet can do the rest without a line of JavaScript.
       'data-category': def ? def.category : 'other',
+      'data-role': def && def.role ? def.role : '',
       'data-tone': def ? def.tone : 'card',
       // A card is only as tall as what is in it, unless the widget says it
       // needs the room. That is the difference between a board of tools and a
@@ -384,6 +395,40 @@ window.Desk = window.Desk || {};
     render();
     markDirty();
     return changed;
+  }
+
+  /**
+   * A tool that has outgrown its card grows the card, rather than scrolling
+   * inside it. Widgets change height on their own — a list gains a name, a
+   * timer's controls wrap, a class list arrives late — so this watches each
+   * card's content and answers whenever it happens, not only when the teacher
+   * asks the desk to tidy.
+   *
+   * It only ever grows. Shrinking here would fight the teacher: a card they
+   * dragged taller on purpose would snap back the moment its content redrew.
+   * `tidy()` is still the way to take space back, because that is a thing
+   * they ask for.
+   */
+  let growQueued = false;
+  function growToFit() {
+    if (growQueued || stacked()) return;
+    growQueued = true;
+    requestAnimationFrame(() => {
+      growQueued = false;
+      let changed = 0;
+      for (const item of board.items) {
+        const need = rowsNeeded(item);
+        // The cap is what stops a tracker with thirty names taking the desk.
+        if (need == null || need <= item.h) continue;
+        item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+        changed += 1;
+      }
+      if (!changed) return;
+      resolve(board.items, null);
+      compact(board.items);
+      render();
+      markDirty();
+    });
   }
 
   function addItem(type) {
