@@ -163,23 +163,13 @@ window.Desk = window.Desk || {};
       save: markDirty,
       expand: () => openStage(item.id),
     }) || {};
-    // The card follows its content. Observing the body rather than the card
-    // is deliberate: the card's own height is whatever the grid gave it, so
-    // watching that would only ever report what we already decided.
-    let watch = null;
-    if (typeof ResizeObserver === 'function' && !(def && def.fills)) {
-      watch = new ResizeObserver(() => growToFit());
-      watch.observe(body);
-      for (const child of body.children) watch.observe(child);
-    }
-    board.instances.set(item.id, { def, item, api, node, watch });
+    board.instances.set(item.id, { def, item, api, node });
   }
 
   function unmountInstance(id) {
     const inst = board.instances.get(id);
     if (!inst) return;
     try { inst.api.destroy && inst.api.destroy(); } catch (e) { console.error(e); }
-    if (inst.watch) inst.watch.disconnect();
     board.instances.delete(id);
   }
 
@@ -415,37 +405,23 @@ window.Desk = window.Desk || {};
   }
 
   /**
-   * A tool that has outgrown its card grows the card, rather than scrolling
-   * inside it. Widgets change height on their own — a list gains a name, a
-   * timer's controls wrap, a class list arrives late — so this watches each
-   * card's content and answers whenever it happens, not only when the teacher
-   * asks the desk to tidy.
+   * A card keeps the size it was given. It is set once, when the tool is
+   * first put down, and after that only the teacher changes it — by dragging
+   * the corner, or by asking the desk to tidy.
    *
-   * It only ever grows. Shrinking here would fight the teacher: a card they
-   * dragged taller on purpose would snap back the moment its content redrew.
-   * `tidy()` is still the way to take space back, because that is a thing
-   * they ask for.
+   * It is tempting to have cards follow their contents, and an earlier
+   * version did. But a randomiser that picks a name with a descender, or a
+   * list that gains a row, would resize itself mid-lesson and shove its
+   * neighbours down the board. A tool that reflows while you are looking at
+   * it is worse than a tool that is slightly the wrong size, so what the
+   * contents do inside the card is the widget's business: the display sizes
+   * are measured against the card, which is why they fit it.
    */
-  let growQueued = false;
-  function growToFit() {
-    if (growQueued || stacked()) return;
-    growQueued = true;
-    requestAnimationFrame(() => {
-      growQueued = false;
-      let changed = 0;
-      for (const item of board.items) {
-        const need = rowsNeeded(item);
-        // The cap is what stops a tracker with thirty names taking the desk.
-        if (need == null || need <= item.h) continue;
-        item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
-        changed += 1;
-      }
-      if (!changed) return;
-      resolve(board.items, null);
-      compact(board.items);
-      render();
-      markDirty();
-    });
+  function sizeOnce(item) {
+    const need = rowsNeeded(item);
+    if (need == null || need === item.h) return false;
+    item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+    return true;
   }
 
   function addItem(type) {
@@ -465,9 +441,7 @@ window.Desk = window.Desk || {};
     // Two frames later the card has drawn and can be measured, so a tool
     // arrives at the size it needs rather than at a guess from its manifest.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      const need = rowsNeeded(item);
-      if (need != null && need !== item.h) {
-        item.h = Math.min(need, Math.max(item.h, TIDY_MAX_ROWS));
+      if (sizeOnce(item)) {
         resolve(board.items, null);
         compact(board.items);
         render();

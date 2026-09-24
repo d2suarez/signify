@@ -1914,8 +1914,14 @@ body.is-seating-drag { user-select: none; }
 .card[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
 .card[data-type="timer"] .timer { position: relative; gap: .5rem; }
 .card[data-type="timer"] .timer-face { display: block; }
-/* The value sits at the foot of the card, with the controls under it. */
-.card[data-type="timer"] .timer-face { margin-top: auto; }
+/* The face was a 190px square holding a ring. With the ring gone it is just
+   the frame round the digits, so it takes the whole card and stops centring
+   what is inside it — the figures start at the left edge, under the title. */
+.card[data-type="timer"] .timer-face {
+  margin: auto 0 0; width: 100%; max-width: none; aspect-ratio: auto;
+  justify-content: flex-start; align-items: flex-end;
+}
+.card[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
 .card[data-tone="block"][data-type="timer"] .card-body::after {
   content: ''; position: absolute; inset: 0 0 0 auto;
   width: calc(var(--elapsed, 0) * 100%);
@@ -2048,6 +2054,8 @@ body.is-seating-drag { user-select: none; }
    right, in a column wide enough to hold a class list. */
 .plan-side, .stage-body .plan-side { width: 320px; gap: .6rem; }
 .stage .stage-title { font-size: 1.6rem; font-weight: 800; font-stretch: 112%; letter-spacing: -.02em; }
+.zoom-row { display: flex; gap: .3rem; }
+.zoom-row .btn { flex: 1; }
 .tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
 .tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
 

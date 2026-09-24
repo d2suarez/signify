@@ -450,6 +450,8 @@
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (!s.plans || typeof s.plans !== 'object') s.plans = {};
       if (typeof s.flipped !== 'boolean') s.flipped = false;
+      // 1 is "fit the room to the furniture"; above pushes in, below pulls back.
+      if (typeof s.zoom !== 'number' || !(s.zoom > 0)) s.zoom = 1;
       // classKey -> [{ at, why, plan }], newest first. See keep() below.
       if (!s.history || typeof s.history !== 'object') s.history = {};
     },
@@ -475,6 +477,64 @@
       let ghost = null;
 
       const room = el('div.room', { style: { '--cols': COLS, '--rows': ROWS } });
+
+      /**
+       * Which part of the floor the room shows.
+       *
+       * A plan with six desks in it used to draw six small desks adrift in an
+       * empty hall, because the room was always the full forty-eight by
+       * thirty-two whatever was on it. So the view is the furniture's own
+       * bounding box with a margin round it: fewer desks, bigger desks. The
+       * teacher can overrule it — `zoom` above 1 pushes in, below 1 pulls
+       * back — and the numbers underneath never change, so a plan looks the
+       * same to everyone however they are looking at it.
+       */
+      const MIN_VIEW = 14;
+      function viewOf(p) {
+        const z = Number(s.zoom) > 0 ? Number(s.zoom) : 1;
+        let minX = COLS, minY = ROWS, maxX = 0, maxY = 0, any = false;
+        const note = (x, y, w, h) => { any = true; minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h); };
+        for (const d of (p ? p.desks : [])) { const l = layout(d); note(d.x, d.y, l.w, l.h); }
+        for (const o of (p ? p.objects : [])) note(o.x, o.y, o.w, o.h);
+        if (!any) return { cols: COLS, rows: ROWS, ox: 0, oy: 0 };
+
+        // Room to put another desk down without the floor jumping.
+        const pad = 3;
+        let cols = clamp(Math.ceil((maxX - minX) + pad * 2), MIN_VIEW, COLS);
+        let rows = clamp(Math.ceil((maxY - minY) + pad * 2), Math.round(MIN_VIEW * ROWS / COLS), ROWS);
+        cols = clamp(Math.round(cols / z), MIN_VIEW, COLS);
+        rows = clamp(Math.round(rows / z), 8, ROWS);
+
+        // Centred on the furniture, then pushed back inside the walls.
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const ox = clamp(Math.round(cx - cols / 2), 0, Math.max(0, COLS - cols));
+        const oy = clamp(Math.round(cy - rows / 2), 0, Math.max(0, ROWS - rows));
+        return { cols, rows, ox, oy };
+      }
+
+      // The view is held still once it is chosen. Recomputing it on every
+      // draw meant that moving a desk re-framed the floor around it — the
+      // desk stayed under the cursor and the whole room slid instead, which
+      // reads as "my desk did not move". So it is only re-chosen when the
+      // question has actually changed: another class, another zoom, a desk
+      // added or taken away, or furniture that has gone outside the walls
+      // of the view we are showing.
+      let view = { cols: COLS, rows: ROWS, ox: 0, oy: 0 };
+      let viewKey = '';
+
+      function refreshView(p) {
+        if (dragging) return;
+        const key = `${s.classKey}|${s.zoom}|${s.front}|${s.flipped}|${p ? p.desks.length : 0}|${p ? p.objects.length : 0}`;
+        const outside = p && [
+          ...p.desks.map((d) => { const l = layout(d); return { x: d.x, y: d.y, w: l.w, h: l.h }; }),
+          ...p.objects,
+        ].some((b) => b.x < view.ox || b.y < view.oy
+          || b.x + b.w > view.ox + view.cols || b.y + b.h > view.oy + view.rows);
+        if (key === viewKey && !outside) return;
+        viewKey = key;
+        view = viewOf(p);
+      }
       const tray = el('div.plan-tray');
       const toolbar = el('div.plan-toolbar');
       const inspector = el('div.plan-inspector');
@@ -669,6 +729,10 @@
         if (!p) { room.dataset.front = 'top'; room.append(el('p.hint.room-note', { text: 'Choose a class list to begin.' })); return; }
 
         room.dataset.front = p.front;
+        refreshView(p);
+        room.style.setProperty('--cols', String(view.cols));
+        room.style.setProperty('--rows', String(view.rows));
+        fit();
         drawObjects(p);
         if (!p.desks.length && !p.objects.length) { drawStarters(); return; }
 
@@ -681,8 +745,8 @@
           // right-hand one. Getting only the desks the right way round makes
           // every pair read backwards, which is worse than not flipping.
           const l = s.flipped ? mirror(layout(desk), axis) : layout(desk);
-          const x = s.flipped && axis === 'x' ? COLS - desk.x - l.w : desk.x;
-          const y = s.flipped && axis === 'y' ? ROWS - desk.y - l.h : desk.y;
+          const x = (s.flipped && axis === 'x' ? COLS - desk.x - l.w : desk.x) - view.ox;
+          const y = (s.flipped && axis === 'y' ? ROWS - desk.y - l.h : desk.y) - view.oy;
 
           const node = el('div.desk', {
             'data-id': desk.id,
@@ -766,8 +830,8 @@
       function drawObjects(p) {
         const axis = mirrorAxis();
         for (const o of p.objects) {
-          const x = s.flipped && axis === 'x' ? COLS - o.x - o.w : o.x;
-          const y = s.flipped && axis === 'y' ? ROWS - o.y - o.h : o.y;
+          const x = (s.flipped && axis === 'x' ? COLS - o.x - o.w : o.x) - view.ox;
+          const y = (s.flipped && axis === 'y' ? ROWS - o.y - o.h : o.y) - view.oy;
           const node = el(`div.room-object.room-object--${o.shape}`, {
             'data-id': o.id,
             class: isSelected('object', o.id) ? 'is-selected' : '',
@@ -784,6 +848,12 @@
           }
           room.append(node);
         }
+      }
+
+      function setZoom(z) {
+        s.zoom = clamp(Number(z) || 1, 0.5, 3);
+        ctx.save();
+        draw();
       }
 
       function addObject(shapeKey) {
@@ -865,6 +935,27 @@
           }));
         }
         inspector.append(fronts);
+
+        // How big the desks are drawn. The room fits itself to the furniture
+        // on its own; this is for the teacher who wants it closer, or wants
+        // the whole floor in view while they plan where things go.
+        inspector.append(el('h3.section-title', { text: 'How big the desks look' }));
+        const zoomRow = el('div.zoom-row', {}, [
+          el('button.btn.btn--small', {
+            title: 'Smaller desks, more floor', 'aria-label': 'Smaller desks',
+            text: '−', onclick: () => setZoom((Number(s.zoom) || 1) / 1.25),
+          }),
+          el('button.btn.btn--small', {
+            text: 'Fit', title: 'Size the room to the desks that are in it',
+            class: !s.zoom || Number(s.zoom) === 1 ? 'is-on' : '',
+            onclick: () => setZoom(1),
+          }),
+          el('button.btn.btn--small', {
+            title: 'Bigger desks, less floor', 'aria-label': 'Bigger desks',
+            text: '+', onclick: () => setZoom((Number(s.zoom) || 1) * 1.25),
+          }),
+        ]);
+        inspector.append(zoomRow);
 
         inspector.append(el('h3.section-title', { text: 'Add a desk' }));
         const add = el('div.starter-row');
@@ -1320,7 +1411,7 @@
 
       function cellSize() {
         const r = room.getBoundingClientRect();
-        return { cw: r.width / COLS, ch: r.height / ROWS, rect: r };
+        return { cw: r.width / view.cols, ch: r.height / view.rows, rect: r };
       }
 
       function onChipDown(e, studentId) { startStudentDrag(e, studentId, null); }
@@ -1479,9 +1570,9 @@
        */
       const sizeRoom = (width, height) => {
         if (width < 4 || height < 4) return;
-        const cw = Math.max(1.5, Math.min(width / COLS, height / ROWS));
-        roomBox.style.width = `${cw * COLS}px`;
-        room.style.height = `${cw * ROWS}px`;
+        const cw = Math.max(1.5, Math.min(width / view.cols, height / view.rows));
+        roomBox.style.width = `${cw * view.cols}px`;
+        room.style.height = `${cw * view.rows}px`;
         room.style.setProperty('--cell', `${cw}px`);
         room.classList.toggle('is-tiny', cw * SEAT_W < 44);
       };
