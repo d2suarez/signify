@@ -421,7 +421,11 @@ p { margin: 0 0 .6rem; }
   flex: 1;
   display: grid;
   grid-template-columns: repeat(var(--cols, 12), 1fr);
-  grid-auto-rows: var(--row);
+  /* The row unit answers to the board's own width, not the window's: 58px at
+     1440, 77px at 1920, so a desk on a projector is not the same desk with
+     everything smaller. */
+  container-type: inline-size;
+  grid-auto-rows: clamp(52px, 4cqi, 96px);
   gap: var(--gap);
   padding: clamp(.6rem, 2vw, 1.25rem);
   align-content: start;
@@ -598,6 +602,22 @@ p { margin: 0 0 .6rem; }
 
 /* Below this the twelve columns mean nothing, so the board stacks and
    rearranging is switched off rather than silently flattening the layout. */
+/* Below twelve columns the saved x/y stop meaning anything — a card placed
+   in column 9 has nowhere to be — so the board packs instead: each card keeps
+   its proportions, takes what width it can, and dense filling closes the
+   gaps. Rearranging is off, exactly as it is when stacked, because the
+   alternative is a teacher on a tablet quietly flattening the layout they
+   built on a laptop. */
+.board[data-cols="8"] .card,
+.board[data-cols="4"] .card {
+  grid-column: auto / span min(var(--w), var(--cols));
+  grid-row: auto / span var(--h);
+}
+.board[data-cols="8"], .board[data-cols="4"] { grid-auto-flow: dense; }
+.board[data-cols="8"] .card-grip, .board[data-cols="4"] .card-grip,
+.board[data-cols="8"] .card-resize, .board[data-cols="4"] .card-resize { display: none; }
+.board[data-cols="8"] .card-head, .board[data-cols="4"] .card-head { cursor: default; }
+
 body.is-stacked .board { grid-template-columns: 1fr; grid-auto-rows: min-content; }
 body.is-stacked .card { grid-column: 1 / -1; grid-row: auto; height: calc(var(--h) * var(--row) + (var(--h) - 1) * var(--gap)); }
 body.is-stacked .card-head { cursor: default; }
@@ -1967,3 +1987,24 @@ body.is-seating-drag { user-select: none; }
 .note[data-colour="blue"]   { --note-bg: color-mix(in srgb, var(--p2) 12%, var(--surface)); }
 .note[data-colour="green"]  { --note-bg: color-mix(in srgb, var(--green) 12%, var(--surface)); }
 .note[data-colour="pink"]   { --note-bg: color-mix(in srgb, var(--p1) 12%, var(--surface)); }
+
+/* ---------------- the header as the room narrows ----------------
+   Things leave in the order a teacher would give them up: the wordmark, then
+   the words on the buttons, then the avatar. What survives to the last is the
+   island — the tools' own readouts — and the way to add another tool. */
+@media (max-width: 1280px) {
+  .topbar { height: 72px; padding: 0 16px; gap: 12px; }
+  .brand-word { display: none; }
+  .filters { padding: 14px 16px 10px; }
+}
+@media (max-width: 880px) {
+  .island { gap: 8px; }
+  .add-btn { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+  .add-btn .icon-wrap, .add-btn svg { font-size: 1rem; }
+  .user-name { display: none; }
+  .lists-label { display: none; }
+}
+@media (max-width: 620px) {
+  .topbar { gap: 8px; }
+  .island { display: none; }
+}

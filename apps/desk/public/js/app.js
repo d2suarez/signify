@@ -254,7 +254,7 @@
     document.addEventListener('desk:rendered', applyFilter);
 
     shell.replaceChildren(bar, filters, el('main#board.board', { 'aria-label': 'Your desk' }));
-    document.getElementById('board').style.setProperty('--cols', String(Desk.board.COLUMNS));
+    // The board decides its own column count from its width, in render().
   }
 
   // ---------- getting an earlier desk back ----------

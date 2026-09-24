@@ -19,7 +19,19 @@ window.Desk = window.Desk || {};
   const { el, icon, clamp, toast } = Desk;
 
   const COLUMNS = 12;
-  const STACK_BELOW = 820;
+  const STACK_BELOW = 520;
+
+  /* How many columns the board has, decided by the board's own width rather
+     than the window's — the same desk in a narrower app is a narrower desk.
+     Twelve is the layout the teacher arranged; eight and four are packings of
+     it. */
+  const WIDE_AT = 1280;
+  const MEDIUM_AT = 880;
+  function columnsFor(width) {
+    if (width >= WIDE_AT) return 12;
+    if (width >= MEDIUM_AT) return 8;
+    return 4;
+  }
 
   const board = {
     rev: 0,
@@ -85,6 +97,8 @@ window.Desk = window.Desk || {};
   }
 
   const stacked = () => window.innerWidth < STACK_BELOW;
+  /* Cards only stay where they were put while all twelve columns are there. */
+  const packing = () => !stacked() && board.root && columnsFor(board.root.clientWidth) < COLUMNS;
 
   // ---------- saving ----------
 
@@ -212,6 +226,9 @@ window.Desk = window.Desk || {};
   function render() {
     const root = board.root;
     document.body.classList.toggle('is-stacked', stacked());
+    const cols = stacked() ? 1 : columnsFor(root.clientWidth);
+    root.dataset.cols = String(cols);
+    root.style.setProperty('--cols', String(cols));
 
     const order = board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
     const present = new Set(order.map((i) => i.id));
@@ -608,10 +625,15 @@ window.Desk = window.Desk || {};
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
 
-    let wasStacked = stacked();
-    window.addEventListener('resize', Desk.debounce(() => {
-      if (stacked() !== wasStacked) { wasStacked = stacked(); render(); }
-    }, 150));
+    // Redraw when the shape of the board changes, not on every pixel of a
+    // window drag: the layout only actually differs at the two breakpoints.
+    let shape = `${stacked()}:${columnsFor(root.clientWidth)}`;
+    const watchShape = Desk.debounce(() => {
+      const now = `${stacked()}:${columnsFor(root.clientWidth)}`;
+      if (now !== shape) { shape = now; render(); }
+    }, 150);
+    window.addEventListener('resize', watchShape);
+    if (typeof ResizeObserver === 'function') new ResizeObserver(watchShape).observe(root);
   }
 
   async function reset() {
