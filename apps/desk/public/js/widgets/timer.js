@@ -50,6 +50,18 @@
 
     holdsContent: (s) => (s.running ? 'It is running now.' : ''),
 
+    // In the island a timer is worth reading only while it is actually
+    // running — a stopped one is noise at the top of the board.
+    readout(s) {
+      if (!s.running) return null;
+      const left = remaining(s);
+      return {
+        value: duration(Math.abs(left)),
+        caption: s.title || (left < 0 ? 'Over' : 'Left'),
+        progress: s.durationMs > 0 ? clamp(left / s.durationMs, 0, 1) : 0,
+      };
+    },
+
     mount(ctx) {
       const s = ctx.state;
 

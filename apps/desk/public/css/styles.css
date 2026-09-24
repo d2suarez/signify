@@ -313,17 +313,78 @@ p { margin: 0 0 .6rem; }
 
 .topbar {
   position: sticky; top: 0; z-index: 30;
-  display: flex; align-items: center; gap: .6rem;
-  padding: .55rem clamp(.6rem, 2vw, 1.25rem);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 20px;
+  height: 84px; padding: 0 24px;
+  /* Written here rather than as a token: a color-mix of a themed variable
+     resolves once, against whichever ground happened to be current. */
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px);
+  border: 0;
 }
+.topbar-tools { display: flex; align-items: center; gap: .6rem; margin-left: auto; }
 .topbar-spacer { flex: 1; }
-.brand { display: flex; align-items: center; gap: .45rem; font-family: var(--display); font-weight: 700; letter-spacing: -.02em; }
-.brand-mark { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: var(--r-sm); background: var(--blue); color: var(--on-accent); }
+
+/* The mark is the board's own alphabet: the three shapes, bottom-aligned,
+   in the order a teacher meets them. */
+.brand { display: flex; align-items: center; gap: .6rem; }
+.brand-mark { display: flex; align-items: flex-end; gap: 3px; width: auto; height: auto; background: none; }
+.brand-mark .shape { --shape-size: 20px; }
+.brand-word {
+  font-family: var(--display); font-size: 24px; font-weight: 800;
+  font-stretch: 118%; letter-spacing: -.02em; white-space: nowrap;
+}
 .brand--big { font-size: 1.4rem; justify-content: center; margin-bottom: .6rem; }
-.brand--big .brand-mark { width: 40px; height: 40px; }
+.brand--big .brand-mark .shape { --shape-size: 26px; }
+
+/* ---------------- the island ----------------
+   The board, read from across the room. Whatever the tools are saying, in one
+   pill in the middle of the header. */
+.island {
+  display: flex; align-items: center; gap: 14px;
+  height: 52px; padding: 0 8px; margin: 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--surface); box-shadow: var(--shadow-island);
+}
+.island[hidden] { display: none; }
+.island-rule { width: 1px; height: 26px; background: var(--line); }
+.island-item {
+  position: relative; display: flex; align-items: center; gap: .45rem;
+  padding: .3rem .55rem; border: 0; border-radius: var(--r-sm);
+  background: none; color: inherit; cursor: pointer; font: inherit;
+}
+.island-item:hover { background: var(--desk); }
+.island-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+.island-value {
+  font-family: var(--display); font-size: 21px; font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.island-caption { font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* A timer says how much is left twice over: in figures, and in a bar that
+   empties — which is the one you can read without reading. */
+.island-bar {
+  position: absolute; left: .55rem; right: .55rem; bottom: 2px;
+  height: 3px; border-radius: 2px; background: var(--line); overflow: hidden;
+}
+.island-bar::after {
+  content: ''; position: absolute; inset: 0 auto 0 0;
+  width: calc(var(--fill, 0) * 100%); background: var(--p1);
+}
+
+/* ---------------- the filter chips ---------------- */
+.filters {
+  display: flex; align-items: center; gap: 6px;
+  padding: 18px 24px 14px; overflow-x: auto; scrollbar-width: none;
+}
+.filters::-webkit-scrollbar { display: none; }
+.filter {
+  display: inline-flex; align-items: center; gap: .4rem; flex: none;
+  height: 38px; padding: 0 .8rem; border: 0; border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.filter.is-on { background: var(--p4); color: var(--p4-ink); box-shadow: none; }
+.filter.is-on .shape { --role: currentColor; }
+.card.is-filtered-out { display: none; }
 
 /* Muted is a state the teacher must be able to see at a glance, or a timer
    running out in silence looks like a broken app rather than a choice. */

@@ -231,6 +231,10 @@ window.Desk = window.Desk || {};
         el('button.btn.btn--primary', { text: 'Add a tool', onclick: () => Desk.app.openCatalogue() }),
       ]));
     }
+
+    // Said once, here, so anything that decorates cards — the filter chips,
+    // for one — can catch the ones that have only just been created.
+    document.dispatchEvent(new CustomEvent('desk:rendered'));
   }
 
   function position(node, item) {
@@ -583,8 +587,31 @@ window.Desk = window.Desk || {};
   /** Colour and background live on the same document as the widgets. */
   function setPrefs(prefs) { board.prefs = prefs; markDirty(); }
 
+  /**
+   * What the tools on this board have to say, for the island at the top: the
+   * first of each kind that offers a readout and actually has something to
+   * report. Board order decides, so a teacher with two timers sees the one
+   * they put down first.
+   */
+  function readouts(limit = 4) {
+    const out = [];
+    const seen = new Set();
+    const order = board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    for (const item of order) {
+      const def = Desk.widgets.get(item.type);
+      if (!def || !def.readout || seen.has(item.type)) continue;
+      let said = null;
+      try { said = def.readout(item.state); } catch (e) { console.error(e); }
+      if (!said || !said.value) continue;
+      seen.add(item.type);
+      out.push({ ...said, type: item.type, category: def.category, id: item.id });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, COLUMNS,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, COLUMNS,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so
     // they are exported and tested directly rather than by dragging things.

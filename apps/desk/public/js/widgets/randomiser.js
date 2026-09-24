@@ -25,6 +25,11 @@
     min: { w: 3, h: 4 },
     needsRoster: true,
 
+    readout(s) {
+      if (!s.last || !s.last.name) return null;
+      return { value: String(s.last.name).split(/\s+/)[0], caption: 'Last pick' };
+    },
+
     init(s) {
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (typeof s.noRepeats !== 'boolean') s.noRepeats = true;

@@ -83,6 +83,10 @@ window.Desk = window.Desk || {};
       // that are read at a glance from the back of the room. 'card' is white
       // with a coloured marker, for the tools you lean in and work with.
       tone: 'card',
+      // What this tool says in the island at the top of the board, if
+      // anything: { value, caption, progress }. A tool with nothing worth
+      // reading from across the room simply does not offer one.
+      readout: null,
       init() {},
       mount() { return {}; },
     }, def));

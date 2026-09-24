@@ -84,6 +84,17 @@
     size: { w: 3, h: 4 },
     min: { w: 2, h: 3 },
 
+    // The clock is the one readout that is always worth having: a teacher
+    // glances at the top of the board rather than at the wall.
+    readout(s) {
+      const p = partsIn(s.zone, new Date());
+      const hour = s.hour12 ? (p.h % 12 || 12) : String(p.h).padStart(2, '0');
+      return {
+        value: `${hour}:${String(p.m).padStart(2, '0')}`,
+        caption: s.label || p.date,
+      };
+    },
+
     init(s) {
       if (!FACES.some((f) => f.key === s.face)) s.face = 'analogue';
       if (typeof s.zone !== 'string') s.zone = '';
