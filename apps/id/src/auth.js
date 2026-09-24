@@ -139,8 +139,10 @@ async function completeSignIn(req, res, profile, continueTo) {
     return res.status(403).json({ error: block.message, code: block.code, next: block.next });
   }
 
+  // Staff keep a session through a school day; a student's ends quickly,
+  // because the tablet they used is handed on. The rule lives in sessions.js.
   const session = await sessions.create(user.id, {
-    ip: req.ip, userAgent: req.get('user-agent'), isMinor: access.user.isMinor,
+    ip: req.ip, userAgent: req.get('user-agent'), isStaff: sessions.isStaffAccess(access),
   });
   res.cookie(sessions.COOKIE, session.raw, sessions.cookieOptions(session.absoluteMs));
   sessions.issueCsrf(res);

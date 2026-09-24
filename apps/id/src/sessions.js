@@ -28,17 +28,32 @@ function cookieOptions(maxAgeMs) {
   };
 }
 
-async function create(userId, { ip, userAgent, isMinor }) {
+/**
+ * Who gets the long idle window. Anyone who is not a student: the line the
+ * console already draws, and the one the shared-device risk follows.
+ *
+ * Somebody with no school at all — waiting on a request, say — gets the short
+ * window, because nothing yet says they are staff anywhere.
+ */
+function isStaffAccess(access) {
+  if (!access) return false;
+  if (access.isSuper) return true;
+  return !!(access.membership && access.membership.role_key !== 'student');
+}
+
+async function create(userId, { ip, userAgent, isStaff }) {
   const raw = keys.randomToken(32);
-  const idleMinutes = isMinor ? config.sessionIdleMinutesMinor : config.sessionIdleMinutes;
+  const idleMinutes = isStaff ? config.sessionIdleMinutesStaff : config.sessionIdleMinutes;
   const absoluteMs = config.sessionAbsoluteHours * 3600 * 1000;
 
+  // The window is written onto the row. Every later slide reads it from
+  // there, so no other code path has to work it out again and get it wrong.
   const row = await db.one(
-    `INSERT INTO sessions (user_id, token_hash, expires_at, idle_expires_at, ip, user_agent)
+    `INSERT INTO sessions (user_id, token_hash, expires_at, idle_expires_at, idle_minutes, ip, user_agent)
      VALUES ($1, $2, now() + ($3 || ' milliseconds')::interval,
-                     now() + ($4 || ' minutes')::interval, $5, $6)
+                     now() + make_interval(mins => $4::int), $4::int, $5, $6)
      RETURNING id, expires_at, idle_expires_at`,
-    [userId, keys.sha256(raw), String(absoluteMs), String(idleMinutes), ip || null, String(userAgent || '').slice(0, 400)]
+    [userId, keys.sha256(raw), String(absoluteMs), idleMinutes, ip || null, String(userAgent || '').slice(0, 400)]
   );
 
   return { id: row.id, raw, expiresAt: row.expires_at, idleMinutes, absoluteMs };
@@ -48,20 +63,17 @@ async function create(userId, { ip, userAgent, isMinor }) {
 // anything expired, revoked, or belonging to an account that has since been
 // blocked or deleted — the check is against live rows every time.
 //
-// Which idle window applies is read from the account itself, exactly as
-// slide() does. It used to come from an argument no caller ever passed, so
-// every session touched here — which is every request that reaches this
-// service, via attachActor — was slid at the adult rate. A child's tablet got
-// the 45-minute window instead of the 20 the policy promises, and the two code
-// paths disagreed about the same session depending on which one saw it last.
+// The idle window comes from the session row, written there when the person
+// signed in. It used to be worked out here and again in slide(), from the
+// account, which is how the same session could be given different windows
+// depending on which path last saw it.
 async function touch(rawToken) {
   if (!rawToken) return null;
 
   const row = await db.one(
     `UPDATE sessions s
         SET last_seen_at = now(),
-            idle_expires_at = now()
-              + ((CASE WHEN u.is_minor THEN $2 ELSE $3 END) || ' minutes')::interval
+            idle_expires_at = now() + make_interval(mins => s.idle_minutes)
        FROM users u
       WHERE s.token_hash = $1
         AND u.id = s.user_id
@@ -71,7 +83,7 @@ async function touch(rawToken) {
         AND u.deleted_at IS NULL
         AND u.status NOT IN ('blocked', 'suspended')
     RETURNING s.id, s.user_id, s.expires_at`,
-    [keys.sha256(rawToken), String(config.sessionIdleMinutesMinor), String(config.sessionIdleMinutes)]
+    [keys.sha256(rawToken)]
   );
   return row;
 }
@@ -100,8 +112,7 @@ async function slide(sessionId) {
   return db.one(
     `UPDATE sessions s
         SET last_seen_at = now(),
-            idle_expires_at = now()
-              + ((CASE WHEN u.is_minor THEN $2 ELSE $3 END) || ' minutes')::interval
+            idle_expires_at = now() + make_interval(mins => s.idle_minutes)
        FROM users u
       WHERE s.id = $1
         AND u.id = s.user_id
@@ -111,14 +122,16 @@ async function slide(sessionId) {
         AND u.deleted_at IS NULL
         AND u.status NOT IN ('blocked', 'suspended')
     RETURNING s.id, s.user_id`,
-    [sessionId, String(config.sessionIdleMinutesMinor), String(config.sessionIdleMinutes)]
+    [sessionId]
   );
 }
 
 async function revoke(sessionId, reason = 'logout') {
+  // The reason used to be taken and dropped, which left nobody able to answer
+  // "why was I signed out" from the record.
   await db.query(
-    'UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
-    [sessionId]
+    'UPDATE sessions SET revoked_at = now(), revoked_reason = $2 WHERE id = $1 AND revoked_at IS NULL',
+    [sessionId, reason]
   );
   // Refresh tokens are minted against a session, so they die with it.
   await db.query(
@@ -130,10 +143,10 @@ async function revoke(sessionId, reason = 'logout') {
 
 // Used when an administrator blocks or deletes somebody: every device, every
 // app, immediately.
-async function revokeAllForUser(userId) {
+async function revokeAllForUser(userId, reason = 'ended by an administrator') {
   const { rowCount } = await db.query(
-    'UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
-    [userId]
+    'UPDATE sessions SET revoked_at = now(), revoked_reason = $2 WHERE user_id = $1 AND revoked_at IS NULL',
+    [userId, reason]
   );
   await db.query(
     'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
@@ -144,8 +157,8 @@ async function revokeAllForUser(userId) {
 
 async function listForUser(userId) {
   return db.many(
-    `SELECT id, created_at, last_seen_at, expires_at, idle_expires_at,
-            host(ip) AS ip, user_agent, revoked_at
+    `SELECT id, created_at, last_seen_at, expires_at, idle_expires_at, idle_minutes,
+            host(ip) AS ip, user_agent, revoked_at, revoked_reason
        FROM sessions WHERE user_id = $1
       ORDER BY last_seen_at DESC LIMIT 50`,
     [userId]
@@ -200,6 +213,6 @@ function checkCsrf(req) {
 
 module.exports = {
   COOKIE, CSRF_COOKIE, cookieOptions,
-  create, touch, slide, revoke, revokeAllForUser, listForUser,
+  create, touch, slide, revoke, isStaffAccess, revokeAllForUser, listForUser,
   parseCookies, issueCsrf, checkCsrf,
 };

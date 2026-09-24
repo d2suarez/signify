@@ -1064,6 +1064,13 @@ router.get('/compliance', async (req, res) => {
     policyVersion: config.policyVersion,
     platformRetentionDays: config.retentionDays,
     effectiveRetentionDays: tenant && tenant.retention_days ? tenant.retention_days : config.retentionDays,
+    // How long a sign-in lasts, so the page states it rather than leaving it
+    // to be discovered by being signed out.
+    sessionWindows: {
+      staffIdleMinutes: config.sessionIdleMinutesStaff,
+      studentIdleMinutes: config.sessionIdleMinutes,
+      absoluteHours: config.sessionAbsoluteHours,
+    },
   });
 });
 

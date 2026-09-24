@@ -1021,6 +1021,14 @@ pages.audit = function () {
   });
 };
 
+// "8 hours" reads better than "480 minutes" on a page about policy.
+function idleLabel(minutes) {
+  var n = Number(minutes) || 0;
+  if (n % 60 !== 0) return n + ' minutes';
+  var h = n / 60;
+  return h + (h === 1 ? ' hour' : ' hours');
+}
+
 pages.compliance = function () {
   return api('/compliance' + tenantQuery()).then(function (d) {
     var auth = d.consents.filter(function (c) { return c.kind === 'school_authorization' && !c.revoked_at; })[0];
@@ -1070,6 +1078,12 @@ pages.compliance = function () {
         '<div class="card"><div class="card-head"><h2>Retention</h2></div><div class="card-body">' +
           '<p class="small">Inactive accounts are erased after <strong>' + esc(d.effectiveRetentionDays) + ' days</strong>. ' +
           'Erased records leave encrypted backups within 30 days.</p>' +
+          (d.sessionWindows
+            ? '<p class="small">A sign-in ends after <strong>' + esc(idleLabel(d.sessionWindows.staffIdleMinutes)) +
+              '</strong> away from it for staff, and <strong>' + esc(idleLabel(d.sessionWindows.studentIdleMinutes)) +
+              '</strong> for students — classroom devices get handed on. Either way it ends after <strong>' +
+              esc(d.sessionWindows.absoluteHours) + ' hours</strong>.</p>'
+            : '') +
           '<p class="small muted">Current policy version: <span class="code">' + esc(d.policyVersion) + '</span></p>' +
         '</div></div>' +
         '<div class="card"><div class="card-head"><h2>Queued for erasure</h2></div>' +

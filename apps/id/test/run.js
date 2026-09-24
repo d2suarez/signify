@@ -11,7 +11,7 @@ process.env.ISSUER = 'http://localhost:3999';
 process.env.SUPER_ADMINS = 'boss@school.edu,backup@school.edu';
 process.env.COOKIE_SECRET = 'a'.repeat(64);
 process.env.SESSION_IDLE_MINUTES = '45';
-process.env.SESSION_IDLE_MINUTES_MINOR = '20';
+process.env.SESSION_IDLE_MINUTES_STAFF = '480';
 
 const crypto = require('crypto');
 const { PglitePool } = require('./pglite-pool');
@@ -205,21 +205,35 @@ function section(title) { console.log(`\n${title}`); }
   ok('a local admin cannot hand out an administrative role', !assignAdmin.ok);
 
   section('Sessions');
-  const sess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isMinor: true });
+  const sess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isStaff: false });
   const touched = await sessions.touch(sess.raw);
   ok('a live session resolves', !!touched && touched.user_id === bobUser.id);
-  eq('minors get the shorter idle window', sess.idleMinutes, 20);
+  eq('a student gets the short idle window', sess.idleMinutes, 45);
 
-  // touch() has to reach the same verdict as slide() without being told who
-  // it is looking at. It used to take isMinor as an argument that no caller in
-  // the service ever passed, so a child's session was slid at the adult rate
-  // on every request that came through attachActor.
-  await db.query('UPDATE users SET is_minor = true WHERE id = $1', [bobUser.id]);
+  // Who gets which window is decided once, at sign-in, and written on the
+  // row. touch() and slide() both read it from there, so the two cannot
+  // disagree about the same session depending on which saw it last.
+  ok('a student is not staff', !sessions.isStaffAccess({ membership: { role_key: 'student' } }));
+  ok('a teacher is', sessions.isStaffAccess({ membership: { role_key: 'teacher' } }));
+  ok('a super admin belonging to no school is', sessions.isStaffAccess({ isSuper: true, membership: null }));
+  ok('somebody with no school at all is not, until they have one',
+    !sessions.isStaffAccess({ membership: null }));
+
   await sessions.touch(sess.raw);
-  const minorWindow = await db.one(
-    `SELECT idle_expires_at - now() < interval '25 minutes' AS shortened
+  const studentWindow = await db.one(
+    `SELECT idle_minutes, idle_expires_at - now() < interval '50 minutes' AS stays_short
        FROM sessions WHERE id = $1`, [sess.id]);
-  ok('touch() reads the minor window off the account, not an argument', !!minorWindow.shortened);
+  eq('the window is stored on the session, not worked out again', studentWindow.idle_minutes, 45);
+  ok('so touching a student session slides it only that far', !!studentWindow.stays_short);
+
+  const staffSess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isStaff: true });
+  eq('staff get a school day', staffSess.idleMinutes, 480);
+  await sessions.touch(staffSess.raw);
+  const staffWindow = await db.one(
+    `SELECT idle_expires_at - now() > interval '7 hours' AS stays_long
+       FROM sessions WHERE id = $1`, [staffSess.id]);
+  ok('and touching one slides it by the same eight hours', !!staffWindow.stays_long);
+  await sessions.revoke(staffSess.id, 'finished with');
 
   const stored = await db.one('SELECT token_hash FROM sessions WHERE id = $1', [sess.id]);
   ok('the raw session token is never stored', stored.token_hash !== sess.raw && stored.token_hash === keys.sha256(sess.raw));
@@ -229,9 +243,18 @@ function section(title) { console.log(`\n${title}`); }
   ok('blocking an account kills its live session immediately', afterBlock === null);
   await db.query("UPDATE users SET status = 'active' WHERE id = $1", [bobUser.id]);
 
-  const sess2 = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isMinor: true });
+  const sess2 = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isStaff: false });
   await sessions.revokeAllForUser(bobUser.id);
   ok('revoke-all ends every device', (await sessions.touch(sess2.raw)) === null);
+
+  // The reason used to be accepted and dropped, so nothing recorded why a
+  // sign-in ended — the first question when somebody says they were logged out.
+  const why = await db.one('SELECT revoked_reason FROM sessions WHERE id = $1', [sess2.id]);
+  eq('and says who ended them', why.revoked_reason, 'ended by an administrator');
+  const single = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isStaff: false });
+  await sessions.revoke(single.id, 'reauth');
+  const singleWhy = await db.one('SELECT revoked_reason FROM sessions WHERE id = $1', [single.id]);
+  eq('ending one session records its reason too', singleWhy.revoked_reason, 'reauth');
 
   // ---- the idle window, and who is allowed to slide it ----
   //
@@ -242,7 +265,7 @@ function section(title) { console.log(`\n${title}`); }
   // them fresh ID tokens. Signed in, and simultaneously not.
   section('Idle window');
 
-  const idleSess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isMinor: true });
+  const idleSess = await sessions.create(bobUser.id, { ip: '10.0.0.1', userAgent: 'test', isStaff: false });
   const slid = await sessions.slide(idleSess.id);
   ok('an app using the session slides it forward', !!slid && slid.user_id === bobUser.id);
 
@@ -255,7 +278,7 @@ function section(title) { console.log(`\n${title}`); }
   await sessions.slide(idleSess.id);
   const window2 = await db.one('SELECT idle_expires_at FROM sessions WHERE id = $1', [idleSess.id]);
   const minutesOut = (new Date(window2.idle_expires_at) - Date.now()) / 60000;
-  ok('working in an app buys the full window back, not a minute', minutesOut > 15 && minutesOut <= 20);
+  ok('working in an app buys the full window back, not a minute', minutesOut > 40 && minutesOut <= 45);
 
   // And once it has genuinely lapsed, every path agrees it is over — the
   // refresh grant included, which is what used to keep the app alive while
@@ -318,7 +341,7 @@ function section(title) { console.log(`\n${title}`); }
 
   // Carla signs in (session created directly; the Google step is covered by
   // the provider adapter and cannot be faked here).
-  const carlaSession = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 'test', isMinor: false });
+  const carlaSession = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 'test', isStaff: true });
   const cookie = `${sessions.COOKIE}=${encodeURIComponent(carlaSession.raw)}`;
 
   const verifier = crypto.randomBytes(32).toString('base64url');
@@ -398,7 +421,7 @@ function section(title) { console.log(`\n${title}`); }
   ok('a reused code revokes the session it belonged to', !!killed.revoked_at);
 
   // Fresh session for the refresh-rotation checks.
-  const carlaSession2 = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 'test', isMinor: false });
+  const carlaSession2 = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 'test', isStaff: true });
   const cookie2 = `${sessions.COOKIE}=${encodeURIComponent(carlaSession2.raw)}`;
   const v2 = crypto.randomBytes(32).toString('base64url');
   const c2 = crypto.createHash('sha256').update(v2).digest('base64url');
@@ -477,7 +500,7 @@ function section(title) { console.log(`\n${title}`); }
   eq('a wrong client secret is rejected', wrongSecret.status, 401);
 
   section('Live revocation reaches the apps');
-  const carlaSession3 = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 't', isMinor: false });
+  const carlaSession3 = await sessions.create(claimed.user.id, { ip: '10.0.0.2', userAgent: 't', isStaff: true });
   const cookie3 = `${sessions.COOKIE}=${encodeURIComponent(carlaSession3.raw)}`;
   const v3 = crypto.randomBytes(32).toString('base64url');
   const c3 = crypto.createHash('sha256').update(v3).digest('base64url');
@@ -546,7 +569,7 @@ function section(title) { console.log(`\n${title}`); }
   ok('reading a roster is recorded as a disclosure', rosterLogged && rosterLogged.is_disclosure === true);
 
   // A pupil in another class must not be able to read this one.
-  const outsiderSession = await sessions.create(bobUser.id, { ip: '10.0.0.9', userAgent: 't', isMinor: true });
+  const outsiderSession = await sessions.create(bobUser.id, { ip: '10.0.0.9', userAgent: 't', isStaff: false });
   const vOut = crypto.randomBytes(32).toString('base64url');
   const cOut = crypto.createHash('sha256').update(vOut).digest('base64url');
   await db.query("UPDATE memberships SET status = 'active' WHERE user_id = $1", [bobUser.id]);
@@ -718,7 +741,7 @@ function section(title) { console.log(`\n${title}`); }
   {
     const nia = await db.one("SELECT id FROM users WHERE email = 'nia@school.edu'");
     await db.query("UPDATE memberships SET status='active' WHERE user_id=$1", [nia.id]);
-    const s1 = await sessions.create(nia.id, { ip: '10.0.0.5', userAgent: 't', isMinor: true });
+    const s1 = await sessions.create(nia.id, { ip: '10.0.0.5', userAgent: 't', isStaff: false });
     const ck = sessions.COOKIE + '=' + encodeURIComponent(s1.raw);
     const vv = crypto.randomBytes(32).toString('base64url');
     const cc = crypto.createHash('sha256').update(vv).digest('base64url');
@@ -1750,7 +1773,7 @@ function section(title) { console.log(`\n${title}`); }
     // A fresh token for Carla at Oakwood, through the real authorize and token
     // endpoints — the one an app's /auth/report forwards on her behalf.
     const mint = async (userId) => {
-      const sess = await sessions.create(userId, { ip: '10.0.0.40', userAgent: 'report-test', isMinor: false });
+      const sess = await sessions.create(userId, { ip: '10.0.0.40', userAgent: 'report-test', isStaff: true });
       const v = crypto.randomBytes(32).toString('base64url');
       const ch = crypto.createHash('sha256').update(v).digest('base64url');
       const a = await fetch(`${base}/authorize?response_type=code&client_id=atlas` +

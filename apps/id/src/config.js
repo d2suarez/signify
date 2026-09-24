@@ -34,8 +34,11 @@ const config = {
   cookieSecret: process.env.COOKIE_SECRET || crypto.randomBytes(32).toString('hex'),
   cookieSecretProvided: !!process.env.COOKIE_SECRET,
 
+  // Two idle windows, chosen at sign-in from the role and then stored on the
+  // session. A teacher's should survive a lesson spent away from the screen;
+  // a student's should not survive the tablet being handed to the next child.
   sessionIdleMinutes: int(process.env.SESSION_IDLE_MINUTES, 45),
-  sessionIdleMinutesMinor: int(process.env.SESSION_IDLE_MINUTES_MINOR, 20),
+  sessionIdleMinutesStaff: int(process.env.SESSION_IDLE_MINUTES_STAFF, 480),
   sessionAbsoluteHours: int(process.env.SESSION_ABSOLUTE_HOURS, 12),
 
   retentionDays: int(process.env.RETENTION_DAYS, 400),
