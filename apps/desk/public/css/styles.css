@@ -2051,7 +2051,9 @@ body.is-seating-drag { user-select: none; }
    island — the tools' own readouts — and the way to add another tool. */
 @media (max-width: 1280px) {
   .topbar { height: 72px; padding: 0 16px; gap: 12px; }
-  .brand-word { display: none; }
+  /* Only in the bar, where the room is tight. The sign-in screen has nothing
+     but the mark on it and must keep its name. */
+  .topbar .brand-word { display: none; }
   .filters { padding: 14px 16px 10px; }
 }
 @media (max-width: 880px) {
