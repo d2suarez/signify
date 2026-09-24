@@ -48,31 +48,14 @@
 
       const nameEl = el('div.pick-name', { text: s.last ? s.last.name : '—' });
 
-      /**
-       * Puts a name in the box at the biggest size that fits it.
-       *
-       * Names are not one length. At a fixed size "Mia" leaves the card half
-       * empty and "Konstantinos Papadopoulos" spills out of it — and a name
-       * that changes the shape of the card as it lands is the thing that made
-       * this widget jump about while it was drawing. So the card holds still
-       * and the TYPE moves: start at the size the card would like, and come
-       * down until the name is inside it.
-       */
+      // The name is put in the box at the biggest size that fits it: names
+      // are not one length, and a name that changes the shape of the card as
+      // it lands is what made this widget jump about while it was drawing.
       function showName(text) {
         nameEl.textContent = text;
-        nameEl.style.fontSize = '';
-        const box = nameEl.parentElement;
-        if (!box || !box.clientHeight) return;
-        const start = parseFloat(getComputedStyle(nameEl).fontSize) || 24;
-        let size = start;
-        // Twelve steps of 8% reaches a third of the starting size, which is
-        // smaller than any real name needs.
-        for (let i = 0; i < 12; i += 1) {
-          if (nameEl.scrollWidth <= nameEl.clientWidth + 1 && nameEl.scrollHeight <= box.clientHeight + 1) break;
-          size *= 0.92;
-          nameEl.style.fontSize = `${size}px`;
-        }
+        Desk.fitText(nameEl, nameEl.parentElement);
       }
+
       const countEl = el('div.pick-count');
       const pickBtn = el('button.btn.btn--primary.btn--wide.pick-btn', { onclick: pick }, 'Pick someone');
       const body = el('div.pick-extra');

@@ -440,5 +440,49 @@ window.Desk = window.Desk || {};
     });
   }
 
-  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask, print, showsFamilyName, shortenName });
+  /**
+   * Shrinks a piece of display type until it fits the box it is in.
+   *
+   * CSS can size text against the width of its card (`cqi`) but not against
+   * the height: `container-type: size` collapses a grid item's width to
+   * nothing, taking every container query with it. So the width is left to
+   * CSS and the height is measured here — the stylesheet says how big the
+   * type would LIKE to be, and this brings it down until it is inside.
+   *
+   * Cheap to call on every frame: it remembers the text and the box it last
+   * fitted, and does nothing at all until one of them changes.
+   */
+  function fitText(node, box) {
+    const area = box || node.parentElement;
+    if (!node || !area) return;
+    const mark = `${node.textContent}|${area.clientWidth}x${area.clientHeight}`;
+    if (node.dataset.fitted === mark) return;
+
+    node.style.fontSize = '';
+    let size = parseFloat(getComputedStyle(node).fontSize) || 16;
+
+    /* The TEXT is measured, not the element. Both of the obvious measurements
+       lie here: `scrollWidth` says everything fits when the line simply
+       spills out of a centred flex box, and the element's own rectangle says
+       everything fits when the element has been squeezed to the width of its
+       parent and the letters are being clipped instead. A range around the
+       contents reports where the glyphs actually are. */
+    const reach = () => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const r = range.getBoundingClientRect();
+      range.detach && range.detach();
+      return { w: Math.max(r.width, node.scrollWidth), h: Math.max(r.height, node.scrollHeight) };
+    };
+
+    for (let i = 0; i < 14; i += 1) {
+      const text = reach();
+      if (text.w <= area.clientWidth + 1 && text.h <= area.clientHeight + 1) break;
+      size *= 0.92;
+      node.style.fontSize = `${size}px`;
+    }
+    node.dataset.fitted = mark;
+  }
+
+  Object.assign(Desk, { el, setStyle, clear, append, keepFocus, pad, pickFile, duration, parseDuration, groupDigits, clockTime, minutesNow, when, clamp, shuffle, initials, debounce, toast, ask, print, showsFamilyName, shortenName, fitText });
 }(window.Desk));

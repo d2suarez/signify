@@ -440,7 +440,10 @@ p { margin: 0 0 .6rem; }
   position: relative;
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   /* Numerals are sized against the card they sit in rather than the window,
-     so a timer dragged wider genuinely grows. */
+     so a timer dragged wider genuinely grows. Inline size only: `size`
+     containment collapses a grid item's width to nothing here, which takes
+     every container query with it. Height is handled by Desk.fitText, which
+     measures rather than queries. */
   container-type: inline-size;
   /* Paper on a desk: flat white, no border, and the whole effect carried by
      the shadow stack. Nothing is drawn round a card. */
@@ -1216,7 +1219,10 @@ body.is-seating-drag { user-select: none; }
 .clock { display: flex; flex-direction: column; align-items: center; gap: .3rem; flex: 1; min-height: 0; }
 .clock-zone { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .clock-date { font-size: .82rem; color: var(--muted); }
-.clock-face { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; width: 100%; }
+/* The face takes whatever the card has left after the zone, the date and the
+   controls, and no more: the digits are fitted to it in JS, and a box that
+   can grow is a box they can grow out of. */
+.clock-face { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; }
 .clock-svg { width: auto; height: 100%; max-width: 100%; aspect-ratio: 1; }
 .clock-rim { fill: none; stroke: var(--line); stroke-width: 1.5; }
 .tick { stroke: var(--faint); stroke-width: .7; }

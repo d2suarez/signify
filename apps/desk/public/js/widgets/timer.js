@@ -266,6 +266,7 @@
         // identical at the back of the room otherwise.
         const text = (over ? '+' : '') + duration(over ? -left : left);
         if (text !== lastText) { digits.textContent = text; lastText = text; }
+        Desk.fitText(digits, digits.parentElement);
 
         digits.classList.toggle('is-over', over);
         overtimeNote.hidden = !over || (!s.running && s.remainingMs > 0);

@@ -180,10 +180,15 @@
           const h24 = p.h;
           const h = s.hour12 ? (h24 % 12 || 12) : h24;
           const text = `${s.hour12 ? h : pad(h)}:${pad(p.m)}${s.seconds ? `:${pad(Math.floor(p.s))}` : ''}`;
+          const digits = face.querySelector('.clock-digits');
           if (text !== lastDigits) {
-            face.querySelector('.clock-digits').textContent = text;
+            digits.textContent = text;
             lastDigits = text;
           }
+          // The stylesheet sizes the figures against the card's width; this
+          // brings them down when the card is wider than it is tall, which is
+          // exactly the shape a clock usually ends up in.
+          Desk.fitText(digits, digits.parentElement);
           face.querySelector('.clock-suffix').textContent = s.hour12 ? (h24 < 12 ? 'am' : 'pm') : '';
         }
 
