@@ -46,7 +46,9 @@ window.Desk = window.Desk || {};
     guest: false,
   };
 
-  const GUEST_KEY = 'desk:guest-board';
+  // Versioned: a visitor who has only ever seen the first, jumbled guest
+  // layout starts again on the tidy one rather than keeping the jumble.
+  const GUEST_KEY = 'desk:guest-board:v2';
 
   /** Whether this tool is locked for whoever is looking. */
   const locked = (def) => board.guest && def && !def.guest;

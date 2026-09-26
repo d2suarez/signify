@@ -75,22 +75,34 @@
   }
 
   /**
-   * The first board a visitor sees: the tools they can use, then a few they
-   * cannot, locked, so the board says plainly what an account adds. Sizes
-   * come from each tool's own manifest and the pieces are packed by the same
-   * rules the board uses, so nothing here has to be kept in step by hand.
+   * The first board a visitor sees, laid out as a plain grid: every tool the
+   * same width and the same height, four to a row, so the board reads as a
+   * set of tools rather than a pile of them.
+   *
+   * The ones a visitor can use come first, filling the top rows. The locked
+   * ones come after, on rows of their own, so the line between "yours now"
+   * and "yours with an account" is a line on the page.
    */
+  const GUEST_ROWS = [
+    ['timer', 'stopwatch', 'clock', 'scoreboard'],
+    ['calculator', 'message', 'random', 'emoji'],
+    ['randomiser', 'groups', 'notes', 'seating'],
+  ];
+  const GUEST_CELL = { w: 3, h: 5 };
+
   function guestStarter() {
-    const order = ['timer', 'clock', 'randomiser', 'stopwatch', 'scoreboard', 'seating',
-      'message', 'calculator', 'groups', 'random', 'emoji', 'notes'];
     const items = [];
-    for (const type of order) {
-      const def = Desk.widgets.get(type);
-      if (!def) continue;
-      const w = def.size.w;
-      const h = Math.max(def.size.h, def.min.h);
-      const at = Desk.board._geom.findSpot(items, w, h);
-      items.push({ id: `g_${type}`, type, state: {}, w, h, ...at });
+    let y = 0;
+    for (const row of GUEST_ROWS) {
+      const tools = row.filter((type) => Desk.widgets.get(type));
+      tools.forEach((type, i) => {
+        const def = Desk.widgets.get(type);
+        // Never smaller than the tool can be drawn at, whatever the grid says.
+        const w = Math.max(GUEST_CELL.w, def.min.w);
+        const h = Math.max(GUEST_CELL.h, def.min.h);
+        items.push({ id: `g_${type}`, type, state: {}, x: i * GUEST_CELL.w, y, w, h });
+      });
+      if (tools.length) y += GUEST_CELL.h;
     }
     return items;
   }
