@@ -33,6 +33,7 @@
     blurb: 'Count down to zero, with a sound at the end. Keeps counting past zero so you can see how far over you are.',
     icon: 'timer',
     category: 'time',
+    guest: true,
     tone: 'block',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
@@ -266,7 +267,7 @@
         // identical at the back of the room otherwise.
         const text = (over ? '+' : '') + duration(over ? -left : left);
         if (text !== lastText) { digits.textContent = text; lastText = text; }
-        Desk.fitText(digits, digits.parentElement);
+        Desk.fitText(digits, digits.closest('.timer-face'));
 
         digits.classList.toggle('is-over', over);
         overtimeNote.hidden = !over || (!s.running && s.remainingMs > 0);

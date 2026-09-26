@@ -539,7 +539,7 @@ p { margin: 0 0 .6rem; }
    pixels of the card, and a deep margin under a cut-off line looks like a
    layout fault instead. */
 .card-body, .sw-laps, .note-text, .alarm-list, .beh-grid,
-.calc-tape, .group-output, .jobs-list, .score-list, .plan-side, .cat-list {
+.calc-tape, .group-output, .jobs-list, .score-list, .plan-side, .cat-list, .link-list {
   background:
     linear-gradient(var(--card-bg, var(--surface)) 40%, transparent) top / 100% 24px no-repeat local,
     linear-gradient(transparent, var(--card-bg, var(--surface)) 65%) bottom / 100% 24px no-repeat local,
@@ -934,7 +934,7 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
    box, or the card reflows on every draw and the buttons move under the
    teacher's finger. */
 .pick-face {
-  flex: 1 1 auto; display: flex; flex-direction: column;
+  flex: 1 1 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: .25rem;
   min-height: 60px; text-align: center; overflow: hidden;
 }
@@ -1957,14 +1957,22 @@ body.is-seating-drag { user-select: none; }
   font-size: var(--fluid-hero); line-height: .85; text-align: left;
 }
 .card[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
-.card[data-type="timer"] .timer { position: relative; gap: .5rem; }
+.card[data-type="timer"] .timer {
+  position: relative; gap: .5rem;
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+}
 .card[data-type="timer"] .timer-face { display: block; }
 /* The face was a 190px square holding a ring. With the ring gone it is just
    the frame round the digits, so it takes the whole card and stops centring
    what is inside it — the figures start at the left edge, under the title. */
 .card[data-type="timer"] .timer-face {
-  margin: auto 0 0; width: 100%; max-width: none; aspect-ratio: auto;
+  margin: 0; width: 100%; max-width: none; aspect-ratio: auto;
   justify-content: flex-start; align-items: flex-end;
+  /* The room left after the controls, and nothing more. The digits are
+     fitted to THIS box, so its size must come from the card and never from
+     the digits: fitted to a box that follows them, they shrink, the box
+     shrinks with them, and the time spirals down to nothing. */
+  flex: 1 1 0; min-height: 0; overflow: hidden;
 }
 .card[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
 /* The shadow belongs to the CARD, not to the body inside it: on the body it
@@ -2136,3 +2144,84 @@ body.is-seating-drag { user-select: none; }
 .cat-item:hover { box-shadow: var(--shadow-3); }
 .cat-head { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
 .cat-search { border-radius: var(--r); }
+
+/* ---------------- the desk without an account ----------------
+   A locked tool is shown as the shape of an interface in its own colour,
+   blurred, with one way in on top. The blur is on a drawing of the tool rather
+   than on the tool: the real one would go looking for a class list. */
+.locked { position: relative; flex: 1; min-height: 90px; display: flex; }
+.locked-ghost {
+  flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px;
+  filter: blur(5px); opacity: .75; pointer-events: none; user-select: none;
+}
+.ghost-bar {
+  display: block; height: 14px; width: var(--len, 70%); border-radius: 6px;
+  background: color-mix(in srgb, var(--role, var(--ink)) 22%, var(--desk));
+}
+.ghost-bar--pick { height: 30px; width: 100%; border-radius: var(--r-sm); background: var(--desk); }
+.ghost-bar--button { height: 36px; width: 100%; margin-top: auto; border-radius: var(--r); background: var(--role, var(--p2)); opacity: .8; }
+.locked-over {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .5rem; text-align: center;
+}
+.locked-icon { color: var(--ink); opacity: .7; }
+.locked-cta { text-decoration: none; }
+
+/* The way in, in the lower third of the page. Fixed, so it is there however
+   far down the board a visitor has scrolled, and centred, so it does not look
+   like it belongs to whichever card happens to be underneath it. */
+.guest-prompt {
+  position: fixed; z-index: 40; left: 50%; bottom: 10vh; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  width: min(620px, calc(100vw - 32px));
+  padding: 14px 14px 14px 20px; border-radius: var(--radius-xl);
+  background: var(--surface); box-shadow: var(--shadow-4);
+}
+.guest-prompt-text { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: .9rem; }
+.guest-prompt-text span { color: var(--muted); }
+.guest-prompt-btn { flex: none; min-width: 120px; justify-content: center; text-decoration: none; }
+/* Folded, it is just the button — still in the lower third, still findable,
+   no longer covering the board. */
+.guest-prompt.is-folded { width: auto; padding: 8px; gap: 0; border-radius: var(--radius-pill); }
+.guest-prompt.is-folded .guest-prompt-text,
+.guest-prompt.is-folded .guest-prompt-fold { display: none; }
+@media (max-width: 560px) {
+  .guest-prompt { flex-wrap: wrap; }
+  .guest-prompt-btn { flex: 1; }
+}
+@media print { .guest-prompt { display: none; } }
+
+/* Locked tools in "Add a tool": listed, because the list is the best account
+   of what signing in is for, but plainly not addable. */
+.cat-item.is-locked { text-decoration: none; color: inherit; opacity: .8; }
+.cat-item.is-locked .cat-icon { opacity: .6; }
+
+/* ---------------- saved links ----------------
+   A list of rows you tap. The whole row is the link — a small target on a
+   touchscreen at the front of a room is a missed tap — and the site's own
+   address sits under the name, so a teacher can see where it goes before a
+   class does. */
+.links { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; flex: 1 1 0; min-height: 0; overflow: auto; }
+.link-row { display: flex; align-items: center; gap: .25rem; }
+.link-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: .55rem;
+  padding: .5rem .6rem; border-radius: var(--r); background: var(--desk);
+  color: var(--ink); text-decoration: none;
+  transition: background var(--dur-fast) var(--ease);
+}
+.link-open:hover { background: color-mix(in srgb, var(--p3) 22%, var(--desk)); }
+.link-icon { flex: none; color: var(--muted); }
+.link-text { min-width: 0; display: flex; flex-direction: column; }
+.link-label, .link-title {
+  font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.link-title { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 700; color: inherit; width: 100%; }
+.link-title:focus { outline: 2px solid var(--p2); outline-offset: 2px; border-radius: 4px; }
+.link-host { font-size: .78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-remove { opacity: 0; transition: opacity var(--dur-fast); }
+.link-row:hover .link-remove, .link-row:focus-within .link-remove, .stage .link-remove { opacity: 1; }
+.link-empty { padding: .4rem .1rem; }
+.link-add { display: flex; gap: .35rem; flex-wrap: wrap; }
+.link-add .input { flex: 1 1 140px; min-width: 0; }
+@media (hover: none) { .link-remove { opacity: 1; } }

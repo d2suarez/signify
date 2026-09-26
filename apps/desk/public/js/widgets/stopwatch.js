@@ -18,6 +18,7 @@
     blurb: 'Count up, and record a lap for each pupil or each round.',
     icon: 'stopwatch',
     category: 'time',
+    guest: true,
     tone: 'block',
     size: { w: 4, h: 4 },
     min: { w: 3, h: 3 },

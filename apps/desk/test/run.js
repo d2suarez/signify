@@ -1140,6 +1140,54 @@ describe('a YouTube link', () => {
 });
 
 // ===================================================================
+describe('saved links', () => {
+  const links = loadWidget('links');
+  const clean = links._cleanUrl;
+
+  it('keeps an ordinary web address, and gives a bare one https', () => {
+    equal(clean('https://www.bbc.co.uk/bitesize'), 'https://www.bbc.co.uk/bitesize');
+    equal(clean('  bbc.co.uk/bitesize  '), 'https://bbc.co.uk/bitesize');
+    equal(clean('http://example.com'), 'http://example.com/');
+  });
+
+  it('refuses anything that is not a web page', () => {
+    // A link on the board is tapped in front of a class. It must only ever go
+    // to a web page — never run script, never open a file or a data blob.
+    for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<script>x</script>',
+      'file:///etc/passwd', 'vbscript:msgbox', 'ftp://example.com', 'mailto:a@b.co']) {
+      equal(clean(bad), null, bad);
+    }
+  });
+
+  it('refuses things that are not addresses at all', () => {
+    for (const bad of ['', '   ', null, undefined, 'hello', 'not a url', 'https://', 'x'.repeat(2100)]) {
+      equal(clean(bad), null, String(bad).slice(0, 20));
+    }
+  });
+
+  it('will not save a password that was pasted in with the address', () => {
+    // It would sit in the board's saved state and be shown on the projector.
+    equal(clean('https://teacher:hunter2@example.com/'), null);
+  });
+
+  it('drops a saved link that no longer passes, rather than drawing it', () => {
+    const s = { links: [
+      { id: 'a', url: 'https://example.com/', title: 'Fine' },
+      { id: 'b', url: 'javascript:alert(1)', title: 'Tampered' },
+      { id: '', url: 'https://example.org/', title: 'No id' },
+    ] };
+    links.init(s);
+    equal(s.links.length, 1);
+    equal(s.links[0].title, 'Fine');
+  });
+
+  it('names an unnamed link after its site', () => {
+    equal(links._nameFor('https://www.bbc.co.uk/'), 'bbc.co.uk');
+    equal(links._nameFor('https://quizlet.com/join/'), 'quizlet.com/join');
+  });
+});
+
+// ===================================================================
 describe('the calculator', () => {
   const calc = loadWidget('calculator');
   const ev = calc._evaluate;

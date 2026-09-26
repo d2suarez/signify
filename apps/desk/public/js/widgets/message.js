@@ -32,6 +32,7 @@
     blurb: 'One line, as large as the screen allows. For the instruction you would otherwise say twice.',
     icon: 'message',
     category: 'board',
+    guest: true,
     tone: 'block',
     size: { w: 4, h: 3 },
     min: { w: 2, h: 2 },

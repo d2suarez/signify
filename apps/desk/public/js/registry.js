@@ -92,6 +92,11 @@ window.Desk = window.Desk || {};
       // of time tools is not a wall of red. The SHAPE still says which family
       // the tool belongs to, which is what a teacher actually learns.
       role: null,
+      // Usable without signing in. Only tools that hold nothing about pupils
+      // and never ask the server for anything qualify: a visitor has no
+      // account for the server to answer, and no class list to be private
+      // about. Everything else is shown to them, but locked.
+      guest: false,
       init() {},
       mount() { return {}; },
     }, def));

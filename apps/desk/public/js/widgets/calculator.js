@@ -118,6 +118,7 @@
     blurb: 'Big enough to read from the back, and it shows the sum as well as the answer.',
     icon: 'calculator',
     category: 'other',
+    guest: true,
     size: { w: 3, h: 6 },
     min: { w: 2, h: 5 },
 

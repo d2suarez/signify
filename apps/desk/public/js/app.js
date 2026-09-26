@@ -30,8 +30,11 @@
     try {
       me = (await Desk.api.me()).user;
     } catch (e) {
-      if (e.status === 401) return signInScreen(shell);
-      throw e;
+      if (e.status !== 401) throw e;
+      // Not signed in. If this server can sign people in at all, they get a
+      // working desk with the tools that need no account, and the rest shown
+      // but locked. If it cannot, there is nothing to offer beyond saying so.
+      return config.authEnabled ? guestDesk(shell) : signInScreen(shell);
     }
 
     if (!me.can.desk) return closedScreen(shell);
@@ -42,6 +45,79 @@
     drawChrome(shell);
     Desk.board.init({ root: document.getElementById('board'), data, me });
     if (location.hash === '#versions') openHistory();
+  }
+
+  // ---------- the desk without an account ----------
+
+  /**
+   * A visitor who has not signed in.
+   *
+   * They get the tools that hold nothing about pupils and never ask the
+   * server for anything — timers, the clock, a random number, a big message,
+   * the calculator, emoji and a scoreboard — working, and arranged the way
+   * they leave them in this browser. The tools that need a class list are on
+   * the board too, locked, so a visitor can see what signing in is for.
+   */
+  async function guestDesk(shell) {
+    me = { name: 'Guest', can: {} };
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(Desk.board.GUEST_KEY) || 'null'); } catch { /* none */ }
+    const data = {
+      rev: 0,
+      prefs: (saved && saved.prefs) || null,
+      items: saved && Array.isArray(saved.items) && saved.items.length ? saved.items : guestStarter(),
+    };
+
+    Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
+    drawChrome(shell, { guest: true });
+    Desk.board.init({ root: document.getElementById('board'), data, me, guest: true });
+    shell.append(signInPrompt());
+  }
+
+  /**
+   * The first board a visitor sees: the tools they can use, then a few they
+   * cannot, locked, so the board says plainly what an account adds. Sizes
+   * come from each tool's own manifest and the pieces are packed by the same
+   * rules the board uses, so nothing here has to be kept in step by hand.
+   */
+  function guestStarter() {
+    const order = ['timer', 'clock', 'randomiser', 'stopwatch', 'scoreboard', 'seating',
+      'message', 'calculator', 'groups', 'random', 'emoji', 'notes'];
+    const items = [];
+    for (const type of order) {
+      const def = Desk.widgets.get(type);
+      if (!def) continue;
+      const w = def.size.w;
+      const h = Math.max(def.size.h, def.min.h);
+      const at = Desk.board._geom.findSpot(items, w, h);
+      items.push({ id: `g_${type}`, type, state: {}, w, h, ...at });
+    }
+    return items;
+  }
+
+  /**
+   * The way in, in the lower third of the page: close enough to the tools to
+   * be found, far enough down not to sit on top of the timer a visitor has
+   * just started. It folds down to a small button once they have read it.
+   */
+  function signInPrompt() {
+    const href = config.signInUrl;
+    const card = el('aside.guest-prompt', { 'aria-label': 'Sign in' }, [
+      el('div.guest-prompt-text', {}, [
+        el('strong', { text: 'Seating plans, class lists, groups and notes need a school account.' }),
+        el('span', { text: 'Everything else here works as it is.' }),
+      ]),
+      el('a.btn.btn--primary.guest-prompt-btn', { href }, 'Log in'),
+      el('button.icon-btn.guest-prompt-fold', {
+        'aria-label': 'Make this smaller', title: 'Make this smaller', svg: icon('close', 16),
+        onclick: () => {
+          card.classList.add('is-folded');
+          try { sessionStorage.setItem('desk:guest-folded', '1'); } catch { /* fine */ }
+        },
+      }),
+    ]);
+    try { if (sessionStorage.getItem('desk:guest-folded')) card.classList.add('is-folded'); } catch { /* fine */ }
+    return card;
   }
 
   // ---------- the screens before the board ----------
@@ -100,7 +176,7 @@
 
   // ---------- the board's chrome ----------
 
-  function drawChrome(shell) {
+  function drawChrome(shell, { guest = false } = {}) {
     const avatar = me.picture
       ? el('img.avatar', { src: me.picture, alt: '', referrerpolicy: 'no-referrer' })
       : el('span.avatar.avatar--initials', { text: Desk.initials(me.name) });
@@ -176,10 +252,11 @@
       brand,
       island,
       el('div.topbar-tools', {}, [
-        listsBtn,
+        // A visitor has no class lists and no account to open a menu onto.
+        guest ? null : listsBtn,
         muteBtn,
         el('button.btn.btn--primary.add-btn', { svg: icon('plus', 16), onclick: openCatalogue }, ' Add a tool'),
-        el('div.user', {}, [userBtn, menu]),
+        guest ? null : el('div.user', {}, [userBtn, menu]),
       ]),
     ]);
 
@@ -346,9 +423,24 @@
     const count = el('p.dialog-note.cat-count');
     let firstMatch = null;                 // what Enter in the search box adds
 
+    const guest = Desk.board.isGuest();
+
     /** One row in the catalogue. */
     function row(def) {
       const already = onDesk.get(def.type) || 0;
+      // A visitor sees every tool, because the list is the best description
+      // of what an account is for — but the locked ones lead to signing in
+      // rather than onto the board.
+      if (guest && !def.guest) {
+        return el('a.cat-item.is-locked', { href: config.signInUrl, title: `${def.name} needs a school account` }, [
+          el('span.cat-icon', { svg: icon(def.icon, 22) }),
+          el('span.cat-text', {}, [
+            el('span.cat-name', {}, [document.createTextNode(def.name), el('span.tag.tag--quiet', { text: 'Log in to use' })]),
+            el('span.cat-blurb', { text: def.blurb }),
+          ]),
+          el('span.cat-plus', { svg: icon('lock', 18) }),
+        ]);
+      }
       return el('button.cat-item', {
         onclick: () => { Desk.board.addItem(def.type); close(); },
       }, [
@@ -383,7 +475,7 @@
         count.textContent = `${found} ${found === 1 ? 'tool matches' : 'tools match'} “${term.trim()}”.`;
         for (const drawer of drawers) {
           for (const def of drawer.widgets) {
-            if (!firstMatch) firstMatch = def;
+            if (!firstMatch && !(guest && !def.guest)) firstMatch = def;
             list.append(row(def));
           }
         }
@@ -398,7 +490,7 @@
           el('span.cat-head-blurb', { text: drawer.blurb }),
         ]));
         for (const def of drawer.widgets) {
-          if (!firstMatch) firstMatch = def;
+          if (!firstMatch && !(guest && !def.guest)) firstMatch = def;
           list.append(row(def));
         }
       }

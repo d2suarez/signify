@@ -24,6 +24,7 @@
     blurb: 'Points for teams, houses or tables. Groups rather than named children, on purpose.',
     icon: 'trophy',
     category: 'class',
+    guest: true,
     tone: 'block',
     size: { w: 4, h: 4 },
     min: { w: 2, h: 3 },
@@ -112,7 +113,8 @@
           ]),
           el('div.starter-row', {}, [
             el('button.btn.btn--small', { svg: icon('plus', 14), onclick: addTeam }, ' Add a team'),
-            el('button.btn.btn--small', { svg: icon('groups', 14), onclick: fromGroups }, ' From my groups'),
+            // Saved groupings live in an account; a visitor has none to borrow from.
+            ctx.guest ? null : el('button.btn.btn--small', { svg: icon('groups', 14), onclick: fromGroups }, ' From my groups'),
             el('button.btn.btn--small', { svg: icon('reset', 14), onclick: reset }, ' Reset scores'),
           ]),
         );

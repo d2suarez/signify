@@ -41,7 +41,15 @@ window.Desk = window.Desk || {};
     root: null,
     instances: new Map(),      // item.id -> { def, item, api, node }
     stage: null,
+    // A visitor who has not signed in. Their board lives in this browser
+    // only and never reaches the server — there is no account to keep it in.
+    guest: false,
   };
+
+  const GUEST_KEY = 'desk:guest-board';
+
+  /** Whether this tool is locked for whoever is looking. */
+  const locked = (def) => board.guest && def && !def.guest;
 
   // ---------- geometry ----------
 
@@ -107,6 +115,14 @@ window.Desk = window.Desk || {};
 
   const flush = Desk.debounce(async () => {
     if (!dirty) return;
+    if (board.guest) {
+      // Kept in the browser, on this machine only. If it cannot be kept —
+      // a private window, storage switched off — the board still works for
+      // as long as the tab is open, which is all a visitor was promised.
+      dirty = false;
+      try { localStorage.setItem(GUEST_KEY, JSON.stringify({ items: board.items, prefs: board.prefs })); } catch { /* not kept */ }
+      return;
+    }
     // Never two saves at once. The second would still be carrying the
     // revision the first is about to move on from, and would come back as a
     // conflict with itself — on a slow connection that would look to the
@@ -135,7 +151,7 @@ window.Desk = window.Desk || {};
   function markDirty() { dirty = true; flush(); }
 
   window.addEventListener('pagehide', () => {
-    if (!dirty) return;
+    if (!dirty || board.guest) return;
     // A beacon survives the page going away; a fetch does not.
     navigator.sendBeacon?.('/api/board', new Blob(
       [JSON.stringify({ rev: board.rev, items: board.items, prefs: board.prefs || undefined })], { type: 'application/json' }));
@@ -153,6 +169,14 @@ window.Desk = window.Desk || {};
       ]));
       return;
     }
+    if (locked(def)) {
+      // Not mounted at all. A locked tool would ask the server for class
+      // lists and saved plans it has no account to ask for, so what a visitor
+      // sees is a picture of the tool, blurred, with the way in on top of it.
+      body.append(lockedPreview(def));
+      board.instances.set(item.id, { def, item, api: {}, node });
+      return;
+    }
     def.init(item.state);
     const api = def.mount({
       root: body,
@@ -160,10 +184,34 @@ window.Desk = window.Desk || {};
       item,
       expanded: false,
       me: board.me,
+      guest: board.guest,
       save: markDirty,
       expand: () => openStage(item.id),
     }) || {};
     board.instances.set(item.id, { def, item, api, node });
+  }
+
+  /**
+   * What a locked tool looks like to a visitor: the shape of an interface —
+   * a picker, a few rows, a button — in the tool's own colour, blurred, under
+   * one line saying how to get it. Not the real tool drawn and then hidden:
+   * the real tool would go looking for a class list.
+   */
+  function lockedPreview(def) {
+    const lines = [];
+    lines.push(el('span.ghost-bar.ghost-bar--pick'));
+    for (let i = 0; i < 4; i += 1) lines.push(el('span.ghost-bar', { style: { '--len': `${55 + ((i * 29) % 40)}%` } }));
+    lines.push(el('span.ghost-bar.ghost-bar--button'));
+    return el('div.locked', {}, [
+      el('div.locked-ghost', { 'aria-hidden': 'true' }, lines),
+      el('div.locked-over', {}, [
+        el('span.locked-icon', { svg: icon('lock', 18) }),
+        el('a.btn.btn--primary.btn--small.locked-cta', {
+          href: (Desk.config && Desk.config.signInUrl) || '/auth/login',
+          title: `${def.name} needs a school account`,
+        }, 'Log in to use'),
+      ]),
+    ]);
   }
 
   function unmountInstance(id) {
@@ -569,6 +617,7 @@ window.Desk = window.Desk || {};
     const item = board.items.find((i) => i.id === id);
     const def = item && Desk.widgets.get(item.type);
     if (!def) return;
+    if (locked(def)) { toast(`${def.name} needs a school account. Log in to use it.`); return; }
 
     // Only one copy of a widget runs at a time, so a timer cannot tick twice.
     unmountInstance(id);
@@ -659,9 +708,10 @@ window.Desk = window.Desk || {};
 
   // ---------- boot ----------
 
-  function init({ root, data, me }) {
+  function init({ root, data, me, guest = false }) {
     board.root = root;
     board.me = me;
+    board.guest = guest;
     board.rev = data.rev;
     board.prefs = data.prefs || null;
     board.items = (data.items || []).map((i) => ({ ...i, state: i.state || {} }))
@@ -738,7 +788,8 @@ window.Desk = window.Desk || {};
   }
 
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, COLUMNS,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, COLUMNS, GUEST_KEY,
+    isGuest: () => board.guest,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so
     // they are exported and tested directly rather than by dragging things.
