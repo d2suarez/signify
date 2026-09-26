@@ -48,7 +48,7 @@ window.Desk = window.Desk || {};
 
   // Versioned: a visitor who has only ever seen the first, jumbled guest
   // layout starts again on the tidy one rather than keeping the jumble.
-  const GUEST_KEY = 'desk:guest-board:v2';
+  const GUEST_KEY = 'desk:guest-board:v3';
 
   /** Whether this tool is locked for whoever is looking. */
   const locked = (def) => board.guest && def && !def.guest;
@@ -626,11 +626,21 @@ window.Desk = window.Desk || {};
     board.root.querySelector(`[data-id="${CSS.escape(id)}"] .card-body`)?.replaceChildren();
 
     const body = el('div.stage-body');
-    const title = el('h2.stage-title', {}, [el('span.card-icon', { svg: icon(def.icon, 22) }), el('span', { text: def.name })]);
+    // The same shape, name and colour the tool wears on the board: opening a
+    // tool larger should look like the same tool, only larger.
+    const title = el('h2.stage-title', {}, [Desk.widgets.marker(def.category, 16), el('span', { text: def.name })]);
     const presentBtn = el('button.btn.btn--ghost', { svg: icon('present', 16), title: 'Fill the screen for the class' }, ' Present');
     const closeBtn = el('button.icon-btn', { title: 'Back to the desk (Esc)', 'aria-label': 'Back to the desk', svg: icon('close', 20), onclick: close });
 
-    const stage = el('div.stage', { role: 'dialog', 'aria-modal': 'true' }, [
+    const stage = el('div.stage', {
+      role: 'dialog', 'aria-modal': 'true',
+      // Everything the stylesheet knows about a card's family and tone, so a
+      // red timer is still a red timer when it fills the screen.
+      'data-type': item.type,
+      'data-category': def.category,
+      'data-role': def.role || '',
+      'data-tone': def.tone,
+    }, [
       el('header.stage-head', {}, [title, el('div.stage-actions', {}, [presentBtn, closeBtn])]),
       body,
     ]);

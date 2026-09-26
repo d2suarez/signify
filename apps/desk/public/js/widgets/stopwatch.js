@@ -37,6 +37,10 @@
       const s = ctx.state;
 
       const digits = el('div.sw-digits');
+      // The box the time is fitted to. It takes the room the controls leave,
+      // so the figures grow with the card instead of sitting small at the top
+      // of an empty one.
+      const face = el('div.sw-face', {}, digits);
       const lapList = el('ol.sw-laps');
       const playBtn = el('button.btn.btn--primary.btn--wide', { onclick: toggle });
       const lapBtn = el('button.btn', { onclick: lap });
@@ -47,7 +51,7 @@
 
       ctx.root.append(el('div.stopwatch', {}, [
         ctx.expanded ? titleInput : (s.title ? el('div.timer-label', { text: s.title }) : null),
-        digits,
+        face,
         el('div.timer-controls', {}, [playBtn, lapBtn]),
         lapList,
       ]));
@@ -116,6 +120,7 @@
       function paint() {
         const text = duration(elapsed(s), { tenths: true });
         if (text !== last) { digits.textContent = text; last = text; }
+        Desk.fitText(digits, face);
       }
 
       paintButtons(); drawLaps(); paint();

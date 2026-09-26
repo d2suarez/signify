@@ -15,8 +15,8 @@
   const { el, icon, pad } = Desk;
 
   const FACES = [
-    { key: 'analogue', label: 'Hands' },
     { key: 'digital', label: 'Digital' },
+    { key: 'analogue', label: 'Hands' },
   ];
 
   // A short list rather than the full IANA set: a picker with 400 entries is
@@ -98,7 +98,9 @@
     },
 
     init(s) {
-      if (!FACES.some((f) => f.key === s.face)) s.face = 'analogue';
+      // Digits first: they read from the back of a room at a glance, and the
+      // face with hands is still one tap away for the lessons that teach it.
+      if (!FACES.some((f) => f.key === s.face)) s.face = 'digital';
       if (typeof s.zone !== 'string') s.zone = '';
       if (typeof s.label !== 'string') s.label = '';
       if (!COLOURS.some((c) => c.key === s.colour)) s.colour = 'accent';
@@ -154,7 +156,9 @@
       function buildDigital() {
         face.innerHTML = '';
         hands = null;
-        face.append(el('div.clock-digits'), el('div.clock-suffix'));
+        // The time and its am/pm are one thing to fit. Fitted separately, the
+        // digits filled the face and the "am" hung off the edge of it.
+        face.append(el('div.clock-time', {}, [el('span.clock-digits'), el('span.clock-suffix')]));
       }
 
       function build() {
@@ -189,8 +193,8 @@
           // The stylesheet sizes the figures against the card's width; this
           // brings them down when the card is wider than it is tall, which is
           // exactly the shape a clock usually ends up in.
-          Desk.fitText(digits, digits.parentElement);
           face.querySelector('.clock-suffix').textContent = s.hour12 ? (h24 < 12 ? 'am' : 'pm') : '';
+          Desk.fitText(face.querySelector('.clock-time'), face);
         }
 
         dateLine.textContent = s.showDate ? p.date : '';
@@ -214,17 +218,11 @@
           onclick: () => { onPick(o.key); ctx.save(); build(); drawControls(); },
         })));
 
+        // No colour choice: the clock is drawn in its card's own colour and
+        // ink, like every other tool on the board. A saved colour is kept in
+        // its state, harmlessly, for any board that still has one.
         controls.append(
           el('div.plan-row', {}, [el('span.hint', { text: 'Face' }), seg(FACES, s.face, (v) => { s.face = v; })]),
-          el('div.plan-row', {}, [
-            el('span.hint', { text: 'Colour' }),
-            el('div.swatches', {}, COLOURS.map((c) => el('button.swatch', {
-              title: c.label, 'aria-label': c.label,
-              class: s.colour === c.key ? 'is-on' : '',
-              style: { background: c.css },
-              onclick: () => { s.colour = c.key; ctx.save(); build(); drawControls(); },
-            }))),
-          ]),
         );
 
         const zoneSelect = el('select.select', {

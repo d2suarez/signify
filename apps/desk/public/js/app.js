@@ -76,33 +76,37 @@
 
   /**
    * The first board a visitor sees, laid out as a plain grid: every tool the
-   * same width and the same height, four to a row, so the board reads as a
-   * set of tools rather than a pile of them.
+   * same width, four to a row, and every tool in a row the same height, so the
+   * board reads as a set of tools rather than a pile of them.
    *
    * The ones a visitor can use come first, filling the top rows. The locked
    * ones come after, on rows of their own, so the line between "yours now"
    * and "yours with an account" is a line on the page.
    */
   const GUEST_ROWS = [
-    ['timer', 'stopwatch', 'clock', 'scoreboard'],
-    ['calculator', 'message', 'random', 'emoji'],
-    ['randomiser', 'groups', 'notes', 'seating'],
+    // A line of big figures or big words and a couple of buttons each — they
+    // need less height than the rest, and at the full five rows they sat in a
+    // lot of empty card. The scoreboard's four teams do need the room, so it
+    // sits on the second row.
+    { h: 4, tools: ['timer', 'stopwatch', 'clock', 'message'] },
+    { h: 5, tools: ['calculator', 'scoreboard', 'random', 'emoji'] },
+    { h: 5, tools: ['randomiser', 'groups', 'notes', 'seating'] },
   ];
-  const GUEST_CELL = { w: 3, h: 5 };
+  const GUEST_W = 3;
 
   function guestStarter() {
     const items = [];
     let y = 0;
     for (const row of GUEST_ROWS) {
-      const tools = row.filter((type) => Desk.widgets.get(type));
+      const tools = row.tools.filter((type) => Desk.widgets.get(type));
       tools.forEach((type, i) => {
         const def = Desk.widgets.get(type);
         // Never smaller than the tool can be drawn at, whatever the grid says.
-        const w = Math.max(GUEST_CELL.w, def.min.w);
-        const h = Math.max(GUEST_CELL.h, def.min.h);
-        items.push({ id: `g_${type}`, type, state: {}, x: i * GUEST_CELL.w, y, w, h });
+        const w = Math.max(GUEST_W, def.min.w);
+        const h = Math.max(row.h, def.min.h);
+        items.push({ id: `g_${type}`, type, state: {}, x: i * GUEST_W, y, w, h });
       });
-      if (tools.length) y += GUEST_CELL.h;
+      if (tools.length) y += Math.max(row.h, ...tools.map((t) => Desk.widgets.get(t).min.h));
     }
     return items;
   }

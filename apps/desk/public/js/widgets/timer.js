@@ -283,7 +283,7 @@
         // without reading a number at all. It is set on the CARD rather than
         // on the body inside it: custom properties inherit downwards, and the
         // shadow is drawn by the card so that it covers the padding too.
-        (ctx.root.closest('.card') || ctx.root).style.setProperty('--elapsed', String(1 - fraction));
+        (ctx.root.closest('.card, .stage') || ctx.root).style.setProperty('--elapsed', String(1 - fraction));
         barFill.style.width = `${fraction * 100}%`;
         barFill.classList.toggle('is-over', over);
         barFill.classList.toggle('is-low', low);

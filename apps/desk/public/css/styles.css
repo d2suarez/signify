@@ -462,29 +462,29 @@ p { margin: 0 0 .6rem; }
 /* The category decides the colour. Every card gets --role and --role-ink,
    whether or not it chooses to fill itself with them. */
 .card { --card-bg: var(--surface); }
-.card[data-tone="block"]:not([data-category="other"]) { --card-bg: var(--role); }
-.card[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
-.card[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
-.card[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
-.card[data-category="calm"]  { --role: var(--p4); --role-ink: var(--p4-ink); }
-.card[data-category="other"] { --role: var(--ink); --role-ink: var(--surface); }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) { --card-bg: var(--role); }
+:is(.card, .stage)[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
+:is(.card, .stage)[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+:is(.card, .stage)[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+:is(.card, .stage)[data-category="calm"]  { --role: var(--p4); --role-ink: var(--p4-ink); }
+:is(.card, .stage)[data-category="other"] { --role: var(--ink); --role-ink: var(--surface); }
 /* A tool may take a colour that is not its family's, so that a board of time
    tools is not a wall of one hue. The shape it wears does not change. */
-.card[data-role="p1"] { --role: var(--p1); --role-ink: var(--p1-ink); }
-.card[data-role="p2"] { --role: var(--p2); --role-ink: var(--p2-ink); }
-.card[data-role="p3"] { --role: var(--p3); --role-ink: var(--p3-ink); }
-.card[data-role="p4"] { --role: var(--p4); --role-ink: var(--p4-ink); }
+:is(.card, .stage)[data-role="p1"] { --role: var(--p1); --role-ink: var(--p1-ink); }
+:is(.card, .stage)[data-role="p2"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+:is(.card, .stage)[data-role="p3"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+:is(.card, .stage)[data-role="p4"] { --role: var(--p4); --role-ink: var(--p4-ink); }
 
 /* A block is a tool you read from the back of the room: the card is the
    colour, and everything on it is the ink that colour carries. */
-.card[data-tone="block"][data-category]:not([data-category="other"]) {
+:is(.card, .stage)[data-tone="block"][data-category]:not([data-category="other"]) {
   background: var(--role);
   color: var(--role-ink);
 }
-.card[data-tone="block"]:not([data-category="other"]) .card-title,
-.card[data-tone="block"]:not([data-category="other"]) .hint,
-.card[data-tone="block"]:not([data-category="other"]) .muted { color: inherit; }
-.card[data-tone="block"]:not([data-category="other"]) .hint { opacity: .8; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .card-title,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .muted { color: inherit; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint { opacity: .8; }
 
 /* A card fills the slot it was given, and the slot is measured from the
    tool's own content the moment it is put down. That measurement is the
@@ -572,35 +572,35 @@ p { margin: 0 0 .6rem; }
 }
 /* On a block the marker is the ink, not the colour — the card is already the
    colour, and a marker in the same hue would vanish into it. */
-.card[data-tone="block"]:not([data-category="other"]) .shape { background: currentColor; }
-.card[data-tone="block"] .shape[data-shape="ring"] { background: none; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .shape { background: currentColor; }
+:is(.card, .stage)[data-tone="block"] .shape[data-shape="ring"] { background: none; }
 
 
 /* Inside a block card the page's own accent would be a third colour fighting
    the two already there, so the buttons are drawn from the block itself: the
    main action is the card's colour on white, and everything beside it is an
    outline in the ink the card is already using. */
-.card[data-tone="block"]:not([data-category="other"]) .btn {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn {
   background: transparent; color: inherit;
   border: 2px solid currentColor; box-shadow: none;
 }
-.card[data-tone="block"]:not([data-category="other"]) .btn--primary,
-.card[data-tone="block"]:not([data-category="other"]) .btn--danger {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn--primary,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn--danger {
   background: var(--role-ink); color: var(--role); border-color: transparent;
 }
-.card[data-tone="block"]:not([data-category="other"]) .btn.is-on,
-.card[data-tone="block"]:not([data-category="other"]) .chip.is-on,
-.card[data-tone="block"]:not([data-category="other"]) .seg-btn.is-on {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .chip.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg-btn.is-on {
   background: var(--role-ink); color: var(--role); border-color: transparent;
 }
-.card[data-tone="block"]:not([data-category="other"]) .chip,
-.card[data-tone="block"]:not([data-category="other"]) .seg-btn {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .chip,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg-btn {
   background: transparent; color: inherit; border: 2px solid currentColor; box-shadow: none;
 }
-.card[data-tone="block"]:not([data-category="other"]) .seg { background: transparent; border-color: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg { background: transparent; border-color: currentColor; }
 /* Muted greys are invisible on a saturated ground: on a block, "quieter" is
    the same ink at less than full strength. */
-.card[data-tone="block"]:not([data-category="other"]) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
   /* Everything drawn on a block is the block's ink. A numeral in the page's
      accent would be a third colour on a card that already has two — and on
      the red timer, blue figures are the one thing you cannot read. */
@@ -608,13 +608,13 @@ p { margin: 0 0 .6rem; }
   --accent: currentColor; --blue: currentColor; --red: currentColor;
   --p1: currentColor; --p2: currentColor; --p3: currentColor; --p4: currentColor;
 }
-.card[data-tone="block"]:not([data-category="other"]) .muted,
-.card[data-tone="block"]:not([data-category="other"]) .hint,
-.card[data-tone="block"]:not([data-category="other"]) .small,
-.card[data-tone="block"]:not([data-category="other"]) .pick-count,
-.card[data-tone="block"]:not([data-category="other"]) label { color: inherit; opacity: .85; }
-.card[data-tone="block"]:not([data-category="other"]) .input,
-.card[data-tone="block"]:not([data-category="other"]) .select {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .muted,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .small,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-count,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) label { color: inherit; opacity: .85; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .input,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .select {
   background: rgba(255,255,255,.16); color: inherit; border-color: currentColor;
 }
 
@@ -662,30 +662,33 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
   animation: stage-in .18s ease;
 }
 @keyframes stage-in { from { opacity: 0; transform: scale(.99); } }
-.stage-head { display: flex; align-items: center; gap: .6rem; padding: .55rem clamp(.6rem, 2vw, 1.25rem); border-bottom: 1px solid var(--line); background: var(--surface); }
-.stage-title { display: flex; align-items: center; gap: .5rem; margin: 0; font-size: 1.05rem; flex: 1; }
+.stage { --card-bg: var(--bg); }
+.stage-head {
+  display: flex; align-items: center; gap: .6rem;
+  padding: 1rem clamp(1rem, 3vw, 2rem) .4rem; border: 0; background: transparent;
+}
+/* The title is the card's title, grown: its shape, then the name in capitals. */
+.stage-title {
+  display: flex; align-items: center; gap: .6rem; margin: 0; flex: 1;
+  font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+}
+/* A block tool fills the screen with its colour, exactly as it fills its card. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stage-head .icon-btn { color: inherit; }
 .stage-actions { display: flex; align-items: center; gap: .4rem; }
 .stage-body { flex: 1; overflow: auto; padding: clamp(.8rem, 2.4vw, 1.6rem); max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: .7rem; }
 
 /* Presenting: the chrome goes, the type grows, and everything that is not
    the number or the name gets out of the way. */
-.stage.is-present { background: var(--surface); }
 .stage.is-present .stage-head { opacity: 0; height: 0; padding: 0; overflow: hidden; border: 0; }
 .stage.is-present:hover .stage-head { opacity: 1; height: auto; padding: .55rem 1.25rem; border-bottom: 1px solid var(--line); }
 .stage.is-present .stage-body { max-width: none; justify-content: center; padding: 2vh 4vw; }
 .stage.is-present .hint, .stage.is-present .section-title { display: none; }
-.stage.is-present .timer-ring { display: none; }
-.stage.is-present .timer-bar { display: block; height: 14px; }
-.stage.is-present .timer-face { width: auto; aspect-ratio: auto; }
 .stage.is-present .timer-title:placeholder-shown { display: none; }
 .stage.is-present .timer-title { text-align: center; font-size: clamp(1rem, 3.4vh, 2rem); color: var(--muted); border: 0; }
 .stage.is-present .timer-controls .btn, .stage.is-present .timer-adjust .btn,
 .stage.is-present .chips, .stage.is-present .field { opacity: .55; transition: opacity .15s; }
 .stage.is-present .timer-controls:hover .btn, .stage.is-present .timer-adjust:hover .btn,
 .stage.is-present .chips:hover, .stage.is-present .field:hover { opacity: 1; }
-.stage.is-present .timer-digits { font-size: min(30vw, 46vh); }
-.stage.is-present .sw-digits { font-size: min(24vw, 38vh); }
-.stage.is-present .pick-name { font-size: min(16vw, 24vh); }
 .stage.is-present .group-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.4rem; }
 .stage.is-present .group-names li { font-size: clamp(1.1rem, 2.4vh, 2rem); }
 .stage.is-present .group-title-text, .stage.is-present .group-title { font-size: clamp(1.2rem, 3vh, 2.2rem); }
@@ -702,16 +705,10 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 .stage-body .behaviour,
 .stage-body .alarms,
 .stage-body .note { flex: none; }
-.stage-body .group-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+/* auto-FIT, not auto-fill: four groups stretch across the whole screen
+   rather than sitting in four narrow columns beside four empty ones. */
+.stage-body .group-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .stage-body .note-text { min-height: 46vh; }
-.stage-body .timer-digits { font-size: clamp(3rem, 13cqw, 8rem); }
-.stage-body .timer-face { width: min(100%, 44vh); }
-.stage-body .timer-ring svg { width: min(100%, 44vh); max-height: 44vh; }
-.stage-body .ring-track, .stage-body .ring-value { stroke-width: 4; }
-.stage-body .sw-digits { font-size: clamp(3rem, 12cqw, 7rem); }
-.stage-body .pick-name { font-size: clamp(2.2rem, 9cqw, 5.5rem); }
-.stage-body .timer-face { min-height: 46vh; }
-.stage-body .pick-face { min-height: 34vh; }
 
 /* ---------------- dialogs and toasts ---------------- */
 
@@ -1233,15 +1230,18 @@ body.is-seating-drag { user-select: none; }
 .hand--minute { stroke-width: 2.6; }
 .hand--second { stroke: var(--clock-colour, var(--accent)); stroke-width: 1.2; }
 .clock-pin { fill: var(--clock-colour, var(--accent)); }
-.clock-digits {
-  font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums;
-  font-size: clamp(1.8rem, 9cqw, 4rem); line-height: 1; color: var(--clock-colour, var(--accent));
+/* One unit: the figures in the display face, with am/pm set small beside
+   them on the same line. The size lives on the unit, so fitting it fits both. */
+.clock-time {
+  display: inline-flex; align-items: baseline; gap: .06em; white-space: nowrap;
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: .9;
+  font-size: clamp(1.8rem, 9cqw, 4rem); color: var(--clock-colour, var(--accent));
 }
-.clock-suffix { font-size: .8rem; color: var(--muted); text-align: center; }
+.clock-digits { font: inherit; letter-spacing: inherit; }
+.clock-suffix { font-size: .28em; font-weight: 700; letter-spacing: .02em; opacity: .8; }
 .clock-controls { width: 100%; display: flex; flex-direction: column; gap: .35rem; }
 .clock-toggles { display: flex; flex-direction: column; gap: .2rem; }
-.stage-body .clock-digits { font-size: clamp(3rem, 16cqw, 9rem); }
-.stage.is-present .clock-digits { font-size: min(26vw, 40vh); }
 .stage.is-present .clock-controls { display: none; }
 .stage-body .clock-face { min-height: 40vh; }
 
@@ -1763,12 +1763,6 @@ body.is-seating-drag { user-select: none; }
 .lists-btn { display: inline-flex; align-items: center; gap: .35rem; }
 @media (max-width: 620px) { .lists-label { display: none; } }
 
-/* The colour of your own, next to the eight. */
-.accent--custom {
-  background: var(--accent-pick, #1D4ED8);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-}
 .accent-custom { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
 .accent-picker {
   flex: none; width: 46px; height: 32px; padding: 0;
@@ -1776,36 +1770,8 @@ body.is-seating-drag { user-select: none; }
 }
 .accent-hex { flex: 1; min-width: 0; font-family: var(--mono); text-transform: lowercase; }
 
-/* The big view gets the same breath of colour as a card, so opening one is
-   not a jump from a tinted surface onto a flat one. */
-.stage-head {
-  background:
-    linear-gradient(152deg,
-      color-mix(in srgb, var(--accent) 7%, var(--surface)) 0%,
-      var(--surface) 70%);
-}
 
-/* The colour of your own, next to the eight. */
-.accent--custom {
-  background: var(--accent-pick, #1D4ED8);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-}
-.accent-custom { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
-.accent-picker {
-  flex: none; width: 46px; height: 32px; padding: 0;
-  border: 1px solid var(--line); border-radius: var(--r); background: none; cursor: pointer;
-}
-.accent-hex { flex: 1; min-width: 0; font-family: var(--mono); text-transform: lowercase; }
 
-/* The big view gets the same breath of colour as a card, so opening one is
-   not a jump from a tinted surface onto a flat one. */
-.stage-head {
-  background:
-    linear-gradient(152deg,
-      color-mix(in srgb, var(--accent) 7%, var(--surface)) 0%,
-      var(--surface) 70%);
-}
 
 
 /* ---------------- calculator ---------------- */
@@ -1968,22 +1934,22 @@ body.is-seating-drag { user-select: none; }
    itself, and the time already spent creeps in from the right as a shadow
    over the whole block. The ring comes back when the timer is presented,
    where there is room for it. */
-.card[data-type="timer"] .timer-ring,
-.card[data-type="timer"] .timer-bar { display: none; }
-.card[data-type="timer"] .timer-digits,
-.card[data-type="timer"] .timer-input {
+:is(.card, .stage)[data-type="timer"] .timer-ring,
+:is(.card, .stage)[data-type="timer"] .timer-bar { display: none; }
+:is(.card, .stage)[data-type="timer"] .timer-digits,
+:is(.card, .stage)[data-type="timer"] .timer-input {
   font-size: var(--fluid-hero); line-height: .85; text-align: left;
 }
-.card[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
-.card[data-type="timer"] .timer {
+:is(.card, .stage)[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
+:is(.card, .stage)[data-type="timer"] .timer {
   position: relative; gap: .5rem;
   display: flex; flex-direction: column; flex: 1; min-height: 0;
 }
-.card[data-type="timer"] .timer-face { display: block; }
+:is(.card, .stage)[data-type="timer"] .timer-face { display: block; }
 /* The face was a 190px square holding a ring. With the ring gone it is just
    the frame round the digits, so it takes the whole card and stops centring
    what is inside it — the figures start at the left edge, under the title. */
-.card[data-type="timer"] .timer-face {
+:is(.card, .stage)[data-type="timer"] .timer-face {
   margin: 0; width: 100%; max-width: none; aspect-ratio: auto;
   justify-content: flex-start; align-items: flex-end;
   /* The room left after the controls, and nothing more. The digits are
@@ -1992,17 +1958,17 @@ body.is-seating-drag { user-select: none; }
      shrinks with them, and the time spirals down to nothing. */
   flex: 1 1 0; min-height: 0; overflow: hidden;
 }
-.card[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
+:is(.card, .stage)[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
 /* The shadow belongs to the CARD, not to the body inside it: on the body it
    stopped at the padding and left a red margin at the top, bottom and sides,
    which read as a stripe rather than as time running out. */
-.card[data-tone="block"][data-type="timer"] { overflow: hidden; }
+:is(.card, .stage)[data-tone="block"][data-type="timer"] { overflow: hidden; }
 /* Over everything, not behind it. Behind, the card's own colour — including
    the fade that marks scrollable content — was painted on top of the shadow
    and cut bands across it. Over, it simply dims whatever it crosses, digits
    included, which is what the design asks for: the part of the card that has
    gone is darker, end of story. It never takes a click. */
-.card[data-tone="block"][data-type="timer"]::before {
+:is(.card, .stage)[data-tone="block"][data-type="timer"]::before {
   content: ''; position: absolute; inset: 0 0 0 auto; z-index: 3;
   width: calc(var(--elapsed, 0) * 100%);
   background: rgba(0,0,0,.16); pointer-events: none;
@@ -2010,48 +1976,46 @@ body.is-seating-drag { user-select: none; }
 }
 /* The resize corner stays above the shadow, since it is a control rather
    than part of the face of the card. */
-.card[data-tone="block"][data-type="timer"] > .card-resize { z-index: 4; }
-.card[data-type="timer"] .timer-controls .btn { min-height: 52px; }
-.card[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
+:is(.card, .stage)[data-tone="block"][data-type="timer"] > .card-resize { z-index: 4; }
+:is(.card, .stage)[data-type="timer"] .timer-controls .btn { min-height: 52px; }
+:is(.card, .stage)[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
 
-/* Presented, the ring is worth having again. */
-.stage .timer-ring { display: block; }
 
 /* ---------------- the clock and the picked name as blocks ---------------- */
-.card[data-tone="block"][data-type="clock"] .clock-digits { font-size: var(--fluid-display-l); line-height: .85; }
-.card[data-tone="block"][data-type="randomiser"] .pick-name {
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-time { font-size: var(--fluid-display-l); }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name {
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
   letter-spacing: -.04em; line-height: .85; font-size: var(--fluid-display-m);
 }
-.card[data-tone="block"] .card-body > * { margin-top: auto; }
+:is(.card, .stage)[data-tone="block"] .card-body > * { margin-top: auto; }
 
 /* ---------------- stage 5: the tools that are read at a glance ---------------- */
 
 /* The noise meter states keep their meaning — quiet is green, loud is the
    warning colour — but the card behind them is yellow, so the bars are drawn
    in the card's own ink and it is their HEIGHT that says how loud it is. */
-.card[data-tone="block"][data-type="noise"] .noise-word {
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-word {
   font-size: var(--fluid-display-s); font-weight: 800; font-stretch: 112%;
   letter-spacing: -.04em; line-height: .85; text-align: left; margin-top: auto;
 }
-.card[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
-.card[data-tone="block"][data-type="noise"] .noise-fill--silent,
-.card[data-tone="block"][data-type="noise"] .noise-fill--whisper,
-.card[data-tone="block"][data-type="noise"] .noise-fill--work { background: currentColor; }
-.card[data-tone="block"][data-type="noise"] .noise-fill--loud { background: rgba(0,0,0,.45); }
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--silent,
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--whisper,
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--work { background: currentColor; }
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--loud { background: rgba(0,0,0,.45); }
 
 /* A clock on the board is a time, not a dial: big figures, the date as a
    quiet line above them. The face with hands is still there when it is the
    face the teacher chose. */
-.card[data-tone="block"][data-type="clock"] .clock { align-items: stretch; }
-.card[data-tone="block"][data-type="clock"] .clock-digital { margin-top: auto; align-items: flex-start; }
-.card[data-tone="block"][data-type="clock"] .clock-zone,
-.card[data-tone="block"][data-type="clock"] .clock-date { text-align: left; }
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock { align-items: stretch; }
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-digital { margin-top: auto; align-items: flex-start; }
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-zone,
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-date { text-align: left; }
 
 /* The randomiser's whole job is one name, as big as the card allows. */
-.card[data-tone="block"][data-type="randomiser"] .pick-face { align-items: stretch; margin-top: auto; }
-.card[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; }
-.card[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-face { align-items: stretch; margin-top: auto; }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
 
 /* Groups are the one place four colours appear at once: the tiles cycle
    through the roles, so two groups are never the same colour side by side. */
@@ -2240,3 +2204,102 @@ body.is-seating-drag { user-select: none; }
 .link-add { display: flex; gap: .35rem; flex-wrap: wrap; }
 .link-add .input { flex: 1 1 140px; min-width: 0; }
 @media (hover: none) { .link-remove { opacity: 1; } }
+
+/* ---------------- the big view: fill the room ----------------
+   Opened larger, a tool's one important thing — the time, the name, the
+   number — takes all the height it is given. Each starts far too big and is
+   brought down by Desk.fitText until it is inside its box, so the same rule
+   fills a laptop, a projector and a presented full screen alike. The boxes
+   take their size from the screen, never from the type, or the fitting would
+   chase its own tail. */
+.stage-body { container-type: inline-size; max-width: 1400px; }
+.stage-body > .timer, .stage-body > .clock, .stage-body > .stopwatch,
+.stage-body > .randomiser, .stage-body > .noise, .stage-body > .random-tool { flex: 1; min-height: 0; }
+/* These name the tool and its tone as the card rules do, so they are at
+   least as specific and — being later — win. Without that the card's own
+   size cap (220px for a timer) held the figures small on a full screen. */
+.stage[data-type="timer"] .timer-face {
+  flex: 1 1 0; min-height: 0; justify-content: center; align-items: center;
+}
+.stage[data-type="timer"] .timer-readout { width: auto; text-align: center; }
+.stage[data-type="timer"] .timer-digits,
+.stage[data-type="timer"] .timer-input { font-size: min(34vw, 64vh); text-align: center; }
+.stage[data-type="clock"] .clock-face { flex: 1 1 0; min-height: 0; }
+.stage[data-tone="block"][data-type="clock"] .clock-time,
+.stage[data-type="clock"] .clock-time { font-size: min(24vw, 54vh); }
+.stage[data-type="randomiser"] .pick-face { flex: 1 1 0; min-height: 0; }
+.stage[data-tone="block"][data-type="randomiser"] .pick-name { font-size: min(16vw, 36vh); text-align: center; }
+.stage[data-type="stopwatch"] .sw-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="stopwatch"] .sw-digits { font-size: min(22vw, 50vh); }
+.stage[data-tone="block"][data-type="noise"] .noise-word { font-size: min(10vw, 22vh); }
+/* Presenting drops the controls to a whisper so the value has the screen. */
+.stage.is-present .stage-body { padding: 3vh 4vw; }
+
+/* The stopwatch's time, like the timer's, fills the room the controls leave. */
+.sw-face { flex: 1 1 0; min-height: 2.4rem; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+:is(.card, .stage)[data-type="stopwatch"] .sw-digits { font-size: var(--fluid-hero); line-height: .9; white-space: nowrap; }
+.stage .sw-digits { font-size: min(22vw, 44vh); }
+
+/* ---------------- the last pieces drawn in the old colours ----------------
+   Anything on a coloured tool is drawn in that tool's ink — including the
+   grey that browsers give a placeholder, which on red or blue is simply not
+   there, and the pupil chips, which were white pills with white names. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) ::placeholder { color: currentColor; opacity: .6; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .timer-title { color: inherit; border-bottom-color: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-chip {
+  background: transparent; color: inherit; border: 1.5px solid currentColor;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-chip.is-had {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+.stage .pick-count { text-align: center; }
+
+/* The countdown's number is its whole point, so it gets the display face on
+   the card and the height of the screen when it is opened large. Everything
+   around it grows with it, so the date and the label stay in proportion. */
+.cd-big { font-weight: 800; font-stretch: 112%; letter-spacing: -.04em; line-height: .9; }
+.stage[data-type="countdown"] .cd-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="countdown"] .cd-big { font-size: min(28vw, 34vh); }
+.stage[data-type="countdown"] .cd-emoji { font-size: min(8vw, 9vh); }
+.stage[data-type="countdown"] .cd-small { font-size: min(3.2vw, 3.6vh); }
+.stage[data-type="countdown"] .cd-label { font-size: min(4.6vw, 5.4vh); font-weight: 800; }
+.stage[data-type="countdown"] .cd-others { width: min(100%, 36rem); }
+.stage[data-type="countdown"] .cd-other { font-size: min(2vw, 2.4vh); }
+
+/* An expanded tool is its card, grown. A white card grows into a white page
+   — the grey was the desk showing through, which a tool that fills the
+   screen no longer sits on. A coloured tool overrides this with its colour. */
+.stage { background: var(--surface); }
+.stage { --card-bg: var(--surface); }
+
+/* The random number is read from the back of the room like a timer is, so
+   it gets the display face on the card and the screen's height opened large. */
+.rnd-number { font-family: var(--display); font-weight: 800; font-stretch: 112%; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.stage[data-type="random"] .rnd-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="random"] .rnd-number { font-size: min(30vw, 44vh); }
+.stage[data-type="random"] .rnd-note { font-size: min(2.6vw, 3vh); }
+.stage[data-type="random"] .coin-svg { width: min(34vw, 44vh); }
+.stage[data-type="random"] .die { width: min(16vw, 28vh); }
+.stage[data-type="random"] .dice-total { font-size: min(3vw, 3.6vh); }
+
+/* Calm-down, opened large: the circle is the thing the class breathes with,
+   so it takes the height of the screen, and the word inside it grows to
+   match instead of spilling out of a circle drawn for a card. */
+.stage[data-type="breathing"] .breathe-stage { flex: 1 1 0; min-height: 0; }
+.stage[data-type="breathing"] .breathe-circle { width: min(62vh, 56vw); }
+.stage[data-type="breathing"] .breathe-word { font-size: min(7vw, 9vh); font-weight: 800; }
+.stage[data-type="breathing"] .breathe-count { font-size: min(2.4vw, 2.8vh); }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .breathe-word { font-weight: 800; }
+
+/* The stepper was a white box with white figures on any coloured tool. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stepper {
+  background: transparent; border: 2px solid currentColor; color: inherit;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stepper .icon-btn { color: inherit; }
+
+/* Group tiles opened large: the names are what a class reads to find where
+   they sit, so they grow with the screen. */
+.stage .group-card { padding: 16px 18px; }
+.stage .group-title, .stage .group-title-text { font-size: clamp(1.2rem, 2vw, 2rem); font-weight: 800; }
+.stage .group-names li { font-size: clamp(1rem, 1.5vw, 1.6rem); font-weight: 600; line-height: 1.35; }
+.group-size { color: inherit; opacity: .75; }
