@@ -5,27 +5,18 @@
    ambient one. Fonts are self-hosted; no request ever leaves for a CDN.
    =================================================================== */
 
-/* Archivo, self-hosted: variable on both axes, so one file carries every
-   weight from 400 to 900 and the widths the display sizes use. Two subsets —
-   latin, and latin-ext for the pupil names that need it. Nothing here ever
-   asks a CDN, which is the point: a font fetched from someone else's server
-   tells them when a lesson starts. */
-@font-face {
-  font-family: 'Archivo'; font-style: normal;
-  font-weight: 400 900; font-stretch: 62% 125%; font-display: swap;
-  src: url('/vendor/archivo-variable.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'Archivo'; font-style: normal;
-  font-weight: 400 900; font-stretch: 62% 125%; font-display: swap;
-  src: url('/vendor/archivo-variable-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
-    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
-    U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-/* Kept for the places that label data — lap numbers, tallies, timestamps. */
+/* Big figures are set only a hair tight (-.01em). The -.04em the handoff
+   asked for was tuned to Archivo's wide figures; on Bricolage it pushes the
+   colons of a time into the digits beside them.
+
+   The same three faces, from the same files, as Signify ID — so moving from
+   the identity page to the desk is moving within one product. Bricolage
+   Grotesque for headings and the big figures, IBM Plex Sans for everything
+   read, IBM Plex Mono for the few things that label data. All self-hosted:
+   nothing here ever asks a CDN, which is the point — a font fetched from
+   somebody else's server tells them when a lesson starts. */
+@font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 200 800; font-stretch: 100%; font-display: swap; src: url('/vendor/bricolage-grotesque.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 100 700; font-display: swap; src: url('/vendor/ibm-plex-sans.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/vendor/ibm-plex-mono-400.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/vendor/ibm-plex-mono-500.woff2') format('woff2'); }
 
@@ -62,8 +53,8 @@
   --r: 10px; --r-sm: 8px; --r-panel: 14px;
   --radius-xs: 3px; --radius-xl: 18px; --radius-pill: 999px;
 
-  --display: 'Archivo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-  --body: 'Archivo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --display: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Paper on a desk: a hard contact line, a tight shadow, then a soft drop.
@@ -826,7 +817,7 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
   border: 0; background: transparent; color: inherit; cursor: text;
   border-radius: var(--r-sm);
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
-  font-variant-numeric: tabular-nums; letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
   font-size: clamp(1.9rem, 7cqw, 3.2rem); line-height: 1;
 }
 .timer-digits:hover { background: color-mix(in srgb, var(--blue) 8%, transparent); }
@@ -835,13 +826,13 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 .timer-input {
   /* 7 tabular characters is "1:02:30", the longest thing anyone types here —
      so the underline sits under the digits rather than spanning the whole
-     card. Archivo's figures are one width, which is what makes that hold. */
+     card. Bricolage's tabular figures are one width, which is what makes that hold. */
   display: block; width: 100%; max-width: 7ch; margin: 0 auto;
   padding: 0 .1rem; text-align: center;
   border: 0; border-bottom: 2px solid var(--p2); border-radius: 0;
   background: transparent; color: var(--ink);
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
-  font-variant-numeric: tabular-nums; letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
   font-size: clamp(1.9rem, 7cqw, 3.2rem); line-height: 1;
 }
 .timer-input:focus { outline: none; }
@@ -860,7 +851,7 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 
 .sw-digits {
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
-  font-variant-numeric: tabular-nums; letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
   font-size: clamp(1.8rem, 6cqw, 3rem); text-align: center; line-height: 1.1;
 }
 .sw-laps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .12rem; overflow: auto; }
@@ -1235,7 +1226,7 @@ body.is-seating-drag { user-select: none; }
 .clock-time {
   display: inline-flex; align-items: baseline; gap: .06em; white-space: nowrap;
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
-  font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: .9;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: .9;
   font-size: clamp(1.8rem, 9cqw, 4rem); color: var(--clock-colour, var(--accent));
 }
 .clock-digits { font: inherit; letter-spacing: inherit; }
@@ -1985,7 +1976,7 @@ body.is-seating-drag { user-select: none; }
 :is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-time { font-size: var(--fluid-display-l); }
 :is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name {
   font-family: var(--display); font-weight: 800; font-stretch: 112%;
-  letter-spacing: -.04em; line-height: .85; font-size: var(--fluid-display-m);
+  letter-spacing: -.01em; line-height: .85; font-size: var(--fluid-display-m);
 }
 :is(.card, .stage)[data-tone="block"] .card-body > * { margin-top: auto; }
 
@@ -1996,7 +1987,7 @@ body.is-seating-drag { user-select: none; }
    in the card's own ink and it is their HEIGHT that says how loud it is. */
 :is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-word {
   font-size: var(--fluid-display-s); font-weight: 800; font-stretch: 112%;
-  letter-spacing: -.04em; line-height: .85; text-align: left; margin-top: auto;
+  letter-spacing: -.01em; line-height: .85; text-align: left; margin-top: auto;
 }
 :is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
 :is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--silent,
@@ -2257,7 +2248,7 @@ body.is-seating-drag { user-select: none; }
 /* The countdown's number is its whole point, so it gets the display face on
    the card and the height of the screen when it is opened large. Everything
    around it grows with it, so the date and the label stay in proportion. */
-.cd-big { font-weight: 800; font-stretch: 112%; letter-spacing: -.04em; line-height: .9; }
+.cd-big { font-weight: 800; font-stretch: 112%; letter-spacing: -.01em; line-height: .9; }
 .stage[data-type="countdown"] .cd-face { flex: 1 1 0; min-height: 0; }
 .stage[data-type="countdown"] .cd-big { font-size: min(28vw, 34vh); }
 .stage[data-type="countdown"] .cd-emoji { font-size: min(8vw, 9vh); }
@@ -2274,7 +2265,7 @@ body.is-seating-drag { user-select: none; }
 
 /* The random number is read from the back of the room like a timer is, so
    it gets the display face on the card and the screen's height opened large. */
-.rnd-number { font-family: var(--display); font-weight: 800; font-stretch: 112%; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.rnd-number { font-family: var(--display); font-weight: 800; font-stretch: 112%; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .stage[data-type="random"] .rnd-face { flex: 1 1 0; min-height: 0; }
 .stage[data-type="random"] .rnd-number { font-size: min(30vw, 44vh); }
 .stage[data-type="random"] .rnd-note { font-size: min(2.6vw, 3vh); }
