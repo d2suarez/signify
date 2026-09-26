@@ -15,8 +15,16 @@
 
   const { el, icon, toast, shuffle } = Desk;
 
-  const COLOURS = ['accent', 'green', 'red', 'yellow', 'purple', 'teal'];
+  // In the same order as the starting teams, so a new board's "Red" is red.
+  // The two lists used to disagree — Red was blue, Blue was green — which a
+  // thin coloured stripe hid and a coloured team does not.
+  const COLOURS = ['red', 'accent', 'green', 'yellow', 'purple', 'teal'];
   const STARTER = ['Red', 'Blue', 'Green', 'Yellow'];
+
+  /* A team named after a colour is that colour, whatever it was saved as.
+     Children read "Blue team" off the board and look for blue. */
+  const NAMED = { red: 'red', blue: 'accent', green: 'green', yellow: 'yellow', purple: 'purple', teal: 'teal' };
+  const colourFor = (team) => NAMED[String(team.name || '').trim().toLowerCase()] || team.colour;
 
   Desk.widget({
     type: 'scoreboard',
@@ -25,7 +33,6 @@
     icon: 'trophy',
     category: 'class',
     guest: true,
-    tone: 'block',
     size: { w: 4, h: 4 },
     min: { w: 2, h: 3 },
 
@@ -33,6 +40,9 @@
       if (!Array.isArray(s.teams) || !s.teams.length) {
         s.teams = STARTER.map((name, i) => ({ id: `t${i}`, name, score: 0, colour: COLOURS[i % COLOURS.length] }));
       }
+      // Put right any team whose name says one colour and whose fill says
+      // another — every board made before the two lists agreed.
+      for (const team of s.teams) team.colour = colourFor(team);
       if (typeof s.step !== 'number') s.step = 1;
       if (typeof s.title !== 'string') s.title = '';
     },
@@ -75,7 +85,13 @@
             ctx.expanded
               ? el('input.score-name', {
                 type: 'text', value: team.name, maxlength: 20,
-                oninput: (e) => { team.name = e.target.value; ctx.save(); },
+                oninput: (e) => {
+                  team.name = e.target.value;
+                  const was = team.colour;
+                  team.colour = colourFor(team);
+                  if (team.colour !== was) row.className = `score-row score-row--${team.colour}${winning ? ' is-leading' : ''}`;
+                  ctx.save();
+                },
               })
               : el('span.score-name-text', { text: team.name }),
             el('button.score-btn', { text: '−', 'aria-label': `Take a point from ${team.name}`, onclick: () => bump(team, -s.step) }),

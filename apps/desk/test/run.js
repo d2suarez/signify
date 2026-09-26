@@ -1140,6 +1140,35 @@ describe('a YouTube link', () => {
 });
 
 // ===================================================================
+describe('the scoreboard', () => {
+  const board = loadWidget('scoreboard');
+
+  it('starts with each team the colour it is named after', () => {
+    const s = {};
+    board.init(s);
+    const byName = Object.fromEntries(s.teams.map((t) => [t.name, t.colour]));
+    equal(byName.Red, 'red');
+    equal(byName.Blue, 'accent', 'blue is the accent — the class colour');
+    equal(byName.Green, 'green');
+    equal(byName.Yellow, 'yellow');
+  });
+
+  it('puts right a board saved when the names and colours disagreed', () => {
+    // Every board made before this fix had Red in blue and Blue in green.
+    const s = { teams: [
+      { id: 'a', name: 'Red', score: 3, colour: 'accent' },
+      { id: 'b', name: 'Blue', score: 1, colour: 'green' },
+      { id: 'c', name: 'The Owls', score: 2, colour: 'purple' },
+    ] };
+    board.init(s);
+    equal(s.teams[0].colour, 'red');
+    equal(s.teams[1].colour, 'accent');
+    equal(s.teams[2].colour, 'purple', 'a team with its own name keeps its own colour');
+    equal(s.teams[0].score, 3, 'and nobody loses a point');
+  });
+});
+
+// ===================================================================
 describe('saved links', () => {
   const links = loadWidget('links');
   const clean = links._cleanUrl;

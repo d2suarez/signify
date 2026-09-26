@@ -1437,27 +1437,45 @@ body.is-seating-drag { user-select: none; }
 
 .scoreboard { display: flex; flex-direction: column; gap: .35rem; flex: 1; min-height: 0; }
 .score-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .25rem; }
+/* Each team IS its colour: the whole row is filled with it and everything
+   on the row is drawn in that colour's own ink. The card behind is plain
+   white on purpose — six coloured teams on a coloured card is one colour too
+   many, and a blue team on a blue card is no team at all. */
 .score-row {
-  display: flex; align-items: center; gap: .35rem;
-  padding: .25rem .35rem; border-radius: var(--r); border-left: 4px solid var(--line);
-  background: var(--desk);
+  --team: var(--desk); --team-ink: var(--ink);
+  display: flex; align-items: center; gap: .4rem;
+  padding: .35rem .45rem .35rem .7rem; border-radius: var(--r); border: 0;
+  background: var(--team); color: var(--team-ink);
 }
-.score-row.is-leading { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-.score-row--accent { border-left-color: var(--accent); }
-.score-row--green { border-left-color: var(--green); }
-.score-row--red { border-left-color: var(--red); }
-.score-row--yellow { border-left-color: var(--yellow); }
-.score-row--purple { border-left-color: #8B5CF6; }
-.score-row--teal { border-left-color: #14B8A6; }
-.score-name, .score-name-text { flex: 1; min-width: 0; font-weight: 600; font-size: .88rem; border: 0; background: transparent; padding: 0; }
-.score-value { font-family: var(--mono); font-weight: 500; font-size: 1.15rem; min-width: 2.5ch; text-align: center; }
+.score-row--red    { --team: var(--p1); --team-ink: var(--p1-ink); }
+.score-row--accent { --team: var(--p2); --team-ink: var(--p2-ink); }
+.score-row--yellow { --team: var(--p3); --team-ink: var(--p3-ink); }
+.score-row--teal   { --team: var(--p4); --team-ink: var(--p4-ink); }
+.score-row--green  { --team: var(--green); --team-ink: #fff; }
+.score-row--purple { --team: #7a3fd1; --team-ink: #fff; }
+/* The team in front gets a ring in its own colour, set off from the row. */
+.score-row.is-leading { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--team); }
+.score-name, .score-name-text {
+  flex: 1; min-width: 0; font-weight: 700; font-size: .95rem;
+  border: 0; background: transparent; padding: 0; color: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.score-name::placeholder { color: inherit; opacity: .6; }
+.score-value {
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  font-size: 1.35rem; min-width: 2.5ch; text-align: center;
+}
+/* Minus is an outline in the team's ink; plus is the ink filled in, with the
+   team's colour as its label — the one a teacher reaches for most. */
 .score-btn {
-  width: 26px; height: 26px; flex: none; border-radius: var(--r-sm);
-  border: 1px solid var(--line); background: var(--surface); cursor: pointer;
-  font-size: 1rem; line-height: 1; color: var(--muted);
+  width: 30px; height: 30px; flex: none; border-radius: var(--r-sm);
+  border: 2px solid currentColor; background: transparent; color: inherit;
+  cursor: pointer; font-size: 1.05rem; font-weight: 800; line-height: 1;
 }
-.score-btn:hover { border-color: var(--faint); color: var(--ink); }
-.score-btn--plus { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.score-btn:hover { filter: brightness(.94); }
+.score-btn--plus { background: var(--team-ink); border-color: transparent; color: var(--team); }
+.score-row .icon-btn { color: inherit; }
 .score-foot { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
 .stage.is-present .score-value { font-size: 2.4rem; }
 .stage.is-present .score-name-text { font-size: 1.6rem; }
@@ -2048,9 +2066,6 @@ body.is-seating-drag { user-select: none; }
 .group-grid > * .group-title, .group-grid > * .group-title-text { color: inherit; }
 
 /* Scores: the two sides of a class are the two ends of the palette. */
-.score-row--accent { border-left-color: var(--p2); }
-.score-row--red { border-left-color: var(--p1); }
-.score-row.is-leading { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p2) 45%, transparent); }
 
 /* Notes take their tints from the roles rather than from four unrelated
    pastels — the same yellow, blue and green the rest of the board uses. */
