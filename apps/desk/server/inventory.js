@@ -147,6 +147,11 @@ function page({ host = 'desk.signify.one', only = null } = {}) {
     a teacher types in, and the class-list editor suggests a first name and an
     initial, which every tool works with perfectly well.</p>
     <p>Behaviour notes are the exception worth reading about in full, below.</p>
+    <p>Somebody using the desk <strong>without logging in</strong> can type class lists
+    too. Those never reach this server: they stay in that browser, on that
+    computer, and are cleared after thirty days unopened. Nothing in the tables
+    below comes from a visitor. The behaviour tracker is not offered to
+    visitors at all.</p>
   </section>
   ${rows}
 

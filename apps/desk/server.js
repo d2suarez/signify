@@ -22,6 +22,7 @@ const assets = require('./server/assets');
 const video = require('./server/video');
 const inventory = require('./server/inventory');
 const weather = require('./server/weather');
+const visitors = require('./server/visitors');
 
 const PORT = process.env.PORT || 8770;
 const CANONICAL_HOST = process.env.CANONICAL_HOST || '';
@@ -104,6 +105,17 @@ app.use((req, res, next) => {
 app.use(auth.devMiddleware);
 
 const ok = (res, data) => res.json(data);
+
+/**
+ * For the few lookups a signed-out visitor may make. A signed-in caller is
+ * held to the usual desk permission; a signed-out one to an allowance per
+ * address (server/visitors.js), so the desk is not a free relay to other
+ * people's services.
+ */
+function deskOrVisitor(req, res, bucket) {
+  if (auth.userFromReq(req)) return !!auth.requireDesk(req, res);
+  return visitors.allow(req, res, bucket);
+}
 const bad = (res, code, msg) => res.status(code).json({ error: msg });
 /**
  * Ends this desk's own sign-in when Signify ID has stopped recognising it.
@@ -318,19 +330,19 @@ app.delete('/api/templates/:id', (req, res) => {
 // Proxied so the browsers never talk to a third party; see server/weather.js.
 
 app.get('/api/weather/search', wrap(async (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  if (!deskOrVisitor(req, res, 'weather')) return;
   try { ok(res, { places: await weather.search(req.query.q) }); }
   catch (e) { bad(res, 502, 'Could not look that place up just now.'); }
 }));
 
 app.get('/api/weather', wrap(async (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  if (!deskOrVisitor(req, res, 'weather')) return;
   try { ok(res, await weather.forecast(req.query.lat, req.query.lon, req.query.units)); }
   catch (e) { bad(res, 502, 'Could not get the forecast just now.'); }
 }));
 
 app.get('/api/video/:id', wrap(async (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  if (!deskOrVisitor(req, res, 'video')) return;
   const found = await video.titleFor(req.params.id);
   // 200 with nothing rather than 404: "YouTube would not tell us" is an
   // ordinary answer here, not an error the widget should show anybody.

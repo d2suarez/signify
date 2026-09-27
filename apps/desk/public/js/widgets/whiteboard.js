@@ -27,6 +27,7 @@
     blurb: 'The shared drawing board. Opens in its own tab.',
     icon: 'notes',
     category: 'other',
+    guest: true,
     fills: true,
     size: { w: 3, h: 3 },
     min: { w: 2, h: 2 },

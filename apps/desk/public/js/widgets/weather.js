@@ -87,6 +87,7 @@
     blurb: 'What it is doing now, and what it will be doing at the times you take them outside.',
     icon: 'cloud',
     category: 'other',
+    guest: true,
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
 

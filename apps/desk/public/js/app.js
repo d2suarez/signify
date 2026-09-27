@@ -45,6 +45,46 @@
     drawChrome(shell);
     Desk.board.init({ root: document.getElementById('board'), data, me });
     if (location.hash === '#versions') openHistory();
+    offerVisitorLists();
+  }
+
+  /**
+   * "Log in to keep it" has to be true. If class lists were made in this
+   * browser before signing in, offer to move them into the account — once a
+   * session, never automatically, and with a plain warning, because on a
+   * shared classroom computer those lists may be somebody else's.
+   *
+   * Only the lists move. They are the part that is tedious to type twice;
+   * the board a visitor arranged is left to expire where it is.
+   */
+  async function offerVisitorLists() {
+    let storage;
+    try { storage = window.localStorage; } catch { return; }
+    const local = Desk.localApi.make(storage);
+    const lists = local.lists().filter((l) => l.students && l.students.length);
+    if (!lists.length) return;
+    try {
+      if (sessionStorage.getItem('desk:offered-visitor-lists')) return;
+      sessionStorage.setItem('desk:offered-visitor-lists', '1');
+    } catch { /* ask anyway */ }
+
+    const body = el('div', {}, [
+      el('p', { text: `Before you logged in, ${lists.length === 1 ? 'a class list was' : `${lists.length} class lists were`} made in this browser:` }),
+      el('ul', {}, lists.map((l) => el('li', { text: `${l.name} — ${l.students.length} pupil${l.students.length === 1 ? '' : 's'}` }))),
+      el('p.hint', { text: 'Add them to your account to keep them, and they are removed from this computer. If they are not yours — this is a shared computer — leave them where they are.' }),
+    ]);
+    if (!await Desk.ask({ title: 'Keep these class lists?', body, confirmLabel: 'Add to my account', cancelLabel: 'Not now' })) return;
+
+    let moved = 0;
+    for (const l of lists) {
+      try { await Desk.api.createList(l.name, l.students.map((x) => x.name)); moved += 1; }
+      catch (e) { toast(e.message, 'warn'); break; }
+    }
+    // Removed from the browser only once every one of them is safely in the
+    // account; a half-finished move leaves the originals where they were.
+    if (moved === lists.length) local.forgetLists();
+    Desk.roster.invalidate();
+    toast(`${moved} class list${moved === 1 ? '' : 's'} added to your account.`);
   }
 
   // ---------- the desk without an account ----------
@@ -60,8 +100,25 @@
    */
   async function guestDesk(shell) {
     me = { name: 'Guest', can: {} };
+
+    // Where a visitor's things are kept: this browser, if it will let us.
+    // A private window or blocked storage still gets a working desk — it just
+    // forgets everything when the tab closes, which is what it would do anyway.
+    let storage;
+    try { storage = window.localStorage; storage.setItem('desk:probe', '1'); storage.removeItem('desk:probe'); }
+    catch { storage = memoryStorage(); }
+    const local = Desk.localApi.make(storage);
+    const expired = local.expireIfStale();
+    // From here on, the class lists, saved groups and saved rooms that the
+    // tools ask for are answered from this browser instead of the server.
+    Object.assign(Desk.api, local.api);
+    app.guestStore = local;
+    for (const old of ['desk:guest-board', 'desk:guest-board:v2', 'desk:guest-board:v3']) {
+      try { storage.removeItem(old); } catch { /* fine */ }
+    }
+
     let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(Desk.board.GUEST_KEY) || 'null'); } catch { /* none */ }
+    try { saved = JSON.parse(storage.getItem(Desk.board.GUEST_KEY) || 'null'); } catch { /* none */ }
     const data = {
       rev: 0,
       prefs: (saved && saved.prefs) || null,
@@ -70,8 +127,56 @@
 
     Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
     drawChrome(shell, { guest: true });
-    Desk.board.init({ root: document.getElementById('board'), data, me, guest: true });
+    Desk.board.init({ root: document.getElementById('board'), data, me, guest: true, storage });
     shell.append(signInPrompt());
+    if (expired) toast(`Your earlier desk on this computer was cleared — nobody had opened it for ${Desk.localApi.EXPIRY_DAYS} days.`);
+  }
+
+  /** Storage that lasts as long as the tab, for browsers that allow no other. */
+  function memoryStorage() {
+    const m = new Map();
+    return {
+      getItem: (k) => (m.has(k) ? m.get(k) : null),
+      setItem: (k, v) => { m.set(k, String(v)); },
+      removeItem: (k) => { m.delete(k); },
+      key: (i) => [...m.keys()][i] || null,
+      get length() { return m.size; },
+    };
+  }
+
+  /**
+   * What a visitor is told about where their things are, in full: opened
+   * from the "Not saved" note in the header. Plain about all of it — this
+   * computer only, this browser only, cleared after a month unopened — and
+   * the one way to keep it, which is to log in.
+   */
+  async function guestInfo() {
+    const days = Desk.localApi.EXPIRY_DAYS;
+    const body = el('div.guest-info', {}, [
+      el('p', { text: 'You are using the desk without logging in. Everything works, but nothing you set up is saved to an account.' }),
+      el('ul', {}, [
+        el('li', { text: 'Your tools, class lists, seating plans and notes are kept in this browser, on this computer only.' }),
+        el('li', { text: `They are cleared if nobody opens this desk for ${days} days, or if this browser's data is cleared.` }),
+        el('li', { text: 'Anyone who uses this computer can see them — worth remembering if you type in pupils’ names.' }),
+      ]),
+      el('p', { text: 'Log in to keep everything in your account, on any computer. Your class lists come with you.' }),
+      el('button.btn.btn--small.btn--ghost.guest-forget', {
+        svg: icon('trash', 14), onclick: () => forgetGuestDesk(),
+      }, ' Clear this desk from this computer'),
+    ]);
+    const choice = await Desk.ask({ title: 'Not saved to an account', body, confirmLabel: 'Log in', cancelLabel: 'Keep going' });
+    if (choice) window.location.href = config.signInUrl;
+  }
+
+  /** Wipes everything a visitor kept on this computer, after asking. */
+  async function forgetGuestDesk() {
+    if (!await Desk.ask({
+      title: 'Clear this desk from this computer?',
+      body: 'Every tool, class list, seating plan and note you set up here is removed from this browser. This cannot be undone.',
+      confirmLabel: 'Clear it', danger: true,
+    })) return;
+    app.guestStore.clearAll();
+    window.location.reload();
   }
 
   /**
@@ -90,7 +195,12 @@
     // sits on the second row.
     { h: 4, tools: ['timer', 'stopwatch', 'clock', 'message'] },
     { h: 5, tools: ['calculator', 'scoreboard', 'random', 'emoji'] },
+    // The tools that work from a class list. A visitor makes their lists in
+    // this browser, so these work too.
     { h: 5, tools: ['randomiser', 'groups', 'notes', 'seating'] },
+    // The two that stay locked, on a row of their own at the bottom: the line
+    // between "yours now" and "yours with an account" is a line on the page.
+    { h: 5, tools: ['picture', 'soundboard'] },
   ];
   const GUEST_W = 3;
 
@@ -120,8 +230,8 @@
     const href = config.signInUrl;
     const card = el('aside.guest-prompt', { 'aria-label': 'Sign in' }, [
       el('div.guest-prompt-text', {}, [
-        el('strong', { text: 'Seating plans, class lists, groups and notes need a school account.' }),
-        el('span', { text: 'Everything else here works as it is.' }),
+        el('strong', { text: 'You’re not logged in, so nothing here is saved to an account.' }),
+        el('span', { text: `What you set up stays in this browser only, and is cleared after ${Desk.localApi.EXPIRY_DAYS} days unused. Log in to keep it.` }),
       ]),
       el('a.btn.btn--primary.guest-prompt-btn', { href }, 'Log in'),
       el('button.icon-btn.guest-prompt-fold', {
@@ -268,8 +378,15 @@
       brand,
       island,
       el('div.topbar-tools', {}, [
-        // A visitor has no class lists and no account to open a menu onto.
-        guest ? null : listsBtn,
+        // A visitor's class lists live in this browser, and the button is the
+        // same one — so is the dialog behind it.
+        listsBtn,
+        // Always in view for a visitor: a quiet, honest note that nothing
+        // here is saved to an account, which opens the whole story.
+        guest ? el('button.btn.guest-pill', {
+          title: 'Kept on this computer only — find out more',
+          onclick: () => guestInfo(),
+        }, [el('span', { svg: icon('info', 15) }), el('span.guest-pill-label', { text: 'Not saved' })]) : null,
         muteBtn,
         el('button.btn.btn--primary.add-btn', { svg: icon('plus', 16), onclick: openCatalogue }, ' Add a tool'),
         guest ? null : el('div.user', {}, [userBtn, menu]),

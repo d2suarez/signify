@@ -118,13 +118,23 @@ window.Desk = window.Desk || {};
 
   // ---------- making and editing a typed list ----------
 
+  const guest = () => !!(Desk.board && Desk.board.isGuest && Desk.board.isGuest());
+
   function manage() {
     return new Promise((resolve) => {
       const body = el('div.lists');
       const scrim = el('div.scrim', { onclick: (e) => { if (e.target === scrim) close(); } });
       const dialog = el('div.dialog.dialog--wide', { role: 'dialog', 'aria-modal': 'true' }, [
         el('h2.dialog-title', { text: 'Class lists' }),
-        el('p.dialog-note', { text: 'Classes from Signify ID are kept up to date for you. Lists you type here belong to you alone — for a club, a set, or a class that has not been imported yet.' }),
+        // A visitor is told where these names are going before they type one:
+        // this computer, in the open, for a while. An account is told what it
+        // always was.
+        guest()
+          ? el('p.dialog-note.guest-note', {}, [
+            el('strong', { text: 'Kept on this computer only. ' }),
+            document.createTextNode(`You are not logged in, so these lists stay in this browser, can be seen by anyone who uses this computer, and are cleared after ${Desk.localApi.EXPIRY_DAYS} days unused. A first name and an initial is plenty. Log in to keep them in your account.`),
+          ])
+          : el('p.dialog-note', { text: 'Classes from Signify ID are kept up to date for you. Lists you type here belong to you alone — for a club, a set, or a class that has not been imported yet.' }),
         body,
         el('div.dialog-actions', {}, [el('button.btn.btn--primary', { text: 'Done', onclick: () => close() })]),
       ]);

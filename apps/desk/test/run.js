@@ -26,6 +26,7 @@ const board = require('../server/board');
 const behaviour = require('../server/behaviour');
 const groups = require('../server/groups');
 const roster = require('../server/roster');
+const visitors = require('../server/visitors');
 const templates = require('../server/templates');
 const assets = require('../server/assets');
 
@@ -1140,6 +1141,120 @@ describe('a YouTube link', () => {
 });
 
 // ===================================================================
+describe('what a signed-out visitor may ask of the server', () => {
+  const req = (xff, remote = '10.0.0.1') => ({ headers: xff ? { 'x-forwarded-for': xff } : {}, socket: { remoteAddress: remote } });
+  const res = () => { const r = { code: 200 }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
+
+  it('gives a visitor enough for a lesson, then stops', () => {
+    visitors._reset();
+    const t = 1_000_000;
+    for (let i = 0; i < visitors.LIMIT; i += 1) equal(visitors.allow(req('1.2.3.4'), res(), 'weather', t), true);
+    const r = res();
+    equal(visitors.allow(req('1.2.3.4'), r, 'weather', t), false, 'one more is refused');
+    equal(r.code, 429);
+  });
+
+  it('starts again once the window has passed', () => {
+    visitors._reset();
+    const t = 2_000_000;
+    for (let i = 0; i <= visitors.LIMIT; i += 1) visitors.allow(req('5.6.7.8'), res(), 'video', t);
+    equal(visitors.allow(req('5.6.7.8'), res(), 'video', t + visitors.WINDOW_MS + 1), true);
+  });
+
+  it('keeps each lookup and each address on its own allowance', () => {
+    visitors._reset();
+    const t = 3_000_000;
+    for (let i = 0; i <= visitors.LIMIT; i += 1) visitors.allow(req('9.9.9.9'), res(), 'weather', t);
+    equal(visitors.allow(req('9.9.9.9'), res(), 'video', t), true, 'weather used up does not use up video');
+    equal(visitors.allow(req('8.8.8.8'), res(), 'weather', t), true, 'nor anybody else');
+  });
+
+  it('believes the address the proxy saw, not one the caller wrote', () => {
+    // A client can put anything at the front of X-Forwarded-For. The edge
+    // appends what it actually saw, so the last entry is the one to trust —
+    // otherwise a scraper gets a fresh allowance by inventing an address.
+    equal(visitors.addressOf(req('6.6.6.6, 203.0.113.9')), '203.0.113.9');
+    equal(visitors.addressOf(req('')), '10.0.0.1', 'and falls back to the socket');
+  });
+});
+
+// ===================================================================
+describe("a visitor's class lists, kept in the browser", () => {
+  const local = loadLocalApi();
+
+  it('answers in the same shapes as the server', async () => {
+    const store = local.make(memoryStorage());
+    const list = await store.api.createList('  4B   Maths ', ['Ava B.', { name: 'Leo F.' }, '', '  ']);
+    equal(list.name, '4B Maths');
+    equal(list.students.length, 2, 'blank names are dropped');
+    const { classes, signifyOk } = await store.api.classes();
+    equal(signifyOk, true);
+    equal(classes[0].key, `list:${list.id}`, 'keyed as list:<id>, like the server');
+    equal(classes[0].size, 2);
+    const members = await store.api.members(classes[0].key);
+    equal(members.students.map((x) => x.name).join(','), 'Ava B.,Leo F.');
+  });
+
+  it('keeps a pupil the same pupil when a name is corrected', async () => {
+    // Seats and groups are attached to the pupil's id, so fixing a spelling
+    // must not quietly unseat them.
+    const store = local.make(memoryStorage());
+    const list = await store.api.createList('7C', ['Jon S.']);
+    const id = list.students[0].id;
+    const after = await store.api.updateList(list.id, { students: [{ id, name: 'John S.' }] });
+    equal(after.students[0].id, id);
+    equal(after.students[0].name, 'John S.');
+  });
+
+  it('refuses a list that is not there, the way the server does', async () => {
+    const store = local.make(memoryStorage());
+    let status = 0;
+    try { await store.api.members('list:nope'); } catch (e) { status = e.status; }
+    equal(status, 404);
+  });
+
+  it('clears everything a visitor kept after thirty days unopened', async () => {
+    // On a shared classroom computer, a list of children's names should not
+    // outlive the teacher who typed it.
+    let now = 1_000_000_000;
+    const storage = memoryStorage();
+    const store = local.make(storage, () => now);
+    await store.api.createList('Year 3', ['Mia D.']);
+    storage.setItem('desk:guest-board:v4', '{}');
+    storage.setItem('desk:something-else', 'kept');
+
+    now += 29 * 24 * 3600 * 1000;
+    equal(store.expireIfStale(), false, 'twenty-nine days is fine');
+    now += 31 * 24 * 3600 * 1000;
+    equal(store.expireIfStale(), true, 'thirty-one days since last opened is not');
+    equal((await store.api.classes()).classes.length, 0, 'the lists are gone');
+    equal(storage.getItem('desk:guest-board:v4'), null, 'and so is the board');
+    equal(storage.getItem('desk:something-else'), 'kept', "but nothing that is not the visitor's");
+  });
+
+  it('counts opening the desk as using it', () => {
+    let now = 2_000_000_000;
+    const storage = memoryStorage();
+    const store = local.make(storage, () => now);
+    store.expireIfStale();                        // first visit, timers only
+    now += 20 * 24 * 3600 * 1000; store.expireIfStale();
+    now += 20 * 24 * 3600 * 1000;
+    equal(store.expireIfStale(), false, 'forty days old, but opened twenty days ago');
+  });
+
+  it('saves groups and rooms with the same limits as an account', async () => {
+    const store = local.make(memoryStorage());
+    let refusedEmpty = false;
+    try { await store.api.saveGrouping({ groups: [] }); } catch { refusedEmpty = true; }
+    equal(refusedEmpty, true);
+    const g = await store.api.saveGrouping({ classKey: 'list:x', groups: [{ label: 'A', members: [{ key: 's1', name: 'Ava' }] }] });
+    equal((await store.api.groupings('list:x')).groupings[0].id, g.id);
+    const room = await store.api.saveTemplate({ name: 'Room 12', desks: [{ shape: 'table', seats: 4, x: 3, y: 2 }, { shape: 'sofa' }] });
+    equal(room.desks.length, 1, 'an unknown desk shape is dropped');
+  });
+});
+
+// ===================================================================
 describe('the scoreboard', () => {
   const board = loadWidget('scoreboard');
 
@@ -1542,6 +1657,27 @@ function fakeDom() {
 }
 
 /** Runs public/js/util.js with a stub browser, and hands back its helpers. */
+/** local-api.js loaded on its own, with an in-memory stand-in for localStorage. */
+function loadLocalApi() {
+  const sandbox = { console, Date, Math, JSON, Promise };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'local-api.js'), 'utf8'), sandbox, { filename: 'local-api.js' });
+  return sandbox.Desk.localApi;
+}
+
+function memoryStorage() {
+  const m = new Map();
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => { m.set(k, String(v)); },
+    removeItem: (k) => { m.delete(k); },
+    key: (i) => [...m.keys()][i] || null,
+    get length() { return m.size; },
+    _map: m,
+  };
+}
+
 function loadUtil() {
   const sandbox = { console, setTimeout, clearTimeout, document: fakeDom() };
   sandbox.window = sandbox;

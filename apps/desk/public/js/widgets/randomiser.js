@@ -20,6 +20,7 @@
     blurb: 'Pick a pupil at random — with everyone getting a turn before anyone gets a second.',
     icon: 'randomiser',
     category: 'class',
+    guest: true,
     tone: 'block',
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },

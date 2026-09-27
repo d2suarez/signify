@@ -33,6 +33,7 @@
     blurb: 'A shape to breathe along with, for settling a class or one child who needs a minute.',
     icon: 'heart',
     category: 'calm',
+    guest: true,
     tone: 'block',
     fills: true,
     size: { w: 3, h: 4 },

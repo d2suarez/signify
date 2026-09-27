@@ -50,6 +50,7 @@
     blurb: 'Split the class into groups or pairs, keeping apart the ones who need to be.',
     icon: 'groups',
     category: 'class',
+    guest: true,
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },
     needsRoster: true,

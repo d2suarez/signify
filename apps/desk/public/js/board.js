@@ -48,7 +48,7 @@ window.Desk = window.Desk || {};
 
   // Versioned: a visitor who has only ever seen the first, jumbled guest
   // layout starts again on the tidy one rather than keeping the jumble.
-  const GUEST_KEY = 'desk:guest-board:v3';
+  const GUEST_KEY = 'desk:guest-board:v4';
 
   /** Whether this tool is locked for whoever is looking. */
   const locked = (def) => board.guest && def && !def.guest;
@@ -122,7 +122,7 @@ window.Desk = window.Desk || {};
       // a private window, storage switched off — the board still works for
       // as long as the tab is open, which is all a visitor was promised.
       dirty = false;
-      try { localStorage.setItem(GUEST_KEY, JSON.stringify({ items: board.items, prefs: board.prefs })); } catch { /* not kept */ }
+      try { (board.storage || localStorage).setItem(GUEST_KEY, JSON.stringify({ items: board.items, prefs: board.prefs })); } catch { /* not kept */ }
       return;
     }
     // Never two saves at once. The second would still be carrying the
@@ -720,10 +720,11 @@ window.Desk = window.Desk || {};
 
   // ---------- boot ----------
 
-  function init({ root, data, me, guest = false }) {
+  function init({ root, data, me, guest = false, storage = null }) {
     board.root = root;
     board.me = me;
     board.guest = guest;
+    board.storage = storage;
     board.rev = data.rev;
     board.prefs = data.prefs || null;
     board.items = (data.items || []).map((i) => ({ ...i, state: i.state || {} }))

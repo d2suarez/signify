@@ -42,6 +42,7 @@
     blurb: 'Ring at a time of day — assembly, pack away, the bus — on the days you choose.',
     icon: 'alarm',
     category: 'time',
+    guest: true,
     size: { w: 4, h: 4 },
     min: { w: 3, h: 4 },
 

@@ -74,6 +74,7 @@
     blurb: 'The clip that goes with the lesson, on the board — nothing loads until you press play.',
     icon: 'video',
     category: 'board',
+    guest: true,
     fills: true,
     size: { w: 5, h: 4 },
     min: { w: 3, h: 3 },

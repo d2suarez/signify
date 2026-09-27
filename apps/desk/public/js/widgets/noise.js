@@ -40,6 +40,7 @@
     blurb: 'How loud the room is, as a bar they can watch. Nothing is ever recorded.',
     icon: 'sound',
     category: 'calm',
+    guest: true,
     tone: 'block',
     role: 'p3',
     fills: true,

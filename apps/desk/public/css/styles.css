@@ -2294,3 +2294,21 @@ body.is-seating-drag { user-select: none; }
 .stage .group-title, .stage .group-title-text { font-size: clamp(1.2rem, 2vw, 2rem); font-weight: 800; }
 .stage .group-names li { font-size: clamp(1rem, 1.5vw, 1.6rem); font-weight: 600; line-height: 1.35; }
 .group-size { color: inherit; opacity: .75; }
+
+/* ---------------- telling a visitor where their things are ----------------
+   Polite and never hidden: a quiet pill in the header that is always there,
+   the fuller story one tap behind it, and a plain note where names are typed. */
+.guest-pill {
+  gap: .35rem; min-height: 38px; padding: .3rem .75rem;
+  background: color-mix(in srgb, var(--p3) 22%, var(--surface));
+  color: var(--ink); box-shadow: none; font-weight: 700; font-size: .85rem;
+}
+.guest-pill:hover { background: color-mix(in srgb, var(--p3) 34%, var(--surface)); }
+@media (max-width: 880px) { .guest-pill-label { display: none; } }
+.guest-info ul { margin: .4rem 0 .7rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+.guest-info p { margin: 0 0 .5rem; }
+.guest-forget { margin-top: .3rem; color: var(--p1); padding-left: 0; }
+.guest-note {
+  padding: .6rem .75rem; border-radius: var(--r);
+  background: color-mix(in srgb, var(--p3) 18%, var(--surface)); color: var(--ink);
+}
