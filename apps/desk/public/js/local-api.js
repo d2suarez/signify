@@ -24,6 +24,7 @@
     groupings: `${PREFIX}:groupings`,
     templates: `${PREFIX}:templates`,
     touched: `${PREFIX}:touched`,
+    seeded: `${PREFIX}:example-seeded`,
   };
   const EXPIRY_DAYS = 30;
   const DAY = 24 * 60 * 60 * 1000;
@@ -43,6 +44,32 @@
     const n = Math.round(Number(v));
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
   };
+  /*
+   * First names for the example class, drawn from the range of names in a
+   * real classroom. Each is given a random initial, the same "first name and
+   * initial" form the class-list editor suggests, so the example teaches the
+   * habit rather than contradicting it.
+   */
+  const EXAMPLE_FIRST = [
+    'Aaliyah', 'Aarav', 'Amara', 'Ava', 'Ben', 'Carlos', 'Chloe', 'Dev', 'Elif', 'Ella',
+    'Eva', 'Finn', 'Freya', 'Grace', 'Hana', 'Hugo', 'Ibrahim', 'Isla', 'Jack', 'Jonah',
+    'Kai', 'Keira', 'Leo', 'Lena', 'Luca', 'Maya', 'Mateo', 'Mia', 'Nia', 'Noah',
+    'Olu', 'Oscar', 'Priya', 'Rafi', 'Rosa', 'Ruby', 'Sam', 'Sofia', 'Tariq', 'Theo',
+    'Tom', 'Wei', 'Yara', 'Yusuf', 'Zara', 'Zoe',
+  ];
+  const INITIALS = 'ABCDEFGHJKLMNOPRSTVWY';   // the letters surnames actually start with
+
+  /** `count` different made-up names, shuffled; `random` is swappable for tests. */
+  function exampleNames(count = 20, random = Math.random) {
+    const pool = EXAMPLE_FIRST.slice();
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, Math.min(count, pool.length))
+      .map((first) => `${first} ${INITIALS[Math.floor(random() * INITIALS.length)]}.`);
+  }
+
   const newId = (prefix) => `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
   /** An error that looks like the server's, so callers handle both the same. */
@@ -139,6 +166,9 @@
         if (!list) throw refused(404, 'That list is not here.');
         if (patch.name != null) list.name = clean(patch.name, 60) || list.name;
         if (patch.students != null) list.students = normaliseStudents(patch.students, list.students);
+        // An example the visitor has made their own — renamed, or filled with
+        // their real class — is theirs now, and is offered for keeping.
+        delete list.example;
         list.updatedAt = clock();
         write(KEYS.lists, lists);
         return list;
@@ -246,16 +276,37 @@
       },
     };
 
+    /**
+     * The example class a visitor finds on their first visit, so the tools
+     * that work from a class list work the moment the page opens. Made once
+     * per desk: a visitor who deletes it has decided they do not want it, and
+     * it does not come back until the desk itself is cleared. Marked as an
+     * example so it is never offered for moving into an account.
+     */
+    function seedExample(names) {
+      if (storage.getItem(KEYS.seeded)) return null;
+      storage.setItem(KEYS.seeded, String(clock()));
+      if (read(KEYS.lists).length) return null;
+      const now = clock();
+      const list = {
+        id: newId('list'), name: 'Example class', example: true,
+        students: normaliseStudents(names), createdAt: now, updatedAt: now,
+      };
+      write(KEYS.lists, [list]);
+      return list;
+    }
+
     return {
       api,
+      seedExample,
       expireIfStale,
       clearAll,
       /** The class lists a visitor made, for moving into an account. */
-      lists: () => read(KEYS.lists),
+      lists: () => read(KEYS.lists).filter((l) => !l.example),
       forgetLists: () => { storage.removeItem(KEYS.lists); },
-      hasLists: () => read(KEYS.lists).some((l) => l.students.length),
+      hasLists: () => read(KEYS.lists).some((l) => !l.example && l.students.length),
     };
   }
 
-  Desk.localApi = { make, EXPIRY_DAYS, PREFIX };
+  Desk.localApi = { make, exampleNames, EXPIRY_DAYS, PREFIX };
 }(window.Desk = window.Desk || {}));

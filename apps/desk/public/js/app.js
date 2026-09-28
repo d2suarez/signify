@@ -109,6 +109,10 @@
     catch { storage = memoryStorage(); }
     const local = Desk.localApi.make(storage);
     const expired = local.expireIfStale();
+    // A made-up class of twenty, the first time this desk is opened, so the
+    // randomiser, groups and seating plan have somebody to work with before a
+    // visitor has typed a single name.
+    const example = local.seedExample(Desk.localApi.exampleNames(20));
     // From here on, the class lists, saved groups and saved rooms that the
     // tools ask for are answered from this browser instead of the server.
     Object.assign(Desk.api, local.api);
@@ -122,7 +126,9 @@
     const data = {
       rev: 0,
       prefs: (saved && saved.prefs) || null,
-      items: saved && Array.isArray(saved.items) && saved.items.length ? saved.items : guestStarter(),
+      items: saved && Array.isArray(saved.items) && saved.items.length
+        ? saved.items
+        : guestStarter(example ? `list:${example.id}` : ''),
     };
 
     Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
@@ -204,7 +210,10 @@
   ];
   const GUEST_W = 3;
 
-  function guestStarter() {
+  // The tools that work from a class list, and so start on the example one.
+  const CLASS_TOOLS = new Set(['randomiser', 'groups', 'seating', 'jobs']);
+
+  function guestStarter(exampleKey = '') {
     const items = [];
     let y = 0;
     for (const row of GUEST_ROWS) {
@@ -214,7 +223,8 @@
         // Never smaller than the tool can be drawn at, whatever the grid says.
         const w = Math.max(GUEST_W, def.min.w);
         const h = Math.max(row.h, def.min.h);
-        items.push({ id: `g_${type}`, type, state: {}, x: i * GUEST_W, y, w, h });
+        const state = exampleKey && CLASS_TOOLS.has(type) ? { classKey: exampleKey } : {};
+        items.push({ id: `g_${type}`, type, state, x: i * GUEST_W, y, w, h });
       });
       if (tools.length) y += Math.max(row.h, ...tools.map((t) => Desk.widgets.get(t).min.h));
     }

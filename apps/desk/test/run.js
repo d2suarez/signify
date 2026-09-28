@@ -1242,6 +1242,45 @@ describe("a visitor's class lists, kept in the browser", () => {
     equal(store.expireIfStale(), false, 'forty days old, but opened twenty days ago');
   });
 
+  it('makes an example class of twenty different made-up children', () => {
+    const names = local.exampleNames(20);
+    equal(names.length, 20);
+    equal(new Set(names.map((n) => n.split(' ')[0])).size, 20, 'no first name twice');
+    // First name and an initial — the form the class-list editor suggests,
+    // so the example teaches the habit instead of contradicting it.
+    equal(names.every((n) => /^[A-Z][a-z]+ [A-Z]\.$/.test(n)), true, names.join(', '));
+  });
+
+  it('gives a visitor the example once, and never offers it for their account', async () => {
+    const storage = memoryStorage();
+    const store = local.make(storage);
+    const first = store.seedExample(local.exampleNames(20));
+    equal(first.students.length, 20);
+    equal(store.seedExample(local.exampleNames(20)), null, 'not twice');
+
+    // Made-up names must not be offered for moving into a real account.
+    equal(store.lists().length, 0);
+    equal(store.hasLists(), false);
+
+    // Deleted, it stays deleted — the visitor decided they did not want it.
+    await store.api.deleteList(first.id);
+    equal(store.seedExample(local.exampleNames(20)), null);
+    equal((await store.api.classes()).classes.length, 0);
+  });
+
+  it('treats an example the visitor has made their own as theirs', async () => {
+    const store = local.make(memoryStorage());
+    const ex = store.seedExample(local.exampleNames(20));
+    await store.api.updateList(ex.id, { name: 'My 3B' });
+    equal(store.lists().length, 1, 'renamed, it is offered for keeping');
+  });
+
+  it('does not add an example to a desk that already has lists', async () => {
+    const store = local.make(memoryStorage());
+    await store.api.createList('Real class', ['Ada L.']);
+    equal(store.seedExample(local.exampleNames(20)), null);
+  });
+
   it('saves groups and rooms with the same limits as an account', async () => {
     const store = local.make(memoryStorage());
     let refusedEmpty = false;
