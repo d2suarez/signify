@@ -9,8 +9,18 @@
 // itself work by changing the endpoint.
 //
 // Shared, byte for byte, by every app that backs up off-site: the Whiteboard,
-// Teacher's Desk (server/offsite.js) and Classroom Atlas (server/offsite.js).
-// Change one, copy it to the others.
+// Teacher's Desk and Classroom Atlas (server/offsite.js) and Signify ID
+// (src/offsite.js). Change one, copy it to the others.
+//
+// Every archive is ENCRYPTED HERE, before it leaves Railway (AES-256-GCM,
+// BACKUP_ENCRYPTION_KEY, 64 hex characters from `openssl rand -hex 32`). The
+// storage company holds bytes it cannot read, and the key lives only in this
+// service and in the operator's password manager. With no valid key, nothing
+// is sent at all: an unencrypted copy is not a fallback, it is a leak.
+//
+// To open one:
+//   read -rs BACKUP_ENCRYPTION_KEY && export BACKUP_ENCRYPTION_KEY
+//   node offsite.js decrypt backup-2026-09-28.tar.gz.enc backup-2026-09-28.tar.gz
 //
 // Two things about the choice, because they are the whole reason it is this
 // and not Google Drive:
@@ -49,6 +59,39 @@ function configure({ prefix } = {}) {
 }
 
 const enabled = () => !!(ENDPOINT && BUCKET && KEY_ID && SECRET);
+
+// ---------- encryption ----------
+// Format: MAGIC (16 bytes) | IV (12) | ciphertext | GCM tag (16). The tag
+// means a wrong key or a single altered byte fails loudly instead of
+// producing a subtly broken archive.
+const MAGIC = Buffer.from('SIGNIFY-BACKUP-1');
+const keyFrom = (hex) => (/^[0-9a-f]{64}$/i.test(String(hex || '').trim()) ? Buffer.from(String(hex).trim(), 'hex') : null);
+const RAW_KEY = process.env.BACKUP_ENCRYPTION_KEY || '';
+const ENC_KEY = keyFrom(RAW_KEY);
+const encrypted = () => !!ENC_KEY;
+
+function encrypt(plain, key = ENC_KEY) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([MAGIC, iv, body, cipher.getAuthTag()]);
+}
+
+function decrypt(blob, key = ENC_KEY) {
+  if (!key) throw new Error('No decryption key: set BACKUP_ENCRYPTION_KEY to the 64 hex characters saved for this app.');
+  if (blob.length < MAGIC.length + 28 || !blob.subarray(0, MAGIC.length).equals(MAGIC)) {
+    throw new Error('Not a Signify backup: the file does not start with the expected header.');
+  }
+  const iv = blob.subarray(MAGIC.length, MAGIC.length + 12);
+  const tag = blob.subarray(blob.length - 16);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  try {
+    return Buffer.concat([decipher.update(blob.subarray(MAGIC.length + 12, blob.length - 16)), decipher.final()]);
+  } catch {
+    throw new Error('Could not decrypt: wrong key for this app, or the file has been altered.');
+  }
+}
 
 const sha256hex = (data) => crypto.createHash('sha256').update(data).digest('hex');
 const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest();
@@ -132,13 +175,18 @@ function send({ method, key = '', query = {}, body = null, contentType }) {
   });
 }
 
-/** Puts one backup archive in the bucket. */
+/** Encrypts one backup archive and puts it in the bucket, as <name>.enc. */
 async function upload(filePath, name) {
+  if (!ENC_KEY) {
+    throw new Error(RAW_KEY
+      ? 'BACKUP_ENCRYPTION_KEY is not 64 hex characters, so nothing was sent. Generate one with `openssl rand -hex 32`.'
+      : 'BACKUP_ENCRYPTION_KEY is not set, so nothing was sent. Backups only leave this service encrypted.');
+  }
   await send({
     method: 'PUT',
-    key: `${PREFIX}${name}`,
-    body: fs.readFileSync(filePath),
-    contentType: 'application/gzip',
+    key: `${PREFIX}${name}.enc`,
+    body: encrypt(fs.readFileSync(filePath)),
+    contentType: 'application/octet-stream',
   });
 }
 
@@ -166,10 +214,14 @@ async function prune(keep, { maxAgeDays = null, now = Date.now() } = {}) {
     .filter((k) => k.includes('backup-'))
     .sort();
 
-  const doomed = new Set(names.slice(0, Math.max(0, names.length - Math.max(1, keep))));
+  // Once archives are encrypted, any unencrypted one left from before goes
+  // at the first opportunity — whatever the count or its age.
+  const doomed = new Set(ENC_KEY ? names.filter((k) => !k.endsWith('.enc')) : []);
+  const kept = ENC_KEY ? names.filter((k) => k.endsWith('.enc')) : names;
+  for (const k of kept.slice(0, Math.max(0, kept.length - Math.max(1, keep)))) doomed.add(k);
   if (maxAgeDays) {
     const cutoff = new Date(now - maxAgeDays * 864e5).toISOString().slice(0, 10);
-    for (const key of names.slice(0, -1)) {
+    for (const key of kept.slice(0, -1)) {
       const m = /backup-(\d{4}-\d{2}-\d{2})/.exec(key);
       if (m && m[1] < cutoff) doomed.add(key);
     }
@@ -181,6 +233,24 @@ async function prune(keep, { maxAgeDays = null, now = Date.now() } = {}) {
 }
 
 /** A short description for the boot log, so it is obvious what is on. */
-const describe = () => `${ENDPOINT.replace(/^https:\/\//, '')}/${BUCKET}/${PREFIX}`;
+const describe = () => `${ENDPOINT.replace(/^https:\/\//, '')}/${BUCKET}/${PREFIX}` +
+  (ENC_KEY ? ' (encrypted)' : ' — NOT SENDING: BACKUP_ENCRYPTION_KEY is missing or malformed');
 
-module.exports = { enabled, configure, upload, prune, describe, _send: send };
+const prefix = () => PREFIX;
+
+module.exports = { enabled, encrypted, configure, prefix, upload, prune, describe, encrypt, decrypt, keyFrom, _send: send };
+
+// ---------- opening a backup by hand ----------
+if (require.main === module) {
+  const [cmd, input, output] = process.argv.slice(2);
+  if (cmd !== 'decrypt' || !input) {
+    console.error('Usage: node offsite.js decrypt <backup.tar.gz.enc> [output]   (key in BACKUP_ENCRYPTION_KEY)');
+    process.exit(2);
+  }
+  try {
+    const out = output || input.replace(/\.enc$/, '');
+    if (out === input) throw new Error('Name an output file.');
+    fs.writeFileSync(out, decrypt(fs.readFileSync(input)));
+    console.log(`Decrypted to ${out}`);
+  } catch (e) { console.error(e.message); process.exit(1); }
+}

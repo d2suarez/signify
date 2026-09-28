@@ -48,7 +48,7 @@ function makeDataDir() {
 const listing = (file) => execFileSync('tar', ['-tzf', file]).toString().split('\n').filter(Boolean);
 
 (async () => {
-  for (const k of ['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_PREFIX']) delete process.env[k];
+  for (const k of ['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_PREFIX', 'BACKUP_ENCRYPTION_KEY']) delete process.env[k];
 
   // ---------------- without R2 ----------------
   console.log('\nOn the volume only');
@@ -119,42 +119,69 @@ const listing = (file) => execFileSync('tar', ['-tzf', file]).toString().split('
     R2_SECRET_ACCESS_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
   });
 
+  console.log('\nWith a bucket but no encryption key');
+  {
+    const dataDir = makeDataDir();
+    const b = load()({ dataDir, prefix: 'desk/', keepLocal: 3, now: at(0), log: quiet });
+    const r = await b.run();
+    await check('nothing at all is sent without a key', () => assert.strictEqual(objects.size, 0));
+    await check('the run says why, rather than failing quietly', () =>
+      assert.ok(!r.ok && /BACKUP_ENCRYPTION_KEY/.test(r.error)));
+    await check('and the archive is still kept on the volume', () => assert.strictEqual(b.localNames().length, 1));
+    process.env.BACKUP_ENCRYPTION_KEY = 'not-hex-and-too-short';
+    const r2 = await load()({ dataDir, prefix: 'desk/', now: at(1), log: quiet }).run();
+    await check('a malformed key is refused just the same', () =>
+      assert.ok(!r2.ok && /64 hex/.test(r2.error) && objects.size === 0));
+  }
+
+  process.env.BACKUP_ENCRYPTION_KEY = require('crypto').randomBytes(32).toString('hex');
+
   console.log('\nMirrored to a bucket');
   {
     const dataDir = makeDataDir();
     // Two weeks of this app's history, plus another app sharing the bucket.
-    for (let n = 0; n < 14; n += 1) objects.set(`desk/backup-${iso(n)}.tar.gz`, Buffer.from('old'));
-    objects.set(`atlas/backup-${iso(0)}.tar.gz`, Buffer.from('someone else'));
+    for (let n = 0; n < 14; n += 1) objects.set(`desk/backup-${iso(n)}.tar.gz.enc`, Buffer.from('old'));
+    objects.set(`atlas/backup-${iso(0)}.tar.gz.enc`, Buffer.from('someone else'));
 
     const b = load()({ dataDir, prefix: 'desk/', keep: 7, maxAgeDays: 7, now: at(20), log: quiet });
     const r = await b.run();
-    await check('the archive is uploaded under this app’s folder', () =>
-      assert.ok(r.ok && r.offsite && objects.has(`desk/backup-${iso(20)}.tar.gz`)));
-    await check('and is the real archive, not a placeholder', () =>
-      assert.ok(objects.get(`desk/backup-${iso(20)}.tar.gz`).length > 100));
+    const sent = objects.get(`desk/backup-${iso(20)}.tar.gz.enc`);
+    await check('the archive is uploaded, encrypted, under this app’s folder', () =>
+      assert.ok(r.ok && r.offsite && sent));
+    await check('what the bucket holds is not readable as an archive', () =>
+      assert.ok(sent[0] !== 0x1f && !sent.includes(Buffer.from('store.json'))));
+    const opened = path.join(dataDir, 'opened.tar.gz');
+    fs.writeFileSync(opened, require(path.join(SERVER, 'offsite')).decrypt(sent));
+    await check('and the key opens it back into the real archive', () =>
+      assert.ok(listing(opened).includes('./store.json') && listing(opened).includes('./uploads/a.png')));
+    fs.rmSync(opened);
 
     const desk = [...objects.keys()].filter((k) => k.startsWith('desk/')).sort();
     await check('anything older than seven days is removed from the bucket', () =>
-      assert.deepStrictEqual(desk, [13, 20].map((n) => `desk/backup-${iso(n)}.tar.gz`)));
+      assert.deepStrictEqual(desk, [13, 20].map((n) => `desk/backup-${iso(n)}.tar.gz.enc`)));
     await check('another app’s folder is never touched', () =>
-      assert.ok(objects.has(`atlas/backup-${iso(0)}.tar.gz`)));
+      assert.ok(objects.has(`atlas/backup-${iso(0)}.tar.gz.enc`)));
     await check('the volume keeps a single copy once the bucket has it', () =>
       assert.deepStrictEqual(b.localNames(), [`backup-${iso(20)}.tar.gz`]));
 
     // A holiday: nothing for months, then the app wakes up.
     objects.clear();
-    objects.set(`desk/backup-${iso(0)}.tar.gz`, Buffer.from('only copy'));
+    objects.set(`desk/backup-${iso(0)}.tar.gz.enc`, Buffer.from('only copy'));
     const offsite = require(path.join(SERVER, 'offsite'));
     await offsite.prune(7, { maxAgeDays: 7, now: T0 + 200 * DAY });
     await check('the newest copy is never removed on age alone', () =>
-      assert.ok(objects.has(`desk/backup-${iso(0)}.tar.gz`)));
+      assert.ok(objects.has(`desk/backup-${iso(0)}.tar.gz.enc`)));
 
     const counted = load()({ dataDir, prefix: 'atlas/', keep: 3, now: at(40), log: quiet });
-    for (let n = 30; n < 40; n += 1) objects.set(`atlas/backup-${iso(n)}.tar.gz`, Buffer.from('x'));
+    for (let n = 30; n < 40; n += 1) objects.set(`atlas/backup-${iso(n)}.tar.gz.enc`, Buffer.from('x'));
+    // An unencrypted copy from before encryption existed.
+    objects.set(`atlas/backup-${iso(39)}.tar.gz`, Buffer.from('plain'));
     await counted.run();
     await check('without an age limit, the newest `keep` copies stay', () =>
       assert.deepStrictEqual([...objects.keys()].filter((k) => k.startsWith('atlas/')).sort(),
-        [38, 39, 40].map((n) => `atlas/backup-${iso(n)}.tar.gz`)));
+        [38, 39, 40].map((n) => `atlas/backup-${iso(n)}.tar.gz.enc`)));
+    await check('and an old unencrypted copy is cleared away with the rest', () =>
+      assert.ok(!objects.has(`atlas/backup-${iso(39)}.tar.gz`)));
 
     failPuts = true;
     for (const n of [41, 42]) await load()({ dataDir, prefix: 'desk/', keepLocal: 3, now: at(n), log: quiet }).run();

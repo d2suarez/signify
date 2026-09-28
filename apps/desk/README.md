@@ -875,11 +875,13 @@ directory, and the grid packing is loaded into a stub of just enough browser.
    | `R2_ACCOUNT_ID`, `R2_BUCKET` | Off-site backups: the account and a bucket for this app alone (`signify-desk-backups`). |
    | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | An R2 token with **Object Read & Write** on that one bucket. |
    | `BACKUP_DAYS` | Optional; 7 by default. How long any backup is kept, here and off-site. |
+   | `BACKUP_ENCRYPTION_KEY` | `openssl rand -hex 32`. Backups are encrypted with it before they leave Railway, and nothing is sent until it is set. Keep a copy in the password manager — without it the backups cannot be opened. |
 
    Backups run daily and a minute after each start: the data directory is
    packed into `backups/backup-YYYY-MM-DD.tar.gz`, copied to R2 under `desk/`
-   when it is configured, and the volume then keeps one copy. To restore, stop
-   the service and unpack an archive over `/var/data`. The code is
+   when it is configured (encrypted, as `.tar.gz.enc`), and the volume then
+   keeps one copy. To restore, decrypt it with `node server/offsite.js decrypt
+   <file>.enc`, stop the service and unpack the archive over `/var/data`. The code is
    `server/backup.js` and `server/offsite.js`, shared byte for byte with
    Classroom Atlas; `test/backup.js` runs them against a stand-in bucket.
 

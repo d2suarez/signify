@@ -53,6 +53,7 @@ export default defineRailway(() => {
       R2_ACCESS_KEY_ID: preserve(),
       R2_SECRET_ACCESS_KEY: preserve(),
       BACKUP_DAYS: preserve(),
+      BACKUP_ENCRYPTION_KEY: preserve(),
     },
   });
 
