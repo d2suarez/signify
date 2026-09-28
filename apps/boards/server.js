@@ -3381,7 +3381,7 @@ setInterval(runBackup, 24 * 60 * 60 * 1000);
 // mirror every daily backup off the Railway volume to Cloudflare R2. Unset =
 // local-only backups, exactly as before. See offsite.js for why it is a
 // bucket-scoped key and not a Google account.
-const offsite = require('./offsite');
+const offsite = require('./offsite').configure({ prefix: 'whiteboard/' });
 const OFFSITE_KEEP = Number(process.env.R2_KEEP) || 30;   // daily copies to retain off-site
 if (offsite.enabled()) console.log('Off-site backups:', offsite.describe());
 

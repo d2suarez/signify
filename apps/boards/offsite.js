@@ -8,6 +8,10 @@
 // Cloudflare R2 by default, but this speaks plain S3, so Backblaze B2 or S3
 // itself work by changing the endpoint.
 //
+// Shared, byte for byte, by every app that backs up off-site: the Whiteboard,
+// Teacher's Desk (server/offsite.js) and Classroom Atlas (server/offsite.js).
+// Change one, copy it to the others.
+//
 // Two things about the choice, because they are the whole reason it is this
 // and not Google Drive:
 //
@@ -34,7 +38,15 @@ const SECRET = process.env.R2_SECRET_ACCESS_KEY || '';
 const ENDPOINT = (process.env.R2_ENDPOINT || (ACCOUNT ? `https://${ACCOUNT}.r2.cloudflarestorage.com` : '')).replace(/\/+$/, '');
 // R2 has no regions; 'auto' is what it expects in the signature.
 const REGION = process.env.R2_REGION || 'auto';
-const PREFIX = process.env.R2_PREFIX || 'whiteboard/';
+// The folder inside the bucket. Each app names its own with configure(), so
+// two apps pointed at one bucket can never prune each other's archives; the
+// environment variable, if set, still wins.
+let PREFIX = process.env.R2_PREFIX || 'backups/';
+
+function configure({ prefix } = {}) {
+  if (prefix && !process.env.R2_PREFIX) PREFIX = String(prefix).replace(/\/*$/, '/');
+  return module.exports;
+}
 
 const enabled = () => !!(ENDPOINT && BUCKET && KEY_ID && SECRET);
 
@@ -131,13 +143,20 @@ async function upload(filePath, name) {
 }
 
 /**
- * Drops the oldest archives so only `keep` remain.
+ * Drops the oldest archives so only `keep` remain — and, given maxAgeDays,
+ * any dated earlier than that many days ago as well.
+ *
+ * The age limit is for data that has been promised a deletion date. Counting
+ * copies alone is not enough for that: these apps sleep when nobody is using
+ * them, so seven copies can stretch across a whole summer holiday. The newest
+ * archive is never removed on age alone, so a long quiet spell ends with one
+ * good copy rather than none.
  *
  * Sorted by name rather than by the storage's own timestamps: the names are
  * `backup-YYYY-MM-DD.tar.gz`, which sort chronologically as plain strings and
  * do not care what any clock thinks.
  */
-async function prune(keep) {
+async function prune(keep, { maxAgeDays = null, now = Date.now() } = {}) {
   const res = await send({
     method: 'GET',
     query: { 'list-type': '2', prefix: PREFIX, 'max-keys': '1000' },
@@ -147,14 +166,21 @@ async function prune(keep) {
     .filter((k) => k.includes('backup-'))
     .sort();
 
-  const doomed = names.slice(0, Math.max(0, names.length - keep));
+  const doomed = new Set(names.slice(0, Math.max(0, names.length - Math.max(1, keep))));
+  if (maxAgeDays) {
+    const cutoff = new Date(now - maxAgeDays * 864e5).toISOString().slice(0, 10);
+    for (const key of names.slice(0, -1)) {
+      const m = /backup-(\d{4}-\d{2}-\d{2})/.exec(key);
+      if (m && m[1] < cutoff) doomed.add(key);
+    }
+  }
   // The listing gives full keys, prefix included, and send() puts whatever it
   // is given straight after the bucket — so they go back exactly as they came.
   for (const key of doomed) await send({ method: 'DELETE', key });
-  return doomed.length;
+  return doomed.size;
 }
 
 /** A short description for the boot log, so it is obvious what is on. */
 const describe = () => `${ENDPOINT.replace(/^https:\/\//, '')}/${BUCKET}/${PREFIX}`;
 
-module.exports = { enabled, upload, prune, describe, _send: send };
+module.exports = { enabled, configure, upload, prune, describe, _send: send };
