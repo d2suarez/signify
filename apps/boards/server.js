@@ -3355,7 +3355,7 @@ function runBackup() {
             // If the upload fails, keep the full local set instead — a failed
             // mirror must never leave FEWER copies than having no mirror.
             offsite.upload(finalPath, name)
-              .then(() => offsite.prune(OFFSITE_KEEP))
+              .then(() => offsite.prune(OFFSITE_KEEP, { maxAgeDays: OFFSITE_MAX_AGE_DAYS }))
               .then(() => { pruneBackups(1); console.log('Backup mirrored off-site:', name); })
               .catch((e) => { console.error('Off-site backup failed (kept local copies):', e.message); pruneBackups(BACKUP_KEEP); });
           } else {
@@ -3382,7 +3382,12 @@ setInterval(runBackup, 24 * 60 * 60 * 1000);
 // local-only backups, exactly as before. See offsite.js for why it is a
 // bucket-scoped key and not a Google account.
 const offsite = require('./offsite').configure({ prefix: 'whiteboard/' });
-const OFFSITE_KEEP = Number(process.env.R2_KEEP) || 30;   // daily copies to retain off-site
+const OFFSITE_KEEP = Number(process.env.R2_KEEP) || 28;   // daily copies to retain off-site
+// By date as well as count. The privacy policy promises deleted records leave
+// backups within 30 days; this app sleeps when idle, so a count alone could
+// keep a copy for months. The bucket's own lifecycle rule (28 days) enforces
+// it even while the app sleeps; this is the same rule applied from here.
+const OFFSITE_MAX_AGE_DAYS = 28;
 if (offsite.enabled()) console.log('Off-site backups:', offsite.describe());
 
 // Build the board & template indexes and seed starter templates at startup

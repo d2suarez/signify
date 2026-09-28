@@ -70,9 +70,13 @@ server.listen(0, async () => {
   process.env.R2_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
   process.env.R2_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
   process.env.R2_PREFIX = 'whiteboard/';
+  // A throwaway key, generated here, so the test never depends on a real one.
+  const testKey = crypto.randomBytes(32).toString('hex');
+  process.env.BACKUP_ENCRYPTION_KEY = testKey;
   const offsite = require('../offsite');
 
   check('it is switched on once the four variables are set', () => assert.ok(offsite.enabled()));
+  check('and encrypting once the key is set', () => assert.ok(offsite.encrypted()));
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-offsite-'));
   const file = path.join(tmp, 'backup-2026-09-08.tar.gz');
@@ -85,16 +89,25 @@ server.listen(0, async () => {
       await offsite.upload(file, name);
     }
 
-    check('every backup lands under the prefix', () =>
-      assert.ok([...objects.keys()].every((k) => k.startsWith('/test-bucket/whiteboard/backup-')), [...objects.keys()].join()));
+    check('every backup lands under the prefix, marked encrypted', () =>
+      assert.ok([...objects.keys()].every((k) => k.startsWith('/test-bucket/whiteboard/backup-') && k.endsWith('.tar.gz.enc')), [...objects.keys()].join()));
     check('all eight are there', () => assert.strictEqual(objects.size, 8));
-    check('the bytes arrive intact', () =>
-      assert.strictEqual(objects.get('/test-bucket/whiteboard/backup-2026-09-01.tar.gz').toString(), 'pretend this is a tarball'));
+    const stored = objects.get('/test-bucket/whiteboard/backup-2026-09-01.tar.gz.enc');
+    check('what the storage company receives is not the archive', () =>
+      assert.ok(!stored.includes(Buffer.from('pretend this is a tarball'))));
+    check('and decrypts back to it exactly', () =>
+      assert.strictEqual(offsite.decrypt(stored).toString(), 'pretend this is a tarball'));
+    check('the wrong key is refused rather than producing rubbish', () =>
+      assert.throws(() => offsite.decrypt(stored, crypto.randomBytes(32)), /wrong key|altered/));
+    const flipped = Buffer.from(stored); flipped[40] ^= 1;
+    check('so is a single altered byte', () => assert.throws(() => offsite.decrypt(flipped), /wrong key|altered/));
 
     const put = seen.find((r) => r.method === 'PUT');
     check('the request is signed', () => assert.match(put.auth, /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/auto\/s3\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[0-9a-f]{64}$/));
     check('the payload hash is sent, not UNSIGNED-PAYLOAD', () =>
-      assert.strictEqual(put.headers['x-amz-content-sha256'], crypto.createHash('sha256').update('pretend this is a tarball').digest('hex')));
+      assert.strictEqual(put.headers['x-amz-content-sha256'], crypto.createHash('sha256').update(stored).digest('hex')));
+    check('neither the key nor the secret ever goes over the wire', () =>
+      assert.ok(!JSON.stringify(seen).includes(testKey) && ![...objects.values()].some((b) => b.includes(Buffer.from(testKey)))));
     check('the secret itself never goes over the wire', () =>
       assert.ok(!JSON.stringify(seen).includes('wJalrXUtnFEMI')));
 
@@ -103,10 +116,16 @@ server.listen(0, async () => {
     check('pruning removes exactly the surplus', () => assert.strictEqual(dropped, 5));
     check('and the three NEWEST are what survive', () => assert.deepStrictEqual(
       [...objects.keys()].map((k) => k.split('/').pop()).sort(),
-      ['backup-2026-09-06.tar.gz', 'backup-2026-09-07.tar.gz', 'backup-2026-09-08.tar.gz']));
+      ['backup-2026-09-06.tar.gz.enc', 'backup-2026-09-07.tar.gz.enc', 'backup-2026-09-08.tar.gz.enc']));
 
     const second = await offsite.prune(3);
     check('nothing is deleted when there is nothing surplus', () => assert.strictEqual(second, 0));
+
+    // The one unencrypted copy that reached R2 before encryption existed.
+    objects.set('/test-bucket/whiteboard/backup-2026-09-08.tar.gz', Buffer.from('plain'));
+    await offsite.prune(3);
+    check('an unencrypted copy left from before is removed on the next prune', () =>
+      assert.ok(!objects.has('/test-bucket/whiteboard/backup-2026-09-08.tar.gz') && objects.size === 3));
   } catch (e) {
     console.error('  FAIL  round trip:', e.message);
     process.exitCode = 1;

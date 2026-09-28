@@ -158,7 +158,7 @@ compressed and so barely shrink again.
 
 The volume itself is the weak point: one disk in one region, and a backup that
 lives on the disk it is protecting is not really a backup. So there is an
-**optional off-site mirror**, dormant until four environment variables are
+**optional off-site mirror**, dormant until five environment variables are
 set:
 
 | Variable | What it is |
@@ -167,7 +167,8 @@ set:
 | `R2_BUCKET` | The bucket name |
 | `R2_ACCESS_KEY_ID` | An R2 API token's access key |
 | `R2_SECRET_ACCESS_KEY` | Its secret |
-| `R2_KEEP` | Daily copies to keep off-site (default 30) |
+| `BACKUP_ENCRYPTION_KEY` | `openssl rand -hex 32`. Archives are encrypted with it before they leave Railway, and **nothing is sent until it is set**. Keep a copy in the password manager — without it the backups cannot be opened. |
+| `R2_KEEP` | Daily copies to keep off-site (default 28). Copies older than 28 days go regardless — the privacy policy promises deleted records leave backups within 30 days — and the bucket has a matching lifecycle rule. |
 | `R2_PREFIX` | Key prefix in the bucket (default `whiteboard/`) |
 | `R2_ENDPOINT` / `R2_REGION` | Only to point at B2, S3 or MinIO instead |
 
