@@ -23,11 +23,25 @@ const video = require('./server/video');
 const inventory = require('./server/inventory');
 const weather = require('./server/weather');
 const visitors = require('./server/visitors');
+const createBackups = require('./server/backup');
 
 const PORT = process.env.PORT || 8770;
 const CANONICAL_HOST = process.env.CANONICAL_HOST || '';
 
 store.load();
+
+// Daily backups of the whole data directory, mirrored to R2 once the four
+// R2_* variables are set (see server/backup.js). Kept for BACKUP_DAYS by AGE,
+// not by count: behaviour notes carry a deletion date the page promises, and
+// a backup must not quietly outlive it by more than this. Seven days means a
+// note is gone from every copy about a week after it is deleted here.
+const BACKUP_DAYS = Math.max(1, Math.min(90, Number(process.env.BACKUP_DAYS) || 7));
+const backups = createBackups({
+  dataDir: store.DATA_DIR,
+  prefix: 'desk/',
+  keep: BACKUP_DAYS,
+  maxAgeDays: BACKUP_DAYS,
+});
 
 const app = express();
 app.disable('x-powered-by');
@@ -152,6 +166,7 @@ app.get('/api/config', (req, res) => ok(res, {
   signOutUrl: '/auth/logout',
   identityUrl: signify.ISSUER || '',
   behaviourRetentionDays: behaviour.RETENTION_DAYS,
+  backupDays: BACKUP_DAYS,
   columns: board.COLUMNS,
 }));
 
@@ -264,7 +279,7 @@ app.get('/api/behaviour', (req, res) => {
   const u = auth.requireBehaviour(req, res); if (!u) return;
   const key = String(req.query.classKey || '');
   if (!key) return bad(res, 400, 'Which class?');
-  ok(res, behaviour.forClass(u, key, req.query.since));
+  ok(res, { ...behaviour.forClass(u, key, req.query.since), backupDays: BACKUP_DAYS });
 });
 
 app.post('/api/behaviour', (req, res) => {
@@ -424,12 +439,14 @@ app.use((req, res) => {
 // ---------------- boot ----------------
 
 behaviour.startSweeping();
+backups.start();
 
 const server = app.listen(PORT, () => {
   console.log(`Teacher's Desk on http://localhost:${PORT}`);
   console.log(`  sign-in:   ${auth.ENABLED ? signify.ISSUER : auth.DEV ? 'development user' : 'NOT CONFIGURED'}`);
   console.log(`  store:     ${store.FILE}`);
   console.log(`  retention: behaviour notes for ${behaviour.RETENTION_DAYS} days`);
+  console.log(`  backups:   daily, kept ${BACKUP_DAYS} days${require('./server/offsite').enabled() ? ', mirrored to R2' : ' on the volume only (R2 not configured)'}`);
 });
 
 function shutdown(signal) {

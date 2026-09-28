@@ -46,6 +46,13 @@ export default defineRailway(() => {
       SIGNIFY_CLIENT_SECRET: preserve(),
       SIGNIFY_REDIRECT_URI: preserve(),
       SIGNIFY_COOKIE_SECRET: preserve(),
+      // Off-site backups (server/backup.js). Set by hand in Railway; listed
+      // here only so an apply never takes them away. BACKUP_DAYS is optional.
+      R2_ACCOUNT_ID: preserve(),
+      R2_BUCKET: preserve(),
+      R2_ACCESS_KEY_ID: preserve(),
+      R2_SECRET_ACCESS_KEY: preserve(),
+      BACKUP_DAYS: preserve(),
     },
   });
 

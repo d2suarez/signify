@@ -814,7 +814,9 @@ These are records about named children, so:
   `core:export_student_data` in Signify ID, which is audited; a quiet back
   door here would not be.
 - **Everything expires.** `BEHAVIOUR_RETENTION_DAYS` defaults to 90 and the
-  window is printed on the widget, not buried in a policy page. A running
+  window is printed on the widget, not buried in a policy page. Backups keep a
+  copy for `BACKUP_DAYS` more (7 by default), pruned by age rather than by
+  count so a quiet holiday cannot stretch that — and the widget says so. A running
   tally for this half term is what a teacher uses; a permanent file on an
   eight-year-old is not.
 - **Positive chips come first, and there are more of them.** The tool should
@@ -870,6 +872,16 @@ directory, and the grid packing is loaded into a stub of just enough browser.
    | `DATA_DIR` | `/var/data` |
    | `CANONICAL_HOST` | `desk.signify.one` |
    | `BEHAVIOUR_RETENTION_DAYS` | Optional; 90 by default. |
+   | `R2_ACCOUNT_ID`, `R2_BUCKET` | Off-site backups: the account and a bucket for this app alone (`signify-desk-backups`). |
+   | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | An R2 token with **Object Read & Write** on that one bucket. |
+   | `BACKUP_DAYS` | Optional; 7 by default. How long any backup is kept, here and off-site. |
+
+   Backups run daily and a minute after each start: the data directory is
+   packed into `backups/backup-YYYY-MM-DD.tar.gz`, copied to R2 under `desk/`
+   when it is configured, and the volume then keeps one copy. To restore, stop
+   the service and unpack an archive over `/var/data`. The code is
+   `server/backup.js` and `server/offsite.js`, shared byte for byte with
+   Classroom Atlas; `test/backup.js` runs them against a stand-in bucket.
 
    `.railway/railway.ts` describes all of this as code — `railway config apply`
    reconciles the project, so anything missing from that file is taken *off*

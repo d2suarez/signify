@@ -53,7 +53,12 @@
     mount(ctx) {
       const s = ctx.state;
       let students = [];
-      let data = { entries: [], totals: {}, retentionDays: null };
+      let data = { entries: [], totals: {}, retentionDays: null, backupDays: null };
+      // Backups keep a copy for a few days more; saying so keeps the promise
+      // this widget makes true rather than nearly true.
+      const afterBackups = (d) => (d.backupDays
+        ? `, and from backups ${d.backupDays === 7 ? 'a week' : `${d.backupDays} day${d.backupDays === 1 ? '' : 's'}`} after that`
+        : '');
       let reasons = [];
       let openFor = null;
 
@@ -194,7 +199,7 @@
         }
         const yes = await Desk.ask({
           title: student.name,
-          body: el('div', {}, [seg, input, el('p.dialog-note', { text: `Only you can read this. It is deleted after ${data.retentionDays || 90} days.` })]),
+          body: el('div', {}, [seg, input, el('p.dialog-note', { text: `Only you can read this. It is deleted after ${data.retentionDays || 90} days${afterBackups(data)}.` })]),
           confirmLabel: 'Record',
         });
         if (!yes) return;
@@ -243,7 +248,7 @@
         }
         foot.append(el('p.hint.beh-privacy', {
           svg: icon('lock', 13),
-        }, ` Only you can see these. They are deleted after ${data.retentionDays || 90} days.`));
+        }, ` Only you can see these. They are deleted after ${data.retentionDays || 90} days${afterBackups(data)}.`));
       }
 
       function drawLog() {

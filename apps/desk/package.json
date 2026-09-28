@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "DESK_DEV_USER=1 PORT=8770 node server.js",
-    "test": "node test/run.js"
+    "test": "node test/run.js && node test/backup.js"
   },
   "engines": { "node": ">=18" },
   "dependencies": {
