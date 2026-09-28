@@ -1924,6 +1924,142 @@ function section(title) { console.log(`\n${title}`); }
       rbac.ADMIN_PERMISSIONS.has('core:triage_reports'));
   }
 
+  section('Off-site database backups');
+  {
+    const http = require('http');
+    const audit = require('../src/audit');
+
+    // A stand-in bucket on localhost that honours ?prefix= the way R2 does.
+    const objects = new Map();
+    const bucket = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      const key = decodeURIComponent(url.pathname.replace(/^\/id-bucket\/?/, ''));
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        if (req.method === 'PUT') { objects.set(key, Buffer.concat(chunks)); res.writeHead(200).end(); return; }
+        if (req.method === 'DELETE') { objects.delete(key); res.writeHead(204).end(); return; }
+        if (req.method === 'GET') {
+          const prefix = url.searchParams.get('prefix') || '';
+          const keys = [...objects.keys()].filter((k) => k.startsWith(prefix));
+          res.writeHead(200).end(`<ListBucketResult><IsTruncated>false</IsTruncated>${keys.map((k) => `<Contents><Key>${k}</Key></Contents>`).join('')}</ListBucketResult>`);
+          return;
+        }
+        res.writeHead(405).end();
+      });
+    });
+    await new Promise((r) => bucket.listen(0, '127.0.0.1', r));
+    Object.assign(process.env, {
+      R2_ENDPOINT: `http://127.0.0.1:${bucket.address().port}`, R2_BUCKET: 'id-bucket',
+      R2_ACCESS_KEY_ID: 'AKIAIOSFODNN7EXAMPLE', R2_SECRET_ACCESS_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    });
+    const fresh = () => {
+      for (const m of ['../src/dbbackup', '../src/offsite']) delete require.cache[require.resolve(m)];
+      return require('../src/dbbackup');
+    };
+    const quietLog = { log() {}, warn() {}, error() {} };
+    const sortRows = (t) => ({ ...t, rows: [...t.rows].map((r) => JSON.stringify(r)).sort() });
+
+    // ---- without a key, nothing leaves ----
+    delete process.env.BACKUP_ENCRYPTION_KEY;
+    let dbb = fresh();
+    const noKey = await dbb.maybeBackup({ log: quietLog });
+    ok('with no encryption key, nothing is sent', !noKey.ok && objects.size === 0 && /BACKUP_ENCRYPTION_KEY/.test(noKey.error));
+
+    process.env.BACKUP_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+    dbb = fresh();
+
+    // ---- what a backup holds ----
+    await keys.signingKey();   // make sure there is a key that must NOT be copied
+    const secretPem = (await db.one('SELECT private_pem FROM signing_keys LIMIT 1')).private_pem;
+    const sessionHash = (await db.one('SELECT token_hash FROM sessions LIMIT 1')).token_hash;
+    const snap = await dbb.dump();
+    const packed = JSON.stringify(snap);
+    ok('the backup has every ordinary table', ['users', 'memberships', 'classes', 'audit_log', 'apps', 'reports', 'erasure_tombstones'].every((t) => t in snap.tables));
+    ok('but no sessions, sign-in codes, refresh tokens or signing keys', ['sessions', 'auth_codes', 'refresh_tokens', 'signing_keys'].every((t) => !(t in snap.tables)));
+    ok('the private signing key appears nowhere in it', !packed.includes(secretPem.split('\n')[2]));
+    ok('nor does any session hash', !packed.includes(sessionHash));
+    eq('it records which migrations it was taken at', snap.migrations.includes('011_erasure_tombstones.sql'), true);
+
+    // ---- sent encrypted, pruned by date ----
+    for (const d of ['2026-08-01', '2026-08-20']) objects.set(`id/backup-${d}.json.gz.enc`, Buffer.from('old'));
+    objects.set('id/erasures/00000000-0000-0000-0000-000000000001', Buffer.alloc(0));
+    const sent = await dbb.maybeBackup({ now: Date.parse('2026-09-28T02:00:00Z'), log: quietLog });
+    const stored = objects.get('id/backup-2026-09-28.json.gz.enc');
+    ok('a nightly backup is uploaded, encrypted', sent.ok && !!stored && !stored.includes(Buffer.from('carla@school.edu')));
+    ok('backups older than 28 days are removed', !objects.has('id/backup-2026-08-01.json.gz.enc') && !objects.has('id/backup-2026-08-20.json.gz.enc'));
+    ok('but tombstones are never pruned as if they were backups', objects.has('id/erasures/00000000-0000-0000-0000-000000000001'));
+    const again = await dbb.maybeBackup({ now: Date.parse('2026-09-28T09:00:00Z'), log: quietLog });
+    ok('only one backup a day, however often the sweep runs', again.skipped === 'already done today');
+    const reopened = dbb.unpack(stored);
+    eq('the key opens it back into the same snapshot', Object.keys(reopened.tables).length, Object.keys(snap.tables).length);
+
+    // ---- an erasure leaves a tombstone, in the same transaction ----
+    const doomed = await db.one(
+      `INSERT INTO users (email, display_name, deleted_at, purge_after)
+       VALUES ('leaving@school.edu', 'Leaving Soon', now() - interval '40 days', now() - interval '1 day') RETURNING id`);
+    const beforeErasure = await dbb.dump();   // yesterday's backup: still has them
+    await maintenance.purgeDueUsers();
+    ok('erasing somebody records a tombstone', !!(await db.one('SELECT 1 FROM erasure_tombstones WHERE user_id = $1', [doomed.id])));
+    // Everything waiting goes, including any erasure from earlier in this run
+    // made while no bucket was configured — that is the retry doing its job.
+    const waiting = Number((await db.one('SELECT COUNT(*) AS n FROM erasure_tombstones WHERE sent_at IS NULL')).n);
+    eq('which is sent to the bucket, with any others still waiting', await dbb.sendTombstones(), waiting);
+    ok('as their id and nothing more', objects.has(`id/erasures/${doomed.id}`) && objects.get(`id/erasures/${doomed.id}`).length === 0);
+    eq('and is not sent twice', await dbb.sendTombstones(), 0);
+
+    // ---- restore into a brand-new database ----
+    const livePool = db.pool;
+    const newPool = await PglitePool.create();
+    db.setPool(newPool);
+    const origLog = console.log; console.log = () => {};
+    let restored;
+    try {
+      restored = await dbb.restore(beforeErasure, { tombstones: await dbb.listTombstones(), log: quietLog });
+    } finally { console.log = origLog; }
+    ok('a backup restores into an empty database', restored.ok);
+    ok('and an erasure made after the backup still wins', !(await db.one('SELECT 1 FROM users WHERE id = $1', [doomed.id])) && restored.counts.erasures_reapplied === 1);
+
+    const roundTrip = await dbb.dump();
+    const differing = Object.keys(beforeErasure.tables).filter((t) => t !== 'users' && t !== 'erasure_tombstones' && t !== 'audit_log' &&
+      JSON.stringify(sortRows(roundTrip.tables[t])) !== JSON.stringify(sortRows(beforeErasure.tables[t])));
+    ok('every other table comes back exactly — timestamps, arrays, json and all', differing.length === 0, differing.join(', '));
+    const usersBack = sortRows({ rows: roundTrip.tables.users.rows }).rows;
+    const usersExpected = sortRows({ rows: beforeErasure.tables.users.rows.filter((r) => !r.includes(doomed.id)) }).rows;
+    ok('and every account except the erased one, exactly', JSON.stringify(usersBack) === JSON.stringify(usersExpected));
+
+    const highest = Number((await db.one('SELECT MAX(id) AS m FROM audit_log')).m);
+    await audit.record({ action: 'test.after_restore', detail: {} });
+    const next = await db.one(`SELECT id FROM audit_log WHERE action = 'test.after_restore'`);
+    ok('the audit log carries on numbering after the restored rows', !!next && Number(next.id) > highest, `${next && next.id} vs ${highest}`);
+    ok('with no signing key restored — a new one is made on first use', !(await db.one('SELECT 1 FROM signing_keys')) && !!(await keys.createKey()));
+
+    let refused = null;
+    try { await dbb.restore(beforeErasure, { tombstones: [], log: quietLog }); } catch (e) { refused = e.message; }
+    ok('it refuses a database that already has accounts in it', /already holds/.test(refused || ''), refused);
+
+    db.setPool(livePool);
+    await newPool.end();
+
+    let newer = null;
+    try { await dbb.restore({ ...beforeErasure, migrations: [...beforeErasure.migrations, '999_from_the_future.sql'] }, { tombstones: [], log: quietLog }); }
+    catch (e) { newer = e.message; }
+    ok('and a backup taken by newer code than is running', /newer code/.test(newer || ''), newer);
+
+    let unsaid = null;
+    try { await dbb.restore(beforeErasure, { log: quietLog }); } catch (e) { unsaid = e.message; }
+    ok('it will not skip the erasure check unless told to, explicitly', /erasures to re-apply/.test(unsaid || ''), unsaid);
+
+    // ---- tombstones do not outlive the backups they guard against ----
+    await db.query(`UPDATE erasure_tombstones SET erased_at = now() - interval '31 days' WHERE user_id = $1`, [doomed.id]);
+    await dbb.sendTombstones();
+    ok('a tombstone older than any kept backup is forgotten', !(await db.one('SELECT 1 FROM erasure_tombstones WHERE user_id = $1', [doomed.id])));
+
+    bucket.close();
+    for (const k of ['R2_ENDPOINT', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'BACKUP_ENCRYPTION_KEY']) delete process.env[k];
+    fresh();
+  }
+
   section('Audit trail');
   const disclosures = await db.many('SELECT action FROM audit_log WHERE is_disclosure');
   ok('disclosure events are flagged for FERPA', disclosures.length > 0);

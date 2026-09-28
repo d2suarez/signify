@@ -9,6 +9,7 @@ const db = require('./db');
 const keys = require('./keys');
 const audit = require('./audit');
 const { config } = require('./config');
+const dbbackup = require('./dbbackup');
 
 async function purgeExpiredSessions() {
   const { rowCount } = await db.query(
@@ -31,6 +32,9 @@ async function purgeDueUsers() {
     await db.tx(async (client) => {
       await client.query('UPDATE audit_log SET actor_email = NULL WHERE actor_user_id = $1', [u.id]);
       await client.query('DELETE FROM users WHERE id = $1', [u.id]);
+      // Same transaction: an erasure without its tombstone could be undone by
+      // restoring yesterday's backup, which the privacy policy rules out.
+      await dbbackup.recordErasure(client, u.id);
     });
     await audit.record({
       action: 'record.purged', targetType: 'user', targetId: u.id,
@@ -124,6 +128,17 @@ async function runOnce() {
   } catch (e) {
     console.error('Maintenance sweep failed:', e.message);
   }
+
+  // After the purges above, so tonight's backup and tombstones already
+  // reflect anybody erased this hour. Each fails on its own and retries next
+  // hour; neither may take the sweep down with it.
+  try {
+    const sent = await dbbackup.sendTombstones();
+    if (sent) console.log(`Maintenance: ${sent} erasure tombstone(s) sent to the backup bucket.`);
+  } catch (e) {
+    console.error('Sending erasure tombstones failed (will retry):', e.message);
+  }
+  await dbbackup.maybeBackup();
 }
 
 function start() {

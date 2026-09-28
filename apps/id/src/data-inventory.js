@@ -116,6 +116,14 @@ const INVENTORY = {
     survey_submitted_at: { personal: true, category: 'technical', purpose: 'When a person asking for an account answered the questions about themselves.', exposed: 'admin' },
   },
 
+  // ---------- erasure tombstones (migration 011) ----------
+  // So restoring a backup can never bring an erased person back.
+  erasure_tombstones: {
+    user_id:   { personal: true, category: 'technical', purpose: 'The ID number of an account that has been erased, kept for 30 days so that restoring a backup cannot bring it back. Nothing else about the person is kept.', exposed: 'nobody' },
+    erased_at: { personal: true, category: 'technical', purpose: 'When an account was erased, so this record of it can itself be deleted 30 days later.', exposed: 'nobody' },
+    sent_at:   N('When the erasure was copied to the backup store.'),
+  },
+
   // ---------- problem reports (migration 010) ----------
   // Sent from "Report a problem" inside any app. Erased with the account that
   // sent them; closed ones are erased 180 days after closing regardless.
@@ -458,6 +466,12 @@ const DISCLOSURES = [
     covers: ['reports.created_at', 'reports.user_id', 'reports.app_name', 'reports.kind',
              'reports.message', 'reports.page_url', 'reports.context', 'reports.status',
              'reports.resolution', 'reports.updated_at', 'reports.closed_at', 'reports.closed_by'],
+  },
+
+  {
+    category: 'technical',
+    text: 'When an account is erased: its ID number and when, for 30 days and nothing else, so that restoring a backup cannot bring the account back.',
+    covers: ['erasure_tombstones.user_id', 'erasure_tombstones.erased_at'],
   },
 
   // ---- asking for an account ----

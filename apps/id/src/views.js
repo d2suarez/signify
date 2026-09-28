@@ -383,12 +383,15 @@ function privacyPolicyPage({ retentionDays }) {
     </ul>
 
     <h2>Who else is involved</h2>
-    <p class="small">Two companies handle this data because they run the infrastructure.
+    <p class="small">Three companies handle this data because they run the infrastructure.
     There is nobody else.</p>
     <ul class="small">
       <li><strong>Google</strong> — signs people in. This is the school's own Google account;
       only the name, email address and profile picture it provides are received.</li>
       <li><strong>Railway</strong> — runs the servers and the database, encrypted at rest.</li>
+      <li><strong>Cloudflare</strong> — keeps backup copies, so that a failure at Railway cannot
+      lose everything. Each copy is encrypted before it leaves Railway, and Cloudflare is never
+      given the key, so what it holds cannot be read.</li>
     </ul>
 
     <h2>How long it is kept</h2>
@@ -398,7 +401,9 @@ function privacyPolicyPage({ retentionDays }) {
     <p class="small">One thing is kept longer: the record of which records were shown to whom,
     because the point of keeping that is to be able to look back at it. The safety snapshot taken
     automatically before restoring a backup is destroyed after 30 days.</p>
-    <p class="small">Deleted records leave encrypted backups within 30 days.</p>
+    <p class="small">Backups are kept for four weeks and then deleted automatically, so
+    deleted records leave encrypted backups within 30 days. Behaviour notes in Teacher’s Desk
+    leave its backups a week after they are deleted.</p>
 
     <h2>Seeing, correcting and deleting</h2>
     <p class="small">A student, or a parent of a student, may:</p>
@@ -417,6 +422,9 @@ function privacyPolicyPage({ retentionDays }) {
       <li>No password is ever stored. Sign-in is handled entirely by the school's Google accounts.</li>
       <li>Sign-in cookies and tokens are stored only as one-way hashes, so a copy of the database
       would not let anyone into an account.</li>
+      <li>Backups are encrypted before they leave the servers, and they never include sign-in
+      sessions or the keys that sign people in — so even a stolen backup could not be used to
+      sign in as anybody.</li>
       <li>Blocking an account ends every session on every device immediately.</li>
       <li>Every administrative action is logged, and the significant ones are shown to
       administrators rather than buried in a log nobody opens.</li>
@@ -435,7 +443,7 @@ function privacyPolicyPage({ retentionDays }) {
       <li>Signify.one Apps being offered to <strong>another school</strong>, which would make
       this a service rather than one person's classroom tools.</li>
       <li>Any <strong>new company</strong> handling the data — an analytics service, an error
-      tracker, anything. Today it is Google and Railway and nobody else.</li>
+      tracker, anything. Today it is Google, Railway and Cloudflare and nobody else.</li>
       <li><strong>Apps sharing a student's work with each other</strong>. Today none of them can:
       each is given only what it needs for its own job. Anything that joined them up would be a
       real change in what is known about a student, so it would be written here before it was

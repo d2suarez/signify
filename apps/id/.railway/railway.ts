@@ -37,6 +37,18 @@ export default defineRailway(() => {
       NODE_ENV: preserve(),
       RETENTION_DAYS: preserve(),
       SUPER_ADMINS: preserve(),
+      // The operator named on the published privacy policy. Missing from this
+      // file until 2026-09-28, when `railway config plan` showed an apply
+      // would have deleted both.
+      POLICY_OPERATOR_NAME: preserve(),
+      POLICY_OPERATOR_ROLE: preserve(),
+      // Off-site database backups (src/dbbackup.js). Set by hand in Railway;
+      // listed here only so an apply never takes them away.
+      R2_ACCOUNT_ID: preserve(),
+      R2_BUCKET: preserve(),
+      R2_ACCESS_KEY_ID: preserve(),
+      R2_SECRET_ACCESS_KEY: preserve(),
+      BACKUP_ENCRYPTION_KEY: preserve(),
     },
   });
 

@@ -32,8 +32,11 @@
 
 // 2026-09-15: people asking for an account now answer questions about
 // themselves, so what is collected changed.
-const VERSION = '2026-09-15';
-const EFFECTIVE = '15 September 2026';
+// 2026-09-28: Cloudflare added as a third company, holding encrypted backups
+// of every app. The policy's own rule is that a new company means a new
+// version and telling the school first.
+const VERSION = '2026-09-28';
+const EFFECTIVE = '28 September 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

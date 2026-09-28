@@ -191,6 +191,41 @@ SignifyReport.open();            // let the person choose
 SignifyReport.open('mistake');   // start on "something is wrong"
 ```
 
+## Off-site database backups
+
+Not the per-school backups above: this is the disaster copy. Once a day the
+maintenance sweep exports every table — except sessions, sign-in codes,
+refresh tokens and the **signing keys**, which a stolen backup must never
+carry — encrypts it, and puts it in its own R2 bucket as
+`id/backup-YYYY-MM-DD.json.gz.enc`. Backups older than 28 days are removed,
+both by the service and by the bucket's lifecycle rule, so the privacy
+policy's "deleted records leave backups within 30 days" holds even while the
+service is down.
+
+Every permanent erasure also leaves a **tombstone** in the bucket
+(`id/erasures/<account id>`, nothing else), and a restore re-applies them, so
+an erased person is never brought back by loading an older backup.
+
+| Variable | Value |
+|---|---|
+| `R2_ACCOUNT_ID`, `R2_BUCKET` | The account and `signify-id-backups`, a bucket for this service alone |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | An R2 token with **Object Read & Write** on that one bucket |
+| `BACKUP_ENCRYPTION_KEY` | `openssl rand -hex 32`. Keep a copy in the password manager — without it the backups cannot be opened. Nothing is sent until it is set. |
+
+**Restoring** — into a new, empty database only; it refuses one with accounts
+in it. Download the newest `.enc` file from the bucket, then:
+
+```bash
+read -rs BACKUP_ENCRYPTION_KEY && export BACKUP_ENCRYPTION_KEY
+DATABASE_URL=<new database> R2_ACCOUNT_ID=… R2_BUCKET=signify-id-backups \
+R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… npm run restore-db -- backup-YYYY-MM-DD.json.gz.enc
+```
+
+It runs the migrations, loads every table, re-applies the tombstones, checks
+the row counts, and prints them. Point `DATABASE_URL` at the new database and
+redeploy; everybody signs in again, because sessions and signing keys were
+never in the backup and a fresh key is made on first start.
+
 ## Endpoints
 
 | Path | For |

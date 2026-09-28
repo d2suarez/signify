@@ -8,7 +8,8 @@
     "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
     "test": "node test/run.js",
-    "register-app": "node src/register-app.js"
+    "register-app": "node src/register-app.js",
+    "restore-db": "node src/restore-db.js"
   },
   "engines": {
     "node": ">=18"

@@ -153,7 +153,8 @@ Every one of these is a subprocessor and belongs in a district DPA.
 | Party | Role | Sees |
 |---|---|---|
 | Google LLC | Identity provider | Sign-in events; already the school's own provider |
-| Railway | Hosting and Postgres | All data at rest, encrypted backups |
+| Railway | Hosting and Postgres | All data at rest |
+| Cloudflare (R2) | Off-site backups, one bucket per app | Encrypted archives only — encrypted before they leave Railway with a key Cloudflare never holds. Deleted by a 28-day bucket lifecycle rule (7 for Teacher's Desk). Added 2026-09-28, policy version 2026-09-28. |
 
 **No analytics, no error-tracking service, no CDN.** Adding one is a
 disclosure decision, not a technical one. If an error tracker is ever added,
@@ -195,8 +196,12 @@ Things the software cannot do for you.
       the federal floor.
 - [ ] **Write the incident response plan.** FERPA has no notification mandate;
       state law and most DPAs do.
-- [ ] **Set the backup retention window** on Railway Postgres and state it, so
-      "deleted within 30 days including backups" is true rather than aspirational.
+- [x] **Set the backup retention window** and state it, so "deleted within 30
+      days including backups" is true rather than aspirational. Off-site copies:
+      28-day lifecycle rule on each R2 bucket, the same rule applied by the apps,
+      and erasure tombstones so a restore cannot bring an erased person back
+      (`src/dbbackup.js`). Still to check: any backups Railway itself keeps of
+      the Postgres volume, and their retention.
 - [ ] **Require two-step verification** on every super admin's Google account.
 
 ---
