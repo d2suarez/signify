@@ -456,21 +456,32 @@
     function away(e) { if (!menu.contains(e.target) && e.target !== userBtn) hideMenu(); }
 
     /* The chips are a way of quietening the board, not of rearranging it:
-       choosing one hides the cards that are not that family, and the layout
-       underneath is untouched. Nothing is saved — a filter is for the next
-       minute, not for the next term. */
+       choosing one hides the cards that are not that family and gathers the
+       rest at the top of the desk, in the order they sit on it. The layout
+       underneath is untouched and comes back with "All tools". Nothing is
+       saved — a filter is for the next minute, not for the next term. */
     const filters = el('nav.filters', { 'aria-label': 'Show one kind of tool' });
     let showing = 'all';
 
     function paintFilters() {
-      const pick = (key) => () => { showing = key; paintFilters(); applyFilter(); };
-      const chips = [el('button.filter.is-on', {
+      const pick = (key) => () => {
+        showing = key;
+        paintFilters();
+        applyFilter();
+        // The family has just gathered at the top; a teacher scrolled halfway
+        // down the desk would otherwise be looking at the empty space below it.
+        if (key !== 'all') window.scrollTo({ top: 0, behavior: Desk.board.calm() ? 'auto' : 'smooth' });
+      };
+      // Plain 'button': the class comes from `class` alone. el() adds that to
+      // any classes in the spec, so a spec of 'button.filter.is-on' left
+      // "All tools" lit whichever chip was chosen.
+      const chips = [el('button', {
         class: showing === 'all' ? 'filter is-on' : 'filter',
         'aria-pressed': String(showing === 'all'), onclick: pick('all'),
       }, el('span', { text: 'All tools' }))];
       for (const c of Desk.widgets.CATEGORIES) {
         if (c.key === 'other') continue;
-        chips.push(el('button.filter', {
+        chips.push(el('button', {
           class: showing === c.key ? 'filter is-on' : 'filter',
           'aria-pressed': String(showing === c.key), onclick: pick(c.key),
         }, [Desk.widgets.marker(c.key, 12), el('span', { text: c.name })]));
@@ -484,6 +495,7 @@
       // coming back fade up into their places, so choosing a family reads as
       // the board rearranging itself rather than as a page being redrawn.
       Desk.board.glide(() => {
+        document.getElementById('board')?.classList.toggle('is-filtered', showing !== 'all');
         for (const card of document.querySelectorAll('.card')) {
           const def = Desk.widgets.get(card.dataset.type);
           const mine = showing === 'all' || (def && def.category === showing);

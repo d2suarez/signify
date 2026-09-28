@@ -393,7 +393,9 @@ window.Desk = window.Desk || {};
   // ---------- dragging and resizing ----------
 
   function startDrag(event, item, node, mode) {
-    if (stacked()) return;
+    // A filtered board is packed for looking at, not arranged: its cards are
+    // not where they are saved, so moving one would move it from nowhere.
+    if (stacked() || packing() || board.root.classList.contains('is-filtered')) return;
     if (event.button !== 0 && event.pointerType === 'mouse') return;
     if (mode === 'move' && event.target.closest('button')) return;
 
@@ -891,7 +893,7 @@ window.Desk = window.Desk || {};
   }
 
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, COLUMNS, GUEST_KEY,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, calm, COLUMNS, GUEST_KEY,
     isGuest: () => board.guest,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so

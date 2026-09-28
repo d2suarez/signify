@@ -641,6 +641,20 @@ p { margin: 0 0 .6rem; }
 .board[data-cols="8"] .card-resize, .board[data-cols="4"] .card-resize { display: none; }
 .board[data-cols="8"] .card-head, .board[data-cols="4"] .card-head { cursor: default; }
 
+/* Choosing one family of tools gathers them at the top of the desk, in the
+   order they sit on it, instead of leaving them scattered among the gaps the
+   others left. It is a view, not a rearrangement: the saved places are
+   untouched and come back with "All tools", so moving and resizing wait
+   until then. */
+.board.is-filtered { grid-auto-flow: dense; }
+/* Stacked, the column is already one card after another in board order. */
+body:not(.is-stacked) .board.is-filtered .card {
+  grid-column: auto / span min(var(--w), var(--cols));
+  grid-row: auto / span var(--h);
+}
+.board.is-filtered .card-grip, .board.is-filtered .card-resize { display: none; }
+.board.is-filtered .card-head { cursor: default; }
+
 body.is-stacked .board { grid-template-columns: 1fr; grid-auto-rows: min-content; }
 body.is-stacked .card { grid-column: 1 / -1; grid-row: auto; height: calc(var(--h) * var(--row) + (var(--h) - 1) * var(--gap)); }
 body.is-stacked .card-head { cursor: default; }
