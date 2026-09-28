@@ -100,7 +100,10 @@
     init(s) {
       // Digits first: they read from the back of a room at a glance, and the
       // face with hands is still one tap away for the lessons that teach it.
-      if (!FACES.some((f) => f.key === s.face)) s.face = 'digital';
+      // Clocks from before digits were the default had hands only because
+      // that was what they started with, so they move to digits too — once.
+      // A face somebody has chosen since (`facePicked`) is theirs and stays.
+      if (s.facePicked !== true || !FACES.some((f) => f.key === s.face)) s.face = 'digital';
       if (typeof s.zone !== 'string') s.zone = '';
       if (typeof s.label !== 'string') s.label = '';
       if (!COLOURS.some((c) => c.key === s.colour)) s.colour = 'accent';
@@ -222,7 +225,7 @@
         // ink, like every other tool on the board. A saved colour is kept in
         // its state, harmlessly, for any board that still has one.
         controls.append(
-          el('div.plan-row', {}, [el('span.hint', { text: 'Face' }), seg(FACES, s.face, (v) => { s.face = v; })]),
+          el('div.plan-row', {}, [el('span.hint', { text: 'Face' }), seg(FACES, s.face, (v) => { s.face = v; s.facePicked = true; })]),
         );
 
         const zoneSelect = el('select.select', {

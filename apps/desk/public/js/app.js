@@ -45,46 +45,99 @@
     drawChrome(shell);
     Desk.board.init({ root: document.getElementById('board'), data, me });
     if (location.hash === '#versions') openHistory();
-    offerVisitorLists();
+    offerVisitorDesk();
   }
 
   /**
-   * "Log in to keep it" has to be true. If class lists were made in this
-   * browser before signing in, offer to move them into the account — once a
-   * session, never automatically, and with a plain warning, because on a
-   * shared classroom computer those lists may be somebody else's.
+   * "Log in to keep it" has to be true. If class lists or tools were set up
+   * in this browser before signing in, offer to move them into the account.
    *
-   * Only the lists move. They are the part that is tedious to type twice;
-   * the board a visitor arranged is left to expire where it is.
+   * The desk a teacher has built while signed in is the thing to protect, so
+   * the rules are strict. Nothing happens by itself: it is offered once a
+   * session and only moves on a yes, with a plain warning, because on a
+   * shared classroom computer what is here may be somebody else's. Nothing
+   * is replaced: lists are added alongside the teacher's own, tools are set
+   * down BELOW everything already on the desk, and not one card that was
+   * there moves. And nothing is lost: the copy in this browser is removed
+   * only once the account has confirmed it has everything.
    */
-  async function offerVisitorLists() {
+  async function offerVisitorDesk() {
     let storage;
     try { storage = window.localStorage; } catch { return; }
     const local = Desk.localApi.make(storage);
     const lists = local.lists().filter((l) => l.students && l.students.length);
-    if (!lists.length) return;
+    let saved = null;
+    try { saved = JSON.parse(storage.getItem(Desk.board.GUEST_KEY) || 'null'); } catch { /* none */ }
+    // Only tools a visitor could actually use; the locked ones were never set up.
+    const visitorItems = (saved && Array.isArray(saved.items) ? saved.items : [])
+      .filter((i) => { const d = i && Desk.widgets.get(i.type); return d && d.guest; });
+
+    // What would come if every list comes with it — which is what is asked.
+    const identity = new Map(lists.map((l) => [l.id, { id: l.id, students: new Map(l.students.map((p) => [p.id, p.id])) }]));
+    const tools = Desk.localApi.carryOver(visitorItems, { moved: identity, worth: holdsSomething });
+    if (!lists.length && !tools.length) return;
     try {
       if (sessionStorage.getItem('desk:offered-visitor-lists')) return;
       sessionStorage.setItem('desk:offered-visitor-lists', '1');
     } catch { /* ask anyway */ }
 
-    const body = el('div', {}, [
-      el('p', { text: `Before you logged in, ${lists.length === 1 ? 'a class list was' : `${lists.length} class lists were`} made in this browser:` }),
-      el('ul', {}, lists.map((l) => el('li', { text: `${l.name} — ${l.students.length} pupil${l.students.length === 1 ? '' : 's'}` }))),
-      el('p.hint', { text: 'Add them to your account to keep them, and they are removed from this computer. If they are not yours — this is a shared computer — leave them where they are.' }),
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const names = [...new Set(tools.map((t) => Desk.widgets.get(t.type).name))];
+    const body = el('div.carry-over', {}, [
+      el('p', { text: 'Before you logged in, this browser kept:' }),
+      el('ul', {}, [
+        ...lists.map((l) => el('li', { text: `${l.name} — ${plural(l.students.length, 'pupil', 'pupils')}` })),
+        tools.length ? el('li', { text: `${plural(tools.length, 'tool', 'tools')}: ${names.join(', ')}` }) : null,
+      ]),
+      el('p', { text: tools.length
+        ? 'They are added to your account: class lists alongside yours, and tools below everything already on your desk. Nothing on your desk now is moved, changed or replaced.'
+        : 'They are added alongside the class lists already in your account.' }),
+      el('p.hint', { text: 'Once your account has them they are removed from this computer. If they are not yours — this is a shared computer — choose Not now.' }),
     ]);
-    if (!await Desk.ask({ title: 'Keep these class lists?', body, confirmLabel: 'Add to my account', cancelLabel: 'Not now' })) return;
+    if (!await Desk.ask({ title: 'Keep what you made before logging in?', body, confirmLabel: 'Add to my account', cancelLabel: 'Not now' })) return;
 
-    let moved = 0;
+    // The lists first: the tools need to know the lists' new ids.
+    const moved = new Map();
     for (const l of lists) {
-      try { await Desk.api.createList(l.name, l.students.map((x) => x.name)); moved += 1; }
-      catch (e) { toast(e.message, 'warn'); break; }
+      try {
+        const made = await Desk.api.createList(l.name, l.students.map((p) => p.name));
+        // The account gives every pupil a new id, in the same order as sent.
+        // If the counts disagree the pairing cannot be trusted, and the
+        // tools tied to this list are treated as if it had not come.
+        const students = new Map();
+        if (made && Array.isArray(made.students) && made.students.length === l.students.length) {
+          l.students.forEach((p, i) => students.set(p.id, made.students[i].id));
+        }
+        moved.set(l.id, { id: made.id, students });
+      } catch (e) { toast(e.message, 'warn'); break; }
     }
-    // Removed from the browser only once every one of them is safely in the
-    // account; a half-finished move leaves the originals where they were.
-    if (moved === lists.length) local.forgetLists();
-    Desk.roster.invalidate();
-    toast(`${moved} class list${moved === 1 ? '' : 's'} added to your account.`);
+    if (moved.size) Desk.roster.invalidate();
+
+    const arriving = Desk.localApi.carryOver(visitorItems, { moved, worth: holdsSomething });
+    const added = Desk.board.adopt(arriving);
+    const safe = added ? await Desk.board.whenSaved() : true;
+
+    const said = [];
+    if (moved.size) said.push(plural(moved.size, 'class list', 'class lists'));
+    if (added) said.push(plural(added, 'tool', 'tools'));
+    if (said.length) toast(`${said.join(' and ')} added to your account${added ? ' — the tools are at the bottom of your desk' : ''}.`);
+    if (added < arriving.length) toast(`${plural(arriving.length - added, 'tool', 'tools')} did not fit — a desk holds forty.`, 'warn');
+
+    // This browser's copy goes only when the account has all of it. Half a
+    // move leaves the originals exactly where they were.
+    if (moved.size === lists.length && safe) local.clearAll();
+    else if (moved.size === lists.length) local.forgetLists();
+  }
+
+  /** Whether a tool holds something of the teacher's — its own measure of it. */
+  function holdsSomething(item) {
+    const def = Desk.widgets.get(item.type);
+    if (!def || !def.holdsContent) return false;
+    try {
+      const state = JSON.parse(JSON.stringify(item.state || {}));
+      def.init(state);
+      return !!def.holdsContent(state);
+    } catch { return false; }
   }
 
   // ---------- the desk without an account ----------

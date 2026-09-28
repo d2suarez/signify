@@ -20,6 +20,7 @@ window.Desk = window.Desk || {};
 
   const COLUMNS = 12;
   const STACK_BELOW = 520;
+  const MAX_ITEMS = 40;          // the server keeps no more than this
 
   /* How many columns the board has, decided by the board's own width rather
      than the window's — the same desk in a narrower app is a narrower desk.
@@ -663,6 +664,70 @@ window.Desk = window.Desk || {};
     return item;
   }
 
+  /**
+   * Tools from somewhere else — a visitor's desk, brought into an account —
+   * added BELOW everything already here. Nothing already on the desk moves,
+   * changes size or is replaced; the newcomers keep their arrangement among
+   * themselves and simply start where the desk ends. The server keeps forty
+   * tools at most, so only as many as fit are taken, and the count is said.
+   */
+  function adopt(incoming) {
+    const taking = below(board.items, incoming, (type) => Desk.widgets.get(type));
+    if (!taking.length) return 0;
+    board.items.push(...taking);
+    glide(() => render());
+    markDirty();
+    return taking.length;
+  }
+
+  /**
+   * The placing half of adopt(), with no DOM: `incoming` made into cards that
+   * sit under `existing`. `existing` is only read, never changed.
+   */
+  function below(existing, incoming, defOf) {
+    const room = Math.max(0, MAX_ITEMS - existing.length);
+    const taking = (Array.isArray(incoming) ? incoming : [])
+      .filter((i) => i && defOf(i.type))
+      .sort((a, b) => (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0))
+      .slice(0, room)
+      .map((i) => {
+        const def = defOf(i.type);
+        const w = clamp(Math.round(i.w) || def.size.w, def.min.w, COLUMNS);
+        return {
+          id: `w_${Math.random().toString(36).slice(2, 11)}`, type: i.type,
+          state: i.state && typeof i.state === 'object' ? i.state : {},
+          w, h: Math.max(Math.round(i.h) || def.size.h, def.min.h),
+          x: clamp(Math.round(i.x) || 0, 0, COLUMNS - w), y: Math.max(0, Math.round(i.y) || 0),
+        };
+      });
+    // Closed up among themselves first — the starter tools that stayed
+    // behind would otherwise leave holes — then set down under the desk.
+    resolve(taking, null);
+    compact(taking);
+    const floor = existing.reduce((most, i) => Math.max(most, i.y + i.h), 0);
+    for (const it of taking) it.y += floor;
+    return taking;
+  }
+
+  /**
+   * Resolves true once everything changed so far is safely on the server, or
+   * false if that has not happened within `ms`. For the one moment where
+   * something else must wait on it: nothing is removed from a visitor's
+   * browser until the account really has it.
+   */
+  function whenSaved(ms = 15000) {
+    const until = Date.now() + ms;
+    return new Promise((done) => {
+      const check = () => {
+        if (!dirty && !saving) { done(true); return; }
+        if (Date.now() > until) { done(false); return; }
+        setTimeout(check, 200);
+      };
+      // Let the debounced save get under way before looking.
+      setTimeout(check, 50);
+    });
+  }
+
   async function removeItem(id, skipConfirm) {
     const item = board.items.find((i) => i.id === id);
     if (!item) return;
@@ -893,11 +958,11 @@ window.Desk = window.Desk || {};
   }
 
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, calm, COLUMNS, GUEST_KEY,
+    init, addItem, adopt, whenSaved, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, calm, COLUMNS, GUEST_KEY,
     isGuest: () => board.guest,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so
     // they are exported and tested directly rather than by dragging things.
-    _geom: { hits, earlier, resolve, compact, findSpot },
+    _geom: { hits, earlier, resolve, compact, findSpot, below, MAX_ITEMS },
   };
 }(window.Desk));

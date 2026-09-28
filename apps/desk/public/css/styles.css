@@ -1830,100 +1830,55 @@ body.is-seating-drag { user-select: none; }
 .stage.is-present .calc-answer { font-size: min(18vw, 26vh); }
 .stage.is-present .calc-sum { font-size: min(6vw, 8vh); }
 
-/* ---------------- floating: no card, no title bar ---------------- */
+/* ---------------- floating: no title bar ---------------- */
 /*
-   The tool itself is the object on the desk. The panel goes, the title bar
-   goes, and what is left is the thing you came for.
-   Two problems that creates, and what answers each:
-     * Where does one end and the next begin? Each tool keeps the surface and
-       the shadow — they move from the card onto the content — and the tool
-       in use gets a faint hairline round the whole of its area.
-     * How do you move, resize or open it? The title bar is not deleted, it is
-       floated: it appears just above the tool once you touch it, carrying the
-       same grip, name and buttons it always had. Dragging still works because
-       it is still the same element.
+   The tool is the object on the desk. It is the same card in the same colour
+   — a timer is still a red block, a note still a white sheet — with the name
+   bar taken off it, so what is left is the thing you came for.
+
+   The first version of this took the card away too and moved a plain white
+   panel onto the widget inside. That was written before tools had colours of
+   their own; under the new design it left every coloured tool as a white box
+   in a coloured frame, with white numbers on the white.
+
+   The name bar is not deleted but floated: a small pill just above the card,
+   shown only on the tool in use — clicked, tapped or tabbed to — carrying
+   the same grip, name and buttons it always had. Dragging still works because
+   it is still the same element.
 */
+[data-chrome="bare"] .card { padding: 16px 18px; }
 
-[data-chrome="bare"] .card {
-  background: none;
-  border-color: transparent;
-  box-shadow: none;
-  overflow: visible;
+[data-chrome="bare"] .card > .card-head {
+  position: absolute; left: 10px; right: 10px; bottom: 100%; z-index: 4;
+  margin-bottom: 6px; padding: 4px 6px 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-3);
+  opacity: 0; transform: translateY(4px); pointer-events: none;
+  transition: opacity .18s var(--ease), transform .18s var(--ease);
 }
-[data-chrome="bare"] .card:hover { transform: none; }
+[data-chrome="bare"] .card.is-selected > .card-head { opacity: 1; transform: none; pointer-events: auto; }
+[data-chrome="bare"] .card-head .card-actions { opacity: 1; }
+/* On a coloured card the name is written in the card's ink. Floated onto a
+   white pill it goes back to the page's ink, and the shape takes the card's
+   colour, so the pill still says whose it is. */
+[data-chrome="bare"] .card[data-tone="block"] .card-head .card-title { color: var(--ink); }
+[data-chrome="bare"] .card[data-tone="block"] .card-head .shape:not([data-shape="ring"]) { background: var(--role); }
+[data-chrome="bare"] .card[data-tone="block"] .card-head .icon-btn { color: var(--ink); }
+/* The top row has nothing above it but the filter chips, so its pill hangs
+   underneath instead, over the edge of the card below, which is not in use. */
+[data-chrome="bare"] .card[style*="--y: 0;"] > .card-head { bottom: auto; top: 100%; margin: 6px 0 0; }
 
-/* The surface moves onto the widget's own root element. */
-[data-chrome="bare"] .card-body { padding: 0; overflow: visible; background: none; }
-[data-chrome="bare"] .card-body > * {
-  /* A widget that has a colour of its own keeps it — a note is yellow whether
-     it is on a card or floating. Everything else gets the plain surface. */
-  background: var(--note-bg, var(--surface));
-  border: 1px solid var(--cut-edge);
-  border-radius: var(--r-panel);
-  box-shadow: var(--lift);
-  padding: .7rem .75rem;
-}
-
-/* The outline. A single hairline a few pixels outside the tool, in a whisper
-   of the accent — enough to say "this much is one thing", never a frame. It
-   appears only on the tool you are using, not on whatever the pointer
-   happens to cross on its way across the board. */
+/* The tool in use gets a hairline a few pixels outside it, in its own colour
+   — enough to say "this much is one thing", never a frame. */
 [data-chrome="bare"] .card::after {
-  content: ''; position: absolute; inset: -5px; border-radius: calc(var(--r-panel) + 6px);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  content: ''; position: absolute; inset: -5px; border-radius: calc(var(--r-panel) + 5px);
+  border: 1.5px solid color-mix(in srgb, var(--role) 45%, transparent);
   opacity: 0; transition: opacity .2s; pointer-events: none;
 }
 [data-chrome="bare"] .card.is-selected::after { opacity: 1; }
 
-/* The title bar, floated above the tool and only on the one in use. */
-[data-chrome="bare"] .card-head {
-  position: absolute; left: 0; right: 0; bottom: 100%; z-index: 4;
-  margin-bottom: 7px; padding: .18rem .3rem;
-  border: 1px solid var(--cut-edge); border-radius: 999px;
-  background: var(--surface); box-shadow: var(--lift);
-  opacity: 0; transform: translateY(4px); pointer-events: none;
-  transition: opacity .18s, transform .18s;
-}
-[data-chrome="bare"] .card.is-selected > .card-head {
-  opacity: 1; transform: none; pointer-events: auto;
-}
-[data-chrome="bare"] .card-head .card-actions { opacity: 1; }
-/* The top row of the board has nothing above it to float into. */
-[data-chrome="bare"] .card[style*="--y: 0"] .card-head { bottom: auto; top: 100%; margin: 7px 0 0; }
-
-/* The resize corner belongs to the selected tool too. */
-[data-chrome="bare"] .card:hover .card-resize { opacity: 0; }
-[data-chrome="bare"] .card.is-selected .card-resize { opacity: .8; }
-
-[data-chrome="bare"] .card-resize { right: -4px; bottom: -4px; }
-
-/* The note's negative margins exist to reach the edges of a card's padding.
-   Floating, there is no padding to escape. */
-[data-chrome="bare"] .note[data-colour] { margin: 0; padding: .7rem .75rem; }
-
-/* A clock is round. In this mode it gets to actually be round: the face fills
-   a circle and the zone and date sit inside it rather than in a strip
-   underneath, which is what made it a rounded rectangle with a circle in it. */
-[data-chrome="bare"] .card[data-type="clock"] .clock {
-  /* `flex: none` is what makes it a circle rather than an ellipse: the widget
-     is a flex child, and a flex-assigned height beats an aspect ratio. Take
-     the height out of flex's hands and the ratio decides it. */
-  position: relative; flex: none; width: 100%; aspect-ratio: 1; border-radius: 50%;
-  padding: 8%; justify-content: center; gap: 0;
-}
-[data-chrome="bare"] .card[data-type="clock"] .clock-zone {
-  position: absolute; top: 14%; left: 0; right: 0; text-align: center;
-}
-[data-chrome="bare"] .card[data-type="clock"] .clock-date {
-  position: absolute; bottom: 13%; left: 0; right: 0; text-align: center;
-}
-[data-chrome="bare"] .card[data-type="clock"] .clock-controls { display: none; }
-
-[data-chrome="bare"] .card[data-type="breathing"] .breathing {
-  flex: none; width: 100%; aspect-ratio: 1; border-radius: 50%;
-  justify-content: center; padding: 8%;
-}
-[data-chrome="bare"] .card[data-type="breathing"] .breathe-settings { display: none; }
+/* The resize corner belongs to the tool in use, too. */
+[data-chrome="bare"] .card:not(.is-selected) .card-resize { opacity: 0; }
 
 /* The Signify app switcher pins itself top-right (a 40px button, 12px in) —
    it loads before the top bar exists, so it cannot mount inside it. It marks

@@ -219,7 +219,7 @@ window.Desk = window.Desk || {};
       const chromes = el('div.seg');
       for (const c of [
         { key: 'card', label: 'On cards', blurb: 'Each tool in a panel with its name at the top.' },
-        { key: 'bare', label: 'Floating', blurb: 'No panel and no title bar — the tool itself is the object.' },
+        { key: 'bare', label: 'Floating', blurb: 'No name bar — just each tool in its colour.' },
       ]) {
         chromes.append(el('button.seg-btn', {
           text: c.label, title: c.blurb,
@@ -230,7 +230,7 @@ window.Desk = window.Desk || {};
       body.append(chromes);
       body.append(el('p.hint', {
         text: current.chrome === 'bare'
-          ? 'Names, and the buttons to open or remove a tool, appear when you point at it.'
+          ? 'Each tool without its name bar. Click or tap a tool and its name and buttons appear just above it.'
           : 'The familiar arrangement: a panel round each tool, with its name and buttons along the top.',
       }));
 

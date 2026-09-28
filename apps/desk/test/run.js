@@ -1294,6 +1294,76 @@ describe("a visitor's class lists, kept in the browser", () => {
 });
 
 // ===================================================================
+describe("bringing a visitor's desk into an account", () => {
+  const { carryOver } = loadLocalApi();
+  const { below, MAX_ITEMS } = loadGeometry();
+  const defs = { notes: { size: { w: 4, h: 4 }, min: { w: 2, h: 3 } }, seating: { size: { w: 6, h: 6 }, min: { w: 4, h: 5 } }, timer: { size: { w: 3, h: 4 }, min: { w: 2, h: 3 } } };
+  const defOf = (t) => defs[t] || null;
+  const moved = new Map([['list_real', { id: 'list_NEW', students: new Map([['s_ada', 's_ADA'], ['s_ben', 's_BEN']]) }]]);
+
+  it('rewrites a seating plan to the new list and the same children', () => {
+    const [seat] = carryOver([{ id: 'g_seating', type: 'seating', x: 0, y: 0, w: 6, h: 6, state: {
+      classKey: 'list:list_real',
+      plans: { 'list:list_real': { seats: { d1a: 's_ada', d1b: 's_ben' } }, 'list:list_example': { seats: { d1a: 's_zed' } } },
+    } }], { moved });
+    equal(seat.state.classKey, 'list:list_NEW');
+    equal(JSON.stringify(Object.keys(seat.state.plans)), '["list:list_NEW"]', "the example class's plan stays behind");
+    equal(seat.state.plans['list:list_NEW'].seats.d1b, 's_BEN', 'the same child in the same seat');
+  });
+
+  it('never brings the example class’s pupils into an account', () => {
+    const out = carryOver([
+      { id: 'g_groups', type: 'groups', state: { classKey: 'list:list_example', groups: [{ members: [{ key: 's_zed', name: 'Zed Q.' }] }] } },
+      { id: 'w_mine', type: 'groups', state: { classKey: 'list:list_example', groups: [{ members: [{ key: 's_zed', name: 'Zed Q.' }] }] } },
+    ], { moved, worth: () => true });
+    equal(out.length, 1, 'the starter copy stays behind; the one they added comes');
+    equal(JSON.stringify(out[0].state), '{}', 'and it comes fresh, without the strangers in it');
+  });
+
+  it('leaves the untouched starter tools behind and brings what holds something', () => {
+    const out = carryOver([
+      { id: 'g_timer', type: 'timer', state: {} },
+      { id: 'g_notes', type: 'notes', state: { text: 'Bring PE kit' } },
+      { id: 'w_x1', type: 'timer', state: {} },
+    ], { moved, worth: (i) => !!(i.state.text) });
+    equal(out.map((i) => `${i.type}:${i.state.text || ''}`).join(','), 'notes:Bring PE kit,timer:');
+  });
+
+  it('adds tools under the desk without moving anything already on it', () => {
+    const existing = [{ id: 'a', type: 'notes', x: 0, y: 0, w: 4, h: 4 }, { id: 'b', type: 'timer', x: 4, y: 2, w: 3, h: 6 }];
+    const before = JSON.stringify(existing);
+    const placed = below(existing, [
+      { type: 'notes', x: 0, y: 9, w: 4, h: 4 }, { type: 'timer', x: 8, y: 20, w: 3, h: 4 }, { type: 'mystery', x: 0, y: 0, w: 2, h: 2 },
+    ], defOf);
+    equal(JSON.stringify(existing), before, 'the teacher’s own cards are untouched');
+    equal(placed.length, 2, 'a tool this version does not know is left out');
+    equal(Math.min(...placed.map((p) => p.y)), 8, 'starting where the desk ends');
+    equal(placed[1].y, 8, 'and closed up among themselves');
+    equal(new Set(placed.map((p) => p.id)).size, 2, 'with fresh ids of their own');
+  });
+
+  it('takes no more than the desk has room for', () => {
+    const full = Array.from({ length: MAX_ITEMS - 1 }, (_, i) => ({ id: `x${i}`, type: 'timer', x: 0, y: i * 4, w: 3, h: 4 }));
+    equal(below(full, [{ type: 'timer' }, { type: 'notes' }], defOf).length, 1);
+  });
+});
+
+// ===================================================================
+describe('the clock', () => {
+  const clock = loadWidget('clock');
+  it('starts digital, and moves an older clock with hands to digital once', () => {
+    const fresh = {}; clock.init(fresh);
+    equal(fresh.face, 'digital');
+    const older = { face: 'analogue' }; clock.init(older);
+    equal(older.face, 'digital', 'hands only because that used to be the default');
+  });
+  it('keeps hands that somebody chose', () => {
+    const chosen = { face: 'analogue', facePicked: true }; clock.init(chosen);
+    equal(chosen.face, 'analogue');
+  });
+});
+
+// ===================================================================
 describe('the noise meter', () => {
   const colour = loadWidget('noise')._noiseColour;
 

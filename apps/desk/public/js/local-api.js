@@ -303,10 +303,83 @@
       clearAll,
       /** The class lists a visitor made, for moving into an account. */
       lists: () => read(KEYS.lists).filter((l) => !l.example),
+      /** Every list here, the example class included. */
+      everyList: () => read(KEYS.lists),
       forgetLists: () => { storage.removeItem(KEYS.lists); },
       hasLists: () => read(KEYS.lists).some((l) => !l.example && l.students.length),
     };
   }
 
-  Desk.localApi = { make, exampleNames, EXPIRY_DAYS, PREFIX };
+  /**
+   * A visitor's tools, made ready to join a teacher's own desk.
+   *
+   * The tools point at class lists and pupils by id, and those ids were made
+   * in this browser. Moving a list into an account gives it — and every pupil
+   * on it — a new id, so each tool is rewritten to the new ones: a seating
+   * plan comes across with the same children in the same seats.
+   *
+   * `moved` maps each list that made it into the account to its new id and
+   * its pupils' new ids. Anything tied to a list that did NOT come — the
+   * example class, or a list that failed to send — cannot be brought across
+   * honestly: a plan keyed by that list is dropped, a choice of that list is
+   * cleared, and a tool still carrying its pupils (groups dealt from the
+   * example class, say) arrives fresh instead of full of strangers.
+   *
+   * What comes: a tool the visitor added themselves, a tool linked to a list
+   * that came, and a starter tool that `worth` says holds something. The
+   * rest of the starter board — the tools laid out for every visitor and
+   * never touched — stays behind; the teacher's own desk does not need a
+   * second, empty copy of them.
+   *
+   * Pure: no storage, no DOM, so the rules can be tested on their own.
+   */
+  function carryOver(items, { moved = new Map(), worth = () => false } = {}) {
+    const pupils = new Map();
+    for (const m of moved.values()) for (const [was, now] of m.students) pupils.set(was, now);
+    // Every pupil id this browser ever made has the same look; one that is
+    // not being carried across belongs to a list that stayed behind.
+    const localPupil = (v) => typeof v === 'string' && /^s_[a-z0-9]+$/.test(v);
+    const out = [];
+
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || typeof item.type !== 'string') continue;
+      let linked = false;
+      let strays = false;
+
+      const swap = (v) => {
+        if (typeof v !== 'string') return v;
+        if (v.startsWith('list:')) {
+          const m = moved.get(v.slice(5));
+          if (m) { linked = true; return `list:${m.id}`; }
+          return null;                     // a list that is not coming
+        }
+        if (pupils.has(v)) return pupils.get(v);
+        if (localPupil(v)) strays = true;
+        return v;
+      };
+      const walk = (v) => {
+        if (Array.isArray(v)) return v.map((x) => { const y = walk(x); return y === null ? '' : y; });
+        if (v && typeof v === 'object') {
+          const o = {};
+          for (const [k, x] of Object.entries(v)) {
+            const key = swap(k);
+            if (key === null) continue;    // e.g. the example class's seating plan
+            const y = walk(x);
+            o[key] = y === null ? '' : y;
+          }
+          return o;
+        }
+        return swap(v);
+      };
+
+      let state = walk(item.state && typeof item.state === 'object' ? item.state : {});
+      if (strays) { state = {}; linked = false; }
+      const own = !String(item.id || '').startsWith('g_');
+      const candidate = { type: item.type, state, x: item.x, y: item.y, w: item.w, h: item.h };
+      if (own || linked || (!strays && worth(candidate))) out.push(candidate);
+    }
+    return out;
+  }
+
+  Desk.localApi = { make, exampleNames, carryOver, EXPIRY_DAYS, PREFIX };
 }(window.Desk = window.Desk || {}));
