@@ -111,11 +111,7 @@ const ACCENT_TO_PALETTE = {
 // anything but a colour into the stylesheet.
 const HEX = /^#[0-9a-f]{6}$/i;
 const FITS = ['cover', 'contain', 'tile'];
-// How much furniture a widget sits in. 'card' is the panel with a title bar;
-// 'bare' drops both and lets the tool itself be the object on the desk.
-const CHROMES = ['card', 'bare'];
-
-const DEFAULT_PREFS = { theme: 'auto', palette: 'primary', accentHex: '#EC3013', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+const DEFAULT_PREFS = { theme: 'auto', palette: 'primary', accentHex: '#EC3013', background: '', backgroundFit: 'cover', backgroundDim: 40 };
 
 function cleanPrefs(input) {
   const p = (input && typeof input === 'object') ? input : {};
@@ -125,7 +121,8 @@ function cleanPrefs(input) {
     palette: PALETTES.includes(p.palette) ? p.palette
       : (ACCENT_TO_PALETTE[p.accent] || DEFAULT_PREFS.palette),
     accentHex: HEX.test(String(p.accentHex || '')) ? String(p.accentHex).toLowerCase() : DEFAULT_PREFS.accentHex,
-    chrome: CHROMES.includes(p.chrome) ? p.chrome : DEFAULT_PREFS.chrome,
+    // `chrome` ('card' or 'bare', floating) is no longer a choice: every tool
+    // sits on its card. A saved one is simply not carried forward.
     // Either an uploaded asset id or one of the built-in patterns. Never a
     // URL: a background that can point anywhere is a background that can
     // report every teacher's IP to somebody else's server.

@@ -57,7 +57,7 @@ window.Desk = window.Desk || {};
     { key: 'tile', label: 'Tile' },
   ];
 
-  const DEFAULTS = { theme: 'auto', palette: 'primary', accentHex: '#ec3013', chrome: 'card', background: '', backgroundFit: 'cover', backgroundDim: 40 };
+  const DEFAULTS = { theme: 'auto', palette: 'primary', accentHex: '#ec3013', background: '', backgroundFit: 'cover', backgroundDim: 40 };
 
   const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -101,7 +101,8 @@ window.Desk = window.Desk || {};
     if (current.theme === 'auto') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', current.theme);
     root.setAttribute('data-palette', current.palette);
-    root.setAttribute('data-chrome', current.chrome);
+    // Floating mode is gone; a page left over from it keeps no trace.
+    root.removeAttribute('data-chrome');
     // A colour of their own replaces p1 only, and brings its own ink with it.
     if (current.palette === 'custom' && HEX.test(current.accentHex || '')) {
       root.style.setProperty('--accent-pick', current.accentHex);
@@ -214,25 +215,6 @@ window.Desk = window.Desk || {};
           body.append(el('p.hint', { text: 'This colour is hard to read on the board.' }));
         }
       }
-
-      body.append(el('h3.section-title', { text: 'How the tools sit' }));
-      const chromes = el('div.seg');
-      for (const c of [
-        { key: 'card', label: 'On cards', blurb: 'Each tool in a panel with its name at the top.' },
-        { key: 'bare', label: 'Floating', blurb: 'No name bar — just each tool in its colour.' },
-      ]) {
-        chromes.append(el('button.seg-btn', {
-          text: c.label, title: c.blurb,
-          class: current.chrome === c.key ? 'is-on' : '',
-          onclick: () => { set({ chrome: c.key }); draw(); },
-        }));
-      }
-      body.append(chromes);
-      body.append(el('p.hint', {
-        text: current.chrome === 'bare'
-          ? 'Each tool without its name bar. Click or tap a tool and its name and buttons appear just above it.'
-          : 'The familiar arrangement: a panel round each tool, with its name and buttons along the top.',
-      }));
 
       body.append(el('h3.section-title', { text: 'Light or dark' }));
       const modes = el('div.seg');

@@ -904,9 +904,8 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 .note-title { flex: 1; min-width: 0; border: 0; background: transparent; font-family: var(--display); font-weight: 650; font-size: .95rem; padding: 0; }
 .note-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .note-text { flex: 1; width: 100%; min-height: 60px; border: 0; background: transparent; resize: none; padding: .2rem 0; line-height: 1.5; font-size: .92rem; }
-/* The colour is a variable rather than a background so that both ways of
-   presenting a tool can read it: on a card the note paints itself edge to
-   edge inside the panel, and floating it IS the panel. */
+/* The colour is a variable rather than a background: the note paints itself
+   edge to edge inside the card from it. */
 .note[data-colour="yellow"] { --note-bg: var(--yellow-soft); }
 .note[data-colour="blue"]   { --note-bg: var(--blue-soft); }
 .note[data-colour="green"]  { --note-bg: var(--green-soft); }
@@ -1829,56 +1828,6 @@ body.is-seating-drag { user-select: none; }
 .stage.is-present .calc-tape { display: none; }
 .stage.is-present .calc-answer { font-size: min(18vw, 26vh); }
 .stage.is-present .calc-sum { font-size: min(6vw, 8vh); }
-
-/* ---------------- floating: no title bar ---------------- */
-/*
-   The tool is the object on the desk. It is the same card in the same colour
-   — a timer is still a red block, a note still a white sheet — with the name
-   bar taken off it, so what is left is the thing you came for.
-
-   The first version of this took the card away too and moved a plain white
-   panel onto the widget inside. That was written before tools had colours of
-   their own; under the new design it left every coloured tool as a white box
-   in a coloured frame, with white numbers on the white.
-
-   The name bar is not deleted but floated: a small pill just above the card,
-   shown only on the tool in use — clicked, tapped or tabbed to — carrying
-   the same grip, name and buttons it always had. Dragging still works because
-   it is still the same element.
-*/
-[data-chrome="bare"] .card { padding: 16px 18px; }
-
-[data-chrome="bare"] .card > .card-head {
-  position: absolute; left: 10px; right: 10px; bottom: 100%; z-index: 4;
-  margin-bottom: 6px; padding: 4px 6px 4px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-3);
-  opacity: 0; transform: translateY(4px); pointer-events: none;
-  transition: opacity .18s var(--ease), transform .18s var(--ease);
-}
-[data-chrome="bare"] .card.is-selected > .card-head { opacity: 1; transform: none; pointer-events: auto; }
-[data-chrome="bare"] .card-head .card-actions { opacity: 1; }
-/* On a coloured card the name is written in the card's ink. Floated onto a
-   white pill it goes back to the page's ink, and the shape takes the card's
-   colour, so the pill still says whose it is. */
-[data-chrome="bare"] .card[data-tone="block"] .card-head .card-title { color: var(--ink); }
-[data-chrome="bare"] .card[data-tone="block"] .card-head .shape:not([data-shape="ring"]) { background: var(--role); }
-[data-chrome="bare"] .card[data-tone="block"] .card-head .icon-btn { color: var(--ink); }
-/* The top row has nothing above it but the filter chips, so its pill hangs
-   underneath instead, over the edge of the card below, which is not in use. */
-[data-chrome="bare"] .card[style*="--y: 0;"] > .card-head { bottom: auto; top: 100%; margin: 6px 0 0; }
-
-/* The tool in use gets a hairline a few pixels outside it, in its own colour
-   — enough to say "this much is one thing", never a frame. */
-[data-chrome="bare"] .card::after {
-  content: ''; position: absolute; inset: -5px; border-radius: calc(var(--r-panel) + 5px);
-  border: 1.5px solid color-mix(in srgb, var(--role) 45%, transparent);
-  opacity: 0; transition: opacity .2s; pointer-events: none;
-}
-[data-chrome="bare"] .card.is-selected::after { opacity: 1; }
-
-/* The resize corner belongs to the tool in use, too. */
-[data-chrome="bare"] .card:not(.is-selected) .card-resize { opacity: 0; }
 
 /* The Signify app switcher pins itself top-right (a 40px button, 12px in) —
    it loads before the top bar exists, so it cannot mount inside it. It marks

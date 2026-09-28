@@ -256,18 +256,9 @@ describe('keeping earlier versions of a board', () => {
 
 // ===================================================================
 describe('how the tools sit', () => {
-  it('takes the two ways of presenting a tool', () => {
-    equal(board.cleanPrefs({ chrome: 'bare' }).chrome, 'bare');
-    equal(board.cleanPrefs({ chrome: 'card' }).chrome, 'card');
-  });
-
-  it('falls back to cards for anything else', () => {
-    // The value becomes an attribute the stylesheet keys off, and cards are
-    // the arrangement nobody has to learn.
-    for (const bad of ['floating', '', null, 7, '"><script>']) {
-      equal(board.cleanPrefs({ chrome: bad }).chrome, 'card', String(bad));
-    }
-    equal(board.cleanPrefs({}).chrome, 'card', 'and it is the default');
+  it('forgets the floating mode that used to be a choice', () => {
+    equal(board.cleanPrefs({ chrome: 'bare' }).chrome, undefined);
+    equal(board.cleanPrefs({ chrome: 'bare', theme: 'dark' }).theme, 'dark', 'and keeps everything else');
   });
 });
 
