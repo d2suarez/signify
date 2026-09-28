@@ -68,10 +68,14 @@
 
       const leader = () => Math.max(0, ...s.teams.map((t) => t.score));
 
+      let bumped = null;          // { id, up } — the score to make a fuss of on this draw
+
       function bump(team, by) {
         team.score = Math.max(-999, Math.min(9999, team.score + by));
+        bumped = { id: team.id, up: by > 0 };
         ctx.save();
         draw();
+        bumped = null;
         if (by > 0) Desk.sound.play('tick');
       }
 
@@ -95,7 +99,10 @@
               })
               : el('span.score-name-text', { text: team.name }),
             el('button.score-btn', { text: '−', 'aria-label': `Take a point from ${team.name}`, onclick: () => bump(team, -s.step) }),
-            el('span.score-value', { text: String(team.score) }),
+            el('span.score-value', {
+              text: String(team.score),
+              class: bumped && bumped.id === team.id ? (bumped.up ? 'is-up' : 'is-down') : '',
+            }),
             el('button.score-btn.score-btn--plus', { text: '+', 'aria-label': `Give a point to ${team.name}`, onclick: () => bump(team, s.step) }),
           ]);
 

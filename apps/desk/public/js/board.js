@@ -312,6 +312,80 @@ window.Desk = window.Desk || {};
     node.style.setProperty('--h', item.h);
   }
 
+  // ---------- motion ----------
+
+  /** Somebody who has asked their computer for less movement gets none. */
+  const calm = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const EASE = 'cubic-bezier(.2,.7,.2,1)';
+
+  /**
+   * Makes a change to the board and lets every card that moved GLIDE to its
+   * new place instead of jumping there.
+   *
+   * The grid puts a card in its new cell instantly; there is nothing to
+   * transition. So each card's position is noted before the change, and after
+   * it the card is drawn back where it was and let go — the browser eases it
+   * home. Only the position moves: a card that changed size simply is its new
+   * size, because stretching its contents on the way would look broken.
+   *
+   * `skip` is the card in the teacher's hand, which follows the pointer and
+   * must not be pulled about by anything else.
+   */
+  function glide(change, { skip = null, duration = 260 } = {}) {
+    if (calm() || !board.root) { change(); return; }
+    const before = new Map();
+    for (const node of board.root.querySelectorAll('.card')) {
+      if (node !== skip && node.offsetParent) before.set(node, node.getBoundingClientRect());
+    }
+    change();
+    for (const [node, was] of before) {
+      if (!node.isConnected || !node.offsetParent) continue;
+      const now = node.getBoundingClientRect();
+      const dx = was.left - now.left;
+      const dy = was.top - now.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      node.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+        { duration, easing: EASE },
+      );
+    }
+  }
+
+  /**
+   * The big view grows out of the card it belongs to, and shrinks back into
+   * it — so opening a tool reads as the same tool coming closer, not as a
+   * new page replacing the board. The screen is drawn at the card's size and
+   * place and eased out to fill the window; its contents fade in once it is
+   * most of the way there, because text stretched mid-flight looks broken.
+   */
+  function stageMotion(stage, card, direction) {
+    if (calm() || !card || !card.isConnected) return Promise.resolve();
+    const from = card.getBoundingClientRect();
+    const to = stage.getBoundingClientRect();
+    if (!from.width || !to.width) return Promise.resolve();
+    const small = {
+      transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`,
+      borderRadius: '14px',
+    };
+    const big = { transform: 'translate(0, 0) scale(1, 1)', borderRadius: '0px' };
+    stage.style.transformOrigin = '0 0';
+    const opening = direction === 'open';
+    const duration = opening ? 340 : 260;
+    const run = stage.animate(opening ? [small, big] : [big, small], {
+      duration, easing: EASE, fill: opening ? 'none' : 'forwards',
+    });
+    const fade = opening
+      ? [{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1 }]
+      : [{ opacity: 1 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }];
+    for (const part of stage.querySelectorAll(':scope > .stage-head, :scope > .stage-body')) {
+      part.animate(fade, { duration, fill: opening ? 'none' : 'forwards' });
+    }
+    // Animations are paused in a background tab, and a paused one never
+    // finishes — which would leave the big view on screen for ever, waiting.
+    // So the wait is capped at a little longer than the animation itself.
+    return Promise.race([run.finished.catch(() => {}), new Promise((done) => setTimeout(done, duration + 120))]);
+  }
+
   function repositionAll() {
     for (const { item, node } of board.instances.values()) position(node, item);
   }
@@ -372,8 +446,8 @@ window.Desk = window.Desk || {};
         placed.push(other);
       }
 
-      repositionAll();
-      position(node, item);
+      // The cards being moved aside step out of the way rather than jump.
+      glide(() => { repositionAll(); position(node, item); }, { skip: node });
     };
 
     node.classList.add(mode === 'move' ? 'is-dragging' : 'is-resizing');
@@ -535,7 +609,7 @@ window.Desk = window.Desk || {};
     if (!changed) return 0;
     resolve(board.items, null);
     compact(board.items);
-    render();
+    glide(() => render());
     markDirty();
     return changed;
   }
@@ -568,12 +642,12 @@ window.Desk = window.Desk || {};
     const spot = findSpot(board.items, w, h);
     const item = { id: `w_${Math.random().toString(36).slice(2, 11)}`, type, state: {}, w, h, ...spot };
     board.items.push(item);
-    render();
+    glide(() => render());
     markDirty();
     const node = board.instances.get(item.id)?.node;
-    node?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    node?.scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'nearest' });
     node?.classList.add('is-new');
-    setTimeout(() => node?.classList.remove('is-new'), 1400);
+    setTimeout(() => node?.classList.remove('is-new'), 900);
     // Two frames later the card has drawn and can be measured, so a tool
     // arrives at the size it needs rather than at a guess from its manifest.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -605,11 +679,21 @@ window.Desk = window.Desk || {};
       if (!okToGo) return;
     }
 
+    const leaving = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    // It shrinks away first, so the eye sees where it went before the rest
+    // of the board closes up behind it.
+    if (leaving && !calm()) {
+      const going = leaving.animate(
+        [{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(.9)' }],
+        { duration: 180, easing: EASE, fill: 'forwards' },
+      );
+      await Promise.race([going.finished.catch(() => {}), new Promise((done) => setTimeout(done, 300))]);
+    }
     unmountInstance(id);
-    board.root.querySelector(`[data-id="${CSS.escape(id)}"]`)?.remove();
+    leaving?.remove();
     board.items = board.items.filter((i) => i.id !== id);
     compact(board.items);
-    render();
+    glide(() => render());
     markDirty();
   }
 
@@ -670,6 +754,8 @@ window.Desk = window.Desk || {};
 
     document.body.append(stage);
     document.body.classList.add('has-stage');
+    const cardNode = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    stageMotion(stage, cardNode, 'open');
 
     def.init(item.state);
     const api = def.mount({
@@ -678,11 +764,15 @@ window.Desk = window.Desk || {};
     }) || {};
     board.stage = { id, api, node: stage };
 
-    function close() {
+    let closing = false;
+    async function close() {
+      if (closing) return;           // Esc and the close button in one go
+      closing = true;
       if (document.fullscreenElement === stage) document.exitFullscreen().catch(() => {});
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('fullscreenchange', onFs);
       try { api.destroy && api.destroy(); } catch (e) { console.error(e); }
+      await stageMotion(stage, board.root.querySelector(`[data-id="${CSS.escape(id)}"]`), 'close');
       stage.remove();
       document.body.classList.remove('has-stage');
       board.stage = null;
@@ -801,7 +891,7 @@ window.Desk = window.Desk || {};
   }
 
   Desk.board = {
-    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, COLUMNS, GUEST_KEY,
+    init, addItem, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, COLUMNS, GUEST_KEY,
     isGuest: () => board.guest,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so

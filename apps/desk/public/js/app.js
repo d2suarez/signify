@@ -411,6 +411,13 @@
       const said = Desk.board.readouts(islandRoom());
       // Nothing running, nothing to say. An empty pill is furniture.
       if (!said.length) { island.replaceChildren(); island.hidden = true; return; }
+      // It eases down into the header when a tool starts saying something,
+      // rather than blinking into being.
+      if (island.hidden) {
+        island.classList.remove('is-arriving');
+        void island.offsetWidth;
+        island.classList.add('is-arriving');
+      }
       island.hidden = false;
       const parts = [];
       said.forEach((r, i) => {
@@ -472,11 +479,24 @@
     }
 
     function applyFilter() {
-      for (const card of document.querySelectorAll('.card')) {
-        const def = Desk.widgets.get(card.dataset.type);
-        const mine = showing === 'all' || (def && def.category === showing);
-        card.classList.toggle('is-filtered-out', !mine);
-      }
+      const appearing = [];
+      // The cards that stay glide to where the filter puts them; the ones
+      // coming back fade up into their places, so choosing a family reads as
+      // the board rearranging itself rather than as a page being redrawn.
+      Desk.board.glide(() => {
+        for (const card of document.querySelectorAll('.card')) {
+          const def = Desk.widgets.get(card.dataset.type);
+          const mine = showing === 'all' || (def && def.category === showing);
+          if (mine && card.classList.contains('is-filtered-out')) appearing.push(card);
+          card.classList.toggle('is-filtered-out', !mine);
+        }
+      });
+      const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (still) return;
+      appearing.forEach((card, i) => card.animate(
+        [{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'scale(1)' }],
+        { duration: 260, delay: Math.min(i, 8) * 30, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' },
+      ));
     }
 
     paintFilters();

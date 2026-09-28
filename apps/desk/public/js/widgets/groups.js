@@ -132,6 +132,10 @@
 
       const present = () => students.filter((x) => !s.away.includes(x.id));
 
+      // Set by make(), read once by draw(): new groups are dealt out like
+      // cards, but groups that are simply being redrawn just appear.
+      let dealt = false;
+
       function make() {
         const people = present();
         if (people.length < 2) { toast('There need to be at least two pupils.', 'warn'); return; }
@@ -145,6 +149,7 @@
           members: members.map((p) => ({ key: p.id, name: p.name })),
         }));
         ctx.save();
+        dealt = true;
         draw();
         if (unmet) toast(`${unmet} keep-apart pair${unmet === 1 ? '' : 's'} could not be honoured with these group sizes.`, 'warn');
       }
@@ -195,9 +200,13 @@
             : el('h4.group-title-text', { text: g.label });
           const names = el('ul.group-names');
           for (const m of g.members) names.append(el('li', { text: m.name }));
-          grid.append(el('div.group-card', {}, [title, names, el('span.group-size', { text: `${g.members.length}` })]));
+          grid.append(el('div.group-card', {
+            class: dealt ? 'is-dealt' : '',
+            style: { '--deal': grid.children.length },
+          }, [title, names, el('span.group-size', { text: `${g.members.length}` })]));
         });
         output.append(grid);
+        dealt = false;
 
         if (ctx.expanded) {
           output.append(el('div.group-row.no-print', {}, [

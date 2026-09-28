@@ -306,6 +306,15 @@
           if (s.running && !s.fired && Date.now() >= s.endsAt) {
             s.fired = true;
             Desk.sound.play(s.sound, { repeat: 2 });
+            // Time is up, and the card says so with its whole body: a short
+            // shake and a flash, for the class that did not hear the chime.
+            const holder = ctx.root.closest('.card, .stage');
+            if (holder) {
+              holder.classList.remove('is-ringing');
+              void holder.offsetWidth;          // restart the animation if it is already running
+              holder.classList.add('is-ringing');
+              setTimeout(() => holder.classList.remove('is-ringing'), 1600);
+            }
             ctx.save();
             if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
           }

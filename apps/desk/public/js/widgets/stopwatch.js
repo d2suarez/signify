@@ -70,7 +70,9 @@
         const previous = s.laps.length ? s.laps[0].at : 0;
         s.laps.unshift({ id: `l${Date.now()}`, at, split: at - previous, label: '' });
         s.laps = s.laps.slice(0, 60);
+        freshLap = true;
         ctx.save(); drawLaps();
+        freshLap = false;
       }
 
       async function reset() {
@@ -83,13 +85,15 @@
         ctx.save(); paintButtons(); drawLaps();
       }
 
+      let freshLap = false;          // the lap just taken slides in; the rest are just there
+
       function drawLaps() {
         Desk.clear(lapList);
         const shown = ctx.expanded ? s.laps : s.laps.slice(0, 4);
         s.laps.forEach((l, i) => {
           if (!shown.includes(l)) return;
           const number = s.laps.length - i;
-          const row = el('li.sw-lap', {}, [
+          const row = el('li.sw-lap', { class: freshLap && i === 0 ? 'is-fresh' : '' }, [
             el('span.sw-lap-n', { text: `${number}` }),
             ctx.expanded
               ? el('input.sw-lap-label', {

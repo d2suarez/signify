@@ -500,8 +500,10 @@ p { margin: 0 0 .6rem; }
   transform: translate(var(--drag-x, 0), var(--drag-y, 0)) scale(1.012);
   transition: none;
 }
-.card.is-new { animation: pop .6s ease; }
-@keyframes pop { from { transform: scale(.94); box-shadow: 0 0 0 4px var(--blue-soft); } }
+/* A new tool arrives: up from a little smaller and a little lower, with a
+   touch of overshoot, so it lands on the desk rather than appearing on it. */
+.card.is-new { animation: pop .5s cubic-bezier(.2,1.4,.4,1); }
+@keyframes pop { from { transform: translateY(10px) scale(.9); opacity: 0; } }
 
 .card-head {
   display: flex; align-items: center; gap: .45rem;
@@ -650,9 +652,7 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
   position: fixed; inset: 0; z-index: 60;
   display: flex; flex-direction: column;
   background: var(--bg);
-  animation: stage-in .18s ease;
 }
-@keyframes stage-in { from { opacity: 0; transform: scale(.99); } }
 .stage { --card-bg: var(--bg); }
 .stage-head {
   display: flex; align-items: center; gap: .6rem;
@@ -933,7 +933,6 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 }
 .pick-name.is-rolling { color: var(--faint); }
 .pick-name.is-landed { animation: land .5s cubic-bezier(.2,1.5,.4,1); color: var(--blue); }
-@keyframes land { from { transform: scale(.8); } }
 .pick-count { font-size: .8rem; color: var(--muted); }
 .pick-extra { display: flex; flex-direction: column; gap: .4rem; }
 .pick-roll { display: flex; flex-wrap: wrap; gap: .25rem; }
@@ -1570,7 +1569,7 @@ body.is-seating-drag { user-select: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
 }
 
 /* ---------------- picture ---------------- */
@@ -1990,10 +1989,7 @@ body.is-seating-drag { user-select: none; }
   letter-spacing: -.01em; line-height: .85; text-align: left; margin-top: auto;
 }
 :is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
-:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--silent,
-:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--whisper,
-:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--work { background: currentColor; }
-:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill--loud { background: rgba(0,0,0,.45); }
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill { background: currentColor; }
 
 /* A clock on the board is a time, not a dial: big figures, the date as a
    quiet line above them. The face with hands is still there when it is the
@@ -2312,3 +2308,65 @@ body.is-seating-drag { user-select: none; }
   padding: .6rem .75rem; border-radius: var(--r);
   background: color-mix(in srgb, var(--p3) 18%, var(--surface)); color: var(--ink);
 }
+
+/* The noise meter's colour follows the room. The level is already smoothed,
+   but a short transition takes the flicker out of a single cough, and the ink
+   crossfades with it so the words never flash from white to black. */
+:is(.card, .stage)[data-type="noise"].is-listening {
+  transition: background-color .45s var(--ease), color .45s var(--ease),
+              box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+/* ---------------- the fun ----------------
+   Movement where something HAPPENS: a group is made, a pupil is seated, a
+   point is scored, time runs out. Nothing moves for the sake of moving, and
+   all of it is switched off for anyone whose computer asks for less motion
+   (see prefers-reduced-motion above). */
+
+/* New groups are dealt out one after another, each landing with a slight
+   tilt that straightens as it settles. */
+.group-card.is-dealt {
+  animation: deal .46s cubic-bezier(.2,1.3,.4,1) backwards;
+  animation-delay: calc(var(--deal, 0) * 70ms);
+}
+@keyframes deal { from { opacity: 0; transform: translateY(16px) rotate(-4deg) scale(.88); } }
+
+/* Seated at random, pupils drop into their chairs in the order they were
+   dealt. */
+.seat.is-arriving {
+  animation: seat-in .38s cubic-bezier(.2,1.4,.4,1) backwards;
+  animation-delay: calc(min(var(--arrive, 0), 40) * 40ms);
+}
+@keyframes seat-in { from { opacity: 0; transform: translateY(-10px) scale(.7); } }
+
+/* A point scored jumps; a point taken away dips. */
+.score-value.is-up { animation: score-up .42s cubic-bezier(.2,1.6,.4,1); }
+.score-value.is-down { animation: score-down .34s ease-out; }
+@keyframes score-up { 0% { transform: scale(1); } 35% { transform: scale(1.55) translateY(-3px); } 100% { transform: scale(1); } }
+@keyframes score-down { 40% { transform: scale(.8) translateY(3px); opacity: .6; } }
+
+/* Time is up: the whole card shakes twice and flashes, for the class that
+   did not hear the chime. */
+:is(.card, .stage).is-ringing { animation: ring-shake .5s cubic-bezier(.36,.07,.19,.97) 2; }
+@keyframes ring-shake {
+  10%, 90% { transform: translateX(-2px) rotate(-.4deg); }
+  20%, 80% { transform: translateX(4px) rotate(.6deg); }
+  30%, 50%, 70% { transform: translateX(-7px) rotate(-.8deg); filter: brightness(1.15); }
+  40%, 60% { transform: translateX(7px) rotate(.8deg); }
+}
+
+/* The lap just taken slides in at the top of the list. */
+.sw-lap.is-fresh { animation: lap-in .32s cubic-bezier(.2,.7,.2,1); }
+@keyframes lap-in { from { opacity: 0; transform: translateX(-14px); } }
+
+/* The header's readout pill eases down when a tool starts talking. */
+.island.is-arriving { animation: island-in .36s cubic-bezier(.2,1.3,.4,1); }
+@keyframes island-in { from { opacity: 0; transform: translateY(-10px) scale(.94); } }
+
+/* The picked name already lands (land, above); give it a little more spring. */
+.pick-name.is-landed { animation: land .55s cubic-bezier(.2,1.6,.4,1); }
+@keyframes land { 0% { transform: scale(.7); opacity: .4; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
+
+/* Choosing a family: the chip fills rather than switching. */
+.filter { transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur-fast) var(--ease); }
+.filter:active { transform: scale(.96); }

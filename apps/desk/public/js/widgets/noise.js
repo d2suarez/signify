@@ -34,10 +34,85 @@
   ];
   const levelFor = (v) => LEVELS.find((l) => v < l.upto) || LEVELS[LEVELS.length - 1];
 
+  /* ---------------- the colour of the room ----------------
+     Green while it is quiet, yellow as it gets louder, red once it is past the
+     line the teacher set — the whole card, readable from the back of the room
+     without reading a word. The three are the app's own green, yellow and
+     red, fixed rather than taken from the palette: a traffic light that turns
+     purple under "Berry" has stopped being a traffic light.
+
+     It fades rather than stepping, blended in OKLCH: lightness, colourfulness
+     and hue each travel on their own. Blended as plain RGB — or even as
+     straight-line OKLab — green into yellow passes through a dull olive,
+     because the straight line between two hues cuts through grey. Turning
+     the hue instead keeps the middle as vivid as the ends: green, a fresh
+     yellow-green, yellow, orange, red. */
+  const QUIET = '#1b7f4b';
+  const RISING = '#f5c400';
+  const LOUD = '#ec3013';
+
+  const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const toGamma = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+
+  function hexToOklab(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => toLinear(c / 255));
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const q = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [
+      0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * q,
+      1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * q,
+      0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * q,
+    ];
+  }
+
+  function oklabToRgb([L, A, B]) {
+    const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+    const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+    const q = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+    return [
+      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q,
+      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * q,
+    ].map((c) => Math.round(Math.min(1, Math.max(0, toGamma(Math.min(1, Math.max(0, c))))) * 255));
+  }
+
+  const toLch = ([L, A, B]) => [L, Math.hypot(A, B), Math.atan2(B, A)];
+  const fromLch = ([L, C, h]) => [L, C * Math.cos(h), C * Math.sin(h)];
+  const STOPS = [QUIET, RISING, LOUD].map((hex) => toLch(hexToOklab(hex)));
+
+  /** Along the shorter way round the colour wheel. */
+  function mixLch(a, b, k) {
+    let dh = b[2] - a[2];
+    if (dh > Math.PI) dh -= 2 * Math.PI;
+    if (dh < -Math.PI) dh += 2 * Math.PI;
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + dh * k];
+  }
+
+  /**
+   * The card's colour and the ink that reads on it, for a level and the
+   * teacher's line. Green up to a third of the way to the line, fading to
+   * yellow by three-quarters of the way, and to red as the line is reached.
+   */
+  function noiseColour(level, limit) {
+    const t = clamp(level / Math.max(1, limit), 0, 1.2);
+    let from = STOPS[0]; let to = STOPS[0]; let k = 0;
+    if (t <= 0.35) { from = to = STOPS[0]; }
+    else if (t < 0.75) { from = STOPS[0]; to = STOPS[1]; k = (t - 0.35) / 0.4; }
+    else if (t < 1) { from = STOPS[1]; to = STOPS[2]; k = (t - 0.75) / 0.25; }
+    else { from = to = STOPS[2]; }
+    const [r, g, b] = oklabToRgb(fromLch(mixLch(from, to, k)));
+    const lum = 0.2126 * toLinear(r / 255) + 0.7152 * toLinear(g / 255) + 0.0722 * toLinear(b / 255);
+    const hex = `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    return { background: hex, ink: lum > 0.35 ? '#201e1d' : '#ffffff' };
+  }
+
   Desk.widget({
     type: 'noise',
     name: 'Noise meter',
     blurb: 'How loud the room is, as a bar they can watch. Nothing is ever recorded.',
+    _noiseColour: noiseColour,
     icon: 'sound',
     category: 'calm',
     guest: true,
@@ -160,6 +235,22 @@
 
         if (l.label !== lastWord) { word.textContent = stream ? l.label : ''; lastWord = l.label; }
         track.classList.toggle('is-over', stream && v > s.limit);
+
+        // The whole tool turns the colour of the room while it is listening,
+        // and goes back to its own colour when the microphone is off.
+        const holder = ctx.root.closest('.card, .stage');
+        if (holder) {
+          if (stream) {
+            const c = noiseColour(level, s.limit);
+            holder.style.setProperty('--role', c.background);
+            holder.style.setProperty('--role-ink', c.ink);
+            holder.classList.add('is-listening');
+          } else if (holder.classList.contains('is-listening')) {
+            holder.style.removeProperty('--role');
+            holder.style.removeProperty('--role-ink');
+            holder.classList.remove('is-listening');
+          }
+        }
       }
 
       function paintChrome() {

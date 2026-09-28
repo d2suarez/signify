@@ -473,6 +473,7 @@
       let short = new Map();         // student id -> what fits in a chair
       let selectedStudent = null;    // tap-to-place
       let named = null;              // whose full name is showing, when not editing
+      let arriving = null;           // pupil id -> order, for the one draw after seating at random
       let selected = null;           // { kind: 'desk' | 'object', id } — what the inspector is showing
       let dragging = null;
       let ghost = null;
@@ -793,8 +794,9 @@
             const who = studentById(p.seats[id]);
             const seat = el('div.seat', {
               'data-seat': id,
-              class: [who ? 'is-taken' : 'is-free', who && who.id === selectedStudent ? 'is-selected' : ''].filter(Boolean).join(' '),
-              style: { '--bx': rect.x, '--by': rect.y, '--bw': rect.w, '--bh': rect.h },
+              class: [who ? 'is-taken' : 'is-free', who && who.id === selectedStudent ? 'is-selected' : '',
+                who && arriving && arriving.has(who.id) ? 'is-arriving' : ''].filter(Boolean).join(' '),
+              style: { '--arrive': who && arriving && arriving.has(who.id) ? arriving.get(who.id) : 0, '--bx': rect.x, '--by': rect.y, '--bw': rect.w, '--bh': rect.h },
             }, [
               el('span.seat-name', { text: who ? (short.get(who.id) || who.name) : '', title: who ? who.name : '' }),
               el('span.seat-initials', { text: who ? initials(who.name) : '' }),
@@ -1391,7 +1393,12 @@
           for (let k = 0; k < add[di]; k += 1) p.seats[free[k]] = waiting[next++].id;
         });
 
+        // The pupils just seated arrive one after another, in the order they
+        // were dealt out, so a class watching sees names land rather than a
+        // full room appear.
+        arriving = new Map(waiting.slice(0, next).map((st, i) => [st.id, i]));
         ctx.save(); draw();
+        arriving = null;
         if (standing) {
           toast(`${standing} pupil${standing === 1 ? ' has' : 's have'} nowhere to sit.`, 'warn');
         }

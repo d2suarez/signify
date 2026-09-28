@@ -1294,6 +1294,34 @@ describe("a visitor's class lists, kept in the browser", () => {
 });
 
 // ===================================================================
+describe('the noise meter', () => {
+  const colour = loadWidget('noise')._noiseColour;
+
+  it('is green when the room is quiet, red once it is past the line', () => {
+    equal(colour(0, 55).background, '#1b7f4b');
+    equal(colour(15, 55).background, '#1b7f4b', 'still green a quarter of the way up');
+    equal(colour(55, 55).background, '#ec3013', 'red at the line');
+    equal(colour(90, 55).background, '#ec3013', 'and past it');
+  });
+
+  it('is yellow three-quarters of the way to the line', () => {
+    equal(colour(55 * 0.75, 55).background, '#f5c400');
+  });
+
+  it('follows the line the teacher set, not a fixed loudness', () => {
+    // The same level is calm in a room whose line is high and loud in one
+    // whose line is low.
+    equal(colour(40, 90).background, colour(20, 45).background);
+  });
+
+  it('puts dark ink on the yellow and white on the green and red', () => {
+    equal(colour(0, 55).ink, '#ffffff');
+    equal(colour(55 * 0.75, 55).ink, '#201e1d');
+    equal(colour(60, 55).ink, '#ffffff');
+  });
+});
+
+// ===================================================================
 describe('the scoreboard', () => {
   const board = loadWidget('scoreboard');
 
