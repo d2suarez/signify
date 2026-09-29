@@ -1355,6 +1355,87 @@ describe('the clock', () => {
 });
 
 // ===================================================================
+describe('the passage grader', () => {
+  const w = loadWidget('passage');
+  const grade = w._grade;
+  const R = (o = {}) => ({ punctuation: 'ignore', capitals: 'ignore', spelling: 'exact', ...o });
+  const PSALM = 'The Lord is my shepherd; I shall not want.';
+
+  it('gives full marks for the passage word for word', () => {
+    const r = grade(PSALM, 'the lord is my shepherd i shall not want', R());
+    equal(`${r.score}/${r.total}`, '9/9', 'punctuation and capitals ignored');
+    equal(r.percent, 100);
+  });
+
+  it('counts a skipped word once, without knocking the rest out of line', () => {
+    const r = grade(PSALM, 'The Lord is shepherd I shall not want', R());
+    equal(`${r.score}/${r.total}`, '8/9');
+    equal(r.tally.missing, 1);
+  });
+
+  it('shows added words but does not take marks for them', () => {
+    const r = grade(PSALM, 'The Lord is my good shepherd I shall not want want', R());
+    equal(r.score, 9);
+    equal(r.tally.extra, 2);
+  });
+
+  it('marks words out of order as the ones that are out of place', () => {
+    const r = grade('one two three four five', 'one two four three five', R());
+    equal(r.score, 4, 'one of the swapped pair cannot line up');
+  });
+
+  it('marks a near miss by the spelling rule', () => {
+    const typed = 'The Lord is my shepard I shall not want';
+    equal(grade(PSALM, typed, R({ spelling: 'exact' })).score, 8, 'exact: nothing for it');
+    equal(grade(PSALM, typed, R({ spelling: 'half' })).score, 8.5, 'half credit');
+    equal(grade(PSALM, typed, R({ spelling: 'forgive' })).score, 9, 'forgiven');
+    equal(grade(PSALM, typed, R()).tally.spelling, 1, 'and it is called a spelling slip, not a missing word');
+  });
+
+  it('never calls a different short word a misspelling', () => {
+    equal(w._kinship('is', 'it'), null);
+    equal(w._kinship('the', 'teh'), 'spelling', 'but two letters swapped is a typo');
+    equal(w._kinship('shepherd', 'shepperd'), 'spelling');
+    equal(w._kinship('shepherd', 'sheep'), null);
+  });
+
+  it('marks capitals only when asked, and does not forgive them as typos', () => {
+    const typed = 'the lord is my shepherd I shall not want';
+    equal(grade(PSALM, typed, R()).score, 9, 'ignored');
+    equal(grade(PSALM, typed, R({ capitals: 'count' })).score, 7, 'the and lord lose their marks');
+    equal(grade(PSALM, typed, R({ capitals: 'count', spelling: 'forgive' })).score, 7, 'forgiving typos is not forgiving capitals');
+    equal(grade(PSALM, typed, R({ capitals: 'count', spelling: 'half' })).score, 8, 'half credit for each');
+  });
+
+  it('makes each punctuation mark a point when punctuation is marked', () => {
+    const r = grade(PSALM, 'The Lord is my shepherd, I shall not want.', R({ punctuation: 'count' }));
+    equal(r.total, 11, 'nine words, a semicolon and a full stop');
+    equal(r.score, 10, 'a comma is not a semicolon');
+    equal(`${r.marks.got}/${r.marks.total}`, '1/2');
+  });
+
+  it('reads curly quotes, long dashes and apostrophes the way pupils type them', () => {
+    const passage = '“Surely goodness—and mercy,” the Lord’s word said…';
+    equal(grade(passage, '"Surely goodness - and mercy," the Lord\'s word said...', R({ punctuation: 'count' })).percent, 100);
+    equal(grade(passage, 'Surely goodness and mercy the Lords word said', R()).percent, 100, 'ignoring punctuation ignores the apostrophe too');
+  });
+
+  it('gives nothing for an empty answer, and survives an empty passage', () => {
+    equal(grade(PSALM, '', R()).score, 0);
+    equal(grade('', 'anything', R()).total, 0);
+    equal(grade('', 'anything', R()).percent, 0);
+  });
+
+  it('keeps saved answers tidy and within bounds', () => {
+    const s = { results: [{ id: 'a', name: 'Ava', answer: 'x'.repeat(9000) }, { name: 'no id', answer: 'y' }, null] };
+    w.init(s);
+    equal(s.results.length, 1);
+    equal(s.results[0].answer.length, 3000);
+    equal(s.spelling, 'half', 'half credit to start');
+  });
+});
+
+// ===================================================================
 describe('the noise meter', () => {
   const colour = loadWidget('noise')._noiseColour;
 

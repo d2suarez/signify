@@ -2108,6 +2108,88 @@ body.is-seating-drag { user-select: none; }
 .link-empty { padding: .4rem .1rem; }
 .link-add { display: flex; gap: .35rem; flex-wrap: wrap; }
 .link-add .input { flex: 1 1 140px; min-width: 0; }
+
+/* ---------------- passage grader ---------------- */
+/* The marking colours are fixed, like the noise meter's: green, amber and red
+   mean right, nearly and wrong whatever palette the desk is wearing, because
+   a teacher reads them faster than they read a legend. */
+.pg {
+  --pg-ok: #1b7f4b; --pg-near: #9a6700; --pg-near-bg: color-mix(in srgb, #f5c400 26%, var(--surface));
+  --pg-miss: #c62a12; --pg-miss-bg: color-mix(in srgb, #ec3013 13%, var(--surface));
+  display: flex; flex-direction: column; gap: .8rem; flex: 1; min-height: 0;
+}
+:root[data-theme="dark"] .pg { --pg-ok: #5cc98d; --pg-near: #f5c400; --pg-miss: #ff7a63; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pg { --pg-ok: #5cc98d; --pg-near: #f5c400; --pg-miss: #ff7a63; } }
+.pg-left, .pg-right { display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
+.pg-label { font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pg-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.pg-passage, .pg-grade { display: flex; flex-direction: column; gap: .4rem; }
+.pg-passage-set { justify-content: space-between; padding: .5rem .7rem; border-radius: var(--r); background: var(--desk); }
+.pg-passage-name { display: flex; align-items: baseline; gap: .5rem; min-width: 0; }
+.pg-passage-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-passage-text, .pg-answer { width: 100%; min-height: 5.5em; }
+.pg-who .pg-name { flex: 1 1 140px; min-width: 0; }
+.pg-who .picker { flex: 1 1 160px; min-width: 0; display: flex; gap: .2rem; }
+.pg-who .picker .select { min-width: 0; }
+
+.pg-rules { border-radius: var(--r); background: var(--desk); padding: .45rem .7rem; }
+.pg-rules > summary { display: flex; align-items: baseline; gap: .5rem; cursor: pointer; list-style: none; }
+.pg-rules > summary::-webkit-details-marker { display: none; }
+.pg-rules > summary::after { content: 'Change'; margin-left: auto; font-size: .8rem; font-weight: 650; color: var(--p2); }
+.pg-rules[open] > summary::after { content: 'Done'; }
+.pg-rules-say { font-size: .82rem; color: var(--ink); min-width: 0; }
+.pg-rule { display: grid; grid-template-columns: 6.5rem 1fr; align-items: center; gap: .15rem .5rem; margin-top: .5rem; }
+.pg-rule .seg { justify-self: start; flex-wrap: wrap; }
+.pg-rule-hint { grid-column: 2; font-size: .76rem; }
+
+.pg-empty { padding: .6rem 0; }
+.pg-score { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; }
+.pg-score-num { font-family: var(--display); font-weight: 800; font-size: clamp(1.8rem, 7cqi, 3rem); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pg-score-pct { font-family: var(--display); font-weight: 700; font-size: 1.3rem; color: var(--p2); }
+.pg-tally { margin-top: -.3rem; }
+
+/* The passage, marked. Words sit on one line of text like the original, so
+   a teacher reads it as the passage rather than as a table of words. */
+.pg-marked {
+  line-height: 2.1; font-size: .98rem; padding: .5rem .7rem; border-radius: var(--r);
+  border: 1px solid var(--line); max-height: 16rem; overflow: auto;
+}
+.pg-w { border-radius: 4px; padding: .05rem .15rem; }
+.pg-ok { color: var(--ink); }
+.pg-miss { color: var(--pg-miss); background: var(--pg-miss-bg); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.pg-near {
+  position: relative; display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15;
+  vertical-align: -0.55em; background: var(--pg-near-bg); color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--pg-near);
+}
+.pg-near small { font-size: .68rem; color: var(--pg-near); font-weight: 650; }
+.pg-near.is-forgiven { box-shadow: inset 0 -2px 0 var(--pg-ok); background: color-mix(in srgb, var(--pg-ok) 12%, var(--surface)); }
+.pg-near.is-forgiven small { color: var(--pg-ok); }
+.pg-extra { color: var(--muted); font-style: italic; box-shadow: inset 0 0 0 1px var(--line); }
+.pg-extra::before { content: '+'; font-style: normal; margin-right: 1px; }
+.pg-actions .pg-left-count { margin-left: auto; }
+
+.pg-saved { display: flex; flex-direction: column; gap: .4rem; }
+.pg-saved-head { justify-content: space-between; }
+.pg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 14rem; overflow: auto; }
+.pg-item { display: flex; align-items: center; gap: .2rem; }
+.pg-open {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto 3.2rem; gap: .6rem; align-items: center;
+  padding: .4rem .6rem; border: 0; border-radius: var(--r-sm); background: var(--desk);
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+.pg-open:hover { background: color-mix(in srgb, var(--p2) 12%, var(--desk)); }
+.pg-item.is-open .pg-open { box-shadow: inset 0 0 0 2px var(--p2); }
+.pg-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.pg-item-score { font-variant-numeric: tabular-nums; color: var(--muted); }
+.pg-item-pct { font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Opened large: setting up on the left, the marking on the right, so the
+   answer being pasted and the passage being marked are side by side. */
+.stage[data-type="passage"] .pg { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 1.35fr); gap: 1.4rem; align-items: start; }
+.stage[data-type="passage"] .pg-marked { max-height: 46vh; font-size: 1.12rem; }
+.stage[data-type="passage"] .pg-list { max-height: 30vh; }
+@media (max-width: 760px) { .stage[data-type="passage"] .pg { grid-template-columns: 1fr; } }
 @media (hover: none) { .link-remove { opacity: 1; } }
 
 /* ---------------- the big view: fill the room ----------------
