@@ -190,17 +190,32 @@
    * added are shown but cost nothing — the mark is how much of the passage
    * they have, which is what memorising is.
    */
-  function grade(passage, answer, rules) {
+  /**
+   * `overrides` is the teacher's own word on a word: { position: 1 or 0 },
+   * right or wrong whatever the rules said. A position is the word's place in
+   * the passage — "w12" is its twelfth word, "m3" its third punctuation mark —
+   * so the decision stays on that word when the rules change, which counting
+   * steps would not (marking punctuation adds steps between the words).
+   */
+  function grade(passage, answer, rules, overrides = {}) {
     const want = tokenize(passage, rules);
     const got = tokenize(answer, rules);
     const steps = align(want, got);
-    const tally = { exact: 0, capital: 0, spelling: 0, missing: 0, extra: 0 };
+    const tally = { exact: 0, capital: 0, spelling: 0, missing: 0, extra: 0, changed: 0 };
     const words = { got: 0, total: 0 };
     const marks = { got: 0, total: 0 };
+    let w = 0;
+    let m = 0;
     for (const step of steps) {
       tally[step.is] += 1;
       if (step.is === 'extra') continue;
-      const c = credit(step, rules);
+      step.pos = step.want.kind === 'mark' ? `m${m++}` : `w${w++}`;
+      step.auto = credit(step, rules);
+      // Only a word the rules marked down can be put right, and put back.
+      const mine = step.is !== 'exact' && overrides && Object.prototype.hasOwnProperty.call(overrides, step.pos)
+        ? (overrides[step.pos] ? 1 : 0) : null;
+      const c = mine === null || mine === step.auto ? step.auto : mine;
+      if (c !== step.auto) tally.changed += 1;
       step.credit = c;
       const bucket = step.want.kind === 'mark' ? marks : words;
       bucket.total += 1;
@@ -209,6 +224,17 @@
     const score = words.got + marks.got;
     const total = words.total + marks.total;
     return { steps, tally, words, marks, score, total, percent: total ? Math.round((score / total) * 100) : 0 };
+  }
+
+  /** Positions like "w12" or "m3", each 1 or 0; anything else dropped. */
+  function cleanOverrides(o) {
+    const out = {};
+    if (!o || typeof o !== 'object') return out;
+    for (const [k, v] of Object.entries(o)) {
+      if (/^[wm]\d{1,4}$/.test(k) && (v === 0 || v === 1)) out[k] = v;
+      if (Object.keys(out).length >= MAX_TOKENS) break;
+    }
+    return out;
   }
 
   /** Words only — no punctuation, whatever the rules — for the counts shown beside each text. */
@@ -239,14 +265,15 @@
       if (!RULES.punctuation.some((o) => o.key === s.punctuation)) s.punctuation = 'ignore';
       if (!RULES.capitals.some((o) => o.key === s.capitals)) s.capitals = 'ignore';
       if (typeof s.classKey !== 'string') s.classKey = '';
-      if (!s.draft || typeof s.draft !== 'object') s.draft = { name: '', answer: '', id: '' };
+      if (!s.draft || typeof s.draft !== 'object') s.draft = { name: '', answer: '', id: '', overrides: {} };
       if (typeof s.draft.name !== 'string') s.draft.name = '';
       if (typeof s.draft.answer !== 'string') s.draft.answer = '';
       if (typeof s.draft.id !== 'string') s.draft.id = '';
+      s.draft.overrides = cleanOverrides(s.draft.overrides);
       if (!Array.isArray(s.results)) s.results = [];
       s.results = s.results
         .filter((r) => r && typeof r.answer === 'string')
-        .map((r) => ({ id: String(r.id || ''), name: String(r.name || '').slice(0, 60), answer: r.answer.slice(0, MAX_ANSWER), at: Number(r.at) || 0 }))
+        .map((r) => ({ id: String(r.id || ''), name: String(r.name || '').slice(0, 60), answer: r.answer.slice(0, MAX_ANSWER), at: Number(r.at) || 0, overrides: cleanOverrides(r.overrides) }))
         .filter((r) => r.id)
         .slice(0, MAX_RESULTS);
     },
@@ -311,6 +338,11 @@
             s.title = title.value.trim().slice(0, 80);
             s.passage = text.value.slice(0, MAX_PASSAGE);
             editingPassage = false;
+            // Every decision about a word was about the old passage's words.
+            if (changed) {
+              s.draft.overrides = {};
+              for (const r of s.results) r.overrides = {};
+            }
             ctx.save();
             drawPassage();
             paint();
@@ -357,6 +389,11 @@
             s.title = title.value.trim().slice(0, 80);
             s.passage = text.value.slice(0, MAX_PASSAGE);
             editingPassage = false;
+            // Every decision about a word was about the old passage's words.
+            if (changed) {
+              s.draft.overrides = {};
+              for (const r of s.results) r.overrides = {};
+            }
             ctx.save();
             drawPassage();
             paint();
@@ -419,7 +456,16 @@
         rows: 4, maxlength: String(MAX_ANSWER), value: s.draft.answer,
         placeholder: 'Paste the pupil’s answer here. It is marked as you paste.', 'aria-label': 'The pupil’s answer',
         spellcheck: 'false',
-        oninput: (e) => { s.draft.answer = e.target.value; ctx.save(); paintCount(); paintSoon(); },
+        oninput: (e) => {
+          s.draft.answer = e.target.value;
+          // The words are lined up again from scratch, so a decision made
+          // about the old answer may no longer be about the same word.
+          if (Object.keys(s.draft.overrides).length) {
+            s.draft.overrides = {};
+            toast('The answer changed, so the words you had counted right or wrong went back to the marking rules.');
+          }
+          ctx.save(); paintCount(); paintSoon();
+        },
       });
       const leftHint = el('span.hint.pg-left-count');
       // How long the answer is against how long the passage is: the first
@@ -510,14 +556,58 @@
           }
           const w = step.want;
           if (step.is === 'exact') { put(el('span.pg-w.pg-ok', { text: w.text }), w); continue; }
-          if (step.is === 'missing') { put(el('span.pg-w.pg-miss', { text: w.text, title: 'Missing' }), w); continue; }
-          // A near miss shows the right word, with what was typed under it.
-          const what = step.is === 'capital' ? 'Capitals' : 'Spelling';
-          put(el(`span.pg-w.pg-near${step.credit === 1 ? '.is-forgiven' : ''}`, {
-            title: `${what}: they wrote “${step.got.text}”${step.credit === 1 ? ' — forgiven' : step.credit ? ' — half credit' : ''}`,
-          }, [w.text, el('small', { text: step.got.text })]), w);
+          put(overrulable(step), w);
         }
         return box;
+      }
+
+      /**
+       * A word the rules marked down, as a button: the teacher has the last
+       * word. Each click moves it on — counted right, then counted wrong (for
+       * a half-credit word), then back to what the rules said — so no choice
+       * is ever more than two clicks from being undone.
+       */
+      function overrulable(step) {
+        const w = step.want;
+        const mine = step.credit !== step.auto;
+        const said = step.is === 'missing' ? 'Missing'
+          : `${step.is === 'capital' ? 'Capitals' : 'Spelling'}: they wrote “${step.got.text}”`;
+        const now = mine
+          ? (step.credit ? 'you counted it right' : 'you counted it wrong')
+          : (step.auto === 1 ? 'forgiven' : step.auto ? 'half credit' : 'no credit');
+        const next = nextOverride(step);
+        const nextSay = next === null ? 'go back to the marking rules' : next ? 'count it right' : 'count it wrong';
+        const kind = step.is === 'missing' ? '.pg-miss' : '.pg-near';
+        const state = mine ? (step.credit ? '.is-mine-right' : '.is-mine-wrong') : (step.auto === 1 ? '.is-forgiven' : '');
+        return el(`button.pg-w.pg-flip${kind}${state}`, {
+          type: 'button',
+          title: `${said} — ${now}. Click to ${nextSay}.`,
+          'aria-label': `${w.text}: ${said}, ${now}. Click to ${nextSay}.`,
+          'data-pos': step.pos,
+          onclick: () => overrule(step),
+        }, step.is === 'missing' ? [w.text] : [w.text, el('small', { text: step.got.text })]);
+      }
+
+      /** What a click on this word makes it: 1 right, 0 wrong, null back to the rules. */
+      function nextOverride(step) {
+        const o = s.draft.overrides;
+        if (!Object.prototype.hasOwnProperty.call(o, step.pos)) return step.auto === 1 ? 0 : 1;
+        if (o[step.pos] === 1 && step.auto > 0 && step.auto < 1) return 0;
+        return null;
+      }
+
+      function overrule(step) {
+        const next = nextOverride(step);
+        if (next === null) delete s.draft.overrides[step.pos];
+        else s.draft.overrides[step.pos] = next;
+        // Looking back over a saved answer and putting a word right is a
+        // correction to that pupil's score, not a new draft to remember to
+        // save — so it goes straight onto the saved score.
+        const saved = editingId ? s.results.find((r) => r.id === editingId) : null;
+        if (saved && saved.answer === s.draft.answer) saved.overrides = { ...s.draft.overrides };
+        ctx.save();
+        paint();
+        resultBox.querySelector(`.pg-flip[data-pos="${step.pos}"]`)?.focus();
       }
 
       function paintResult() {
@@ -530,7 +620,7 @@
           resultBox.append(el('p.hint.pg-empty', { text: 'Paste a pupil’s answer to mark it.' }));
           return;
         }
-        const r = grade(s.passage, s.draft.answer, rules());
+        const r = grade(s.passage, s.draft.answer, rules(), s.draft.overrides);
         const t = r.tally;
         const bits = [
           `${t.exact} right`,
@@ -538,6 +628,7 @@
           t.capital ? `${t.capital} capital${t.capital === 1 ? '' : 's'}` : '',
           t.missing ? `${t.missing} missing` : '',
           t.extra ? `${t.extra} added` : '',
+          t.changed ? `${t.changed} changed by you` : '',
         ].filter(Boolean);
         const save = el('button.btn.btn--primary.btn--small', { svg: icon('save', 14), onclick: saveResult },
           editingId ? ' Update score' : ' Save score');
@@ -551,6 +642,8 @@
             ? el('p.hint.pg-tally', { text: `Words ${half(r.words.got)} / ${r.words.total} · Punctuation ${half(r.marks.got)} / ${r.marks.total}` })
             : null,
           marked(r),
+          r.steps.some((x) => x.is !== 'exact' && x.is !== 'extra')
+            ? el('p.hint.pg-flip-hint', { text: 'Click a marked word to count it right or wrong.' }) : null,
           el('div.pg-row.pg-actions', {}, [
             save,
             el('button.btn.btn--small.btn--ghost', { text: editingId ? 'Close' : 'Clear', onclick: clearDraft }),
@@ -566,11 +659,12 @@
         if (existing) {
           existing.name = name;
           existing.answer = s.draft.answer.slice(0, MAX_ANSWER);
+          existing.overrides = { ...s.draft.overrides };
         } else {
           if (s.results.length >= MAX_RESULTS) { toast(`That is ${MAX_RESULTS} scores — copy them out and clear the list to mark more.`, 'warn'); return; }
-          s.results.push({ id: `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, answer: s.draft.answer.slice(0, MAX_ANSWER), at: Date.now() });
+          s.results.push({ id: `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, answer: s.draft.answer.slice(0, MAX_ANSWER), at: Date.now(), overrides: { ...s.draft.overrides } });
         }
-        s.draft = { name: '', answer: '', id: '' };
+        s.draft = { name: '', answer: '', id: '', overrides: {} };
         editingId = null;
         nameBox.value = '';
         answerBox.value = '';
@@ -580,7 +674,7 @@
       }
 
       function clearDraft() {
-        s.draft = { name: '', answer: '', id: '' };
+        s.draft = { name: '', answer: '', id: '', overrides: {} };
         editingId = null;
         nameBox.value = '';
         answerBox.value = '';
@@ -593,7 +687,7 @@
       function paintSaved() {
         Desk.clear(savedBox);
         if (!s.results.length) return;
-        const marks = s.results.map((r) => ({ r, g: s.passage.trim() ? grade(s.passage, r.answer, rules()) : null }));
+        const marks = s.results.map((r) => ({ r, g: s.passage.trim() ? grade(s.passage, r.answer, rules(), r.overrides) : null }));
         const list = el('ul.pg-list');
         for (const { r, g } of marks) {
           list.append(el(`li.pg-item${r.id === editingId ? '.is-open' : ''}`, {}, [
@@ -601,7 +695,7 @@
               title: 'Show how this answer was marked',
               onclick: () => {
                 editingId = r.id;
-                s.draft = { name: r.name, answer: r.answer, id: r.id };
+                s.draft = { name: r.name, answer: r.answer, id: r.id, overrides: { ...r.overrides } };
                 nameBox.value = r.name;
                 answerBox.value = r.answer;
                 ctx.save();
@@ -682,5 +776,6 @@
     _tokenize: tokenize,
     _kinship: kinship,
     _wordCount: wordCount,
+    _cleanOverrides: cleanOverrides,
   });
 }(window.Desk));

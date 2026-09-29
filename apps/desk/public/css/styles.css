@@ -2170,6 +2170,33 @@ body.is-seating-drag { user-select: none; }
 .pg-extra::before { content: '+'; font-style: normal; margin-right: 1px; }
 .pg-actions .pg-left-count { margin-left: auto; }
 
+/* A marked-down word is a button: the teacher has the last word on it. */
+.pg-flip {
+  border: 0; font: inherit; line-height: inherit; cursor: pointer; margin: 0;
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.pg-flip.pg-miss { background: var(--pg-miss-bg); }
+.pg-flip:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--p2) 55%, transparent); }
+.pg-flip:focus-visible { outline: 2px solid var(--p2); outline-offset: 2px; }
+/* Counted right by the teacher: green, and no longer struck through. */
+.pg-flip.is-mine-right, .pg-flip.is-mine-right.pg-near {
+  background: color-mix(in srgb, var(--pg-ok) 16%, var(--surface)); color: var(--ink);
+  text-decoration: none; box-shadow: inset 0 -2px 0 var(--pg-ok);
+}
+.pg-flip.is-mine-right small { color: var(--pg-ok); }
+/* Counted wrong by the teacher: red, the way a missing word is. */
+.pg-flip.is-mine-wrong, .pg-flip.is-mine-wrong.pg-near {
+  background: var(--pg-miss-bg); color: var(--pg-miss); box-shadow: inset 0 -2px 0 var(--pg-miss);
+}
+.pg-flip.is-mine-wrong small { color: var(--pg-miss); }
+.pg-flip.is-mine-right::after, .pg-flip.is-mine-wrong::after {
+  font-size: .7em; font-weight: 800; margin-left: 2px; vertical-align: super;
+}
+.pg-flip.is-mine-right::after { content: '\2713'; color: var(--pg-ok); }
+.pg-flip.is-mine-wrong::after { content: '\2715'; color: var(--pg-miss); }
+.pg-near.is-mine-right::after, .pg-near.is-mine-wrong::after { position: absolute; top: -7px; right: -3px; margin: 0; line-height: 1; }
+.pg-flip-hint { margin-top: -.3rem; }
+
 .pg-saved { display: flex; flex-direction: column; gap: .4rem; }
 .pg-saved-head { justify-content: space-between; }
 .pg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 14rem; overflow: auto; }

@@ -1426,6 +1426,37 @@ describe('the passage grader', () => {
     equal(w._wordCount('   '), 0);
   });
 
+  it('lets the teacher count a marked-down word right, or a forgiven one wrong', () => {
+    const typed = 'The Lord is my shepard I shall not';          // shepherd near, want missing
+    const base = grade(PSALM, typed, R({ spelling: 'half' }));
+    equal(base.score, 7.5);
+    const near = base.steps.find((x) => x.is === 'spelling').pos;
+    const gone = base.steps.find((x) => x.is === 'missing').pos;
+    equal(`${near},${gone}`, 'w4,w8', 'positions are the words’ places in the passage');
+    const fixed = grade(PSALM, typed, R({ spelling: 'half' }), { [near]: 1, [gone]: 1 });
+    equal(fixed.score, 9);
+    equal(fixed.tally.changed, 2);
+    equal(grade(PSALM, typed, R({ spelling: 'forgive' }), { [near]: 0 }).score, 7, 'a forgiven word counted wrong');
+  });
+
+  it('keeps a decision on the same word when punctuation starts to count', () => {
+    // "want" comes after the semicolon, so counting the semicolon as a step
+    // must not move which word "w8" means.
+    const typed = 'The Lord is my shepherd; I shall not wnat.';
+    const r = grade(PSALM, typed, R({ punctuation: 'count' }), { w8: 1 });
+    equal(r.steps.find((x) => x.want && x.want.text === 'want').credit, 1);
+    equal(r.score, r.total);
+  });
+
+  it('never lets an override touch a word the pupil got right', () => {
+    equal(grade(PSALM, 'The Lord is my shepherd I shall not want', R(), { w0: 0 }).score, 9);
+  });
+
+  it('keeps only well-formed decisions', () => {
+    equal(JSON.stringify(w._cleanOverrides({ w3: 1, m2: 0, x1: 1, w4: 'yes', w5: 0.5, __proto__: { w9: 1 } })), '{"w3":1,"m2":0}');
+    equal(JSON.stringify(w._cleanOverrides(null)), '{}');
+  });
+
   it('gives nothing for an empty answer, and survives an empty passage', () => {
     equal(grade(PSALM, '', R()).score, 0);
     equal(grade('', 'anything', R()).total, 0);
