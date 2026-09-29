@@ -2407,6 +2407,396 @@ function mergeDialog(keepUser, allUsers) {
   });
 }
 
+// ---------- whiteboard ----------
+// The whiteboard's own admin tools — classrooms, template approvals,
+// school-wide feature switches and monitoring. Its data stays in the
+// whiteboard; every call here goes through /app-admin, which forwards it with
+// a token for the person signed in (see src/app-admin.js). The whiteboard
+// applies its usual permission checks, so this page offers only what the
+// whiteboard reports this person may do.
+
+function wbApp() {
+  return (state.appAdmin || []).filter(function (a) { return a.namespace === 'whiteboard'; })[0] || null;
+}
+
+function wbApi(path, options) {
+  var app = wbApp();
+  if (!app) return Promise.reject(new Error('The whiteboard is not available to you here.'));
+  return api('/app-admin/' + encodeURIComponent(app.clientId) + path, options);
+}
+
+var WB_FEATURES = {
+  draw: 'Drawing', text: 'Text', images: 'Images', documents: 'Documents (PDF, Word, slides)',
+  charts: 'Charts & graphs', newBoards: 'Making new boards', download: 'Downloading boards',
+  embed: 'Publishing boards to the web',
+};
+
+function wbCan(d, perm) { return !!d.me && (d.me.isSuper || d.me.perms.indexOf(perm) >= 0); }
+
+function wbThumb(src) {
+  return src
+    ? '<img class="wb-thumb" alt="" src="' + esc(src) + '">'
+    : '<div class="wb-thumb wb-thumb-empty">No drawing yet</div>';
+}
+
+// Boards open in the whiteboard itself: it has the drawing engine, and admins
+// may already view boards in their own school there.
+function wbOpenLink(boardId) {
+  var app = wbApp();
+  return '<a class="btn btn-sm" target="_blank" rel="noopener" href="' +
+    esc(app.url + '/board.html?board=' + encodeURIComponent(boardId)) + '">Open ↗</a>';
+}
+
+function wbBoardGrid(boards, empty) {
+  if (!boards.length) return '<p class="muted">' + esc(empty) + '</p>';
+  return '<div class="wb-grid">' + boards.map(function (b) {
+    return '<div class="wb-card">' + wbThumb(b.thumb) +
+      '<div class="wb-card-body"><div class="wb-card-title">' + esc(b.title || 'Board') + '</div>' +
+      '<div class="small muted">' + esc(b.sub || '') + '</div>' +
+      (b.canView === false ? '<div class="small faint">Outside your school</div>' : wbOpenLink(b.id)) +
+      '</div></div>';
+  }).join('') + '</div>';
+}
+
+pages.whiteboard = function () {
+  if (!wbApp()) {
+    document.getElementById('main').innerHTML =
+      head('Whiteboard', 'Classrooms, templates, feature switches and monitoring for the whiteboard.') +
+      '<div class="notice notice-info"><strong>Not part of your role</strong>' +
+      'The whiteboard’s admin tools need one of its admin permissions, and the whiteboard turned on for your school.</div>';
+    return Promise.resolve();
+  }
+  return wbApi('/api/admin/state').then(function (d) {
+    state.cache.wb = d;
+    var tabs = [];
+    if (wbCan(d, 'manage_boards')) tabs.push(['classrooms', 'Classrooms']);
+    if (wbCan(d, 'manage_boards') || d.templatesPending.length) tabs.push(['templates', 'Templates']);
+    if (wbCan(d, 'manage_users')) tabs.push(['features', 'Feature switches']);
+    if (wbCan(d, 'view_sessions')) tabs.push(['monitoring', 'Monitoring']);
+    if (!tabs.length) {
+      document.getElementById('main').innerHTML =
+        head('Whiteboard', 'The whiteboard’s admin tools.') +
+        '<div class="notice notice-info"><strong>Nothing to manage</strong>' +
+        'Your role does not include any of the whiteboard’s admin permissions.</div>';
+      return;
+    }
+    var tab = state.cache.wbTab;
+    if (!tabs.some(function (t) { return t[0] === tab; })) tab = state.cache.wbTab = tabs[0][0];
+
+    document.getElementById('main').innerHTML =
+      head('Whiteboard', (d.me.isSuper ? 'Every school. ' : '') +
+        'The whiteboard keeps this data; what you change here happens there straight away.') +
+      '<div class="wb-tabs" role="tablist">' + tabs.map(function (t) {
+        return '<button class="wb-tab' + (t[0] === tab ? ' active' : '') + '" role="tab" aria-selected="' +
+          (t[0] === tab) + '" data-tab="' + t[0] + '">' + esc(t[1]) + '</button>';
+      }).join('') + '</div>' +
+      '<div id="wbBody"><div class="empty">Loading…</div></div>';
+
+    Array.prototype.forEach.call(document.querySelectorAll('.wb-tab'), function (b) {
+      b.onclick = function () { state.cache.wbTab = b.dataset.tab; setPage('whiteboard'); };
+    });
+    return wbTabs[tab](d);
+  });
+};
+
+var wbTabs = {};
+
+// ----- classrooms -----
+
+wbTabs.classrooms = function (d) {
+  var f = state.cache.wbRoomFilter || (state.cache.wbRoomFilter = { q: '', archived: false });
+  var body = document.getElementById('wbBody');
+
+  function render() {
+    var q = f.q.trim().toLowerCase();
+    var list = d.rooms.filter(function (r) {
+      if (!!r.archived !== f.archived) return false;
+      if (!q) return true;
+      return [r.name, r.code, r.owner, r.ownerName].some(function (v) { return String(v || '').toLowerCase().indexOf(q) >= 0; });
+    });
+    var rows = list.map(function (r) {
+      var chips = (r.idClassId ? '<span class="chip chip-blue">ID class</span> ' : '') +
+        (r.teacherOnline ? '<span class="chip chip-green">Live</span> ' : '') +
+        (r.archived ? '<span class="chip chip-grey">Archived</span>' : '');
+      return '<tr data-code="' + esc(r.code) + '">' +
+        '<td><div style="font-weight:600">' + esc(r.name || 'Class ' + r.code) + '</div>' +
+          '<div class="small muted"><span class="code">' + esc(r.code) + '</span> ' + chips + '</div></td>' +
+        '<td>' + esc(r.ownerName || r.owner || '—') + (r.ownerName && r.owner ? '<div class="small muted">' + esc(r.owner) + '</div>' : '') + '</td>' +
+        '<td>' + esc(r.rosterCount) + '</td>' +
+        '<td>' + esc(r.students) + '</td>' +
+        '<td class="muted small">' + esc(when(r.updatedAt)) + '</td>' +
+        '<td style="white-space:nowrap">' +
+          '<button class="btn btn-sm" data-act="boards">Boards</button> ' +
+          '<button class="btn btn-sm" data-act="edit">Edit</button> ' +
+          '<button class="btn btn-sm btn-danger" data-act="delete">Delete</button>' +
+        '</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="empty">' + (f.archived ? 'No archived classrooms.' : 'No classrooms match.') + '</td></tr>';
+
+    body.innerHTML =
+      '<div class="toolbar">' +
+        '<input type="search" id="wbRoomQ" placeholder="Search by class, code or teacher" value="' + esc(f.q) + '">' +
+        '<label class="small" style="display:flex;gap:.35rem;align-items:center"><input type="checkbox" id="wbRoomArch"' + (f.archived ? ' checked' : '') + '> Archived</label>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn btn-sm" id="wbFindBoards">Find someone’s boards</button>' +
+        '<button class="btn btn-sm btn-primary" id="wbNewRoom">New classroom</button>' +
+      '</div>' +
+      '<p class="small muted" style="margin-top:-.5rem">Classes from Signify ID are set up automatically the first time their teacher opens the whiteboard.</p>' +
+      '<div class="card"><div class="table-wrap"><table><thead><tr>' +
+        '<th>Classroom</th><th>Teacher</th><th>Students</th><th>Boards</th><th>Last used</th><th></th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+
+    var qIn = document.getElementById('wbRoomQ');
+    qIn.oninput = function () {
+      f.q = this.value;
+      var pos = this.selectionStart;
+      render();
+      var again = document.getElementById('wbRoomQ');
+      again.focus();
+      again.setSelectionRange(pos, pos);
+    };
+    document.getElementById('wbRoomArch').onchange = function () { f.archived = this.checked; render(); };
+    document.getElementById('wbNewRoom').onclick = newRoom;
+    document.getElementById('wbFindBoards').onclick = findBoards;
+    Array.prototype.forEach.call(body.querySelectorAll('tr[data-code]'), function (tr) {
+      var room = d.rooms.filter(function (r) { return r.code === tr.dataset.code; })[0];
+      Array.prototype.forEach.call(tr.querySelectorAll('[data-act]'), function (b) {
+        b.onclick = function () { ({ boards: showBoards, edit: editRoom, delete: deleteRoom })[b.dataset.act](room); };
+      });
+    });
+  }
+
+  function showBoards(r) {
+    wbApi('/api/admin/room/' + encodeURIComponent(r.code)).then(function (x) {
+      var boards = x.boards.map(function (b) {
+        return { id: b.id, title: b.title, thumb: b.thumb, canView: b.canView,
+          sub: (b.ownerName || b.owner) + (b.isTeacher ? ' (teacher)' : '') + ' · ' + when(b.updatedAt) };
+      });
+      var m = modal({
+        title: r.name || 'Class ' + r.code, subtitle: boards.length + ' board' + (boards.length === 1 ? '' : 's'),
+        confirm: 'Done', body: wbBoardGrid(boards, 'No boards in this classroom yet.'),
+        onConfirm: function () {},
+      });
+      m.root.classList.add('modal-wide');
+      m.root.querySelector('[data-close]').hidden = true;
+    }).catch(function (e) { toast(e.message, true); });
+  }
+
+  function editRoom(r) {
+    modal({
+      title: 'Edit classroom', subtitle: r.code,
+      body:
+        '<div class="field"><label for="wb_name">Name</label><input id="wb_name" maxlength="50" value="' + esc(r.name || '') + '"' + (r.idClassId ? ' disabled' : '') + '>' +
+          (r.idClassId ? '<div class="small muted">This class comes from Signify ID; rename it on the Classes page and the whiteboard follows.</div>' : '') + '</div>' +
+        '<div class="field"><label for="wb_owner">Teacher’s email address</label><input id="wb_owner" type="email" value="' + esc(r.owner || '') + '"></div>' +
+        '<label class="small" style="display:flex;gap:.4rem;align-items:center"><input type="checkbox" id="wb_arch"' + (r.archived ? ' checked' : '') + '> Archived (hidden from students)</label>',
+      onConfirm: function (m) {
+        var body = { archived: m.querySelector('#wb_arch').checked };
+        if (!r.idClassId) body.name = m.querySelector('#wb_name').value;
+        var owner = m.querySelector('#wb_owner').value.trim().toLowerCase();
+        if (owner && owner !== r.owner) body.owner = owner;
+        return wbApi('/api/room/' + encodeURIComponent(r.code) + '/meta', { method: 'POST', body: body })
+          .then(function () { toast('Classroom saved.'); setPage('whiteboard'); });
+      },
+    });
+  }
+
+  function deleteRoom(r) {
+    modal({
+      title: 'Delete ' + (r.name || r.code) + '?', danger: true, confirm: 'Delete classroom',
+      body: '<div class="notice notice-danger"><strong>This cannot be undone</strong>Every board in this classroom, and its version history, is deleted. Archiving hides a class and keeps its boards.</div>' +
+        '<div class="field"><label for="wb_confirm">Type the class code <span class="code">' + esc(r.code) + '</span> to confirm</label><input id="wb_confirm" autocomplete="off"></div>',
+      onConfirm: function (m) {
+        if (m.querySelector('#wb_confirm').value.trim().toUpperCase() !== r.code) {
+          toast('Type the class code exactly to confirm.', true);
+          return true; // keep the dialog open
+        }
+        return wbApi('/api/admin/room/' + encodeURIComponent(r.code), { method: 'DELETE' })
+          .then(function () { toast('Classroom deleted.'); setPage('whiteboard'); });
+      },
+    });
+  }
+
+  function newRoom() {
+    modal({
+      title: 'New classroom',
+      subtitle: 'For a group that isn’t a class in Signify ID. Classes in Signify ID are set up automatically.',
+      confirm: 'Create',
+      body:
+        '<div class="field"><label for="wb_nname">Name</label><input id="wb_nname" maxlength="50" placeholder="e.g. Chess club"></div>' +
+        '<div class="field"><label for="wb_nowner">Teacher’s email address</label><input id="wb_nowner" type="email" placeholder="Leave empty to own it yourself"></div>',
+      onConfirm: function (m) {
+        var name = m.querySelector('#wb_nname').value.trim();
+        if (!name) { toast('Give the classroom a name.', true); return true; }
+        var body = { name: name };
+        var owner = m.querySelector('#wb_nowner').value.trim().toLowerCase();
+        if (owner) body.owner = owner;
+        return wbApi('/api/rooms/create', { method: 'POST', body: body })
+          .then(function (x) { toast('Classroom ' + x.code + ' created.'); setPage('whiteboard'); });
+      },
+    });
+  }
+
+  function findBoards() {
+    modal({
+      title: 'Find someone’s boards', subtitle: 'Every board a person owns, in any classroom or on their own.', confirm: 'Find',
+      body: '<div class="field"><label for="wb_femail">Email address</label><input id="wb_femail" type="email"></div><div id="wb_fout"></div>',
+      onConfirm: function (m) {
+        var email = m.querySelector('#wb_femail').value.trim().toLowerCase();
+        if (!email) return true;
+        return wbApi('/api/admin/user-boards/' + encodeURIComponent(email)).then(function (x) {
+          m.classList.add('modal-wide');
+          m.querySelector('#wb_fout').innerHTML = '<h3 style="margin:1rem 0 .5rem">' + esc(x.name || email) + '</h3>' +
+            wbBoardGrid(x.boards.map(function (b) {
+              return { id: b.id, title: b.title, thumb: b.thumb, sub: (b.roomName || 'Personal board') + ' · ' + when(b.updatedAt) };
+            }), 'No boards.');
+          return true; // stay open to show the result
+        });
+      },
+    });
+  }
+
+  render();
+};
+
+// ----- templates -----
+
+wbTabs.templates = function (d) {
+  var body = document.getElementById('wbBody');
+  var pending = d.templatesPending;
+  var cards = pending.map(function (t) {
+    return '<div class="wb-card" data-id="' + esc(t.id) + '">' + wbThumb(t.thumb) +
+      '<div class="wb-card-body"><div class="wb-card-title">' + esc(t.title) + '</div>' +
+      '<div class="small muted">' + esc(t.subject) + ' · ' + esc(t.scope === 'public' ? 'Public library' : 'School library') + '</div>' +
+      '<div class="small muted">From ' + esc(t.ownerName || t.owner) + '</div>' +
+      '<div style="display:flex;gap:.4rem;margin-top:.5rem">' +
+        '<button class="btn btn-sm btn-primary" data-act="approve">Approve</button>' +
+        '<button class="btn btn-sm" data-act="decline">Decline</button>' +
+      '</div></div></div>';
+  }).join('');
+
+  body.innerHTML =
+    (wbCan(d, 'manage_boards') && d.myDomain ?
+      '<div class="card"><div class="card-body">' +
+        '<label style="display:flex;gap:.5rem;align-items:flex-start"><input type="checkbox" id="wbOpen"' + (d.templateOpen ? ' checked' : '') + '>' +
+        '<span><strong>Teachers at ' + esc(d.myDomain) + ' can publish to the school library without approval</strong>' +
+        '<br><span class="small muted">Off: each template they share waits here for an admin.</span></span></label>' +
+      '</div></div>' : '') +
+    '<h2 style="margin:1.5rem 0 .75rem">Waiting for approval</h2>' +
+    (pending.length ? '<div class="wb-grid">' + cards + '</div>' : '<p class="muted">Nothing waiting. Templates teachers submit appear here.</p>');
+
+  var open = document.getElementById('wbOpen');
+  if (open) {
+    open.onchange = function () {
+      var want = this.checked;
+      wbApi('/api/admin/school-submit', { method: 'POST', body: { domain: d.myDomain, open: want } })
+        .then(function () { toast(want ? 'Teachers can publish without approval.' : 'School templates now need approval.'); })
+        .catch(function (e) { open.checked = !want; toast(e.message, true); });
+    };
+  }
+  Array.prototype.forEach.call(body.querySelectorAll('.wb-card[data-id]'), function (card) {
+    var t = pending.filter(function (x) { return x.id === card.dataset.id; })[0];
+    card.querySelector('[data-act="approve"]').onclick = function () {
+      wbApi('/api/templates/' + encodeURIComponent(t.id) + '/approve', { method: 'POST', body: {} })
+        .then(function () { toast('“' + t.title + '” approved.'); setPage('whiteboard'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+    card.querySelector('[data-act="decline"]').onclick = function () {
+      modal({
+        title: 'Decline “' + t.title + '”?', danger: true, confirm: 'Decline and remove',
+        body: '<p>The submission is removed from the library. The teacher’s own boards are not affected.</p>',
+        onConfirm: function () {
+          return wbApi('/api/templates/' + encodeURIComponent(t.id), { method: 'DELETE' })
+            .then(function () { toast('Declined.'); setPage('whiteboard'); });
+        },
+      });
+    };
+  });
+};
+
+// ----- school-wide feature switches -----
+
+wbTabs.features = function (d) {
+  var body = document.getElementById('wbBody');
+  var domains = Object.keys(d.domainFeatures || {}).sort();
+  if (!domains.length) {
+    body.innerHTML = '<p class="muted">No school domains to manage yet.</p>';
+    return;
+  }
+  body.innerHTML =
+    '<p class="muted small">Turn a tool off for everyone at a school. Teachers can still turn tools off for a class or one student inside the whiteboard, but not back on past what is set here.</p>' +
+    domains.map(function (domain) {
+      var set = d.domainFeatures[domain] || {};
+      return '<div class="card" data-domain="' + esc(domain) + '"><div class="card-head"><strong>' + esc(domain) + '</strong></div>' +
+        '<div class="card-body"><div class="wb-feature-list">' +
+        d.features.map(function (f) {
+          var off = set[f] === false;
+          return '<label class="wb-feature"><input type="checkbox" data-f="' + esc(f) + '"' + (off ? '' : ' checked') + '> ' +
+            esc(WB_FEATURES[f] || f) + '</label>';
+        }).join('') +
+        '</div></div></div>';
+    }).join('');
+
+  Array.prototype.forEach.call(body.querySelectorAll('[data-domain]'), function (card) {
+    var domain = card.dataset.domain;
+    Array.prototype.forEach.call(card.querySelectorAll('[data-f]'), function (box) {
+      box.onchange = function () {
+        var patch = {};
+        patch[box.dataset.f] = box.checked ? null : false; // on = no override
+        var on = box.checked;
+        wbApi('/api/admin/features', { method: 'POST', body: { domain: domain, features: patch } })
+          .then(function (x) {
+            d.domainFeatures[domain] = x.features;
+            toast((WB_FEATURES[box.dataset.f] || box.dataset.f) + (on ? ' turned on' : ' turned off') + ' for ' + domain + '.');
+          })
+          .catch(function (e) { box.checked = !on; toast(e.message, true); });
+      };
+    });
+  });
+};
+
+// ----- monitoring -----
+
+wbTabs.monitoring = function (d) {
+  var body = document.getElementById('wbBody');
+  return Promise.all([wbApi('/api/admin/usage'), wbApi('/api/admin/audit')]).then(function (r) {
+    var u = r[0];
+    var stats = [
+      ['Online now', u.online], ['Live classrooms', u.liveRooms], ['Classrooms', u.rooms],
+      ['Boards', u.boards], ['Boards changed this week', u.boardsWeek], ['People', u.users],
+      ['Active this week', u.activeWeek], ['Templates', u.templates],
+    ];
+    if (u.diskFreeMB != null) stats.push([u.diskLow ? 'Storage free (low)' : 'Storage free', u.diskFreeMB + ' MB']);
+
+    var sessions = d.sessions.map(function (s) {
+      return '<tr><td><span class="code">' + esc(s.room) + '</span></td><td>' + esc(s.name) +
+        (s.email ? '<div class="small muted">' + esc(s.email) + '</div>' : '') + '</td>' +
+        '<td>' + esc(s.role) + '</td><td class="muted small">' + esc(when(s.since)) + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="empty">Nobody is connected right now.</td></tr>';
+
+    var audit = r[1].audit.map(function (a) {
+      return '<tr><td class="muted small" style="white-space:nowrap">' + esc(when(a.ts || a.at)) + '</td>' +
+        '<td>' + esc(a.actor) + '</td><td><span class="code">' + esc(a.action) + '</span></td>' +
+        '<td class="small">' + esc(a.detail || a.target || '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="empty">Nothing recorded yet.</td></tr>';
+
+    var app = wbApp();
+    body.innerHTML =
+      '<div class="stat-row">' + stats.map(function (s) {
+        return '<div class="card stat"><div class="n">' + esc(s[1]) + '</div><div class="k">' + esc(s[0]) + '</div></div>';
+      }).join('') + '</div>' +
+      '<h2 style="margin:1.5rem 0 .75rem">Connected right now</h2>' +
+      '<div class="card"><div class="table-wrap"><table><thead><tr><th>Class</th><th>Who</th><th>As</th><th>Since</th></tr></thead><tbody>' +
+        sessions + '</tbody></table></div></div>' +
+      '<h2 style="margin:1.5rem 0 .75rem">Recent admin actions in the whiteboard</h2>' +
+      '<div class="card"><div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody>' +
+        audit + '</tbody></table></div></div>' +
+      (d.me.isSuper ?
+        '<h2 style="margin:1.5rem 0 .75rem">Backup</h2>' +
+        '<div class="card"><div class="card-body"><p class="muted small" style="margin-top:0">Everything the whiteboard stores, as one file. It holds pupils’ work, so keep it somewhere safe.</p>' +
+        '<a class="btn" href="/api/admin/app-admin/' + esc(encodeURIComponent(app.clientId)) + '/api/admin/backup">Download whiteboard backup</a></div></div>' : '');
+  });
+};
+
 // ---------- boot ----------
 
 api('/bootstrap').then(function (d) {
@@ -2417,6 +2807,7 @@ api('/bootstrap').then(function (d) {
   state.policyVersion = d.policyVersion;
   state.retentionDays = d.retentionDays;
   state.yearGroups = d.yearGroups || [];
+  state.appAdmin = d.appAdmin || [];
   state.tenantId = d.actor.isSuper ? (d.tenants[0] ? d.tenants[0].id : null) : d.actor.tenantId;
 
   document.getElementById('whoName').textContent = d.actor.name;
@@ -2438,12 +2829,20 @@ api('/bootstrap').then(function (d) {
 
   if (d.newRequests && d.newRequests.count) announceNewRequests(d.newRequests.count);
   initReports();
+  var wbBtn = document.querySelector('#nav button[data-page="whiteboard"]');
+  var hasApps = !!wbApp();
+  wbBtn.hidden = !hasApps;
+  document.getElementById('appsGroup').hidden = !hasApps;
 
   Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
     b.onclick = function () { setPage(b.dataset.page); };
   });
 
-  setPage('overview');
+  // An app can send an admin straight to its page here (the whiteboard links
+  // to /admin#whiteboard).
+  var wanted = (location.hash || '').slice(1);
+  var target = document.querySelector('#nav button[data-page="' + wanted.replace(/[^a-z-]/g, '') + '"]');
+  setPage(wanted && target && !target.hidden ? wanted : 'overview');
 }).catch(function (e) {
   document.getElementById('main').innerHTML =
     '<div class="notice notice-danger"><strong>Could not load the console</strong>' + esc(e.message) + '</div>';

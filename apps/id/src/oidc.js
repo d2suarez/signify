@@ -246,6 +246,20 @@ async function signToken(payload, audience, ttlSeconds, type) {
 }
 
 /**
+ * A short-lived token that lets the console act in one app on behalf of the
+ * person signed in to it (see src/app-admin.js). It carries the same claims
+ * that app gets from an ordinary sign-in, so it reaches nothing the person
+ * could not already reach there. The distinct `typ` lets the app accept it for
+ * its admin API without it ever passing as a browser session, and it expires
+ * in a minute.
+ */
+async function mintAppAdminToken(app, userId, tenantId, sessionId) {
+  const claims = await buildClaims(app, userId, tenantId, sessionId);
+  if (!claims) return null;
+  return signToken(claims, app.client_id, 60, 'app_admin');
+}
+
+/**
  * How long after a rotation the same token may be presented again without it
  * being read as theft.
  *
@@ -547,7 +561,7 @@ router.post('/revoke', async (req, res) => {
 });
 
 module.exports = {
-  router, verifyAccessToken, buildClaims, authenticateClient, SUPPORTED_SCOPES,
+  router, verifyAccessToken, buildClaims, mintAppAdminToken, authenticateClient, SUPPORTED_SCOPES,
   // For the tests: lets them step past the grace window without sleeping
   // through it, so re-use detection can be exercised in its own right.
   _forgetRecentRefreshes: () => refreshesInFlight.clear(),

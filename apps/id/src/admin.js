@@ -21,6 +21,7 @@ const guards = require('./guards');
 const directory = require('./directory');
 const reports = require('./reports');
 const survey = require('./access-survey');
+const appAdmin = require('./app-admin');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -88,6 +89,8 @@ router.get('/bootstrap', async (req, res) => {
     // For a super admin: requests that arrived, or were answered, since they
     // last opened the Requests page. The console turns this into a notice.
     newRequests: actor.isSuper ? await survey.newRequestsFor(actor.userId) : null,
+    // Apps whose own admin tools this person can run from the console.
+    appAdmin: await appAdmin.listFor(actor),
   });
 });
 
@@ -1585,6 +1588,16 @@ router.post('/reports/new', async (req, res) => {
     req.body);
   if (!result.ok) return fail(res, result.status, result.error);
   res.status(201).json({ ok: true, ref: result.report.ref });
+});
+
+// ---------- app admin tools ----------
+// An app's own admin tools, run from here — see src/app-admin.js.
+
+router.all('/app-admin/:clientId/*', (req, res) => {
+  appAdmin.handle(req, res).catch((e) => {
+    console.error('app-admin:', e.message);
+    if (!res.headersSent) fail(res, 500, 'Something went wrong reaching that app.');
+  });
 });
 
 module.exports = router;

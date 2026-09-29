@@ -2060,6 +2060,107 @@ function section(title) { console.log(`\n${title}`); }
     fresh();
   }
 
+  section('App admin tools, run from the console');
+  {
+    // The console forwards an app's admin calls with a one-minute token for
+    // the admin signed in. What must hold: only admins get through, the token
+    // cannot pass as a sign-in, and nothing leaves for anywhere but the app.
+    const http = require('http');
+    const appAdmin = require('../src/app-admin');
+
+    // A stand-in app that reports what reached it.
+    const seen = [];
+    const fake = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || '', body: raw });
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: true, url: req.url }));
+      });
+    });
+    await new Promise((r) => fake.listen(0, '127.0.0.1', r));
+    const appUrl = `http://127.0.0.1:${fake.address().port}/`;
+
+    const wbApp = await db.one(
+      `INSERT INTO apps (client_id, name, client_secret_hash, redirect_uris, scopes, namespace, status, launch_url)
+       VALUES ('wb-admin-test','Whiteboard (test)',$1, ARRAY['http://127.0.0.1/cb'], ARRAY['openid'],'whiteboard','active',$2)
+       RETURNING *`, [secrets.hash('x'), appUrl]);
+    await db.query('INSERT INTO app_tenants (app_id, tenant_id, enabled) VALUES ($1,$2,true)', [wbApp.id, tenant.id]);
+
+    const person = async (email, roleKey) => {
+      const r = await identity.resolveUser({ provider: 'google', subject: 'sub-' + email, email, name: email, hostedDomain: 'school.edu' });
+      await identity.ensureMembership(r.user.id, email, 'school.edu');
+      const role = await db.one('SELECT id FROM roles WHERE key = $1 AND tenant_id IS NULL', [roleKey]);
+      await db.query("UPDATE memberships SET role_id = $1, status = 'active' WHERE user_id = $2", [role.id, r.user.id]);
+      const sess = await sessions.create(r.user.id, { ip: '10.0.0.9', userAgent: 'test', isStaff: true });
+      return { id: r.user.id, cookie: `${sessions.COOKIE}=${encodeURIComponent(sess.raw)}; csrf=t0k3n` };
+    };
+    const admin = await person('wb-admin@school.edu', 'local_admin');
+    const teacher = await person('wb-teacher@school.edu', 'teacher');
+
+    const consoleApp = express();
+    consoleApp.use(express.json());
+    consoleApp.use(authMod.attachActor);
+    consoleApp.use('/api/admin', require('../src/admin'));
+    const con = await new Promise((r) => { const x = consoleApp.listen(0, '127.0.0.1', () => r(x)); });
+    const conBase = `http://127.0.0.1:${con.address().port}/api/admin/app-admin/wb-admin-test`;
+    const call = (who, path, method = 'GET', body) => fetch(conBase + path, {
+      method,
+      headers: { cookie: who.cookie, 'x-csrf-token': 't0k3n', 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const r1 = await call(admin, '/api/admin/state?x=1');
+    eq('a local admin reaches the app’s admin API', r1.status, 200);
+    const got = seen[seen.length - 1];
+    eq('and the request arrives at the app’s own address, query included', got.url, '/api/admin/state?x=1');
+    const claims = JSON.parse(Buffer.from(got.auth.split(' ')[1].split('.')[1], 'base64url').toString());
+    eq('carrying a token typed app_admin', claims.typ, 'app_admin');
+    eq('for that app alone', claims.aud, 'wb-admin-test');
+    ok('that lives a minute', claims.exp - claims.iat === 60);
+    ok('with no other app’s permissions in it',
+      Object.keys(claims.perms).every((k) => k.startsWith('whiteboard:') || k.startsWith('core:')));
+    eq('in the admin’s own name', claims.email, 'wb-admin@school.edu');
+
+    eq('a teacher who only hosts boards is refused', (await call(teacher, '/api/admin/state')).status, 403);
+    const listed = await appAdmin.listFor(await (async () => {
+      const a = await identity.accessFor(teacher.id);
+      return { userId: teacher.id, tenantId: tenant.id, isSuper: false, perms: a.perms };
+    })());
+    ok('and the console does not offer them the app', !listed.some((a) => a.clientId === 'wb-admin-test'));
+
+    const before = seen.length;
+    eq('a path outside the app’s API is refused', (await call(admin, '/etc/passwd')).status, 400);
+    eq('as is one that walks back out of it', (await call(admin, '/api/%2e%2e/secret')).status, 400);
+    eq('and neither reached the app', seen.length, before);
+    ok('the address can only ever be the app’s origin',
+      appAdmin.targetUrl(wbApp, 'http://elsewhere.example/api/x') === null);
+
+    const post = await call(admin, '/api/room/ABC/meta', 'POST', { archived: true });
+    eq('a change goes through', post.status, 200);
+    eq('with its body intact', JSON.parse(seen[seen.length - 1].body), { archived: true });
+    const logged = await db.one(
+      "SELECT action, detail FROM audit_log WHERE action = 'app_admin.post' ORDER BY ts DESC LIMIT 1");
+    ok('and is recorded in Signify’s own audit log', !!logged && logged.detail.path === '/api/room/ABC/meta');
+
+    const noCsrf = await fetch(conBase + '/api/room/ABC/meta', {
+      method: 'POST', headers: { cookie: admin.cookie.replace('csrf=t0k3n', ''), 'content-type': 'application/json' }, body: '{}',
+    });
+    eq('a change without the CSRF token is refused', noCsrf.status, 403);
+
+    await db.query('UPDATE app_tenants SET enabled = false WHERE app_id = $1', [wbApp.id]);
+    eq('an app the school has turned off is out of reach', (await call(admin, '/api/admin/state')).status, 403);
+    await db.query('UPDATE app_tenants SET enabled = true WHERE app_id = $1', [wbApp.id]);
+
+    await db.query('INSERT INTO user_app_access (user_id, app_id, tenant_id, allowed) VALUES ($1,$2,$3,false)', [admin.id, wbApp.id, tenant.id]);
+    eq('as is one this admin is excluded from', (await call(admin, '/api/admin/state')).status, 403);
+    await db.query('DELETE FROM user_app_access WHERE user_id = $1', [admin.id]);
+
+    await new Promise((r) => con.close(r));
+    await new Promise((r) => fake.close(r));
+  }
+
   section('Audit trail');
   const disclosures = await db.many('SELECT action FROM audit_log WHERE is_disclosure');
   ok('disclosure events are flagged for FERPA', disclosures.length > 0);

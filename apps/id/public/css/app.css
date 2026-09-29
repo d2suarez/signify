@@ -546,3 +546,26 @@ tr.clickable:focus-visible { outline: 2px solid #1D4ED8; outline-offset: -2px; }
 .report-errors li + li { margin-top: .25rem; }
 .report-own { width: 100%; margin-top: .6rem; justify-content: center; }
 
+
+/* ---------- app admin: the whiteboard page ---------- */
+
+.wb-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line); margin-bottom: 1.25rem; flex-wrap: wrap; }
+.wb-tab {
+  background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: .55rem .9rem; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer;
+}
+.wb-tab:hover { color: var(--ink); }
+.wb-tab.active { color: var(--ink); border-bottom-color: var(--blue); }
+
+.wb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .75rem; }
+.wb-card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+.wb-thumb { width: 100%; height: 7rem; object-fit: contain; background: #fff; border-bottom: 1px solid var(--line); display: block; }
+.wb-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: .8rem; background: #fafafa; }
+.wb-card-body { padding: .6rem .75rem .75rem; display: flex; flex-direction: column; gap: .2rem; align-items: flex-start; }
+.wb-card-title { font-weight: 600; }
+.wb-card-body .btn { margin-top: .35rem; }
+
+.wb-feature-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .5rem 1rem; }
+.wb-feature { display: flex; gap: .5rem; align-items: center; }
+
+.modal.modal-wide { max-width: min(56rem, 94vw); width: 100%; }
