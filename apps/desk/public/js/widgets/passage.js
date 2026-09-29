@@ -196,6 +196,11 @@
    * the passage — "w12" is its twelfth word, "m3" its third punctuation mark —
    * so the decision stays on that word when the rules change, which counting
    * steps would not (marking punctuation adds steps between the words).
+   *
+   * A word the pupil ADDED costs nothing unless the teacher says it does:
+   * { "x5": 1 } counts the sixth word of their answer against them ("y" for
+   * a punctuation mark). Those are placed in the answer, not the passage,
+   * because an added word is not in the passage to be placed.
    */
   function grade(passage, answer, rules, overrides = {}) {
     const want = tokenize(passage, rules);
@@ -206,13 +211,24 @@
     const marks = { got: 0, total: 0 };
     let w = 0;
     let m = 0;
+    let gw = 0;                 // place in the pupil's answer, words and marks apart
+    let gm = 0;
+    let cost = 0;
+    const has = (k) => !!overrides && Object.prototype.hasOwnProperty.call(overrides, k);
     for (const step of steps) {
       tally[step.is] += 1;
-      if (step.is === 'extra') continue;
+      const at = step.got ? (step.got.kind === 'mark' ? `y${gm++}` : `x${gw++}`) : null;
+      if (step.is === 'extra') {
+        step.pos = at;
+        step.auto = 0;
+        step.credit = has(at) && overrides[at] === 1 ? -1 : 0;
+        if (step.credit) { cost += 1; tally.changed += 1; }
+        continue;
+      }
       step.pos = step.want.kind === 'mark' ? `m${m++}` : `w${w++}`;
       step.auto = credit(step, rules);
       // Only a word the rules marked down can be put right, and put back.
-      const mine = step.is !== 'exact' && overrides && Object.prototype.hasOwnProperty.call(overrides, step.pos)
+      const mine = step.is !== 'exact' && has(step.pos)
         ? (overrides[step.pos] ? 1 : 0) : null;
       const c = mine === null || mine === step.auto ? step.auto : mine;
       if (c !== step.auto) tally.changed += 1;
@@ -221,9 +237,11 @@
       bucket.total += 1;
       bucket.got += c;
     }
-    const score = words.got + marks.got;
+    // Added words counted against the pupil come off the whole mark, never
+    // below nothing.
+    const score = Math.max(0, words.got + marks.got - cost);
     const total = words.total + marks.total;
-    return { steps, tally, words, marks, score, total, percent: total ? Math.round((score / total) * 100) : 0 };
+    return { steps, tally, words, marks, cost, score, total, percent: total ? Math.round((score / total) * 100) : 0 };
   }
 
   /** Positions like "w12" or "m3", each 1 or 0; anything else dropped. */
@@ -231,7 +249,7 @@
     const out = {};
     if (!o || typeof o !== 'object') return out;
     for (const [k, v] of Object.entries(o)) {
-      if (/^[wm]\d{1,4}$/.test(k) && (v === 0 || v === 1)) out[k] = v;
+      if (/^[wmxy]\d{1,4}$/.test(k) && (v === 0 || v === 1)) out[k] = v;
       if (Object.keys(out).length >= MAX_TOKENS) break;
     }
     return out;
@@ -550,10 +568,7 @@
           glue = opens;
         };
         for (const step of result.steps) {
-          if (step.is === 'extra') {
-            put(el('span.pg-w.pg-extra', { text: step.got.text, title: 'Added — not in the passage' }), step.got);
-            continue;
-          }
+          if (step.is === 'extra') { put(overrulable(step), step.got); continue; }
           const w = step.want;
           if (step.is === 'exact') { put(el('span.pg-w.pg-ok', { text: w.text }), w); continue; }
           put(overrulable(step), w);
@@ -568,6 +583,7 @@
        * is ever more than two clicks from being undone.
        */
       function overrulable(step) {
+        if (step.is === 'extra') return addedWord(step);
         const w = step.want;
         const mine = step.credit !== step.auto;
         const said = step.is === 'missing' ? 'Missing'
@@ -588,9 +604,25 @@
         }, step.is === 'missing' ? [w.text] : [w.text, el('small', { text: step.got.text })]);
       }
 
+      /** A word the pupil added: free, until the teacher counts it against them. */
+      function addedWord(step) {
+        const counted = step.credit < 0;
+        const now = counted ? 'you counted it against them — minus one' : 'not counted';
+        const next = counted ? 'stop counting it' : 'count it against them';
+        return el(`button.pg-w.pg-flip.pg-extra${counted ? '.is-mine-wrong' : ''}`, {
+          type: 'button',
+          'data-pos': step.pos,
+          title: `Added — not in the passage. ${now[0].toUpperCase()}${now.slice(1)}. Click to ${next}.`,
+          'aria-label': `${step.got.text}: added, ${now}. Click to ${next}.`,
+          onclick: () => overrule(step),
+        }, [step.got.text]);
+      }
+
       /** What a click on this word makes it: 1 right, 0 wrong, null back to the rules. */
       function nextOverride(step) {
         const o = s.draft.overrides;
+        // For an added word, 1 means "counts against them", and it toggles.
+        if (step.is === 'extra') return Object.prototype.hasOwnProperty.call(o, step.pos) ? null : 1;
         if (!Object.prototype.hasOwnProperty.call(o, step.pos)) return step.auto === 1 ? 0 : 1;
         if (o[step.pos] === 1 && step.auto > 0 && step.auto < 1) return 0;
         return null;
@@ -627,7 +659,7 @@
           t.spelling ? `${t.spelling} misspelled` : '',
           t.capital ? `${t.capital} capital${t.capital === 1 ? '' : 's'}` : '',
           t.missing ? `${t.missing} missing` : '',
-          t.extra ? `${t.extra} added` : '',
+          t.extra ? `${t.extra} added${r.cost ? ` (${r.cost} counted against)` : ''}` : '',
           t.changed ? `${t.changed} changed by you` : '',
         ].filter(Boolean);
         const save = el('button.btn.btn--primary.btn--small', { svg: icon('save', 14), onclick: saveResult },
@@ -642,8 +674,8 @@
             ? el('p.hint.pg-tally', { text: `Words ${half(r.words.got)} / ${r.words.total} · Punctuation ${half(r.marks.got)} / ${r.marks.total}` })
             : null,
           marked(r),
-          r.steps.some((x) => x.is !== 'exact' && x.is !== 'extra')
-            ? el('p.hint.pg-flip-hint', { text: 'Click a marked word to count it right or wrong.' }) : null,
+          r.steps.some((x) => x.is !== 'exact')
+            ? el('p.hint.pg-flip-hint', { text: 'Click a marked word to count it right or wrong, or an added word to count it against them.' }) : null,
           el('div.pg-row.pg-actions', {}, [
             save,
             el('button.btn.btn--small.btn--ghost', { text: editingId ? 'Close' : 'Clear', onclick: clearDraft }),

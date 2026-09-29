@@ -1452,8 +1452,27 @@ describe('the passage grader', () => {
     equal(grade(PSALM, 'The Lord is my shepherd I shall not want', R(), { w0: 0 }).score, 9);
   });
 
+  it('counts an added word against the pupil only when the teacher says so', () => {
+    const typed = 'The Lord is my good shepherd I shall not want';   // "good" is the answer's 5th word
+    const r = grade(PSALM, typed, R());
+    const added = r.steps.find((x) => x.is === 'extra');
+    equal(`${added.got.text}:${added.pos}`, 'good:x4', 'placed by where it sits in the answer');
+    equal(r.score, 9, 'free to begin with');
+    const counted = grade(PSALM, typed, R(), { x4: 1 });
+    equal(counted.score, 8, 'minus one');
+    equal(counted.cost, 1);
+    equal(counted.tally.changed, 1);
+    // A comma earlier in the answer must not move which word "x4" means.
+    const withMarks = grade(PSALM, 'The Lord, is my good shepherd; I shall not want.', R({ punctuation: 'count' }), { x4: 1 });
+    equal(`${withMarks.score}/${withMarks.total}`, '10/11', 'still "good" when punctuation counts');
+  });
+
+  it('never takes a score below nothing', () => {
+    equal(grade('one', 'two three', R(), { x0: 1, x1: 1 }).score, 0);
+  });
+
   it('keeps only well-formed decisions', () => {
-    equal(JSON.stringify(w._cleanOverrides({ w3: 1, m2: 0, x1: 1, w4: 'yes', w5: 0.5, __proto__: { w9: 1 } })), '{"w3":1,"m2":0}');
+    equal(JSON.stringify(w._cleanOverrides({ w3: 1, m2: 0, x1: 1, z1: 1, w4: 'yes', w5: 0.5, __proto__: { w9: 1 } })), '{"w3":1,"m2":0,"x1":1}');
     equal(JSON.stringify(w._cleanOverrides(null)), '{}');
   });
 

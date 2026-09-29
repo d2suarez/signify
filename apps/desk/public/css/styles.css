@@ -2196,6 +2196,15 @@ body.is-seating-drag { user-select: none; }
 .pg-flip.is-mine-wrong::after { content: '\2715'; color: var(--pg-miss); }
 .pg-near.is-mine-right::after, .pg-near.is-mine-wrong::after { position: absolute; top: -7px; right: -3px; margin: 0; line-height: 1; }
 .pg-flip-hint { margin-top: -.3rem; }
+/* An added word: free and grey until counted, then struck through in red
+   with the point it cost. */
+.pg-flip.pg-extra { background: transparent; font-style: italic; color: var(--muted); }
+.pg-flip.pg-extra.is-mine-wrong {
+  background: var(--pg-miss-bg); color: var(--pg-miss);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pg-miss) 45%, transparent);
+  text-decoration: line-through; text-decoration-thickness: 1.5px;
+}
+.pg-flip.pg-extra.is-mine-wrong::after { content: '\2212 1'; text-decoration: none; display: inline-block; margin-left: 3px; }
 
 .pg-saved { display: flex; flex-direction: column; gap: .4rem; }
 .pg-saved-head { justify-content: space-between; }
