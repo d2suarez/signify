@@ -453,6 +453,16 @@ class Whiteboard {
     this._emitChange();
   }
 
+  // Start a fresh undo history whose baseline is what's on the canvas now.
+  // Called at every board boundary (opening, creating, reloading a board):
+  // one shared stack across boards let Undo on a new/other board restore the
+  // PREVIOUS board's content — and the full sync then saved it into that board,
+  // even a student's board a teacher had opened.
+  resetHistory() {
+    this._undo = [JSON.stringify(this.canvas.toJSON(PERSIST_PROPS))];
+    this._redo = [];
+  }
+
   _snapshot() {
     const json = JSON.stringify(this.canvas.toJSON(PERSIST_PROPS));
     if (this._undo[this._undo.length - 1] === json) return;
@@ -529,7 +539,7 @@ class Whiteboard {
         this.canvas.renderAll();
         this._internal = false;
         this.loading = false;
-        this._snapshot();
+        this.resetHistory(); // a loaded board starts its own undo history
         this._applyDocMode();
         if (cb) cb();
       });
@@ -551,7 +561,7 @@ class Whiteboard {
         c.renderAll();
         this._internal = false;
         this.loading = false;
-        this._snapshot();
+        this.resetHistory(); // a loaded board starts its own undo history
         this._applyDocMode();
         if (cb) cb();
         return;
@@ -1059,6 +1069,11 @@ class Whiteboard {
       Object.keys(style).forEach((k) => { if (o.removeStyle) o.removeStyle(k); });
       o.set(style);
     }
+    // Re-measure now, not on the next paint: otherwise the text's size and its
+    // selection box stay one change behind, and anything placed relative to it
+    // (the text toolbar) lands in the wrong spot.
+    if (o.initDimensions) o.initDimensions();
+    o.setCoords();
     o.dirty = true;
     if (o.oid) this._queueOp({ t: 'mod', o: this._ser(o) });
     this.canvas.requestRenderAll();

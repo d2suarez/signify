@@ -612,7 +612,7 @@ async function switchBoard(id) {
     const b = await loadBoardFull(id);
     setCurrentBoard(b);
     if (b.json) loadBoardWithProgress(b.json);
-    else { wb.clear(); updatePageNav(); hideBoardLoading(); }
+    else { wb.clear(); wb.resetHistory(); updatePageNav(); hideBoardLoading(); }
     setBoardComments(b.comments || []);
     toast(`Opened "${b.title}"`);
   } catch (e) {
@@ -638,6 +638,7 @@ async function createBoardAndSwitch() {
     }
     setCurrentBoard(meta);
     wb.clear();
+    wb.resetHistory(); // the new board must not be able to Undo back into the previous one
     updatePageNav();
     renderBoardsGrid(await fetchBoardsList());
   } catch (e) {
@@ -1583,20 +1584,50 @@ document.getElementById('chart-insert').addEventListener('click', () => {
 
 // ----- rich text floating toolbar -----
 const textToolbar = document.getElementById('text-toolbar');
+// Hold the toolbar still while it's in use. It used to re-center on the text
+// after every click, so pressing A+ widened the text, slid the toolbar sideways,
+// and the next click landed on the wrong button. It re-anchors above the text
+// once the mouse leaves it (or, on touch, shortly after the last tap).
+let ttHover = false;
+let ttHoldUntil = 0;
+let ttReleaseTimer = null;
+function ttHeld() {
+  return !textToolbar.hidden && (ttHover || Date.now() < ttHoldUntil);
+}
+function ttRelease() { if (!ttHeld()) updateTextToolbar(); }
 function updateTextToolbar() {
   const o = wb.getActiveText();
   if (!o) { textToolbar.hidden = true; return; }
-  const r = o.getBoundingRect();
-  textToolbar.hidden = false;
-  const tw = textToolbar.offsetWidth || 240;
-  let left = r.left + r.width / 2 - tw / 2;
-  left = Math.max(6, Math.min(left, canvasWrap.clientWidth - tw - 6));
-  textToolbar.style.left = left + 'px';
-  textToolbar.style.top = Math.max(4, r.top - 44) + 'px';
+  if (!ttHeld()) {
+    const r = o.getBoundingRect();
+    textToolbar.hidden = false;
+    const tw = textToolbar.offsetWidth || 240;
+    let left = r.left + r.width / 2 - tw / 2;
+    left = Math.max(6, Math.min(left, canvasWrap.clientWidth - tw - 6));
+    textToolbar.style.left = left + 'px';
+    textToolbar.style.top = Math.max(4, r.top - 44) + 'px';
+  }
   document.getElementById('tt-bold').classList.toggle('on', wb.getTextStyleValue('fontWeight') === 'bold' || wb.getTextStyleValue('fontWeight') === 700);
   document.getElementById('tt-italic').classList.toggle('on', wb.getTextStyleValue('fontStyle') === 'italic');
   document.getElementById('tt-underline').classList.toggle('on', wb.getTextStyleValue('underline') === true);
 }
+[textToolbar, document.getElementById('tt-font-menu')].forEach((el) => {
+  el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') ttHover = true; });
+  el.addEventListener('pointerleave', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    ttHover = false;
+    ttRelease();
+  });
+  // pointerdown fires before the buttons' mousedown handlers, so the hold is in
+  // place before they resize the text and ask the toolbar to reposition. A mouse
+  // is held by hovering; touch has no hover, so taps hold it for a moment.
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') { ttHover = true; return; }
+    ttHoldUntil = Date.now() + 1500;
+    clearTimeout(ttReleaseTimer);
+    ttReleaseTimer = setTimeout(ttRelease, 1600);
+  });
+});
 document.getElementById('tt-bold').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('fontWeight', 'bold', 'normal'); updateTextToolbar(); });
 document.getElementById('tt-italic').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('fontStyle', 'italic', 'normal'); updateTextToolbar(); });
 document.getElementById('tt-underline').addEventListener('mousedown', (e) => { e.preventDefault(); wb.toggleTextStyle('underline', true, false); updateTextToolbar(); });

@@ -141,7 +141,33 @@ body.landing {
   font-size: 15px; font-weight: 700; white-space: normal;
 }
 #my-rooms-list .room-meta, #personal-boards-list .room-meta { margin-left: 0; }
-#my-rooms-list .room-rename { position: absolute; top: 8px; right: 8px; }
+/* a card's buttons sit together in its top-right corner */
+.card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+
+/* signed-in actions on the home page */
+#start-section { margin-bottom: 6px; }
+#new-personal-btn { margin-top: 0; }
+.start-hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; line-height: 1.45; }
+#id-note { margin: 0 0 8px; color: var(--orange-dark); }
+#new-class { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+#new-class summary {
+  cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px;
+  list-style: none; display: inline-flex; align-items: center; gap: 6px;
+}
+#new-class summary::-webkit-details-marker { display: none; }
+#new-class summary::before { content: '＋'; font-size: 13px; }
+#new-class[open] summary::before { content: '−'; }
+#new-class summary:hover { color: var(--teal); }
+#new-room-btn { font-size: 14px; font-weight: 700; }
+
+/* archived classes and boards: a plain list with Restore buttons */
+#archived-rooms, #archived-boards { margin-top: 6px; }
+#archived-rooms summary, #archived-boards summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+#archived-rooms-list, #archived-boards-list { list-style: none; margin: 8px 0 0; padding: 0; }
+#archived-rooms-list li, #archived-boards-list li {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 6px; background: var(--surface);
+}
 
 .landing-card h1 { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.02em; }
 .subtitle { margin: 0 0 24px; color: var(--muted); }
@@ -199,6 +225,14 @@ body.landing {
 }
 #admin-portal-link:hover { border-color: var(--teal); background: var(--teal-soft); }
 
+/* signed-in account strip along the bottom of the home page card */
+#account-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
+}
+#account-bar #signed-in { flex: 1 1 320px; min-width: 0; }
+#account-bar #admin-portal-link { margin-top: 0; flex-shrink: 0; padding: 9px 14px; }
+
 #recent-rooms h2, #my-rooms h2, #personal-boards h2 {
   font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px;
   color: var(--muted); margin: 24px 0 8px; font-weight: 700;
@@ -206,6 +240,8 @@ body.landing {
 .h2-note, #boards-context { color: var(--muted); font-weight: 400; font-size: 12px; text-transform: none; letter-spacing: 0; }
 
 #rooms-list, #my-rooms-list, #personal-boards-list { list-style: none; margin: 0 0 10px; padding: 0; max-height: 220px; overflow-y: auto; }
+/* class and board cards show in full; only the admin room list scrolls */
+#my-rooms-list, #personal-boards-list { max-height: none; overflow: visible; }
 #rooms-list li, #my-rooms-list li, #personal-boards-list li {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 6px;

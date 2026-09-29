@@ -33,6 +33,7 @@ process.on('unhandledRejection', (e) => {
 // authorisation decision comes from the claims on the request, and the shadow
 // is refreshed from them on every call.
 const signify = require('./signify-auth');
+const idclasses = require('./idclasses');
 const AUTH_ENABLED = signify.ENABLED;
 
 // Permissions this app owns, declared to Signify ID on boot so they can be
@@ -380,9 +381,43 @@ for (const [method, route, what] of IDENTITY_MOVED) {
   }));
 }
 
+// ---------- admin tools live in the Signify ID console ----------
+// Classrooms, template approvals, school-wide feature switches and monitoring
+// are run from the console's Whiteboard page now. The console forwards each
+// request here with a one-minute token (typ "app_admin") minted for the admin
+// signed in to it. That token holds the same claims their own sign-in would,
+// so every handler below applies its usual permission checks unchanged — only
+// the door moved. A browser session can no longer reach the admin API.
+const CONSOLE_WHITEBOARD = SIGNIFY_CONSOLE + '#whiteboard';
+
+app.use(async (req, res, next) => {
+  const auth = req.get('authorization') || '';
+  if (!AUTH_ENABLED || !auth.startsWith('Bearer ')) return next();
+  let claims = null;
+  try { claims = await signify._internal.verifyJwt(auth.slice(7), 'app_admin'); } catch { /* refused below */ }
+  if (!claims) return res.status(401).json({ error: 'That console request could not be verified.' });
+  req.user = {
+    id: claims.sub, email: claims.email, name: claims.name, picture: claims.picture,
+    role: claims.role, roleLabel: claims.role_label, isSuper: !!claims.is_super, isMinor: !!claims.is_minor,
+    tenant: claims.tenant, tenantId: claims.tenant_id, tenantName: claims.tenant_name,
+    gradeLevel: claims.grade_level, perms: claims.perms || {}, sessionId: claims.sid,
+  };
+  req.viaConsole = true;
+  next();
+});
+
+app.use('/api/admin', (req, res, next) => {
+  if (!AUTH_ENABLED || req.viaConsole) return next();
+  res.status(410).json({ error: 'Admin tools are in the Signify ID console now.', moved: true, console: CONSOLE_WHITEBOARD });
+});
+
+// The old admin portal's address, for bookmarks.
+app.get(['/admin', '/admin.html'], (req, res) => res.redirect(302, CONSOLE_WHITEBOARD));
+
 app.get('/api/config', (req, res) => {
   res.json({
     authEnabled: AUTH_ENABLED,
+    consoleUrl: AUTH_ENABLED ? CONSOLE_WHITEBOARD : null,
     signInUrl: '/auth/login',
     signOutUrl: '/auth/logout',
     // Google Classroom import keeps its own client: it asks for roster
@@ -420,6 +455,7 @@ function sessionFromReq(req) {
 // Full room listing is for board admins; teachers use /api/my/rooms
 app.get('/api/rooms', (req, res) => {
   if (!AUTH_ENABLED) return res.json(listRooms()); // open mode: trusted LAN
+  if (!req.viaConsole) return res.status(410).json({ error: 'Admin tools are in the Signify ID console now.', moved: true, console: CONSOLE_WHITEBOARD });
   const admin = requirePerm(req, res, 'manage_boards');
   if (!admin) return; // requirePerm already responded
   // Scope to the admin's own school — do not leak other schools' room codes,
@@ -448,8 +484,13 @@ function requireUser(req, res) {
   return { email: user.email, name: user.name, perms: permsFor(user.email), isSuper: isSuperAdmin(user.email) };
 }
 
+// The owner, or a co-teacher of a class that came from Signify ID.
+function isRoomTeacher(data, email) {
+  return !!data && !!email && (data.owner === email || (data.coTeachers || []).includes(email));
+}
+
 function canEditRoom(user, data) {
-  return user.isSuper || user.perms.includes('manage_boards') || data.owner === user.email;
+  return user.isSuper || user.perms.includes('manage_boards') || isRoomTeacher(data, user.email);
 }
 
 // Which accounts a user may see when searching for students to enroll:
@@ -483,23 +524,108 @@ function rosterEntries(room) {
   }));
 }
 
-app.get('/api/my/rooms', (req, res) => {
+app.get('/api/my/rooms', async (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
+  // Every Signify ID class this person is in gets its classroom set up (or
+  // refreshed) first, so it is already there to click. If ID can't be reached
+  // the page still lists everything the whiteboard already knows about.
+  let idError = null;
+  try {
+    await syncIdClasses(req, res, user);
+  } catch (e) {
+    idError = e.message;
+  }
   const teaching = [];
   const enrolled = [];
   const archived = [];
   for (const r of roomSummaries()) {
     // the requester's own latest board in that class makes the best card preview
     const mine = boardsFor(user.email, r.code)[0];
-    const item = { code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length, thumb: mine ? mine.thumb : null };
-    if (r.owner === user.email) {
+    const item = {
+      code: r.code, name: r.name, owner: r.owner, updatedAt: r.updatedAt, students: r.roster.length,
+      thumb: mine ? mine.thumb : null, fromId: !!r.idClassId, subject: r.subject,
+    };
+    if (isRoomTeacher(r, user.email)) {
       if (r.archived) archived.push(item);
       else teaching.push(item);
     } else if (r.roster.includes(user.email) && !r.archived) enrolled.push(item);
   }
-  res.json({ teaching, enrolled, archived });
+  res.json({ teaching, enrolled, archived, idError });
 });
+
+// ---------- classrooms from Signify ID ----------
+
+// idClassId -> room code. Built once from the rooms on disk, then kept up to
+// date as classes are set up. Checking and creating happen with no await in
+// between, so two page loads at once can't make two rooms for one class.
+let idClassRooms = null;
+function roomForIdClass(idClassId) {
+  if (!idClassRooms) {
+    idClassRooms = new Map();
+    for (const r of roomSummaries()) if (r.idClassId) idClassRooms.set(r.idClassId, r.code);
+  }
+  const code = idClassRooms.get(idClassId);
+  return code ? getRoom(code, false) : null;
+}
+
+const ID_ROSTER_EVERY = 10 * 60 * 1000; // re-read a class's pupils at most this often
+
+async function syncIdClasses(req, res, user) {
+  if (!AUTH_ENABLED || !idclasses.ISSUER) return;
+  const classes = await idclasses.myClasses(req, res);
+  const mayTeach = user.isSuper || user.perms.includes('teach');
+  for (const c of classes) {
+    let room = roomForIdClass(c.idClassId);
+    if (c.teaching && mayTeach) {
+      if (!room) {
+        const code = generateRoomCode();
+        room = getRoom(code, true);
+        Object.assign(room.data, {
+          name: c.name, subject: c.subject, owner: user.email, idClassId: c.idClassId,
+          coTeachers: [], idRoster: [], updatedAt: Date.now(),
+        });
+        idClassRooms.set(c.idClassId, code);
+        scheduleSave(room);
+        console.log(`Set up classroom ${code} for Signify ID class "${c.name}" (${user.email})`);
+      } else if (!isRoomTeacher(room.data, user.email)) {
+        // a co-taught class: the first teacher here set it up, the others share it
+        room.data.coTeachers = [...(room.data.coTeachers || []), user.email];
+        scheduleSave(room);
+      }
+      // ID's name for the class is the one to show, and it can be renamed there
+      if (room.data.name !== c.name || room.data.subject !== c.subject) {
+        room.data.name = c.name;
+        room.data.subject = c.subject;
+        scheduleSave(room);
+      }
+      if (Date.now() - (room.data.idSyncedAt || 0) > ID_ROSTER_EVERY) {
+        room.data.idSyncedAt = Date.now(); // before the await, so concurrent loads don't all re-read it
+        try {
+          const { students } = await idclasses.students(req, res, c.idClassId);
+          const fromId = students.map((s) => s.email);
+          // Pupils who joined with the room code stay; pupils who have left the
+          // class in ID drop off. ID is the list for everyone it put there.
+          const wasFromId = new Set(room.data.idRoster || []);
+          const byCode = (room.data.roster || []).filter((e) => !wasFromId.has(e));
+          room.data.roster = [...new Set([...fromId, ...byCode])];
+          room.data.idRoster = fromId;
+          for (const s of students) room.data.names[s.email] = s.name;
+          scheduleSave(room);
+        } catch (e) {
+          room.data.idSyncedAt = 0; // try again on the next load
+          throw e;
+        }
+      }
+    } else if (!c.teaching && room && !room.data.archived && !(room.data.roster || []).includes(user.email)) {
+      // A pupil ID says is in this class, whose teacher already has the room set up.
+      room.data.roster = [...(room.data.roster || []), user.email];
+      room.data.idRoster = [...(room.data.idRoster || []), user.email];
+      room.data.names[user.email] = room.data.names[user.email] || user.name;
+      scheduleSave(room);
+    }
+  }
+}
 
 // ---------- template endpoints ----------
 
@@ -1390,6 +1516,7 @@ function boardMetaOf(d) {
     comments: d.comments || [],
     embed: d.embed || null, // { token, publishedAt, by } when shared to the web
     assignment: d.assignment || null, // assignment id when this board is a submission
+    archived: !!d.archived, // personal boards can be archived from the home page
   };
 }
 
@@ -1830,7 +1957,7 @@ function canViewBoard(user, meta) {
   if (meta.owner === user.email) return true;
   if (meta.room) {
     const room = getRoom(meta.room, false);
-    if (room && room.data.owner === user.email) return true;
+    if (room && isRoomTeacher(room.data, user.email)) return true;
   }
   if ((user.isSuper || user.perms.includes('manage_boards')) && sameDomainOrAdded(user, meta.owner)) return true;
   return false;
@@ -1842,7 +1969,7 @@ function canUseRoom(id, targetRoom, isBoardAdmin) {
   if (!room) return false;
   if (isBoardAdmin) return true;
   if (!AUTH_ENABLED) return true; // open mode trusts room codes
-  return room.data.owner === id || (room.data.roster || []).includes(id);
+  return isRoomTeacher(room.data, id) || (room.data.roster || []).includes(id);
 }
 
 // ---------- board REST api (personal boards + cross-class transfer) ----------
@@ -1850,7 +1977,25 @@ function canUseRoom(id, targetRoom, isBoardAdmin) {
 app.get('/api/boards/personal', (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
-  res.json(boardsFor(user.email, null));
+  res.json(boardsFor(user.email, null).filter((b) => !b.archived));
+});
+
+app.get('/api/boards/personal/archived', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  res.json(boardsFor(user.email, null).filter((b) => b.archived));
+});
+
+// Archive or restore one of your own personal boards. Nothing is deleted.
+app.post('/api/boards/:id/archive', (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const meta = boardsIndex.get(req.params.id);
+  if (!meta) return res.status(404).json({ error: 'Board not found.' });
+  if (meta.owner !== user.email || meta.room) return res.status(403).json({ error: 'Only your own personal boards can be archived here.' });
+  meta.archived = !!req.body.archived;
+  flushBoardSoon(meta.id);
+  res.json({ ok: true, archived: meta.archived });
 });
 
 app.post('/api/boards/personal', (req, res) => {
@@ -1905,7 +2050,7 @@ function canPublishBoard(user, meta) {
   if (meta.owner === user.email) return true;
   if (meta.room) {
     const room = getRoom(meta.room, false);
-    if (room && room.data.owner === user.email) return true;
+    if (room && isRoomTeacher(room.data, user.email)) return true;
   }
   return (user.isSuper || user.perms.includes('manage_boards')) && sameDomainOrAdded(user, meta.owner);
 }
@@ -1976,8 +2121,8 @@ app.post('/api/boards/:id/restore', (req, res) => {
   if (!user) return;
   const meta = boardsIndex.get(req.params.id);
   if (!meta) return res.status(404).json({ error: 'Board not found.' });
-  const isRoomTeacher = meta.room && (getRoom(meta.room, false) || { data: {} }).data.owner === user.email;
-  if (meta.owner !== user.email && !isRoomTeacher) {
+  const teachesRoom = meta.room && isRoomTeacher((getRoom(meta.room, false) || { data: {} }).data, user.email);
+  if (meta.owner !== user.email && !teachesRoom) {
     return res.status(403).json({ error: 'Only the board owner or their teacher can restore versions.' });
   }
   const json = histRestore(meta.id, Number(req.body.ts));
@@ -2242,6 +2387,9 @@ function roomSummaries() {
           owner: d.owner || null,
           roster: d.roster || [],
           archived: !!d.archived,
+          idClassId: d.idClassId || null,
+          subject: d.subject || '',
+          coTeachers: d.coTeachers || [],
           updatedAt: d.updatedAt || 0,
           students: roomBoards(code).length,
           online: live ? live.students.size : 0,
@@ -2512,7 +2660,7 @@ io.on('connection', (socket) => {
       // them and gaining read/write on every student board and DM. Unowned
       // legacy rooms are claimed just below.
       if (AUTH_ENABLED && role === 'teacher' && room.data.owner
-          && room.data.owner !== id && !hasPerm(id, 'manage_boards')) {
+          && !isRoomTeacher(room.data, id) && !hasPerm(id, 'manage_boards')) {
         return ack({ error: 'This classroom belongs to another teacher. Ask an admin if you need access to it.' });
       }
 
