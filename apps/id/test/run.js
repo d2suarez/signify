@@ -2075,6 +2075,14 @@ function section(title) { console.log(`\n${title}`); }
       req.on('data', (c) => { raw += c; });
       req.on('end', () => {
         seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || '', body: raw });
+        if (req.url.startsWith('/api/hostile')) {
+          // An app answering with a page that would run script, under a
+          // policy of its own that allows anything.
+          res.setHeader('content-type', 'text/html; charset=utf-8');
+          res.setHeader('content-security-policy', "script-src 'unsafe-inline' *");
+          res.setHeader('x-frame-options', 'ALLOWALL');
+          return res.end('<script>fetch("/api/admin/users")</script>');
+        }
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ ok: true, url: req.url }));
       });
@@ -2143,6 +2151,21 @@ function section(title) { console.log(`\n${title}`); }
     const logged = await db.one(
       "SELECT action, detail FROM audit_log WHERE action = 'app_admin.post' ORDER BY ts DESC LIMIT 1");
     ok('and is recorded in Signify’s own audit log', !!logged && logged.detail.path === '/api/room/ABC/meta');
+
+    // Replies are served from id.signify.one. Script in one would run with the
+    // identity service's authority and could act as the admin who opened it.
+    const hostile = await call(admin, '/api/hostile');
+    const hostileCsp = hostile.headers.get('content-security-policy') || '';
+    ok('an app’s HTML comes back as plain text, not a page', /^text\/plain/.test(hostile.headers.get('content-type') || ''));
+    ok('under a policy that lets nothing run', /default-src 'none'/.test(hostileCsp) && /sandbox/.test(hostileCsp));
+    ok('which the app cannot loosen with a policy of its own', !/unsafe-inline/.test(hostileCsp));
+    ok('or undo by allowing itself to be framed', hostile.headers.get('x-frame-options') !== 'ALLOWALL');
+    eq('and the browser is told not to guess the type', hostile.headers.get('x-content-type-options'), 'nosniff');
+    const ordinary = await call(admin, '/api/admin/state');
+    ok('an ordinary JSON answer still arrives as JSON', /application\/json/.test(ordinary.headers.get('content-type') || ''));
+    ok('a saved file still carries its download name',
+      appAdmin.responseHeaders(new Headers({ 'content-disposition': 'attachment; filename="b.json"' }))['content-disposition']
+        === 'attachment; filename="b.json"');
 
     const noCsrf = await fetch(conBase + '/api/room/ABC/meta', {
       method: 'POST', headers: { cookie: admin.cookie.replace('csrf=t0k3n', ''), 'content-type': 'application/json' }, body: '{}',

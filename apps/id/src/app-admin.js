@@ -29,9 +29,41 @@ const catalog = require('./catalog');
 
 const fail = (res, code, msg) => res.status(code).json({ error: msg });
 
-// What an app answers with is passed back as-is, apart from these, which are
-// about the hop from the app to here rather than about the content.
-const HOP_HEADERS = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie']);
+// An app's reply is passed back, but never as something that can run.
+//
+// Replies are served from id.signify.one, so a script in one would run with
+// the identity service's own authority: reading the console's CSRF cookie and
+// acting as whichever admin opened a crafted link. The apps are trusted to
+// answer about their own data, not to run code here. So headers about the hop
+// are dropped, and so are any that would let an app loosen this origin's
+// protections; anything a browser would render as a live page is served as
+// plain text; and every reply carries a policy under which nothing runs.
+const DROPPED = new Set([
+  'connection', 'keep-alive', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie',
+  'content-security-policy', 'content-security-policy-report-only', 'x-frame-options',
+  'x-content-type-options', 'refresh', 'access-control-allow-origin', 'access-control-allow-credentials',
+]);
+
+// Types a browser renders as a document that can carry script.
+const ACTIVE_TYPES = /^\s*(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml)\b/i;
+
+// allow-downloads so a backup file still saves; nothing here allows script.
+const PROXIED_CSP = "default-src 'none'; sandbox allow-downloads; frame-ancestors 'none'";
+
+function responseHeaders(replyHeaders) {
+  const out = {};
+  replyHeaders.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (!DROPPED.has(k)) out[k] = value;
+  });
+  if (out['content-type'] && ACTIVE_TYPES.test(out['content-type'])) {
+    out['content-type'] = 'text/plain; charset=utf-8';
+  }
+  out['content-security-policy'] = PROXIED_CSP;
+  out['x-content-type-options'] = 'nosniff';
+  out['cache-control'] = 'no-store';
+  return out;
+}
 
 /**
  * The app, if this person may administer it from here: the app is active, has
@@ -134,10 +166,7 @@ async function handle(req, res) {
   }
 
   res.status(reply.status);
-  reply.headers.forEach((value, key) => {
-    if (!HOP_HEADERS.has(key.toLowerCase())) res.setHeader(key, value);
-  });
-  res.setHeader('Cache-Control', 'no-store');
+  for (const [key, value] of Object.entries(responseHeaders(reply.headers))) res.setHeader(key, value);
   if (!reply.body) { clearTimeout(timer); return res.end(); }
   // Streamed rather than buffered: a backup download is a large file.
   const stream = Readable.fromWeb(reply.body);
@@ -165,4 +194,4 @@ async function listFor(actor) {
   return out;
 }
 
-module.exports = { handle, appFor, targetUrl, listFor };
+module.exports = { handle, appFor, targetUrl, listFor, responseHeaders };
