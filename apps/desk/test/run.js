@@ -1420,6 +1420,12 @@ describe('the passage grader', () => {
     equal(grade(passage, 'Surely goodness and mercy the Lords word said', R()).percent, 100, 'ignoring punctuation ignores the apostrophe too');
   });
 
+  it('counts words the same way on both sides, punctuation never included', () => {
+    equal(w._wordCount(PSALM), 9);
+    equal(w._wordCount('The Lord’s — my shepherd... well-being!'), 5, 'a dash is not a word; an apostrophe or hyphen does not split one');
+    equal(w._wordCount('   '), 0);
+  });
+
   it('gives nothing for an empty answer, and survives an empty passage', () => {
     equal(grade(PSALM, '', R()).score, 0);
     equal(grade('', 'anything', R()).total, 0);

@@ -211,6 +211,10 @@
     return { steps, tally, words, marks, score, total, percent: total ? Math.round((score / total) * 100) : 0 };
   }
 
+  /** Words only — no punctuation, whatever the rules — for the counts shown beside each text. */
+  const wordCount = (text) => tokenize(text, { punctuation: 'ignore', capitals: 'ignore' }).length;
+  const words = (n) => `${n} word${n === 1 ? '' : 's'}`;
+
   /** 46.5 as "46½" — a half mark is common here, and a decimal reads as fussy. */
   const half = (n) => (Number.isInteger(n) ? String(n) : `${Math.floor(n)}½`);
 
@@ -260,22 +264,38 @@
       let editingId = s.results.some((r) => r.id === s.draft.id) ? s.draft.id : null;
       let pupils = [];
 
-      const wrap = el('div.pg');
+      /* Two layouts from the same parts. On the card, one column: passage,
+         rules, answer, mark. Opened large, the passage and the pupil's answer
+         sit side by side under headings that line up, so the teacher reads
+         straight across from one to the other; the marked passage and the
+         saved scores sit underneath. */
+      const wide = !!ctx.expanded;
+      const wrap = el(wide ? 'div.pg.pg--wide' : 'div.pg');
+      const passageHead = el('div.pg-head.pg-passage-head');     // wide only
+      const whoHead = el('div.pg-head.pg-who-head');             // wide only
       const passageBox = el('section.pg-passage');
-      const rulesBox = el('details.pg-rules', { open: ctx.expanded ? true : null });
+      const rulesBox = el('details.pg-rules', { open: wide ? true : null });
       const gradeBox = el('section.pg-grade');
       const resultBox = el('section.pg-result', { 'aria-live': 'polite' });
       const savedBox = el('section.pg-saved');
-      wrap.append(
-        el('div.pg-left', {}, [passageBox, rulesBox, gradeBox]),
-        el('div.pg-right', {}, [resultBox, savedBox]),
-      );
+      if (wide) {
+        wrap.append(
+          el('div.pg-pair', {}, [passageHead, whoHead, passageBox, gradeBox]),
+          el('div.pg-below', {}, [resultBox, el('div.pg-side', {}, [savedBox, rulesBox])]),
+        );
+      } else {
+        wrap.append(
+          el('div.pg-left', {}, [passageBox, rulesBox, gradeBox]),
+          el('div.pg-right', {}, [resultBox, savedBox]),
+        );
+      }
       ctx.root.append(wrap);
 
       // ---------- the passage ----------
 
       function drawPassage() {
         Desk.clear(passageBox);
+        if (wide) { drawPassageWide(); return; }
         if (editingPassage) {
           const title = el('input.input.pg-title', {
             type: 'text', maxlength: '80', value: s.title, placeholder: 'Name it (optional) — e.g. Psalm 23',
@@ -296,8 +316,10 @@
             paint();
             if (changed && s.results.length) toast('The saved scores have been re-marked against the new passage.');
           };
+          const typing = el('span.hint.pg-count', { text: words(wordCount(s.passage)) });
+          text.addEventListener('input', () => { typing.textContent = words(wordCount(text.value)); });
           append(passageBox,
-            el('div.pg-label', { text: 'The passage' }),
+            el('div.pg-row', {}, [el('div.pg-label', { text: 'The passage' }), typing]),
             title, text,
             el('div.pg-row', {}, [
               el('button.btn.btn--primary.btn--small', { svg: icon('check', 14), onclick: done }, ' Use this passage'),
@@ -306,14 +328,58 @@
           );
           return;
         }
-        const count = tokenize(s.passage, { punctuation: 'ignore', capitals: 'ignore' }).length;
+        const count = wordCount(s.passage);
         passageBox.append(el('div.pg-row.pg-passage-set', {}, [
           el('div.pg-passage-name', {}, [
             el('strong', { text: s.title || 'The passage' }),
-            el('span.hint', { text: `${count} word${count === 1 ? '' : 's'}` }),
+            el('span.hint.pg-count', { text: words(count) }),
           ]),
           el('button.btn.btn--small.btn--ghost', { text: 'Change', onclick: () => { editingPassage = true; drawPassage(); } }),
         ]));
+      }
+
+      /** Opened large: the heading above, the whole passage below it. */
+      function drawPassageWide() {
+        Desk.clear(passageHead);
+        const count = wordCount(s.passage);
+        if (editingPassage) {
+          const title = el('input.input.pg-title', {
+            type: 'text', maxlength: '80', value: s.title, placeholder: 'Name it (optional) — e.g. Psalm 23',
+            'aria-label': 'Name of the passage',
+          });
+          const text = el('textarea.textarea.pg-passage-text', {
+            maxlength: String(MAX_PASSAGE), value: s.passage,
+            placeholder: 'Paste the passage exactly as the pupils learned it.', 'aria-label': 'The passage',
+          });
+          const done = () => {
+            if (!text.value.trim()) { toast('Paste the passage first.', 'warn'); text.focus(); return; }
+            const changed = text.value !== s.passage;
+            s.title = title.value.trim().slice(0, 80);
+            s.passage = text.value.slice(0, MAX_PASSAGE);
+            editingPassage = false;
+            ctx.save();
+            drawPassage();
+            paint();
+            if (changed && s.results.length) toast('The saved scores have been re-marked against the new passage.');
+          };
+          const typing = el('span.hint.pg-count', { text: words(wordCount(s.passage)) });
+          text.addEventListener('input', () => { typing.textContent = words(wordCount(text.value)); });
+          append(passageHead, el('span.pg-label', { text: 'The passage' }), title, typing);
+          append(passageBox, text, el('div.pg-row', {}, [
+            el('button.btn.btn--primary.btn--small', { svg: icon('check', 14), onclick: done }, ' Use this passage'),
+            s.passage.trim() ? el('button.btn.btn--small.btn--ghost', { text: 'Cancel', onclick: () => { editingPassage = false; drawPassage(); } }) : null,
+          ]));
+          return;
+        }
+        append(passageHead,
+          el('span.pg-label', { text: 'The passage' }),
+          el('div.pg-passage-name', {}, [
+            el('strong', { text: s.title || 'Untitled' }),
+            el('span.hint.pg-count', { text: words(count) }),
+          ]),
+          el('button.btn.btn--small.btn--ghost', { text: 'Change', onclick: () => { editingPassage = true; drawPassage(); } }),
+        );
+        passageBox.append(el('div.pg-original', { text: s.passage }));
       }
 
       // ---------- the rules ----------
@@ -350,12 +416,16 @@
         oninput: (e) => { s.draft.name = e.target.value; ctx.save(); },
       });
       const answerBox = el('textarea.textarea.pg-answer', {
-        rows: ctx.expanded ? 9 : 4, maxlength: String(MAX_ANSWER), value: s.draft.answer,
+        rows: 4, maxlength: String(MAX_ANSWER), value: s.draft.answer,
         placeholder: 'Paste the pupil’s answer here. It is marked as you paste.', 'aria-label': 'The pupil’s answer',
         spellcheck: 'false',
-        oninput: (e) => { s.draft.answer = e.target.value; ctx.save(); paintSoon(); },
+        oninput: (e) => { s.draft.answer = e.target.value; ctx.save(); paintCount(); paintSoon(); },
       });
       const leftHint = el('span.hint.pg-left-count');
+      // How long the answer is against how long the passage is: the first
+      // thing a teacher checks when a score looks wrong.
+      const answerCount = el('span.hint.pg-count');
+      function paintCount() { answerCount.textContent = words(wordCount(s.draft.answer)); }
 
       function drawGrade() {
         const picker = Desk.roster.picker({
@@ -366,8 +436,13 @@
           },
         });
         picker.classList.add('pg-class');
+        if (wide) {
+          append(whoHead, el('span.pg-label', { text: 'Pupil’s answer' }), answerCount, nameBox, picker, pupilList);
+          gradeBox.append(answerBox);
+          return;
+        }
         gradeBox.append(
-          el('div.pg-label', { text: 'Pupil’s answer' }),
+          el('div.pg-row', {}, [el('div.pg-label', { text: 'Pupil’s answer' }), answerCount]),
           el('div.pg-row.pg-who', {}, [nameBox, picker]),
           pupilList,
           answerBox,
@@ -399,6 +474,7 @@
       const paintSoon = () => { clearTimeout(soon); soon = setTimeout(paint, 180); };
 
       function paint() {
+        paintCount();
         paintResult();
         paintSaved();
         paintLeft();
@@ -605,5 +681,6 @@
     _grade: grade,
     _tokenize: tokenize,
     _kinship: kinship,
+    _wordCount: wordCount,
   });
 }(window.Desk));
