@@ -1076,11 +1076,14 @@ function section(title) { console.log(`\n${title}`); }
   {
     const inventory = require('../src/data-inventory');
 
+    // Base tables only: a view (class_access) stores nothing to account for.
     const live = await db.many(`
-      SELECT table_name, column_name
-        FROM information_schema.columns
-       WHERE table_schema = 'public'
-       ORDER BY table_name, ordinal_position`);
+      SELECT c.table_name, c.column_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+       WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+       ORDER BY c.table_name, c.ordinal_position`);
 
     const declared = new Set(inventory.allColumns().map((c) => c.table + '.' + c.column));
     const actual = new Set(live.map((r) => r.table_name + '.' + r.column_name));
@@ -2182,6 +2185,161 @@ function section(title) { console.log(`\n${title}`); }
 
     await new Promise((r) => con.close(r));
     await new Promise((r) => fake.close(r));
+  }
+
+  section('Substitute teachers');
+  {
+    const oidcBase = base;
+    // A substitute keeps one account all year. On covered days they appear to
+    // every app as a teacher of the covered classes; on any other day they
+    // cannot sign in, and are refused fresh tokens, at all.
+    const coverage = require('../src/coverage');
+    const subRole = await db.one("SELECT id FROM roles WHERE key = 'substitute' AND tenant_id IS NULL");
+    ok('there is a built-in Substitute teacher role', !!subRole);
+    const subPerms = await db.many('SELECT permission FROM role_permissions WHERE role_id = $1', [subRole.id]);
+    const held = subPerms.map((r) => r.permission);
+    ok('it can teach in the apps', ['whiteboard:teach', 'atlas:teach', 'desk:use'].every((p) => held.includes(p)));
+    ok('but cannot grade', !held.includes('atlas:grade'));
+    ok('and holds nothing administrative, or the school directory',
+      !held.some((p) => p.startsWith('core:')));
+
+    const r = await identity.resolveUser({
+      provider: 'google', subject: 'google-sub-sam', email: 'sam.reed@school.edu', name: 'Sam Reed', hostedDomain: 'school.edu' });
+    const sam = r.user.id;
+    await identity.ensureMembership(sam, 'sam.reed@school.edu', 'school.edu');
+    await db.query("UPDATE memberships SET role_id = $1, status = 'active' WHERE user_id = $2", [subRole.id, sam]);
+
+    const blockOf = async (id) => identity.loginBlock(await identity.accessFor(id));
+    eq('with no cover arranged, a substitute cannot sign in', (await blockOf(sam)).code, 'no_coverage');
+
+    const today = await coverage.today(tenant.id);
+    const inDays = async (n) => (await db.one(
+      "SELECT to_char($1::date + $2::int, 'YYYY-MM-DD') AS d", [today, n])).d;
+    const inClass = async () => db.many('SELECT role, coverage_id FROM class_access WHERE user_id = $1 AND class_id = $2', [sam, klass.id]);
+
+    // ---- refusals ----
+    const plan = { tenantId: tenant.id, substituteId: sam, classIds: [klass.id], startsOn: today, endsOn: today, actorId: bobUser.id };
+    eq('only a substitute can be given cover',
+      (await coverage.schedule({ ...plan, substituteId: bobUser.id })).error, 'That person is not a substitute at this school.');
+    const elsewhere = await db.one(
+      "INSERT INTO classes (tenant_id, name, school_year) VALUES ($1,'Riverside Chemistry','2026') RETURNING id", [other.id]);
+    eq('never for a class at another school',
+      (await coverage.schedule({ ...plan, classIds: [klass.id, elsewhere.id] })).error, 'One of those classes is not at this school.');
+    ok('nor with no classes at all', !(await coverage.schedule({ ...plan, classIds: [] })).ok);
+    ok('nor with the days backwards', !(await coverage.schedule({ ...plan, startsOn: await inDays(2), endsOn: await inDays(1) })).ok);
+    ok('nor for days already over', !(await coverage.schedule({ ...plan, startsOn: '2020-01-06', endsOn: '2020-01-07' })).ok);
+    ok('nor for longer than a year', !(await coverage.schedule({ ...plan, endsOn: await inDays(coverage.MAX_DAYS) })).ok);
+    eq('none of which granted anything', (await inClass()).length, 0);
+
+    // ---- covering today ----
+    const todayCover = await coverage.schedule({ ...plan, coveringFor: claimed.user.id, note: 'Carla at a conference' });
+    ok('cover for today is arranged', todayCover.ok);
+    eq('and the substitute can now sign in', await blockOf(sam), null);
+    const rows = await inClass();
+    ok('appearing as a teacher of the covered class', rows.length === 1 && rows[0].role === 'teacher' && !!rows[0].coverage_id);
+    const others = await db.many(
+      'SELECT class_id FROM class_access WHERE user_id = $1 AND class_id <> $2', [sam, klass.id]);
+    eq('and of no other class', others.length, 0);
+
+    // Through the very endpoint every app calls, with a real token.
+    const samSession = await sessions.create(sam, { ip: '10.0.0.12', userAgent: 'test', isStaff: true });
+    const vS = crypto.randomBytes(32).toString('base64url');
+    const cS = crypto.createHash('sha256').update(vS).digest('base64url');
+    const aS = await fetch(`${oidcBase}/authorize?response_type=code&client_id=atlas` +
+      `&redirect_uri=${encodeURIComponent('http://localhost:4000/auth/callback')}` +
+      `&scope=openid+profile+email+roles&state=sub&code_challenge=${cS}&code_challenge_method=S256`,
+      { headers: { cookie: `${sessions.COOKIE}=${encodeURIComponent(samSession.raw)}` }, redirect: 'manual' });
+    const codeS = new URL(aS.headers.get('location')).searchParams.get('code');
+    const tS = await (await fetch(`${oidcBase}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+      body: form({ grant_type: 'authorization_code', code: codeS, redirect_uri: 'http://localhost:4000/auth/callback', code_verifier: vS }),
+    })).json();
+    ok('a covering substitute gets tokens for an app', !!tS.access_token);
+    const listed = await (await fetch(`${oidcBase}/api/v1/classes`, bearer(tS.access_token))).json();
+    const seen = (listed.classes || []).find((c) => c.id === klass.id);
+    ok('and the app is told they teach the covered class', !!seen && seen.role === 'teacher' && seen.covering === true);
+    const roster = await fetch(`${oidcBase}/api/v1/classes/${klass.id}/members`, bearer(tS.access_token));
+    eq('including its roster, as its teacher would', roster.status, 200);
+
+    // ---- the school's own time zone decides "today" ----
+    const tz = (await db.one('SELECT timezone FROM tenants WHERE id = $1', [tenant.id])).timezone;
+    await db.query("UPDATE tenants SET timezone = 'Pacific/Kiritimati' WHERE id = $1", [tenant.id]);   // UTC+14
+    const kToday = await coverage.today(tenant.id);
+    const kCover = await coverage.schedule({ ...plan, startsOn: kToday, endsOn: kToday });
+    await coverage.end(todayCover.id, tenant.id, bobUser.id);
+    ok('cover is on when it is that day at the school', (await coverage.forSubstitute(sam, tenant.id)).covering);
+    await db.query("UPDATE tenants SET timezone = 'Pacific/Pago_Pago' WHERE id = $1", [tenant.id]);    // UTC-11
+    ok('and not while it is still the day before there, whatever the server clock says',
+      !(await coverage.forSubstitute(sam, tenant.id)).covering);
+    await db.query('UPDATE tenants SET timezone = $2 WHERE id = $1', [tenant.id, tz]);
+    await coverage.end(kCover.id, tenant.id, bobUser.id);
+
+    // ---- outside cover ----
+    eq('once cover has ended, the class is gone at once', (await inClass()).length, 0);
+    eq('and the substitute cannot sign in', (await blockOf(sam)).code, 'no_coverage');
+    const refused = await fetch(`${oidcBase}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+      body: form({ grant_type: 'refresh_token', refresh_token: tS.refresh_token }),
+    });
+    eq('nor refresh their way back in with a token they already hold', refused.status, 400);
+
+    const later = await coverage.schedule({ ...plan, startsOn: await inDays(2), endsOn: await inDays(3) });
+    ok('cover can be arranged ahead of time', later.ok);
+    const ahead = await blockOf(sam);
+    ok('and until it starts they are told when it does', ahead.code === 'no_coverage' && /next cover starts on/.test(ahead.message));
+    eq('with nothing granted before then', (await inClass()).length, 0);
+    ok('cancelling it before it starts works too', (await coverage.end(later.id, tenant.id, bobUser.id)).ok);
+    ok('and ending one twice is refused, not repeated', !(await coverage.end(later.id, tenant.id, bobUser.id)).ok);
+    const kept = await db.one('SELECT COUNT(*)::int AS n FROM coverages WHERE substitute_id = $1', [sam]);
+    ok('nothing is deleted: every period of cover stays on record', kept.n >= 3);
+
+    // ---- the refresh gap, closed for everyone ----
+    const app = await db.one("SELECT * FROM apps WHERE client_id = 'atlas'");
+    ok('a person who may sign in gets claims', !!(await oidc.buildClaims(app, claimed.user.id, tenant.id, null)));
+    await db.query("UPDATE memberships SET status = 'suspended' WHERE user_id = $1", [claimed.user.id]);
+    eq('a suspended person is refused fresh tokens, not just a fresh sign-in',
+      await oidc.buildClaims(app, claimed.user.id, tenant.id, null), null);
+    await db.query("UPDATE memberships SET status = 'active' WHERE user_id = $1", [claimed.user.id]);
+
+    // ---- the console routes: who may arrange cover, and ending it signs out ----
+    const consoleApp = express();
+    consoleApp.use(express.json());
+    consoleApp.use(authMod.attachActor);
+    consoleApp.use('/api/admin', require('../src/admin'));
+    const con = await new Promise((res) => { const x = consoleApp.listen(0, '127.0.0.1', () => res(x)); });
+    const conBase = `http://127.0.0.1:${con.address().port}/api/admin`;
+    const asPerson = async (email, roleKey) => {
+      const p = await identity.resolveUser({ provider: 'google', subject: 'sub-' + email, email, name: email, hostedDomain: 'school.edu' });
+      await identity.ensureMembership(p.user.id, email, 'school.edu');
+      const role = await db.one('SELECT id FROM roles WHERE key = $1 AND tenant_id IS NULL', [roleKey]);
+      await db.query("UPDATE memberships SET role_id = $1, status = 'active' WHERE user_id = $2", [role.id, p.user.id]);
+      const s = await sessions.create(p.user.id, { ip: '10.0.0.13', userAgent: 'test', isStaff: true });
+      return `${sessions.COOKIE}=${encodeURIComponent(s.raw)}; csrf=t0k3n`;
+    };
+    const call = (cookie, path, method = 'GET', body) => fetch(conBase + path, {
+      method, headers: { cookie, 'x-csrf-token': 't0k3n', 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const adminCookie = await asPerson('cover-admin@school.edu', 'local_admin');
+    const teacherCookie = await asPerson('cover-teacher@school.edu', 'teacher');
+
+    eq('a teacher cannot arrange cover', (await call(teacherCookie, '/substitutes')).status, 403);
+    const page = await (await call(adminCookie, '/substitutes')).json();
+    ok('a local admin sees their substitutes', page.substitutes.some((s) => s.id === sam));
+    const made = await call(adminCookie, '/coverages', 'POST',
+      { substitute_id: sam, class_ids: [klass.id], starts_on: today, ends_on: today });
+    eq('and arranges cover', made.status, 201);
+    const madeId = (await made.json()).id;
+    const liveSam = await sessions.create(sam, { ip: '10.0.0.14', userAgent: 'test', isStaff: true });
+    const ended = await (await call(adminCookie, `/coverages/${madeId}/end`, 'POST', {})).json();
+    ok('ending the only cover a substitute had today signs them out everywhere at once',
+      ended.signedOut >= 1 && (await sessions.touch(liveSam.raw)) === null);
+    const logged = await db.one("SELECT 1 FROM audit_log WHERE action = 'coverage.ended' LIMIT 1");
+    ok('and both steps are in the audit log',
+      !!logged && !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'coverage.scheduled' LIMIT 1")));
+    con.close();
   }
 
   section('Audit trail');

@@ -30,6 +30,10 @@ const SIMPLE_REFS = [
   ['audit_log', 'actor_user_id'],
   ['platform_admins', 'granted_by'],
   ['reports', 'user_id'],
+  ['coverages', 'substitute_id'],
+  ['coverages', 'covering_for'],
+  ['coverages', 'created_by'],
+  ['coverages', 'ended_by'],
   ['reports', 'closed_by'],
 ];
 

@@ -146,6 +146,25 @@ const INVENTORY = {
     closed_by:  { personal: true, category: 'technical', purpose: 'Which administrator closed a problem report.', exposed: 'admin' },
   },
 
+  // ---------- substitute cover (migration 011) ----------
+  coverages: {
+    id:            N('Internal reference for one period of substitute cover.'),
+    tenant_id:     N('Which school the cover is at.'),
+    substitute_id: { personal: true, category: 'school', purpose: 'Which substitute is covering.', exposed: 'admin' },
+    covering_for:  { personal: true, category: 'school', purpose: 'Which teacher a substitute is covering for, when the school said.', exposed: 'admin' },
+    starts_on:     { personal: true, category: 'school', purpose: 'The first day a substitute covers.', exposed: 'admin' },
+    ends_on:       { personal: true, category: 'school', purpose: 'The last day a substitute covers.', exposed: 'admin' },
+    note:          { personal: true, category: 'operational', purpose: 'A note an administrator wrote about a period of substitute cover.', exposed: 'admin' },
+    created_by:    { personal: true, category: 'technical', purpose: 'Which administrator arranged a period of substitute cover.', exposed: 'admin' },
+    created_at:    { personal: true, category: 'technical', purpose: 'When a period of substitute cover was arranged.', exposed: 'admin' },
+    ended_at:      { personal: true, category: 'technical', purpose: 'When a period of substitute cover was ended early or cancelled.', exposed: 'admin' },
+    ended_by:      { personal: true, category: 'technical', purpose: 'Which administrator ended a period of substitute cover early.', exposed: 'admin' },
+  },
+  coverage_classes: {
+    coverage_id: N('Which period of cover a class belongs to.'),
+    class_id:    { personal: true, category: 'school', purpose: 'Which classes a substitute covers.', exposed: 'admin' },
+  },
+
   // ---------- classes ----------
   classes: {
     id:               N('Internal reference for a class.'),
@@ -412,6 +431,13 @@ const DISCLOSURES = [
   },
   {
     category: 'school',
+    text: 'If a substitute covers classes: who covered, for which teacher, which classes and on which days, who arranged it, and whether it was ended early. On those days the substitute appears to the apps as a teacher of those classes; on any other day they cannot sign in.',
+    covers: ['coverages.substitute_id', 'coverages.covering_for', 'coverages.starts_on', 'coverages.ends_on',
+             'coverages.created_by', 'coverages.created_at', 'coverages.ended_at', 'coverages.ended_by',
+             'coverage_classes.class_id'],
+  },
+  {
+    category: 'school',
     text: 'Whether a school has specifically allowed or blocked one person from one particular app.',
     covers: ['user_app_access.user_id', 'user_app_access.app_id', 'user_app_access.tenant_id', 'user_app_access.allowed'],
   },
@@ -456,8 +482,8 @@ const DISCLOSURES = [
   // ---- notes ----
   {
     category: 'operational',
-    text: 'Short notes an administrator has written: why someone has been given wide access, or why a request for an account was decided as it was.',
-    covers: ['platform_admins.note', 'access_requests.note'],
+    text: 'Short notes an administrator has written: why someone has been given wide access, why a request for an account was decided as it was, or about a period of substitute cover.',
+    covers: ['platform_admins.note', 'access_requests.note', 'coverages.note'],
   },
 
   {

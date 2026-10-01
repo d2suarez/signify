@@ -130,6 +130,24 @@ const BUILTIN_ROLES = [
     ],
   },
   {
+    key: 'substitute',
+    label: 'Substitute teacher',
+    description: 'Covers other teachers’ classes on the days the school schedules. Can sign in only on those days, and does not grade.',
+    is_admin: false,
+    sort_order: 35,
+    // A teacher's rights in the apps, only for the classes being covered and
+    // only on covered days (see coverage.js). No grading: atlas:grade is left
+    // out on purpose. No school directory, and nothing administrative.
+    permissions: [
+      { permission: 'whiteboard:teach', scope: 'class' },
+      { permission: 'atlas:teach', scope: 'class' },
+      { permission: 'timestables:teach', scope: 'class' },
+      // Teacher's Desk declares these itself rather than in the code catalogue.
+      { permission: 'desk:use', scope: 'class' },
+      { permission: 'desk:behaviour', scope: 'class' },
+    ],
+  },
+  {
     key: 'teacher',
     label: 'Teacher',
     description: 'Runs classes and grades work for their own classes.',

@@ -35,8 +35,10 @@
 // 2026-09-28: Cloudflare added as a third company, holding encrypted backups
 // of every app. The policy's own rule is that a new company means a new
 // version and telling the school first.
-const VERSION = '2026-09-28';
-const EFFECTIVE = '28 September 2026';
+// 2026-09-29: substitute cover is recorded — who covered which classes, and
+// on which days — and what is collected is listed accordingly.
+const VERSION = '2026-09-29';
+const EFFECTIVE = '29 September 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

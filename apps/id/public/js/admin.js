@@ -675,6 +675,159 @@ function roleDialog(role, allRoles) {
   });
 }
 
+// ---------- substitutes ----------
+// A substitute keeps one account all year and can sign in only on the days
+// they are covering. On those days every app treats them as a teacher of the
+// classes they cover. This page arranges and ends that cover.
+
+// "2026-09-30" becomes "Tue 30 Sep", built from its parts so no time zone
+// can move it to the day before.
+function dayLabel(iso) {
+  if (!iso) return '';
+  var p = String(iso).split('-').map(Number);
+  return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+function spanLabel(a, b) { return a === b ? dayLabel(a) : dayLabel(a) + ' – ' + dayLabel(b); }
+function classNames(list) { return (list || []).map(function (x) { return x.name; }).join(', '); }
+
+pages.substitutes = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Substitutes', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/substitutes?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    var subRows = d.substitutes.map(function (s) {
+      var status = s.coveringNow.length
+        ? '<span class="chip chip-green">Covering today</span>' +
+          '<div class="small muted" style="margin-top:.2rem">' + esc(s.coveringNow.map(function (c) { return classNames(c.classes); }).join('; ')) + '</div>'
+        : s.next
+          ? '<span class="chip chip-blue">Next: ' + esc(dayLabel(s.next.starts_on)) + '</span>'
+          : '<span class="chip chip-grey">No cover arranged</span>';
+      return '<tr data-sub="' + esc(s.id) + '">' +
+        '<td><div style="font-weight:550">' + esc(s.name) + '</div><div class="small muted">' + esc(s.email) + '</div></td>' +
+        '<td>' + status + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          '<button class="btn btn-sm" data-today>Cover today</button> ' +
+          '<button class="btn btn-sm btn-primary" data-arrange>Arrange cover</button>' +
+        '</td></tr>';
+    }).join('');
+
+    var covRows = d.coverages.map(function (c) {
+      var chip = c.ended_at
+        ? '<span class="chip chip-grey">Ended' + (c.ended_by_name ? ' by ' + esc(c.ended_by_name) : '') + '</span>'
+        : c.current ? '<span class="chip chip-green">Now</span>'
+        : c.upcoming ? '<span class="chip chip-blue">Upcoming</span>'
+        : '<span class="chip chip-grey">Finished</span>';
+      var action = c.current
+        ? '<button class="btn btn-sm btn-danger" data-end="' + esc(c.id) + '" data-kind="end">End now</button>'
+        : c.upcoming ? '<button class="btn btn-sm" data-end="' + esc(c.id) + '" data-kind="cancel">Cancel</button>' : '';
+      return '<tr>' +
+        '<td style="white-space:nowrap">' + esc(spanLabel(c.starts_on, c.ends_on)) + '</td>' +
+        '<td>' + esc(c.substitute_name) + (c.covering_for_name ? '<div class="small muted">for ' + esc(c.covering_for_name) + '</div>' : '') + '</td>' +
+        '<td class="small">' + esc(classNames(c.classes)) + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '</td>' +
+        '<td>' + chip + '</td>' +
+        '<td style="text-align:right">' + action + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">No cover arranged.</td></tr>';
+
+    document.getElementById('main').innerHTML =
+      head('Substitutes', 'A substitute keeps one account all year but can sign in only on the days they are covering. ' +
+        'On those days every app treats them as a teacher of the classes they cover, without grading.') +
+      (d.substitutes.length ? '' :
+        '<div class="notice notice-info"><strong>No substitutes yet</strong>' +
+        'Add one on the People page with the role Substitute teacher. Their account stays closed until you arrange cover.' +
+        '<div style="margin-top:.5rem"><button class="btn btn-sm" data-go="users">Open People</button></div></div>') +
+      (d.substitutes.length
+        ? '<div class="card"><div class="card-head"><h2>Substitutes</h2></div><div class="table-wrap"><table><thead><tr>' +
+          '<th>Who</th><th>Today</th><th></th></tr></thead><tbody>' + subRows + '</tbody></table></div></div>'
+        : '') +
+      '<div class="card"><div class="card-head"><h2>Cover</h2><div class="spacer"></div>' +
+        (d.substitutes.length ? '<button class="btn btn-sm btn-primary" id="newCover">Arrange cover</button>' : '') + '</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Days</th><th>Substitute</th><th>Classes</th><th>Status</th><th></th></tr></thead>' +
+      '<tbody>' + covRows + '</tbody></table></div>' +
+      '<p class="small muted" style="margin:.6rem .9rem">Today at this school is ' + esc(dayLabel(d.today)) + '. ' +
+      'Cover runs whole days in the school’s time zone. The last two weeks are shown.</p></div>';
+
+    bindGo();
+    var nc = document.getElementById('newCover');
+    if (nc) nc.onclick = function () { coverDialog(d, null, false); };
+    Array.prototype.forEach.call(document.querySelectorAll('tr[data-sub]'), function (tr) {
+      tr.querySelector('[data-arrange]').onclick = function () { coverDialog(d, tr.dataset.sub, false); };
+      tr.querySelector('[data-today]').onclick = function () { coverDialog(d, tr.dataset.sub, true); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-end]'), function (b) {
+      b.onclick = function () {
+        var cancel = b.dataset.kind === 'cancel';
+        if (!window.confirm(cancel
+          ? 'Cancel this cover? The substitute will not be able to sign in for it.'
+          : 'End this cover now? The substitute loses these classes in every app straight away.')) return;
+        api('/coverages/' + encodeURIComponent(b.dataset.end) + '/end', { method: 'POST', body: { tenant_id: state.tenantId } })
+          .then(function (r) {
+            toast(cancel ? 'Cover cancelled.' : 'Cover ended.' + (r.signedOut ? ' The substitute has been signed out.' : ''));
+            setPage('substitutes');
+          })
+          .catch(function (e) { toast(e.message, true); });
+      };
+    });
+  });
+};
+
+function coverDialog(d, subId, todayOnly) {
+  var subOptions = d.substitutes.map(function (s) {
+    return '<option value="' + esc(s.id) + '"' + (s.id === subId ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+  }).join('');
+  var teacherOptions = '<option value="">Nobody in particular</option>' + d.teachers.map(function (t) {
+    return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
+  }).join('');
+  var classRows = d.classes.map(function (c) {
+    return '<label class="perm-row" style="cursor:pointer;margin:0"><input type="checkbox" value="' + esc(c.id) + '">' +
+      '<span class="label">' + esc(c.name) + (c.teachers ? '<span class="muted small"> · ' + esc(c.teachers) + '</span>' : '') + '</span></label>';
+  }).join('') || '<div class="empty">No classes at this school yet.</div>';
+
+  modal({
+    title: todayOnly ? 'Cover today' : 'Arrange cover',
+    confirm: todayOnly ? 'Turn on for today' : 'Arrange cover',
+    body:
+      '<div class="field"><label for="cv_sub">Substitute</label><select id="cv_sub">' + subOptions + '</select></div>' +
+      '<div class="field"><label for="cv_for">Covering for</label><select id="cv_for">' + teacherOptions + '</select>' +
+      '<div class="hint">Choosing a teacher ticks their classes below. Change the ticks as you need.</div></div>' +
+      '<div class="field"><label>Classes</label><div class="perm-group" style="max-height:14rem;overflow:auto" id="cv_classes">' + classRows + '</div></div>' +
+      '<div class="row">' +
+        '<div class="field"><label for="cv_start">First day</label><input id="cv_start" type="date" value="' + esc(d.today) + '" min="' + esc(d.today) + '"' + (todayOnly ? ' disabled' : '') + '></div>' +
+        '<div class="field"><label for="cv_end">Last day</label><input id="cv_end" type="date" value="' + esc(d.today) + '" min="' + esc(d.today) + '"' + (todayOnly ? ' disabled' : '') + '></div>' +
+      '</div>' +
+      '<div class="field"><label for="cv_note">Note <span class="muted small">(optional)</span></label>' +
+      '<input id="cv_note" type="text" maxlength="300" placeholder="For example: Mr. Stone at a conference"></div>',
+    onOpen: function (m) {
+      var forSel = m.querySelector('#cv_for');
+      forSel.onchange = function () {
+        var teacherId = forSel.value;
+        Array.prototype.forEach.call(m.querySelectorAll('#cv_classes input'), function (box) {
+          var cls = d.classes.filter(function (c) { return c.id === box.value; })[0];
+          box.checked = !!teacherId && !!cls && (cls.teacher_ids || []).indexOf(teacherId) >= 0;
+        });
+      };
+      var start = m.querySelector('#cv_start');
+      var end = m.querySelector('#cv_end');
+      start.onchange = function () { if (end.value < start.value) end.value = start.value; end.min = start.value; };
+    },
+    onConfirm: function (m) {
+      var ids = Array.prototype.map.call(m.querySelectorAll('#cv_classes input:checked'), function (b) { return b.value; });
+      return api('/coverages', { method: 'POST', body: {
+        tenant_id: state.tenantId,
+        substitute_id: m.querySelector('#cv_sub').value,
+        covering_for: m.querySelector('#cv_for').value || null,
+        class_ids: ids,
+        starts_on: m.querySelector('#cv_start').value,
+        ends_on: m.querySelector('#cv_end').value,
+        note: m.querySelector('#cv_note').value,
+      } }).then(function () {
+        toast(todayOnly ? 'Cover is on for today.' : 'Cover arranged.');
+        setPage('substitutes');
+      });
+    },
+  });
+}
+
 pages.classes = function () {
   return api('/classes' + tenantQuery()).then(function (d) {
     var canEdit = can('core:manage_classes', 'own');
@@ -2813,6 +2966,11 @@ api('/bootstrap').then(function (d) {
   document.getElementById('whoName').textContent = d.actor.name;
   document.getElementById('whoEmail').textContent = d.actor.email;
   document.getElementById('whoRole').textContent = d.actor.roleLabel || 'No role';
+
+  // A page that needs a permission this person does not hold is not offered.
+  Array.prototype.forEach.call(document.querySelectorAll('#nav [data-needs]'), function (el) {
+    if (!can(el.dataset.needs, 'tenant')) el.hidden = true;
+  });
 
   if (!d.actor.isSuper) {
     Array.prototype.forEach.call(document.querySelectorAll('[data-super]'), function (el) { el.hidden = true; });

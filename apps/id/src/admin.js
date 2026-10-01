@@ -22,6 +22,7 @@ const directory = require('./directory');
 const reports = require('./reports');
 const survey = require('./access-survey');
 const appAdmin = require('./app-admin');
+const coverage = require('./coverage');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -1588,6 +1589,58 @@ router.post('/reports/new', async (req, res) => {
     req.body);
   if (!result.ok) return fail(res, result.status, result.error);
   res.status(201).json({ ok: true, ref: result.report.ref });
+});
+
+// ---------- substitutes ----------
+// Arranging cover is managing people at a school, so it takes the same
+// permission as the People page, at the same reach.
+
+router.get('/substitutes', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  res.json(await coverage.overview(tenantId));
+});
+
+router.post('/coverages', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await coverage.schedule({
+    tenantId, substituteId: b.substitute_id, coveringFor: b.covering_for || null,
+    classIds: b.class_ids, startsOn: b.starts_on, endsOn: b.ends_on, note: b.note, actorId: actor.userId,
+  });
+  if (!result.ok) return fail(res, 400, result.error);
+  await audit.from(req, {
+    tenantId, action: 'coverage.scheduled', targetType: 'user', targetId: b.substitute_id,
+    detail: { coverageId: result.id, classes: result.classes, startsOn: b.starts_on, endsOn: b.ends_on },
+  });
+  res.status(201).json({ ok: true, id: result.id });
+});
+
+router.post('/coverages/:id/end', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, (req.body || {}).tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await coverage.end(req.params.id, tenantId, actor.userId);
+  if (!result.ok) return fail(res, 409, result.error);
+
+  // The covered classes leave every app on their own within minutes. If the
+  // substitute is covering nothing else today, also end their sign-ins now,
+  // so they are out of every app at once rather than at their next refresh.
+  const still = await coverage.forSubstitute(result.substituteId, tenantId);
+  let signedOut = 0;
+  if (!still.covering) signedOut = await sessions.revokeAllForUser(result.substituteId, 'cover ended by an administrator');
+
+  await audit.from(req, {
+    tenantId, action: 'coverage.ended', targetType: 'user', targetId: result.substituteId,
+    detail: { coverageId: req.params.id, signedOut },
+  });
+  res.json({ ok: true, signedOut });
 });
 
 // ---------- app admin tools ----------

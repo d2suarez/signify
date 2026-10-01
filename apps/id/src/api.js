@@ -81,8 +81,8 @@ router.get('/shares-class', async (req, res) => {
   if (a !== c.userId) return res.status(403).json({ error: 'You can only ask about the signed-in person.' });
 
   const row = await db.one(
-    `SELECT 1 FROM class_members m1
-       JOIN class_members m2 ON m2.class_id = m1.class_id
+    `SELECT 1 FROM class_access m1
+       JOIN class_access m2 ON m2.class_id = m1.class_id
        JOIN classes c ON c.id = m1.class_id
       WHERE m1.user_id = $1 AND m2.user_id = $2 AND c.archived = false
       LIMIT 1`, [a, b]);
@@ -148,8 +148,9 @@ router.get('/classes', async (req, res) => {
   const c = await caller(req, res);
   if (!c) return;
   const rows = await db.many(
-    `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year, cm.role
-       FROM class_members cm JOIN classes c ON c.id = cm.class_id
+    `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year, cm.role,
+            (cm.coverage_id IS NOT NULL) AS covering
+       FROM class_access cm JOIN classes c ON c.id = cm.class_id
       WHERE cm.user_id = $1 AND c.archived = false
       ORDER BY c.name`, [c.userId]);
   res.json({ classes: rows });
@@ -165,7 +166,7 @@ router.get('/classes/:id/members', async (req, res) => {
   if (!cls) return res.status(404).json({ error: 'No such class.' });
 
   const membership = await db.one(
-    'SELECT role FROM class_members WHERE class_id = $1 AND user_id = $2', [req.params.id, c.userId]);
+    'SELECT role FROM class_access WHERE class_id = $1 AND user_id = $2', [req.params.id, c.userId]);
 
   // Reach beyond one's own classes is a property of a school, not of the
   // platform. This used to test the permission alone, so anyone holding
@@ -187,8 +188,9 @@ router.get('/classes/:id/members', async (req, res) => {
   // actually applies to this school, or being staff in the class itself.
   const staff = (wideReach && sameSchool) || (membership && ['teacher', 'aide'].includes(membership.role));
   const rows = await db.many(
-    `SELECT u.id, u.display_name, u.picture_url, cm.role${staff ? ', u.email' : ''}
-       FROM class_members cm JOIN users u ON u.id = cm.user_id
+    `SELECT u.id, u.display_name, u.picture_url, cm.role,
+            (cm.coverage_id IS NOT NULL) AS covering${staff ? ', u.email' : ''}
+       FROM class_access cm JOIN users u ON u.id = cm.user_id
       WHERE cm.class_id = $1 AND u.deleted_at IS NULL
       ORDER BY cm.role, u.display_name`, [req.params.id]);
 

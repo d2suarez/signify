@@ -295,6 +295,14 @@ async function accessFor(userId, tenantId = null) {
     perms = rbac.collapse(grants);
   }
 
+  // A substitute holds their role every day but may use it only on the days
+  // they are covering. Worked out here so loginBlock can stay a plain reading
+  // of this object.
+  let coverage = null;
+  if (!isSuper && active && active.role_key === 'substitute') {
+    coverage = await require('./coverage').forSubstitute(userId, active.tenant_id);
+  }
+
   return {
     user: {
       id: user.id, email: user.email, name: user.display_name,
@@ -304,6 +312,7 @@ async function accessFor(userId, tenantId = null) {
     membership: active,
     memberships,
     perms,
+    coverage,
   };
 }
 
@@ -329,6 +338,15 @@ function loginBlock(access) {
   if (m.status === 'suspended') {
     const until = m.suspend_until ? ` until ${new Date(m.suspend_until).toLocaleString()}` : '';
     return { code: 'suspended', message: `Your account is suspended${until}.` };
+  }
+  // The account stays open all year; the door opens only on covered days.
+  if (m.role_key === 'substitute' && !(access.coverage && access.coverage.covering)) {
+    return {
+      code: 'no_coverage',
+      message: access.coverage && access.coverage.nextLabel
+        ? `You are not covering any classes today. Your next cover starts on ${access.coverage.nextLabel}.`
+        : 'You are not covering any classes today. Your school will let you know when they need you.',
+    };
   }
   return null;
 }

@@ -209,6 +209,11 @@ router.get('/authorize', async (req, res) => {
 async function buildClaims(app, userId, tenantId, sessionId) {
   const access = await identity.accessFor(userId, tenantId);
   if (!access) return null;
+  // Nothing for someone who may not sign in right now. /authorize always
+  // checked this, but a refresh did not, so a person an administrator had
+  // blocked or suspended — or a substitute whose cover had ended — went on
+  // being handed fresh tokens for as long as their refresh token lasted.
+  if (identity.loginBlock(access)) return null;
 
   const m = access.membership;
   // Filtered even for a super admin: an app has no business being handed
