@@ -34,6 +34,7 @@ process.on('unhandledRejection', (e) => {
 // is refreshed from them on every call.
 const signify = require('./signify-auth');
 const idclasses = require('./idclasses');
+const teaching = require('./teaching');
 const AUTH_ENABLED = signify.ENABLED;
 
 // Permissions this app owns, declared to Signify ID on boot so they can be
@@ -414,6 +415,24 @@ app.use('/api/admin', (req, res, next) => {
 // The old admin portal's address, for bookmarks.
 app.get(['/admin', '/admin.html'], (req, res) => res.redirect(302, CONSOLE_WHITEBOARD));
 
+// Before any API request is decided, make sure what Signify ID says this
+// person teaches is recent: one call per person per minute, with their own
+// token. If ID cannot be reached the last answer stands until it goes stale.
+app.use('/api', async (req, res, next) => {
+  if (!AUTH_ENABLED || !idclasses.ISSUER || req.viaConsole || !req.user || !req.user.email) return next();
+  if (!teaching.isFresh(req.user.email)) {
+    try { await teaching.refresh(req, res, req.user.email); } catch { /* stale answers expire on their own */ }
+  }
+  next();
+});
+
+// An open classroom calls this every two minutes, so the answer above stays
+// current for a connection held open through a whole lesson.
+app.get('/api/ping', (req, res) => {
+  if (AUTH_ENABLED && !req.user) return res.status(401).json({ error: 'Please sign in.' });
+  res.json({ ok: true });
+});
+
 app.get('/api/config', (req, res) => {
   res.json({
     authEnabled: AUTH_ENABLED,
@@ -484,9 +503,14 @@ function requireUser(req, res) {
   return { email: user.email, name: user.name, perms: permsFor(user.email), isSuper: isSuperAdmin(user.email) };
 }
 
-// The owner, or a co-teacher of a class that came from Signify ID.
+// Who teaches a classroom. For one made from a Signify ID class, Signify ID
+// decides, now (see teaching.js): the owner and co-teacher fields such a
+// classroom carries are history, not permission. A classroom made here by
+// hand, with no ID class behind it, keeps its owner as before.
 function isRoomTeacher(data, email) {
-  return !!data && !!email && (data.owner === email || (data.coTeachers || []).includes(email));
+  if (!data || !email) return false;
+  if (data.idClassId && AUTH_ENABLED && idclasses.ISSUER) return teaching.teaches(email, data.idClassId);
+  return data.owner === email || (data.coTeachers || []).includes(email);
 }
 
 function canEditRoom(user, data) {
@@ -574,6 +598,7 @@ const ID_ROSTER_EVERY = 10 * 60 * 1000; // re-read a class's pupils at most this
 async function syncIdClasses(req, res, user) {
   if (!AUTH_ENABLED || !idclasses.ISSUER) return;
   const classes = await idclasses.myClasses(req, res);
+  teaching.record(user.email, classes);
   const mayTeach = user.isSuper || user.perms.includes('teach');
   for (const c of classes) {
     let room = roomForIdClass(c.idClassId);
@@ -588,11 +613,9 @@ async function syncIdClasses(req, res, user) {
         idClassRooms.set(c.idClassId, code);
         scheduleSave(room);
         console.log(`Set up classroom ${code} for Signify ID class "${c.name}" (${user.email})`);
-      } else if (!isRoomTeacher(room.data, user.email)) {
-        // a co-taught class: the first teacher here set it up, the others share it
-        room.data.coTeachers = [...(room.data.coTeachers || []), user.email];
-        scheduleSave(room);
       }
+      // Nothing is recorded for the class's other teachers: isRoomTeacher asks
+      // ID, so they share the classroom for exactly as long as ID lists them.
       // ID's name for the class is the one to show, and it can be renamed there
       if (room.data.name !== c.name || room.data.subject !== c.subject) {
         room.data.name = c.name;
@@ -2601,6 +2624,7 @@ io.use((socket, next) => {
       if (!claims) return next(new Error('unauthorized'));
       shadow(claims);
       socket.data.user = { email: String(claims.email).toLowerCase(), name: claims.name };
+      socket.data.idToken = idclasses.fromCookieHeader(socket.handshake.headers.cookie);
       next();
     })
     .catch(() => next(new Error('unauthorized')));
@@ -2614,7 +2638,7 @@ io.on('connection', (socket) => {
     return;
   }
 
-  socket.on('join', (payload, ack) => {
+  socket.on('join', async (payload, ack) => {
     if (typeof ack !== 'function') return;
     // Throttle join attempts per IP so the 5-char room-code space can't be brute-forced.
     const ip = (socket.handshake.headers['x-forwarded-for'] || '').split(',')[0].trim() || socket.handshake.address;
@@ -2652,6 +2676,12 @@ io.on('connection', (socket) => {
         if (room.data.joinDisabled) {
           return ack({ error: 'Joining with a code is turned off for this class. Ask your teacher to add you.' });
         }
+      }
+
+      // For a classroom from Signify ID, ask ID now if the answer is not recent:
+      // the seat below goes only to someone it currently lists as teaching.
+      if (AUTH_ENABLED && role === 'teacher' && room.data.idClassId && idclasses.ISSUER && !teaching.isFresh(id)) {
+        try { await teaching.refreshWithToken(socket.data.idToken, id); } catch { /* decided on the last answer */ }
       }
 
       // A teacher may only take the teacher seat of a room they OWN (or as an
@@ -3547,6 +3577,25 @@ seedTemplates();
 for (const f of fs.readdirSync(DATA_DIR)) {
   const m = /^room-(.+)\.json$/.exec(f);
   if (m) getRoom(sanitizeCode(m[1]), false);
+}
+
+// A teacher seat in a Signify ID classroom lasts only while ID keeps listing
+// the person as teaching it. Checked every minute against the latest answer,
+// which an open page refreshes every two minutes: a teacher mid-lesson is never
+// caught out, while someone taken off the class — a substitute whose cover
+// has ended — is let go within about three minutes.
+if (AUTH_ENABLED) {
+  setInterval(() => {
+    for (const s of io.sockets.sockets.values()) {
+      if (s.data.role !== 'teacher' || !s.data.code) continue;
+      const room = getRoom(s.data.code, false);
+      if (!room || !room.data.idClassId) continue;
+      if (isRoomTeacher(room.data, s.data.id) || hasPerm(s.data.id, 'manage_boards')) continue;
+      console.log(`Released the teacher seat of ${s.data.code}: Signify ID no longer lists ${s.data.id} as teaching it`);
+      s.emit('seat:revoked', { message: 'Your access to this class has ended. If that is a mistake, ask your school administrator.' });
+      s.disconnect(true);
+    }
+  }, 60 * 1000).unref();
 }
 
 server.listen(PORT, () => {

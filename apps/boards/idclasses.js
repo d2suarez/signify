@@ -44,8 +44,11 @@ function bearer(req, res) {
 }
 
 async function idFetch(req, res, path) {
+  return idFetchToken(bearer(req, res), path);
+}
+
+async function idFetchToken(token, path) {
   if (!ISSUER) throw new Error('Signify ID is not configured on this server.');
-  const token = bearer(req, res);
   if (!token) throw new Error('Please sign in again.');
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
@@ -60,8 +63,14 @@ async function idFetch(req, res, path) {
   } finally {
     clearTimeout(timer);
   }
-  if (reply.status === 401) throw new Error('Your sign-in has expired. Reload the page.');
-  if (reply.status === 403) throw new Error('Signify ID would not share that class.');
+  // 401 and 403 are Signify ID answering — "that sign-in has ended", "not
+  // for you" — not failing to answer. Marked so a caller can tell a refusal
+  // from an outage (see teaching.js).
+  if (reply.status === 401 || reply.status === 403) {
+    const refused = new Error(reply.status === 401 ? 'Your sign-in has expired. Reload the page.' : 'Signify ID would not share that class.');
+    refused.definitive = true;
+    throw refused;
+  }
   if (!reply.ok) throw new Error(`Signify ID returned ${reply.status}.`);
   return reply.json();
 }
@@ -70,7 +79,15 @@ const TEACHING = new Set(['teacher', 'aide']);
 
 // Every class this person is in, teaching or learning.
 async function myClasses(req, res) {
-  const data = await idFetch(req, res, '/classes');
+  return classesFrom(await idFetch(req, res, '/classes'));
+}
+
+// The same, for a live classroom connection holding the token it arrived with.
+async function myClassesWithToken(token) {
+  return classesFrom(await idFetchToken(token, '/classes'));
+}
+
+function classesFrom(data) {
   return (data.classes || []).map((c) => {
     const role = String(c.role || '').toLowerCase();
     return {
@@ -98,4 +115,4 @@ async function students(req, res, idClassId) {
   return { students: list, withheld };
 }
 
-module.exports = { ISSUER, myClasses, students };
+module.exports = { ISSUER, myClasses, myClassesWithToken, students, fromCookieHeader };

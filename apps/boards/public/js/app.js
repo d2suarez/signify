@@ -315,6 +315,20 @@ function flushBoard() {
     }
   });
 
+  // The server lets a teacher seat go when Signify ID stops listing the person
+  // as teaching this class — a substitute whose cover has ended, say.
+  socket.on('seat:revoked', (msg) => {
+    alert((msg && msg.message) || 'Your access to this class has ended.');
+    location.href = '/';
+  });
+
+  // While a classroom is open, keep the server's answer about who teaches it
+  // current. It only asks Signify ID when a request comes in, and a lesson on
+  // the board can go a long time without one.
+  if (role === 'teacher' && !window.__seatPing) {
+    window.__seatPing = setInterval(() => { fetch('/api/ping', { credentials: 'same-origin' }).catch(() => {}); }, 2 * 60 * 1000);
+  }
+
   socket.on('connect', () => {
     socket.emit('join', { room, name: myName, role }, (res) => {
       if (res.error) {
