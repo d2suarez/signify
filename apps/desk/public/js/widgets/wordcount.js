@@ -43,6 +43,8 @@
 
   Desk.widget({
     type: 'wordcount',
+    added: '2026-10-07',
+    news: 'Paste a piece of writing to see its words, sentences and reading time against a goal.',
     name: 'Word count',
     blurb: 'Paste or type to count words, characters, sentences and reading time, with an optional word goal.',
     icon: 'notes',

@@ -732,7 +732,10 @@ window.Desk = window.Desk || {};
     const item = board.items.find((i) => i.id === id);
     if (!item) return;
     const def = Desk.widgets.get(item.type);
-    const holds = def && def.holdsContent && def.holdsContent(item.state);
+    // A locked card on a visitor's desk was never mounted, so its state may
+    // never have been filled in — asking what it holds must not stop it going.
+    let holds = '';
+    try { holds = def && def.holdsContent ? def.holdsContent(item.state) : ''; } catch { holds = ''; }
 
     if (!skipConfirm) {
       const okToGo = await Desk.ask({

@@ -17,6 +17,9 @@
 //     min:   { w: 3, h: 4 },
 //     needsRoster: false,        // shown in the "needs a class list" group
 //     permission: 'behaviour',   // optional: hide unless me.can[permission]
+//     added: '2026-10-07',       // optional: the day it went live — announces it
+//     news:  'One line for the "New on the desk" note.',
+//     (the note's picture is /img/new/<type>.png — see README, "Announcing a tool")
 //     init(state) {},            // fill in defaults on a fresh or older state
 //     mount(ctx) { return { destroy() {}, frame() {}, tick() {} }; },
 //   });
@@ -120,15 +123,41 @@ window.Desk = window.Desk || {};
    * that match come back, and a drawer with nothing left in it disappears
    * rather than sitting there as an empty heading.
    */
-  function byCategory(me, match = '') {
+  function byCategory(me, match = '', { skip = null } = {}) {
     const needle = String(match || '').trim().toLowerCase();
-    const hit = (d) => !needle || `${d.name} ${d.blurb} ${d.type}`.toLowerCase().includes(needle);
+    // `skip` is a set of types to leave out — the "not on my desk yet" view.
+    const hit = (d) => (!skip || !skip.has(d.type)) && (!needle || `${d.name} ${d.blurb} ${d.type}`.toLowerCase().includes(needle));
 
     const known = new Set(CATEGORIES.map((c) => c.key));
     return CATEGORIES.map((c) => ({
       ...c,
       widgets: available(me).filter((d) => (known.has(d.category) ? d.category : FALLBACK) === c.key).filter(hit),
     })).filter((c) => c.widgets.length);
+  }
+
+  /** How long a tool counts as new after the day it went live. */
+  const NEW_FOR_DAYS = 45;
+
+  /** Is this tool still new? `now` is passed in so the tests can fix the day. */
+  function isNew(def, now = Date.now(), days = NEW_FOR_DAYS) {
+    if (!def || !def.added) return false;
+    const at = Date.parse(`${def.added}T00:00:00`);
+    if (!Number.isFinite(at) || at > now) return false;
+    return now - at < days * 86400000;
+  }
+
+  /**
+   * The tools worth telling this teacher about, newest first: still new, not
+   * already told about, and not already on their desk — somebody who has
+   * found a tool by themselves does not need it announced.
+   */
+  function announce(me, { now = Date.now(), seen = new Set(), onDesk = new Set(), usable = () => true } = {}) {
+    return available(me)
+      .filter((d) => isNew(d, now) && d.news && !seen.has(d.type) && !onDesk.has(d.type) && usable(d))
+      // Same day: the one registered later (later in index.html) first.
+      .map((d, i) => [d, i])
+      .sort(([a, i], [b, j]) => (a.added < b.added ? 1 : a.added > b.added ? -1 : j - i))
+      .map(([d]) => d);
   }
 
   const category = (key) => CATEGORIES.find((c) => c.key === key) || CATEGORIES[CATEGORIES.length - 1];
@@ -147,5 +176,5 @@ window.Desk = window.Desk || {};
     });
   }
 
-  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, category, marker, CATEGORIES } });
+  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, isNew, announce, category, marker, CATEGORIES } });
 }(window.Desk));

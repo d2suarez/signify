@@ -46,6 +46,7 @@
     Desk.board.init({ root: document.getElementById('board'), data, me });
     if (location.hash === '#versions') openHistory();
     offerVisitorDesk();
+    announceNew();
   }
 
   /**
@@ -199,6 +200,7 @@
     Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
     drawChrome(shell, { guest: true });
     Desk.board.init({ root: document.getElementById('board'), data, me, guest: true, storage });
+    announceNew();
     shell.append(signInPrompt());
     if (expired) toast(`Your earlier desk on this computer was cleared — nobody had opened it for ${Desk.localApi.EXPIRY_DAYS} days.`);
   }
@@ -665,6 +667,30 @@
 
     const guest = Desk.board.isGuest();
 
+    // Which tools to list: all of them, or only the ones not on the desk yet.
+    // Remembered on this computer, like the sound setting.
+    let view = 'all';
+    try { if (window.localStorage.getItem(CAT_VIEW_KEY) === 'missing') view = 'missing'; } catch { /* default */ }
+    const missingCount = Desk.widgets.available(me).filter((d) => !onDesk.has(d.type)).length;
+    const viewBtn = (key, label) => el(`button.seg-btn${view === key ? '.is-on' : ''}`, {
+      type: 'button',
+      'aria-pressed': String(view === key),
+      'data-view': key,
+      onclick: () => {
+        view = key;
+        try { window.localStorage.setItem(CAT_VIEW_KEY, key); } catch { /* not kept */ }
+        for (const b of views.children) {
+          b.classList.toggle('is-on', b.dataset.view === key);
+          b.setAttribute('aria-pressed', String(b.dataset.view === key));
+        }
+        draw(search.value);
+      },
+    }, label);
+    const views = el('div.seg.cat-views', { role: 'group', 'aria-label': 'Which tools to show' }, [
+      viewBtn('all', 'All tools'),
+      viewBtn('missing', `Not on my desk (${missingCount})`),
+    ]);
+
     /** One row in the catalogue. */
     function row(def) {
       const already = onDesk.get(def.type) || 0;
@@ -675,7 +701,11 @@
         return el('a.cat-item.is-locked', { href: config.signInUrl, title: `${def.name} needs a school account` }, [
           el('span.cat-icon', { svg: icon(def.icon, 22) }),
           el('span.cat-text', {}, [
-            el('span.cat-name', {}, [document.createTextNode(def.name), el('span.tag.tag--quiet', { text: 'Log in to use' })]),
+            el('span.cat-name', {}, [
+              document.createTextNode(def.name),
+              Desk.widgets.isNew(def) ? el('span.tag.tag--new', { text: 'New' }) : null,
+              el('span.tag.tag--quiet', { text: 'Log in to use' }),
+            ]),
             el('span.cat-blurb', { text: def.blurb }),
           ]),
           el('span.cat-plus', { svg: icon('lock', 18) }),
@@ -688,6 +718,7 @@
         el('span.cat-text', {}, [
           el('span.cat-name', {}, [
             document.createTextNode(def.name),
+            Desk.widgets.isNew(def) ? el('span.tag.tag--new', { text: 'New' }) : null,
             already ? el('span.tag.tag--quiet', { text: `${already} on the desk` }) : null,
           ]),
           el('span.cat-blurb', { text: def.blurb }),
@@ -700,9 +731,20 @@
       Desk.clear(list);
       firstMatch = null;
 
-      const drawers = Desk.widgets.byCategory(me, term);
+      const skip = view === 'missing' ? new Set(onDesk.keys()) : null;
+      const drawers = Desk.widgets.byCategory(me, term, { skip });
       const found = drawers.reduce((n, d) => n + d.widgets.length, 0);
 
+      if (!found && skip && !term.trim()) {
+        list.append(el('p.hint.cat-empty', { text: 'Every tool is already on your desk.' }));
+        count.textContent = '';
+        return;
+      }
+      if (!found && skip) {
+        list.append(el('p.hint.cat-empty', { text: `Nothing that isn’t already on your desk matches “${term}”.` }));
+        count.textContent = '';
+        return;
+      }
       if (!found) {
         list.append(el('p.hint.cat-empty', { text: `Nothing matches “${term}”. Try a word from what it does — “time”, “random”, “sound”.` }));
         count.textContent = '';
@@ -760,6 +802,7 @@
         el('h2.dialog-title', { text: 'Add a tool' }),
         el('p.dialog-note', { text: 'Add as many as you like — two timers, three notes. Drag a card by its top edge to move it, and by its bottom-right corner to resize it.' }),
         search,
+        views,
         count,
         list,
         el('div.dialog-actions', {}, [el('button.btn', { text: 'Close', onclick: () => close() })]),
@@ -768,10 +811,121 @@
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     function close() { scrim.remove(); document.removeEventListener('keydown', onKey); }
     document.addEventListener('keydown', onKey);
+    dismissNews();
     document.body.append(scrim);
     // Straight into the search box on a keyboard, but not on a touch screen,
     // where it would throw a keyboard over the list somebody wants to browse.
     if (!window.matchMedia('(pointer: coarse)').matches) search.focus();
+  }
+
+  // ---------- telling a teacher about a new tool ----------
+
+  const CAT_VIEW_KEY = 'desk:catalogue-view';
+  const SEEN_KEY = 'desk:seen-new';
+  let newsNote = null;
+
+  function seenNews() {
+    try { return new Set(JSON.parse(window.localStorage.getItem(SEEN_KEY) || '[]')); } catch { return new Set(); }
+  }
+  function markSeen(types) {
+    const seen = seenNews();
+    for (const t of types) seen.add(t);
+    try { window.localStorage.setItem(SEEN_KEY, JSON.stringify([...seen])); } catch { /* shown again next time */ }
+  }
+
+  /**
+   * A small note under "Add a tool" when a tool has gone live that this
+   * teacher has not been told about: a picture and one line. Never a dialog —
+   * it must not get between a teacher and a lesson that has already started —
+   * and each tool is announced once per computer. Opening the catalogue counts
+   * as having seen it, since that is where the note was pointing anyway.
+   */
+  function announceNew() {
+    const onDesk = new Set(Desk.board.items().map((i) => i.type));
+    const guest = Desk.board.isGuest();
+    const fresh = Desk.widgets.announce(me, { seen: seenNews(), onDesk, usable: (d) => !guest || d.guest });
+    if (!fresh.length) return;
+
+    // Let the desk settle, and stay out of the way of anything already asking
+    // a question (the offer to bring a visitor's desk over, for one).
+    setTimeout(() => {
+      if (document.querySelector('.scrim') || newsNote) return;
+      const anchor = document.querySelector('.add-btn');
+      if (!anchor) return;
+      showNews(fresh, anchor);
+    }, 1200);
+  }
+
+  function showNews(fresh, anchor) {
+    let at = 0;
+    const pic = el('img.news-shot', { alt: '', loading: 'lazy' });
+    const name = el('strong.news-name');
+    const line = el('p.news-line');
+    const pager = el('span.news-pager');
+    const nextBtn = el('button.btn.btn--small', { type: 'button', text: 'Next', onclick: () => { at += 1; paint(); } });
+    const addBtn = el('button.btn.btn--small.btn--primary', {
+      type: 'button',
+      onclick: () => {
+        const def = fresh[at];
+        Desk.board.addItem(def.type);
+        markSeen([def.type]);
+        fresh.splice(at, 1);
+        if (!fresh.length) return dismissNews();
+        if (at >= fresh.length) at = 0;
+        paint();
+      },
+    });
+
+    function paint() {
+      const def = fresh[at];
+      pic.hidden = false;
+      pic.onerror = () => { pic.hidden = true; };   // a missing picture is not worth a broken icon
+      pic.src = `/img/new/${def.type}.png`;
+      name.textContent = def.name;
+      line.textContent = def.news;
+      addBtn.textContent = 'Add it';
+      pager.textContent = fresh.length > 1 ? `${at + 1} of ${fresh.length}` : '';
+      nextBtn.hidden = at >= fresh.length - 1;
+    }
+
+    newsNote = el('aside.news', { role: 'status', 'aria-label': 'New on the desk' }, [
+      el('div.news-head', {}, [
+        el('span.tag.tag--new', { text: 'New tool' }),
+        pager,
+        el('button.news-close', {
+          type: 'button', 'aria-label': 'Dismiss', title: 'Dismiss', svg: icon('close', 16),
+          onclick: () => dismissNews(),
+        }),
+      ]),
+      pic,
+      name,
+      line,
+      el('div.news-actions', {}, [nextBtn, addBtn]),
+    ]);
+    // Everything it could have shown counts as seen once it is put away, so
+    // a teacher who says "not now" is not asked again tomorrow.
+    newsNote.dataset.types = fresh.map((d) => d.type).join(' ');
+    paint();
+    document.body.append(newsNote);
+
+    const place = () => {
+      if (!newsNote) return;
+      const r = anchor.getBoundingClientRect();
+      newsNote.style.top = `${Math.round(r.bottom + 10)}px`;
+      newsNote.style.right = `${Math.max(12, Math.round(window.innerWidth - r.right))}px`;
+      newsNote.style.setProperty('--tail-right', `${Math.round(r.width / 2)}px`);
+    };
+    place();
+    window.addEventListener('resize', place);
+    newsNote._unplace = () => window.removeEventListener('resize', place);
+  }
+
+  function dismissNews() {
+    if (!newsNote) return;
+    markSeen((newsNote.dataset.types || '').split(' ').filter(Boolean));
+    newsNote._unplace();
+    newsNote.remove();
+    newsNote = null;
   }
 
   app.openCatalogue = openCatalogue;

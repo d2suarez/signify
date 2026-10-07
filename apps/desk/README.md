@@ -354,6 +354,26 @@ the app. There is a test for exactly that.
 The search box does not steal focus on a touch screen, where a keyboard would
 cover the list somebody wants to browse.
 
+**"Not on my desk"** sits under the search box and lists only the tools this
+desk does not have yet, still in their drawers. The choice is remembered on
+the computer (`desk:catalogue-view`), like the sound setting.
+
+### Announcing a tool
+
+When a tool goes live, a small note hangs from **Add a tool** with a picture
+of it, one line, and **Add it**. It is a note, not a dialog, so it never gets
+between a teacher and a lesson already under way. To announce a new tool:
+
+1. Give its `Desk.widget({...})` an `added: 'YYYY-MM-DD'` (the day it went
+   live) and a `news:` line.
+2. Put a screenshot of the card at `public/img/new/<type>.png`, about 720px
+   wide. A test fails if an announced tool has no picture.
+
+A tool is announced for 45 days, newest first, once per computer
+(`desk:seen-new`), and never if it is already on the desk. Closing the note,
+or opening the catalogue, counts as having seen everything it would have
+shown. The same 45 days put a **New** tag on the tool in the catalogue.
+
 ## Typing into a widget
 
 A handler that rebuilds its own container destroys the field being typed into

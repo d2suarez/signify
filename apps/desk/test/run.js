@@ -1991,6 +1991,36 @@ describe('the catalogue', () => {
     const without = Desk.widgets.byCategory({ can: {} }).flatMap((d) => d.widgets).map((w) => w.type);
     assert(!without.includes('behaviour'), 'the behaviour tracker needs its permission');
   });
+
+  it('can leave out the tools already on the desk', () => {
+    const skip = new Set(['timer', 'clock']);
+    const types = Desk.widgets.byCategory(me, '', { skip }).flatMap((d) => d.widgets).map((w) => w.type);
+    assert(!types.includes('timer') && !types.includes('clock'), 'the ones on the desk are gone');
+    assert(types.includes('stopwatch'), 'the rest are still there');
+    equal(Desk.widgets.byCategory(me, 'timer', { skip }).flatMap((d) => d.widgets).some((w) => w.type === 'timer'), false,
+      'and searching does not bring them back');
+  });
+
+  it('announces a new tool once, newest first, and stops after a while', () => {
+    Desk.widget({ type: 'test-new-a', name: 'A', blurb: 'x', added: '2026-10-01', news: 'A is here.' });
+    Desk.widget({ type: 'test-new-b', name: 'B', blurb: 'x', added: '2026-10-05', news: 'B is here.' });
+    Desk.widget({ type: 'test-new-quiet', name: 'Q', blurb: 'x', added: '2026-10-05' });   // no line to say
+    const now = Date.parse('2026-10-07T12:00:00');
+    const ours = (list) => list.map((d) => d.type).filter((t) => t.startsWith('test-new'));
+
+    equal(ours(Desk.widgets.announce(me, { now })), ['test-new-b', 'test-new-a'], 'newest first, and only with a line');
+    equal(ours(Desk.widgets.announce(me, { now, seen: new Set(['test-new-b']) })), ['test-new-a'], 'not twice');
+    equal(ours(Desk.widgets.announce(me, { now, onDesk: new Set(['test-new-a']) })), ['test-new-b'], 'not if already added');
+    equal(ours(Desk.widgets.announce(me, { now: Date.parse('2026-12-31T12:00:00') })), [], 'not new for ever');
+    equal(ours(Desk.widgets.announce(me, { now: Date.parse('2026-09-01T12:00:00') })), [], 'not before it went live');
+    equal(Desk.widgets.isNew(Desk.widgets.get('timer'), now), false, 'a tool with no date is never new');
+  });
+
+  it('gives every announced tool a picture', () => {
+    for (const d of Desk.widgets.all().filter((w) => w.news && !w.type.startsWith('test-'))) {
+      assert(fs.existsSync(path.join(__dirname, '..', 'public', 'img', 'new', `${d.type}.png`)), `public/img/new/${d.type}.png`);
+    }
+  });
 });
 
 // ===================================================================

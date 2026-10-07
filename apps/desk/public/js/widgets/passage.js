@@ -457,6 +457,8 @@
 
   Desk.widget({
     type: 'passage',
+    added: '2026-09-29',
+    news: 'Paste a pupil’s memorised passage and see, word by word, how much they got right.',
     name: 'Passage grader',
     blurb: 'Mark a memorised passage: paste each pupil’s typed answer and see how many words they got right, word by word.',
     icon: 'check',

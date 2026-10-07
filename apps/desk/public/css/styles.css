@@ -2776,3 +2776,41 @@ body.is-seating-drag { user-select: none; }
   .ec-main { flex-basis: 64%; }
   .ec-tog { padding: .25rem .45rem; }
 }
+
+/* ---------------- what's new ---------------- */
+
+.cat-views { margin: .1rem 0 .2rem; }
+.tag--new { background: var(--p1); color: var(--p1-ink); }
+
+/* A small note hanging from "Add a tool" — not a dialog, so it never gets
+   between a teacher and a lesson that has already started. */
+.news {
+  position: fixed; z-index: 60; width: min(300px, calc(100vw - 24px));
+  display: flex; flex-direction: column; gap: .45rem;
+  padding: .75rem; border-radius: var(--r-panel);
+  background: var(--surface); box-shadow: var(--shadow-3);
+  animation: news-in .28s cubic-bezier(.2,.7,.2,1);
+}
+.news::before {
+  content: ''; position: absolute; top: -6px; right: calc(var(--tail-right, 40px) - 6px);
+  width: 12px; height: 12px; background: var(--surface); transform: rotate(45deg);
+  border-radius: 2px 0 0 0;
+}
+.news-head { display: flex; align-items: center; gap: .5rem; }
+.news-pager { font-size: .75rem; color: var(--muted); }
+.news-close {
+  margin-left: auto; display: flex; padding: .2rem; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.news-close:hover { background: var(--desk); color: var(--ink); }
+.news-shot {
+  display: block; width: 100%; height: auto; max-height: 200px; object-fit: contain;
+  border-radius: var(--r); background: var(--desk);
+}
+.news-shot[hidden] { display: none; }
+.news-name { font-family: var(--display); font-size: 1rem; }
+.news-line { margin: 0; font-size: .85rem; color: var(--muted); line-height: 1.4; }
+.news-actions { display: flex; justify-content: flex-end; gap: .4rem; }
+.news-actions [hidden] { display: none; }
+@keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .news { animation: none; } }

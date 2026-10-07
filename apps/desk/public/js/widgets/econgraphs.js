@@ -2392,6 +2392,8 @@
 
   Desk.widget({
     type: 'econgraphs',
+    added: '2026-10-07',
+    news: 'AP Micro graphs you can move in front of the class — shift a curve and watch surplus change.',
     name: 'Economics graphs',
     blurb: 'AP Microeconomics graphs you can move: shift curves, see surplus and profit change, and quiz the class.',
     icon: 'econ',

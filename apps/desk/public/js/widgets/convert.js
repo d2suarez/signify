@@ -548,6 +548,8 @@
 
   Desk.widget({
     type: 'convert',
+    added: '2026-10-07',
+    news: 'Turn iPhone photos into JPGs, join or split PDFs, and turn a PDF into Word — right in the browser.',
     name: 'Convert',
     blurb: 'Change picture formats (iPhone HEIC too), join and split PDFs, save PDF pages or their pictures, and turn a PDF into a Word document. Files never leave this computer.',
     icon: 'convert',
