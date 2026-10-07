@@ -261,7 +261,8 @@ async function accessFor(userId, tenantId = null) {
   const memberships = await db.many(
     `SELECT m.id, m.tenant_id, m.status, m.grade_level, m.suspend_until,
             r.id AS role_id, r.key AS role_key, r.label AS role_label, r.is_admin,
-            t.name AS tenant_name, t.slug AS tenant_slug, t.status AS tenant_status
+            t.name AS tenant_name, t.slug AS tenant_slug, t.status AS tenant_status,
+            t.kind AS tenant_kind
        FROM memberships m
        JOIN roles r ON r.id = m.role_id
        JOIN tenants t ON t.id = m.tenant_id
@@ -293,6 +294,10 @@ async function accessFor(userId, tenantId = null) {
       [active.role_id]
     );
     perms = rbac.collapse(grants);
+    // Independent members are strangers to each other: whatever the role says,
+    // nothing reaches past the person themselves. A teacher's 'tenant' reach
+    // would otherwise be a directory of everyone else with no school.
+    if (active.tenant_kind === 'independent') perms = rbac.capScope(perms, 'own');
   }
 
   // A substitute holds their role every day but may use it only on the days

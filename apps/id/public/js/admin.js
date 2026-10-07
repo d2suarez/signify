@@ -148,6 +148,17 @@ function head(title, blurb) {
   return '<div class="page-head"><h1>' + esc(title) + '</h1><p>' + esc(blurb) + '</p></div>';
 }
 
+// The one group that is not a school (migration 012). Its members cannot see
+// each other, hold no admin role and are never in a class.
+function independentView() {
+  var t = (state.tenants || []).filter(function (x) { return x.id === state.tenantId; })[0];
+  return !!t && t.kind === 'independent';
+}
+
+function tenantLabel(t) {
+  return t.kind === 'independent' ? 'Independent (no school)' : t.name;
+}
+
 function tenantQuery() {
   return state.tenantId ? '?tenant_id=' + encodeURIComponent(state.tenantId) : '';
 }
@@ -243,6 +254,7 @@ pages.users = function () {
     state.cache.users = users;
 
     var canManage = can('core:manage_users', 'tenant');
+    var indep = independentView();
 
     var rows = users.map(function (u) {
       var flags = '';
@@ -267,7 +279,9 @@ pages.users = function () {
     }).join('') || '<tr><td colspan="8" class="empty">Nobody matches that.</td></tr>';
 
     document.getElementById('main').innerHTML =
-      head('People', 'Everyone who can sign in to your school’s apps. Approving an account is what lets it through the door.') +
+      (indep
+        ? head('People with no school', 'Accounts for people who are not at any school. Each one is added by a super admin, and none of them can see the others.')
+        : head('People', 'Everyone who can sign in to your school’s apps. Approving an account is what lets it through the door.')) +
       '<div class="notice notice-info"><strong>Accounts are for people aged 13 and over</strong>' +
       'That is what the privacy policy says, and it is what keeps children’s privacy law out of ' +
       'scope. Do not create accounts for younger students.</div>' +
@@ -282,7 +296,7 @@ pages.users = function () {
         (canManage ? '<div class="spacer" style="flex:1"></div>' +
           '<button class="btn btn-sm" id="bulkApprove" disabled>Approve selected</button>' +
           '<button class="btn btn-sm btn-danger" id="bulkBlock" disabled>Block selected</button>' +
-          (can('core:import_roster', 'tenant')
+          (can('core:import_roster', 'tenant') && !indep
             ? '<button class="btn btn-sm" id="importRoster">Import CSV</button>' : '') +
           '<button class="btn btn-primary btn-sm" id="addUser">Add person</button>' : '') +
       '</div>' +
@@ -355,29 +369,41 @@ function roleOptions(roles, selected) {
 
 function addUserDialog() {
   var roles = state.cache.roles || [];
+  var indep = independentView();
+  var offered = roles.filter(function (r) {
+    if (indep) return !r.is_admin && r.key !== 'substitute';
+    return !r.is_admin || state.actor.isSuper;
+  });
+  var val = function (m, sel) { var el = m.querySelector(sel); return el ? el.value : ''; };
   modal({
-    title: 'Add a person',
+    title: indep ? 'Add someone with no school' : 'Add a person',
     subtitle: 'Creates the account now. It links to their real Google identity the first time they sign in.',
     confirm: 'Add',
     body:
-      '<div class="field"><label for="m_email">School email address</label>' +
-      '<input id="m_email" type="email" placeholder="name@school.edu" autocomplete="off">' +
-      '<div class="hint">Must be an address they can actually sign in to with Google, ' +
-      'and belong to someone aged 13 or over.</div></div>' +
+      '<div class="field"><label for="m_email">' + (indep ? 'Email address' : 'School email address') + '</label>' +
+      '<input id="m_email" type="email" placeholder="' + (indep ? 'name@gmail.com' : 'name@school.edu') + '" autocomplete="off">' +
+      '<div class="hint">' + (indep ? 'Any address they sign in to with Google, personal ones included. ' : 'Must be an address they can actually sign in to with Google, ') +
+      (indep ? 'They' : 'and') + ' must be aged 13 or over.</div></div>' +
       '<div class="field"><label for="m_name">Name</label><input id="m_name" type="text" placeholder="Optional — Google fills this in"></div>' +
-      '<div class="row"><div class="field"><label for="m_role">Role</label>' +
-      '<select id="m_role">' + roleOptions(roles.filter(function (r) { return !r.is_admin || state.actor.isSuper; })) + '</select></div>' +
-      '<div class="field"><label for="m_grade">Year group</label><input id="m_grade" type="text" placeholder="e.g. 3"></div>' +
-      '<div class="field"><label for="m_gradyear">Graduation year</label>' +
-      '<input id="m_gradyear" type="number" min="1900" max="2200" placeholder="e.g. 2035">' +
-      '<div class="hint">Stays true as they move up. Year group does not.</div></div></div>',
+      (indep
+        ? '<div class="field"><label for="m_role">Role</label>' +
+          '<select id="m_role">' + roleOptions(offered, (offered.filter(function (r) { return r.key === 'teacher'; })[0] || {}).id) + '</select>' +
+          '<div class="hint">Decides what they can do inside each app. Whatever the role, they only ever reach their own work.</div></div>'
+        : '<div class="row"><div class="field"><label for="m_role">Role</label>' +
+          '<select id="m_role">' + roleOptions(offered) + '</select></div>' +
+          '<div class="field"><label for="m_grade">Year group</label><input id="m_grade" type="text" placeholder="e.g. 3"></div>' +
+          '<div class="field"><label for="m_gradyear">Graduation year</label>' +
+          '<input id="m_gradyear" type="number" min="1900" max="2200" placeholder="e.g. 2035">' +
+          '<div class="hint">Stays true as they move up. Year group does not.</div></div></div>') +
+      (indep ? '<div class="notice notice-info" style="margin:1rem 0 0"><strong>Which apps they get</strong>' +
+        'Whatever is turned on for Independent on the Apps page, the same way as for a school.</div>' : ''),
     onConfirm: function (m) {
       return api('/users', { method: 'POST', body: {
-        email: m.querySelector('#m_email').value,
-        name: m.querySelector('#m_name').value,
-        role_id: m.querySelector('#m_role').value,
-        grade_level: m.querySelector('#m_grade').value,
-        graduation_year: m.querySelector('#m_gradyear').value,
+        email: val(m, '#m_email'),
+        name: val(m, '#m_name'),
+        role_id: val(m, '#m_role'),
+        grade_level: val(m, '#m_grade'),
+        graduation_year: val(m, '#m_gradyear'),
         tenant_id: state.tenantId,
       } }).then(function () { toast('Account added.'); setPage('users'); });
     },
@@ -1285,6 +1311,16 @@ function authorizationDialog() {
 pages.tenants = function () {
   return api('/tenants').then(function (d) {
     var cards = d.tenants.map(function (t) {
+      if (t.kind === 'independent') {
+        return '<div class="card"><div class="card-head"><h2>' + esc(tenantLabel(t)) + '</h2>' +
+          statusChip(t.status) +
+          '<div class="spacer"></div>' +
+          '<span class="muted small">' + esc(t.people) + ' people</span></div>' +
+          '<div class="card-body tight"><p class="small" style="margin:0">For people who are not at any school. ' +
+          'A super admin adds each one from People (pick <strong>Independent</strong> in the school picker) ' +
+          'or approves a request into it. Members cannot see one another, never hold an admin role, ' +
+          'and are not in classes. No email domain can join them automatically.</p></div></div>';
+      }
       var domains = (t.domains || []).map(function (x) {
         return '<span class="chip chip-grey">' + esc(x) + ' <button class="btn btn-sm btn-quiet" data-rmdom="' + esc(t.id) + '|' + esc(x) + '" style="padding:0 .2rem">remove</button></span>';
       }).join(' ') || '<span class="muted small">No domains yet — nobody can join automatically.</span>';
@@ -2434,12 +2470,12 @@ pages.requests = function () {
     function admitDialog(title, onSubmit) {
       modal({
         title: title,
-        subtitle: 'Choose the school they belong to and what they may do there.',
+        subtitle: 'Choose the school they belong to (Independent if they are at none) and what they may do there.',
         confirm: 'Add to school',
         body:
           '<div class="row">' +
             '<div class="field"><label for="a_tenant">School</label><select id="a_tenant">' +
-            tenants.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>'; }).join('') +
+            tenants.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(tenantLabel(t)) + '</option>'; }).join('') +
             '</select></div>' +
             '<div class="field"><label for="a_role">Role</label><select id="a_role">' +
             roles.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.key === 'student' ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('') +
@@ -2978,7 +3014,7 @@ api('/bootstrap').then(function (d) {
     var wrap = document.getElementById('tenantPickerWrap');
     var sel = document.getElementById('tenantPicker');
     sel.innerHTML = d.tenants.map(function (t) {
-      return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
+      return '<option value="' + esc(t.id) + '">' + esc(tenantLabel(t)) + '</option>';
     }).join('');
     sel.value = state.tenantId;
     sel.onchange = function () { state.tenantId = this.value; setPage(state.page); };

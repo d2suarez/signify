@@ -32,7 +32,7 @@ function displayNameFrom(first, last, email) {
 // ---------- reference data ----------
 
 async function loadContext(actor, tenantId) {
-  const tenant = await db.one('SELECT id, slug, name, minors_default FROM tenants WHERE id = $1', [tenantId]);
+  const tenant = await db.one('SELECT id, slug, name, minors_default, kind FROM tenants WHERE id = $1', [tenantId]);
 
   const roles = await db.many(
     `SELECT id, key, label, is_admin, tenant_id FROM roles
@@ -100,6 +100,9 @@ async function analyse({ text, actor, tenantId, createMissingClasses = false }) 
 
   const ctx = await loadContext(actor, tenantId);
   if (!ctx.tenant) return { ok: false, error: 'That school no longer exists.' };
+  if (ctx.tenant.kind === 'independent') {
+    return { ok: false, error: 'People with no school are added one at a time from People, not by roster import.' };
+  }
 
   // Role assignability is asked once per distinct role rather than per row.
   const roleAllowed = new Map();

@@ -2342,6 +2342,86 @@ function section(title) { console.log(`\n${title}`); }
     con.close();
   }
 
+  section('People with no school');
+  {
+    const express = require('express');
+    const authMod = require('../src/auth');
+    const oidc = require('../src/oidc');
+    const indep = await db.one("SELECT * FROM tenants WHERE kind = 'independent'");
+    ok('the migration creates exactly one Independent group', !!indep);
+    let second = null;
+    try { await db.query("INSERT INTO tenants (slug, name, kind) VALUES ('indep2','Another','independent')"); }
+    catch (e) { second = e; }
+    ok('and a second cannot be made', !!second);
+
+    const app = express();
+    app.use(express.json());
+    app.use(authMod.attachActor);
+    app.use('/api/admin', require('../src/admin'));
+    const srv = await new Promise((r) => { const x = app.listen(0, '127.0.0.1', () => r(x)); });
+    const base = `http://127.0.0.1:${srv.address().port}/api/admin`;
+    const call = (cookie, path, method = 'GET', body) => fetch(base + path, {
+      method, headers: { cookie, 'x-csrf-token': 't0k3n', 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const cookieFor = async (userId) => {
+      const s = await sessions.create(userId, { ip: '10.0.0.20', userAgent: 'test', isStaff: true });
+      return `${sessions.COOKIE}=${encodeURIComponent(s.raw)}; csrf=t0k3n`;
+    };
+    const roleId = async (key) => (await db.one('SELECT id FROM roles WHERE key = $1 AND tenant_id IS NULL', [key])).id;
+
+    const boss = await identity.resolveUser({ provider: 'google', subject: 'sub-indep-boss', email: 'indep-boss@signify.test', name: 'Boss' });
+    await db.query('INSERT INTO platform_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [boss.user.id]);
+    const bossCookie = await cookieFor(boss.user.id);
+
+    const boot = await (await call(bossCookie, '/bootstrap')).json();
+    ok('a super admin’s console still opens on a school, not on Independent', boot.tenants[0].kind === 'school');
+
+    const added = await call(bossCookie, '/users', 'POST',
+      { email: 'friend@gmail.com', name: 'A Friend', role_id: await roleId('teacher'), tenant_id: indep.id });
+    eq('a super admin adds someone with a personal address and no school', added.status, 200);
+    const friendId = (await added.json()).id;
+    const other = await call(bossCookie, '/users', 'POST',
+      { email: 'stranger@gmail.com', role_id: await roleId('teacher'), tenant_id: indep.id });
+    const strangerId = (await other.json()).id;
+
+    eq('an admin role is refused there',
+      (await call(bossCookie, '/users', 'POST', { email: 'x1@gmail.com', role_id: await roleId('local_admin'), tenant_id: indep.id })).status, 400);
+    eq('so is a substitute role',
+      (await call(bossCookie, '/users', 'POST', { email: 'x2@gmail.com', role_id: await roleId('substitute'), tenant_id: indep.id })).status, 400);
+    eq('and promoting a member to admin afterwards',
+      (await call(bossCookie, '/users/' + strangerId, 'PATCH', { role_id: await roleId('local_admin') })).status, 400);
+
+    // First sign-in links the pre-created account; a gmail address matches no
+    // school, and that must not send them to the request page.
+    const signed = await identity.resolveUser({ provider: 'google', subject: 'sub-friend', email: 'friend@gmail.com', name: 'A Friend' });
+    eq('their first Google sign-in lands on the account made for them', signed.user.id, friendId);
+    await identity.ensureMembership(friendId, 'friend@gmail.com', null);
+    const access = await identity.accessFor(friendId);
+    eq('and lets them in', identity.loginBlock(access), null);
+    ok('with nothing reaching past themselves, whatever the role says',
+      Object.values(access.perms).length > 0 && Object.values(access.perms).every((sc) => sc === 'own'));
+
+    const friendCookie = await cookieFor(friendId);
+    eq('so they cannot list the others', (await call(friendCookie, '/users')).status, 403);
+    eq('or add anyone', (await call(friendCookie, '/users', 'POST',
+      { email: 'pal@gmail.com', role_id: await roleId('student'), tenant_id: indep.id })).status, 403);
+
+    const anApp = await db.one('SELECT * FROM apps LIMIT 1');
+    if (anApp) {
+      const claims = await oidc.buildClaims(anApp, friendId, indep.id, null);
+      eq('apps are told this is not a school', claims.tenant_kind, 'independent');
+    }
+
+    eq('no email domain can be claimed for it',
+      (await call(bossCookie, `/tenants/${indep.id}/domains`, 'POST', { domain: 'gmail.com' })).status, 400);
+    eq('no class can be made in it',
+      (await call(bossCookie, '/classes', 'POST', { name: 'Nope', tenant_id: indep.id })).status, 400);
+    const imported = await roster.analyse({ text: 'email,name\nz@gmail.com,Z', actor: { isSuper: true, userId: boss.user.id, perms: {} }, tenantId: indep.id });
+    ok('and no roster import goes into it', imported.ok === false);
+    srv.close();
+  }
+
   section('Audit trail');
   const disclosures = await db.many('SELECT action FROM audit_log WHERE is_disclosure');
   ok('disclosure events are flagged for FERPA', disclosures.length > 0);

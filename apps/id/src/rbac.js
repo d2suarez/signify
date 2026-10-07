@@ -215,6 +215,15 @@ function collapse(grants) {
   return out;
 }
 
+// Lowers every grant in a collapsed map to at most `max` reach.
+function capScope(perms, max) {
+  const out = {};
+  for (const [key, scope] of Object.entries(perms)) {
+    out[key] = SCOPE_RANK[scope] > SCOPE_RANK[max] ? max : scope;
+  }
+  return out;
+}
+
 // Does `perms` allow `permission` at least at `needed` reach?
 function allows(perms, permission, needed = 'own') {
   const have = perms[permission];
@@ -267,5 +276,5 @@ module.exports = {
   SCOPES, SCOPE_RANK, DEFAULT_YEAR_GROUPS, CATALOG, ALL_PERMISSIONS, ADMIN_PERMISSIONS, PERMISSION_LABELS,
   BUILTIN_ROLES, superAdminGrants,
   isKnownPermission, namespaceOf, roleIsAdministrative,
-  collapse, allows, forNamespace, canGrant,
+  collapse, capScope, allows, forNamespace, canGrant,
 };

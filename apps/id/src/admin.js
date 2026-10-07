@@ -60,13 +60,31 @@ router.use((req, res, next) => {
 
 // ---------- bootstrap ----------
 
+// The one tenant that is not a school (migration 012).
+async function isIndependent(tenantId) {
+  const t = await db.one('SELECT kind FROM tenants WHERE id = $1', [tenantId]);
+  return !!t && t.kind === 'independent';
+}
+
+// Nobody with no school administers anything (their reach is capped at their
+// own account anyway), and a substitute's door only opens on covered class
+// days, which they would never have.
+function roleRefusedForIndependent(role) {
+  if (role.is_admin) return 'An administrative role cannot be given to someone with no school.';
+  if (role.key === 'substitute') return 'Substitutes cover classes, so they belong to a school.';
+  return null;
+}
+
 router.get('/bootstrap', async (req, res) => {
   const actor = guards.requireActor(req, res);
   if (!actor) return;
 
   const tenants = actor.isSuper
-    ? await db.many('SELECT id, slug, name, status FROM tenants ORDER BY name')
-    : await db.many('SELECT id, slug, name, status FROM tenants WHERE id = $1', [actor.tenantId]);
+    // Schools first: the console opens on the first one, and that should be a
+    // school rather than the group of people with none.
+    ? await db.many(`SELECT id, slug, name, status, kind FROM tenants
+                      ORDER BY (kind = 'independent'), name`)
+    : await db.many('SELECT id, slug, name, status, kind FROM tenants WHERE id = $1', [actor.tenantId]);
 
   const tenantRow = actor.tenantId
     ? await db.one('SELECT settings FROM tenants WHERE id = $1', [actor.tenantId])
@@ -181,7 +199,7 @@ router.get('/overview', async (req, res) => {
     }
     const noConsent = await db.many(
       `SELECT t.id, t.name FROM tenants t
-        WHERE t.status = 'active'
+        WHERE t.status = 'active' AND t.kind = 'school'
           AND NOT EXISTS (SELECT 1 FROM consents c
                            WHERE c.tenant_id = t.id AND c.kind = 'school_authorization' AND c.revoked_at IS NULL)`);
     for (const t of noConsent) {
@@ -253,7 +271,15 @@ router.post('/users', async (req, res) => {
     if (has) return fail(res, 409, 'That person already has an account here.');
   }
 
-  const tenant = await db.one('SELECT minors_default FROM tenants WHERE id = $1', [tenantId]);
+  const tenant = await db.one('SELECT minors_default, kind FROM tenants WHERE id = $1', [tenantId]);
+  if (!tenant) return fail(res, 404, 'No such school.');
+  if (tenant.kind === 'independent' && !actor.isSuper) {
+    return fail(res, 403, 'Only a super admin can add someone who is not at a school.');
+  }
+  if (tenant.kind === 'independent') {
+    const refused = roleRefusedForIndependent(check.role);
+    if (refused) return fail(res, 400, refused);
+  }
 
   const result = await db.tx(async (client) => {
     let userId = existing ? existing.id : null;
@@ -262,7 +288,7 @@ router.post('/users', async (req, res) => {
         `INSERT INTO users (email, display_name, status, is_minor, minor_source)
          VALUES ($1,$2,'active',$3,'tenant_default') RETURNING id`,
         [email, String(body.name || email.split('@')[0]).slice(0, 120),
-         check.role.key === 'student' ? tenant.minors_default : false]
+         check.role.key === 'student' && tenant.kind === 'school' ? tenant.minors_default : false]
       );
       userId = created.rows[0].id;
     }
@@ -294,6 +320,13 @@ router.patch('/users/:id', async (req, res) => {
     const check = await guards.canAssignRole(actor, body.role_id);
     if (!check.ok) return fail(res, 403, check.reason);
     changes.role = check.role.key;
+    const scopeId = actor.isSuper ? (body.tenant_id || null) : actor.tenantId;
+    const inIndependent = await db.one(
+      `SELECT 1 FROM memberships m JOIN tenants t ON t.id = m.tenant_id
+        WHERE m.user_id = $1 AND t.kind = 'independent' AND ($2::uuid IS NULL OR m.tenant_id = $2)`,
+      [req.params.id, scopeId]);
+    const refused = inIndependent && roleRefusedForIndependent(check.role);
+    if (refused) return fail(res, 400, refused);
   }
   if (body.status && !['active', 'pending', 'suspended', 'blocked'].includes(body.status)) {
     return fail(res, 400, 'Unknown status.');
@@ -656,7 +689,7 @@ router.get('/tenants', async (req, res) => {
     ? await db.many(`SELECT t.*,
                             (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id) AS people,
                             (SELECT array_agg(d.domain) FROM tenant_domains d WHERE d.tenant_id = t.id) AS domains
-                       FROM tenants t ORDER BY t.name`)
+                       FROM tenants t ORDER BY (t.kind = 'independent'), t.name`)
     : await db.many(`SELECT t.*,
                             (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id) AS people,
                             (SELECT array_agg(d.domain) FROM tenant_domains d WHERE d.tenant_id = t.id) AS domains
@@ -712,6 +745,10 @@ router.post('/tenants/:id/domains', async (req, res) => {
   const actor = guards.requirePerm(req, res, 'core:manage_tenants', 'tenant');
   if (!actor) return;
   if (!actor.isSuper && req.params.id !== actor.tenantId) return fail(res, 403, 'That is not your school.');
+
+  if (await isIndependent(req.params.id)) {
+    return fail(res, 400, 'People with no school are added one by one, so no email domain can join them automatically.');
+  }
 
   const domain = identity.lower((req.body || {}).domain).replace(/^@/, '');
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return fail(res, 400, 'Enter a domain like "school.edu".');
@@ -878,6 +915,7 @@ router.post('/classes', async (req, res) => {
   const b = req.body || {};
   const tenantId = guards.tenantScope(actor, b.tenant_id) || actor.tenantId;
   if (!tenantId) return fail(res, 400, 'Choose a school.');
+  if (await isIndependent(tenantId)) return fail(res, 400, 'Classes belong to a school. People with no school are not in classes.');
   const name = String(b.name || '').trim();
   if (name.length < 2) return fail(res, 400, 'Give the class a name.');
 
@@ -1158,9 +1196,13 @@ router.post('/requests/:id/approve', async (req, res) => {
   const tenantId = body.tenant_id;
   if (!tenantId) return fail(res, 400, 'Choose which school to admit them to.');
   const role = await db.one(
-    `SELECT id, key FROM roles WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)`,
+    `SELECT id, key, is_admin FROM roles WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)`,
     [body.role_id, tenantId]);
   if (!role) return fail(res, 400, 'Choose a role that exists in that school.');
+  if (await isIndependent(tenantId)) {
+    const refused = roleRefusedForIndependent(role);
+    if (refused) return fail(res, 400, refused);
+  }
 
   await db.tx(async (client) => {
     await client.query(

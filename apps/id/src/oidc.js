@@ -51,7 +51,7 @@ router.get('/.well-known/openid-configuration', (req, res) => {
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'sid',
       'email', 'email_verified', 'name', 'given_name', 'family_name', 'picture',
-      'tenant', 'tenant_name', 'role', 'role_label', 'perms', 'is_minor', 'grade_level',
+      'tenant', 'tenant_name', 'tenant_kind', 'role', 'role_label', 'perms', 'is_minor', 'grade_level',
     ],
   });
 });
@@ -231,6 +231,9 @@ async function buildClaims(app, userId, tenantId, sessionId) {
     tenant: m ? m.tenant_slug : null,
     tenant_id: m ? m.tenant_id : null,
     tenant_name: m ? m.tenant_name : null,
+    // 'independent' means no school: an app must not offer "share with my
+    // school" to these people, since the rest of the tenant are strangers.
+    tenant_kind: m ? m.tenant_kind : null,
     role: access.isSuper ? 'super_admin' : (m ? m.role_key : null),
     role_label: access.isSuper ? 'Super admin' : (m ? m.role_label : null),
     grade_level: m ? m.grade_level : null,

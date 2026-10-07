@@ -192,6 +192,7 @@ const INVENTORY = {
     id: N('Internal reference for a school.'), slug: N('Short name used in addresses.'),
     name: N('The school’s name.'), status: N('Whether the school’s access is active.'),
     timezone: N('Used to show times correctly.'),
+    kind: N('Whether this is a school or the group for people at no school.'),
     year_start_month: N('Which month the school year begins, for rollover.'),
     minors_default: N('Whether pupils here are treated as under 13 by default.'),
     retention_days: N('How long this school keeps inactive records.'),
