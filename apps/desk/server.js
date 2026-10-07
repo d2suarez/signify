@@ -74,6 +74,10 @@ app.use((req, res, next) => {
     "img-src 'self' data: blob: https://lh3.googleusercontent.com",
     "font-src 'self'",
     "connect-src 'self' blob:",
+    // The converter's iPhone-photo (HEIC) decoder runs in a worker it builds
+    // from a blob of its own code, and pdf.js runs its worker from /vendor.
+    // Same reasoning as img-src: a blob URL can only hold what this page made.
+    "worker-src 'self' blob:",
     // The only things allowed to be framed on this desk: a sibling app that
     // permits it, Google's calendar embed, and YouTube's no-cookie player —
     // the last of which is not put on the page at all until somebody presses

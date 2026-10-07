@@ -912,12 +912,46 @@
         ]));
       }
 
+      /**
+       * Makes each titled section of a side panel fold away. The panel is long
+       * once a desk is selected, and on a tablet the sections a teacher is not
+       * using push the ones they are below the fold. Sections are found by
+       * their heading, so the draw functions stay as they were; which are
+       * folded is remembered with the widget.
+       */
+      function foldable(container, fixedKey) {
+        const kids = [...container.childNodes];
+        Desk.clear(container);
+        if (!s.folded || typeof s.folded !== 'object') s.folded = {};
+        let body = null;
+        for (const node of kids) {
+          if (node.matches && node.matches('h3.section-title')) {
+            const key = fixedKey || node.textContent.replace(/\s*\(\d+\)\s*$/, '').trim();
+            const section = el('div.fold', { class: s.folded[key] ? 'is-folded' : '' });
+            const head = el('button.fold-head', {
+              type: 'button',
+              'aria-expanded': s.folded[key] ? 'false' : 'true',
+              onclick: () => {
+                s.folded[key] = !s.folded[key];
+                section.classList.toggle('is-folded', !!s.folded[key]);
+                head.setAttribute('aria-expanded', s.folded[key] ? 'false' : 'true');
+                ctx.save();
+              },
+            }, [el('span', { svg: icon('chevron', 12) }), node.textContent]);
+            body = el('div.fold-body');
+            section.append(head, body);
+            container.append(section);
+          } else if (body) body.append(node);
+          else container.append(node);
+        }
+      }
+
       function drawTray() {
         Desk.clear(tray);
         const waiting = unseated();
         tray.append(el('h3.section-title', { text: waiting.length ? `Not seated (${waiting.length})` : 'Everyone is seated' }));
 
-        if (!students.length) { tray.append(el('p.hint', { text: 'No pupils on this list.' })); return; }
+        if (!students.length) { tray.append(el('p.hint', { text: 'No pupils on this list.' })); foldable(tray, 'tray'); return; }
 
         const list = el('div.tray-list');
         for (const st of waiting) {
@@ -944,6 +978,7 @@
             ? 'Drag a name onto a seat, or tap the name and then the seat.'
             : 'Tap somebody in the room to move them.',
         }));
+        foldable(tray, 'tray');
       }
 
       function drawInspector() {
@@ -1001,11 +1036,13 @@
           if (p.desks.length || p.objects.length) {
             inspector.append(el('p.hint', { text: 'Tap anything in the room to change it. Drag it to move it.' }));
           }
+          foldable(inspector);
           return;
         }
 
         if (desk) drawDeskPanel(p, desk);
         if (object) drawObjectPanel(p, object);
+        foldable(inspector);
       }
 
       function drawDeskPanel(p, desk) {
@@ -1611,10 +1648,14 @@
 
       const fit = () => {
         if (printing) return;
-        const box = roomWrap.getBoundingClientRect();
+        // Layout size, not getBoundingClientRect: a card opening into the big
+        // view is scaled by a transform while it animates, the rect reports
+        // that scaled size, and the observer does not fire again when the
+        // animation ends — so the room stayed at thumbnail scale until
+        // something redrew it.
         // The front bar sits inside the room now — it can be on any wall —
         // so the whole box is the room and nothing has to be subtracted.
-        sizeRoom(box.width, box.height);
+        sizeRoom(roomWrap.clientWidth, roomWrap.clientHeight);
       };
       const observer = new ResizeObserver(fit);
       observer.observe(roomWrap);

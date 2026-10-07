@@ -76,7 +76,18 @@
     const identity = new Map(lists.map((l) => [l.id, { id: l.id, students: new Map(l.students.map((p) => [p.id, p.id])) }]));
     const tools = Desk.localApi.carryOver(visitorItems, { moved: identity, worth: holdsSomething });
     if (!lists.length && !tools.length) return;
+    // Ask only about what has not been asked about yet: the first time, or
+    // when lists or tool contents have changed since the last offer. A "Not
+    // now" is remembered against exactly what was on offer, so the same
+    // things are never asked twice. Stored under the visitor prefix, so
+    // clearing or expiring the visitor desk resets it too.
+    const sigKey = `${Desk.localApi.PREFIX}:offered`;
+    const signature = JSON.stringify([
+      lists.map((l) => [l.id, l.name, l.students.map((p) => p.name)]),
+      tools.map((t) => [t.type, t.state]),
+    ]);
     try {
+      if (storage.getItem(sigKey) === signature) return;
       if (sessionStorage.getItem('desk:offered-visitor-lists')) return;
       sessionStorage.setItem('desk:offered-visitor-lists', '1');
     } catch { /* ask anyway */ }
@@ -94,6 +105,7 @@
         : 'They are added alongside the class lists already in your account.' }),
       el('p.hint', { text: 'Once your account has them they are removed from this computer. If they are not yours — this is a shared computer — choose Not now.' }),
     ]);
+    try { storage.setItem(sigKey, signature); } catch { /* ask again next time */ }
     if (!await Desk.ask({ title: 'Keep what you made before logging in?', body, confirmLabel: 'Add to my account', cancelLabel: 'Not now' })) return;
 
     // The lists first: the tools need to know the lists' new ids.

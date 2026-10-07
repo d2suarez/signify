@@ -41,6 +41,7 @@ projector.
 | **Calm down** | A shape to breathe along with. Honours `prefers-reduced-motion`. |
 | **Music** | Tidy-up music or a reading playlist — Spotify, Apple Music, SoundCloud or YouTube. Nothing loads until you press play. |
 | **Calculator** | Shows the sum as well as the answer, and does times and divide first. Keyboard works. |
+| **Economics graphs** | The graphs and visuals the AP Microeconomics CED lists (PPC, supply and demand with taxes and controls, costs, perfect competition, monopoly, game theory, factor markets, externalities, Lorenz and more), each one live. Drag a curve or use a slider; "Class questions" hold the answer back until you say; Labels can be hidden so the class has to name the curves. Holds nothing about pupils, so it is open to guests. |
 | **Scoreboard** | Points for teams, houses or tables — groups rather than named children, on purpose. |
 | **Classroom jobs** | Who has which job, rotating by position so everyone moves along one each time. |
 | **Noise meter** | How loud the room is. Nothing is ever recorded; the mic is off until you switch it on. |
@@ -239,9 +240,30 @@ needs to see what was typed, not only what came out. It also does **times and
 divide before plus and minus** — `2 + 3 × 4` is 14, not 20 — which in a maths
 lesson is not a preference but the thing being taught.
 
-There is no `eval` anywhere near it. The expression is tokenised and worked out
-in two passes, so the only thing a string of characters can turn into is a
-number; a sum that is not finished says so rather than guessing, and dividing
+The sum is a real text field: **type into it or paste into it**. Whatever is
+pasted is cleaned down to maths (a `$`, a stray newline or the thousands
+commas in `1,234,567` are dropped; an argument comma in `max(1,2)` stays), and
+typing a number straight after an answer starts a new sum while an operator
+carries on.
+
+**Opened full-screen it has two modes.** *Scientific* adds trig (exact at 30, 90,
+180 degrees, not `1.2e-16`), inverse trig, logs, powers, roots, `n!`, `nCr`,
+`nPr`, brackets, `Ans`, and a degrees / radians switch. *Graphing* is modelled on
+a TI-84: six functions, a window, zoom (buttons, wheel, drag to pan), trace
+with slope, a table, and zeros / minimum / maximum / y-intercept / where two
+lines meet / area under a curve. The grapher keeps its **own** angle unit and
+defaults to radians, because `sin(x)` drawn in degrees is a flat line.
+The grapher also has **parametric** (`X(t)`, `Y(t)`) and **polar** (`r(θ)`)
+modes, three curves each, with their own range and step. Trace gives dy/dx
+from the curve itself, and the Analyse box measures **length** and **area
+swept** (½∮x dy − y dx, which is the enclosed area for a polar curve or a
+closed parametric one). In polar, θ is in the current angle unit, so
+switching degrees and radians rescales its range. Graph state (functions,
+window, table) is saved with the card.
+
+There is no `eval` anywhere near it. The expression is lexed and parsed into a
+small tree (`parse` / `run`, with a fixed list of function names), so the only
+thing a string of characters can turn into is a number; a sum that is not finished says so rather than guessing, and dividing
 by zero returns nothing rather than putting `Infinity` on the board. Pressing
 `=` carries the answer forward, which is how anybody actually uses one, and
 the big view keeps a tape of the last twenty. The keyboard works, but only
@@ -972,3 +994,15 @@ the content the teacher wants, not the furniture around it.
 **Present mode swaps the timer's ring for a bar.** A ring is right on a card.
 Filling a projector, the digits have to be enormous and a circle around them
 either swamps them or hides behind them.
+
+### The converter runs in the browser, not on the server
+
+The Convert tool (pictures, PDF tools, PDF → Word) does all its work in the
+teacher's browser with open-source libraries in `public/vendor/` — pdf-lib,
+pdf.js (legacy build) and heic-to (its CSP-safe build). Nothing is uploaded,
+so it costs the server nothing and a worksheet with pupils' names never leaves
+the computer. heic-to runs its decoder in a worker made from a blob, which is
+why the CSP allows `worker-src 'self' blob:`. pdf.js must render with
+`intent: 'print'`: the default display mode paces itself with
+requestAnimationFrame and stalls in a background tab. PDF → Word keeps text
+and headings only; for layout or scans it sends people to Google Drive.

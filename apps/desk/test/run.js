@@ -1355,11 +1355,75 @@ describe('the clock', () => {
 });
 
 // ===================================================================
+describe('the word count', () => {
+  const count = loadWidget('wordcount')._count;
+  it('counts words, sentences and paragraphs', () => {
+    const c = count('One two three. Four five!\n\nSix');
+    equal(c.words, 6);
+    equal(c.sentences, 3);
+    equal(c.paragraphs, 2);
+  });
+  it('counts characters with and without spaces', () => {
+    const c = count('a b\nc');
+    equal(c.chars, 5);
+    equal(c.charsNoSpaces, 3);
+  });
+  it('survives empty and whitespace-only text', () => {
+    const c = count('  \n ');
+    equal(c.words, 0);
+    equal(c.sentences, 0);
+    equal(c.paragraphs, 0);
+    equal(count(null).words, 0);
+  });
+  it('reads 238 words in a minute', () => {
+    equal(count(Array(238).fill('w').join(' ')).seconds, 60);
+  });
+});
+
 describe('the passage grader', () => {
   const w = loadWidget('passage');
   const grade = w._grade;
   const R = (o = {}) => ({ punctuation: 'ignore', capitals: 'ignore', spelling: 'exact', ...o });
   const PSALM = 'The Lord is my shepherd; I shall not want.';
+
+  it('counts a scripture reference as three points: book, chapter, verses', () => {
+    const verse = 'Trust in the Lord. Proverbs 3: 7, 8';
+    const r = grade(verse, 'trust in the lord proverbs 3:7,8', R());
+    equal(r.total, 7, 'four words and the reference as three');
+    equal(r.score, 7);
+    equal(grade('Love one another. 1 John 3:11', 'love one another 1 john 3:11', R()).total, 6, 'a numbered book is one point');
+    equal(grade('Song of Solomon 2:4', 'song of solomon 2:4', R()).total, 3, 'a book of several words is one point');
+    equal(grade('Be kind. Eph 4:32', 'Be kind. Eph 4', R()).score, 4, 'missing verse costs one point');
+  });
+
+  it('sees through hidden characters when marking, and reports them', () => {
+    const lord = 'The L\u043Erd is my sh\u200Bepherd, I shall not want.';
+    const r = grade(PSALM, lord, R());
+    equal(r.score, 9, 'a pasted word is still the right word');
+    const seen = w._inspect(lord, r);
+    equal(seen.hidden, 2, 'one letter from another alphabet, one invisible character');
+    equal(w._inspect('The Lord is my shepherd I shall not want', grade(PSALM, 'The Lord is my shepherd I shall not want', R())).hidden, 0, 'typed text is clean');
+    const swapped = grade(PSALM, 'The Lord is my shepherd, l shall not want.', R());
+    equal(swapped.score, 9, 'an l for the I is the right word');
+    equal(swapped.tally.lookalike, 1, 'and is reported');
+    equal(w._inspect('x', swapped).looks, 1);
+  });
+
+  it('makes versions that read the same, differ in characters, and trace back', () => {
+    const text = 'Trust in the Lord with all your heart and lean not on your own understanding. Proverbs 3:5';
+    const a = w._makeCopy(text, 11, 'medium');
+    const b = w._makeCopy(text, 11, 'medium');
+    const c = w._makeCopy(text, 12, 'medium');
+    assert(a.text !== text && a.count >= 3, 'something was planted');
+    equal(a.text, b.text, 'the same seed makes the same version');
+    assert(c.text !== a.text, 'another seed makes another');
+    equal(grade(text, a.text, R()).percent, 100, 'every version marks as the full passage');
+    equal(grade(a.text, text, R()).percent, 100, 'and a version can itself be set as the passage');
+    const seen = w._inspect(a.text, grade(text, a.text, R()));
+    assert(seen.hidden + seen.looks >= 1, 'it is noticed when pasted');
+    const traced = w._tracedTo(seen.ids, [c, a]);
+    equal(traced.length === 1 && traced[0].index, 1, 'and traced to the copy it came from');
+  });
 
   it('gives full marks for the passage word for word', () => {
     const r = grade(PSALM, 'the lord is my shepherd i shall not want', R());
@@ -1653,6 +1717,123 @@ describe('the calculator', () => {
     equal(show(-0), '0');
     assert(show(1e15).includes('10^'), 'very large numbers go to powers of ten');
   });
+
+  it('does the scientific things', () => {
+    equal(ev('2^3'), 8);
+    equal(ev('-2^2'), -4, 'a minus in front is applied after the power, as written');
+    equal(ev('2^-2'), 0.25);
+    equal(ev('2^3^2'), 512, 'powers stack from the right');
+    equal(ev('(1+2)(3+4)'), 21, 'brackets side by side multiply');
+    equal(ev('2\u03c0'), 2 * Math.PI);
+    equal(ev('\u221a(16)'), 4);
+    equal(ev('5!'), 120);
+    equal(ev('nCr(5,2)'), 10);
+    equal(ev('nPr(5,2)'), 20);
+    equal(ev('log(1000)'), 3);
+    equal(ev('ln(e)'), 1);
+    equal(ev('max(1,7,3)'), 7);
+    equal(ev('(1+2'), 3, 'an open bracket closes itself, as on a TI');
+    equal(ev('ans+1', { ans: 4 }), 5);
+    equal(ev('x^2', { x: 3 }), 9);
+    equal(ev('x^2'), null, 'x means nothing without a value');
+  });
+
+  it('is exact in degrees at the angles a class checks first', () => {
+    equal(ev('sin(30)') && show(ev('sin(30)')), '0.5');
+    equal(ev('sin(180)'), 0, 'not 1.2e-16');
+    equal(ev('cos(90)'), 0);
+    equal(ev('cos(180)'), -1);
+    equal(ev('tan(45)') && show(ev('tan(45)')), '1');
+    equal(ev('tan(90)'), null, 'no answer, rather than a huge one');
+    equal(ev('asin(1)'), 90);
+    equal(show(ev('sin(\u03c0/6)', { angle: 'rad' })), '0.5');
+    equal(ev('sin(\u03c0)', { angle: 'rad' }), 0);
+  });
+
+  it('refuses what is not maths, however it got there', () => {
+    for (const bad of ['sin(', '5!!!!x', '2+*3', 'sqrt(-1)', 'ln(0)', 'log(5,1)', '3(', ')', 'pi pi pi pi(', 'fact(3)', 'sin(1,2)', 'constructor', 'toString()', 'x'.repeat(500)]) {
+      const got = ev(bad);
+      assert(got === null || Number.isFinite(got), `"${bad.slice(0, 20)}" gave ${got}`);
+    }
+    equal(ev('sqrt(-1)'), null);
+    equal(ev('ln(0)'), null);
+    equal(ev('(' .repeat(300) + '1' + ')'.repeat(300)), null, 'absurd nesting is refused, not a stack overflow');
+  });
+
+  it('cleans what is typed or pasted down to maths', () => {
+    equal(calc._clean('2*3/4-1'), '2\u00d73\u00f74\u22121', 'keys are drawn as the keypad draws them');
+    equal(calc._clean('2*3/4-1', false, true), '2*3/4-1', 'but a function box is left as typed');
+    equal(calc._clean('\u00a31,234 <b>x</b>\n+ 2').includes('<'), false);
+    equal(calc._cleanPaste('1,234,567'), '1234567', 'a spreadsheet number loses its separators');
+    equal(calc._cleanPaste(' 1,234.50 '), '1234.50');
+    equal(calc._cleanPaste('max(1,2)'), 'max(1,2)', 'but an argument comma stays');
+    equal(calc._cleanPaste('4 \u00d7 5\n'), '4 \u00d7 5');
+    equal(ev(calc._cleanPaste('$12.50 * 3')), 37.5);
+  });
+
+  it('draws a function with gaps where there is no number', () => {
+    const y = calc._compileY('1/x', 'rad');
+    assert(!Number.isFinite(y.f(0)), 'a gap at zero');
+    equal(y.f(4), 0.25);
+    equal(calc._compileY('  ', 'rad'), null, 'an empty line is not an error');
+    assert(calc._compileY('2 +', 'rad').bad, 'a half-typed one is');
+    equal(calc._compileY('y1=x+1', 'rad').f(2), 3, 'a leading "y=" is fine');
+  });
+
+  it('finds zeros, highs and lows, slope and area', () => {
+    const near = (a, b, tol, msg) => assert(Math.abs(a - b) <= (tol || 1e-6), `${msg || ''} ${a} vs ${b}`);
+    const zs = calc._roots((x) => x * x - 4, -10, 10);
+    equal(zs.length, 2); near(zs[0], -2); near(zs[1], 2);
+    const touch = calc._roots((x) => x * x, -10, 10);
+    equal(touch.length, 1, 'a zero that only touches the axis is still a zero'); near(touch[0], 0);
+    equal(calc._roots((x) => 1 / x, -10, 10).length, 0, 'a jump through zero is not a zero');
+    equal(calc._roots((x) => Math.tan(x), -1, 1).length, 1);
+    const lo = calc._extrema((x) => x * x - 3, -10, 10, 'min');
+    equal(lo.length, 1); near(lo[0], 0, 1e-9);
+    const hi = calc._extrema(Math.sin, -7, 7, 'max');
+    equal(hi.length, 2); near(hi[1], Math.PI / 2, 1e-7);
+    equal(calc._extrema((x) => x, -5, 5, 'max').length, 0, 'a straight line has no peak');
+    near(calc._derivative((x) => x * x * x, 2), 12, 1e-6);
+    near(calc._integrate(Math.sin, 0, Math.PI), 2, 1e-6);
+    equal(calc._integrate((x) => 1 / x, -1, 1), null, 'no area across a gap');
+    equal(calc._niceStep(3.3), 2); equal(calc._niceStep(80), 100);
+  });
+
+  it('draws parametric and polar curves', () => {
+    const near = (a, b, tol) => assert(Math.abs(a - b) <= (tol || 1e-9), `${a} vs ${b}`);
+    const circle = calc._compileCurve('param', { x: 'cos(t)', y: 'sin(t)' }, 'rad');
+    const q = circle.f(Math.PI / 2);
+    near(q.x, 0); near(q.y, 1);
+    equal(calc._compileCurve('param', { x: '', y: '' }, 'rad'), null, 'an empty pair is not an error');
+    assert(calc._compileCurve('param', { x: 'cos(t)', y: '' }, 'rad').bad, 'half a pair is');
+    assert(calc._compileCurve('polar', { expr: '2 +' }, 'rad').bad);
+
+    // r = 2 is a circle of radius 2, and the θ symbol works as well as "theta".
+    const ring = calc._compileCurve('polar', { expr: '2' }, 'rad');
+    near(ring.f(1).r, 2); near(Math.hypot(ring.f(1).x, ring.f(1).y), 2);
+    const heart = calc._compileCurve('polar', { expr: '1+cos(\u03b8)' }, 'rad');
+    near(heart.f(0).x, 2); near(heart.f(Math.PI).r, 0);
+
+    // In degrees θ = 90 is straight up, exactly — not 6e-17 off.
+    const deg = calc._compileCurve('polar', { expr: '3' }, 'deg');
+    equal(deg.f(90).x, 0); equal(deg.f(90).y, 3);
+
+    const pts = calc._sampleCurve(circle.f, { min: 0, max: 2 * Math.PI, step: 0.05 });
+    near(pts[pts.length - 1][0], 2 * Math.PI, 1e-12);
+    assert(calc._sampleCurve(circle.f, { min: 0, max: 1, step: 0 }).length === 0, 'a zero step draws nothing rather than hanging');
+    assert(calc._sampleCurve(circle.f, { min: 0, max: 1e9, step: 1e-9 }).length <= 20001, 'and a huge range is capped');
+
+    // Length and swept area of a unit circle, from the samples alone.
+    const fine = calc._sampleCurve(circle.f, { min: 0, max: 2 * Math.PI, step: 0.001 });
+    const tot = calc._curveTotals(fine, 0, 2 * Math.PI + 1);
+    near(tot.length, 2 * Math.PI, 1e-4);
+    near(tot.area, Math.PI, 1e-4);
+    const cardioid = calc._sampleCurve(heart.f, { min: 0, max: 2 * Math.PI, step: 0.001 });
+    near(calc._curveTotals(cardioid, 0, 7).area, 1.5 * Math.PI, 1e-3);
+
+    equal(ev('t^2'), null, 't means nothing on the calculator itself');
+    equal(ev('2\u03b8'), null);
+  });
 });
 
 // ===================================================================
@@ -1835,10 +2016,175 @@ describe('countdowns to several days', () => {
   });
 });
 
+// ===================================================================
+describe('the converter', () => {
+  const cv = loadWidget('convert');
+  const { execFileSync } = require('child_process');
+  const hasUnzip = (() => { try { execFileSync('unzip', ['-v'], { stdio: 'ignore' }); return true; } catch (_) { return false; } })();
+  const enc = (t) => new TextEncoder().encode(t);
+
+  it('computes the standard CRC-32', () => {
+    equal(cv._crc32(enc('123456789')), 0xCBF43926, 'the check value every CRC-32 must give');
+    equal(cv._crc32(new Uint8Array(0)), 0, 'nothing in, zero out');
+  });
+
+  it('writes a zip that unzip accepts, names and bytes intact', () => {
+    const data = cv._zip([
+      { name: 'a.txt', data: enc('hello') },
+      { name: 'Café notes/ünï.txt', data: enc('second file') },
+      { name: 'empty.bin', data: new Uint8Array(0) },
+    ]);
+    equal(data[0], 0x50, 'starts with the local header magic');
+    if (!hasUnzip) return;
+    const f = path.join(TMP, 't.zip');
+    fs.writeFileSync(f, Buffer.from(data));
+    execFileSync('unzip', ['-tq', f]);
+    equal(execFileSync('unzip', ['-p', f, 'a.txt']).toString(), 'hello', 'the first file comes back');
+    const raw = fs.readFileSync(f);
+    assert(raw.includes(Buffer.from('Café notes/ünï.txt', 'utf8')), 'a UTF-8 name is stored as UTF-8');
+    equal(raw.readUInt16LE(6) & 0x0800, 0x0800, 'and flagged as UTF-8 so unzippers read it so');
+  });
+
+  it('makes a .docx whose parts are well-formed and say what was given', () => {
+    const files = cv._docxFiles([
+      { text: 'Chapter <1> & "more"', heading: 1 },
+      { text: 'Body text', heading: 0 },
+      { pageBreak: true },
+      { text: 'bad \u0001 control \uD800 char', heading: 0 },
+    ], 'My file');
+    equal(files[0].name, '[Content_Types].xml', 'content types must come first');
+    const doc = new TextDecoder().decode(files.find((x) => x.name === 'word/document.xml').data);
+    assert(doc.includes('Chapter &lt;1&gt; &amp; &quot;more&quot;'), 'text is escaped');
+    assert(doc.includes('<w:pStyle w:val="Heading1"/>'), 'a heading gets the heading style');
+    assert(doc.includes('<w:br w:type="page"/>'), 'page breaks are kept');
+    assert(!/[\u0001\uD800]/.test(doc), 'characters Word refuses are removed');
+    for (const x of files) {
+      const xml = new TextDecoder().decode(x.data);
+      assert(xml.startsWith('<?xml'), `${x.name} is XML`);
+    }
+    if (!hasUnzip) return;
+    const f = path.join(TMP, 't.docx');
+    fs.writeFileSync(f, Buffer.from(cv._zip(files)));
+    execFileSync('unzip', ['-tq', f]);
+  });
+
+  // pdf.js items: [a, b, c, d, x, y]; y runs up the page.
+  const item = (str, x, y, size = 10, extra = {}) => ({ str, transform: [size, 0, 0, size, x, y], width: str.length * size * 0.5, height: size, hasEOL: false, ...extra });
+
+  it('joins wrapped lines into paragraphs and splits at a blank line', () => {
+    const ps = cv._paragraphs([
+      item('The quick brown fox jumps over the lazy dog and keeps', 72, 700),
+      item('running into the next line.', 72, 688),
+      item('A second paragraph starts after a gap.', 72, 660),
+    ]);
+    equal(ps.length, 2, 'two paragraphs');
+    equal(ps[0].text, 'The quick brown fox jumps over the lazy dog and keeps running into the next line.', 'lines joined with a space');
+    equal(ps[1].heading, 0, 'body text is not a heading');
+  });
+
+  it('spots headings by size', () => {
+    const ps = cv._paragraphs([
+      item('Unit 3: Supply', 72, 740, 20),
+      item('Body text that is long enough to count as the body of the page.', 72, 712),
+      item('More body text, also long enough to set the body size here.', 72, 700),
+      item('Key terms', 72, 676, 13),
+      item('Demand is what buyers want at each price, all else equal.', 72, 660),
+    ]);
+    equal(ps[0].heading, 1, 'much larger text is a main heading');
+    equal(ps[1].heading, 0, 'body is body');
+    equal(ps[2].text, 'Key terms', 'the smaller heading stands alone');
+    equal(ps[2].heading, 2, 'and is a subheading');
+  });
+
+  it('mends a word hyphenated across lines, puts items on one line together, and keeps list items apart', () => {
+    const ps = cv._paragraphs([
+      item('An extra', 72, 700), item('ordinary', 116, 700),
+      item('photo-', 160, 700),
+      item('synthesis happens in leaves.', 72, 688),
+      item('1. First answer', 72, 676),
+      item('2. Second answer', 72, 664),
+    ]);
+    equal(ps[0].text, 'An extra ordinary photosynthesis happens in leaves.', 'same-line pieces joined; hyphen mended');
+    equal(ps.length, 3, 'each numbered item is its own paragraph');
+  });
+
+  it('honours pdf.js end-of-line markers and ignores empty pages', () => {
+    const ps = cv._paragraphs([
+      item('Name:', 72, 700, 10, { hasEOL: true }),
+      item('Date:', 72, 700.2),
+    ]);
+    equal(ps.length, 2, 'the marker ends the line even at the same height');
+    equal(ps[0].text, 'Name:', 'a short label line stays on its own, as on a worksheet');
+    equal(cv._paragraphs([]).length, 0, 'no items, no paragraphs');
+    equal(cv._paragraphs([{ str: '   ', transform: [10, 0, 0, 10, 0, 0] }, { type: 'beginMarkedContent' }]).length, 0, 'whitespace and markers are nothing');
+  });
+
+  it('reads page ranges the way people write them', () => {
+    const r = (t, n = 10) => cv._ranges(t, n);
+    equal(r('').pages.length, 10, 'blank is every page');
+    equal(r('all').pages.join(), '0,1,2,3,4,5,6,7,8,9', '"all" too');
+    equal(r('1-3, 5, 8-').pages.join(), '0,1,2,4,7,8,9', 'mixed ranges, open end');
+    equal(r('-2').pages.join(), '0,1', 'open start');
+    equal(r('3–1').pages.join(), '2,1,0', 'an en dash, and a backwards range runs backwards');
+    equal(r('2 2').pages.join(), '1,1', 'repeats are allowed');
+    assert(/no page 11/.test(r('11').error), 'past the end says so');
+    assert(/start at 1/.test(r('0').error), 'zero is refused');
+    assert(r('one').error, 'words are refused');
+    assert(r('-').error, 'a lone dash is refused');
+    assert(r('1', 0).error, 'no pages at all is an error, not a crash');
+  });
+
+  it('finds which PDF a combined page number belongs to', () => {
+    const at = (i) => cv._locate([3, 2, 4], i);
+    equal(JSON.stringify(at(0)), '{"file":0,"page":0}', 'first page');
+    equal(JSON.stringify(at(3)), '{"file":1,"page":0}', 'first page of the second file');
+    equal(JSON.stringify(at(8)), '{"file":2,"page":3}', 'last page');
+    equal(at(9), null, 'past the end');
+  });
+
+  it('shrinks to a longest side but never enlarges', () => {
+    equal(JSON.stringify(cv._fit(4000, 3000, 1600)), '{"w":1600,"h":1200}', 'landscape');
+    equal(JSON.stringify(cv._fit(3000, 4000, 1600)), '{"w":1200,"h":1600}', 'portrait');
+    equal(JSON.stringify(cv._fit(800, 600, 1600)), '{"w":800,"h":600}', 'small stays small');
+    equal(JSON.stringify(cv._fit(800, 600, 0)), '{"w":800,"h":600}', '0 means as it is');
+  });
+
+  it('names output files sensibly, and never twice the same in a zip', () => {
+    equal(cv._outName('IMG_0042.HEIC', 'jpg'), 'IMG_0042.jpg', 'extension swapped');
+    equal(cv._outName('worksheet.v2.pdf', 'docx'), 'worksheet.v2.docx', 'only the last extension');
+    equal(cv._outName('', 'png'), 'file.png', 'a nameless file still gets a name');
+    equal(cv._uniqueNames(['a.jpg', 'A.jpg', 'b.png', 'a.jpg']).join('|'), 'a.jpg|A (2).jpg|b.png|a (3).jpg', 'repeats numbered');
+  });
+
+  it('recognises iPhone photos by name, type or contents', () => {
+    equal(cv._isHeic({ name: 'IMG_1.HEIC', type: '' }), true, 'by name');
+    equal(cv._isHeic({ name: 'x', type: 'image/heif' }), true, 'by type');
+    const head = new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+    equal(cv._isHeic({ name: 'photo', type: '' }, head), true, 'by the ftyp brand');
+    equal(cv._isHeic({ name: 'photo.jpg', type: 'image/jpeg' }, new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])), false, 'a JPEG is not');
+  });
+
+  it('turns pdf.js image data into RGBA', () => {
+    equal(Array.from(cv._toRGBA(2, new Uint8Array([1, 2, 3, 4, 5, 6]), 2, 1)).join(), '1,2,3,255,4,5,6,255', 'RGB gains opaque alpha');
+    equal(Array.from(cv._toRGBA(1, new Uint8Array([0b10000000]), 2, 1)).join(), '255,255,255,255,0,0,0,255', '1-bit, high bit first');
+    equal(Array.from(cv._toRGBA(3, new Uint8Array([9, 8, 7, 6]), 1, 1)).join(), '9,8,7,6', 'RGBA passes through');
+    equal(cv._toRGBA(9, new Uint8Array(4), 1, 1), null, 'an unknown kind is refused, not guessed');
+  });
+
+  it('works for visitors, and keeps no files in its state', () => {
+    equal(cv.guest, true, 'open to visitors');
+    const s = {};
+    cv.init(s);
+    const kept = JSON.stringify(s);
+    assert(kept.length < 200 && !/file|blob|data/i.test(Object.keys(s).join()), 'only settings are state');
+    equal(s.tab, 'pics', 'starts on pictures');
+  });
+});
+
 /** Runs a widget file with a stub browser and hands back its definition. */
 function loadWidget(name) {
   const noop = () => {};
-  const sandbox = { console, setTimeout, clearTimeout, URL, URLSearchParams };
+  const sandbox = { console, setTimeout, clearTimeout, URL, URLSearchParams, TextEncoder };
   sandbox.window = sandbox;
   sandbox.document = fakeDom();
   let captured = null;
@@ -2021,6 +2367,210 @@ function loadGeometry() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'board.js'), 'utf8'), sandbox, { filename: 'board.js' });
   return sandbox.Desk.board._geom;
 }
+
+// ===================================================================
+describe('the economics graphs', () => {
+  const econ = loadWidget('econgraphs');
+  const M = econ._math;
+  const near = (a, b, tol, msg) => assert(Math.abs(a - b) <= tol, `${msg || 'expected'} ${a} to be within ${tol} of ${b}`);
+  const model = (k) => econ._models.find((m) => m.key === k);
+
+  it('covers every graph the CED appendix lists', () => {
+    const keys = econ._models.map((m) => m.key);
+    for (const k of ['ppc', 'utility', 'sd', 'trade', 'production', 'costs', 'lrcosts', 'perfcomp', 'monopoly', 'natural', 'game', 'labor', 'firmfactor', 'monopsony', 'externality', 'lorenz']) {
+      assert(keys.includes(k), `missing the ${k} graph`);
+    }
+    equal(new Set(keys).size, keys.length, 'every graph has its own key');
+  });
+
+  describe('supply and demand', () => {
+    const mk = (o) => M.marketCalc(Object.assign({ d: 0, s: 0, mode: 'free', lvl: 3, amt: 2 }, o));
+    it('starts at P = 5, Q = 50', () => { const m = mk({}); equal(m.Pe, 5); equal(m.Qe, 50); });
+    it('an increase in demand raises both price and quantity', () => {
+      const m = mk({ d: 20 }); equal(m.Qe, 60); equal(m.Pe, 6);
+    });
+    it('equal increases in both leave the price alone', () => { equal(mk({ d: 20, s: 20 }).Pe, 5); });
+    it('a ceiling below equilibrium makes a shortage', () => {
+      const m = mk({ mode: 'ceil', lvl: 3 });
+      equal(m.qsAt(3), 30); equal(m.qdAt(3), 70); equal(m.shortage, 40); equal(m.Q, 30);
+    });
+    it('a ceiling above equilibrium does nothing', () => { assert(!mk({ mode: 'ceil', lvl: 7 }).binding); });
+    it('a floor above equilibrium makes a surplus', () => {
+      const m = mk({ mode: 'floor', lvl: 7 }); equal(m.surplus, 40); equal(m.Q, 30);
+    });
+    it('a tax opens a wedge and loses deadweight', () => {
+      const m = mk({ mode: 'tax', amt: 2 });
+      near(m.Q, 40, 1e-9); near(m.Pb - m.Ps, 2, 1e-9); near(m.gov, 80, 1e-6); near(m.DWL, 10, 0.01);
+    });
+    it('surplus, revenue and deadweight loss add back up to the free-market total', () => {
+      const free = mk({}); const t = mk({ mode: 'tax', amt: 3 });
+      near(t.CS + t.PS + t.gov + t.DWL, free.CS + free.PS, 0.05);
+    });
+    it('a subsidy raises quantity and costs the government', () => {
+      const m = mk({ mode: 'sub', amt: 2 }); near(m.Q, 60, 1e-9); assert(m.gov < 0, 'the government pays');
+    });
+  });
+
+  describe('costs', () => {
+    const C = M.costFns(30, 1);
+    it('MC meets AVC at its minimum', () => { near(C.MC(7.5), C.AVC(7.5), 1e-9); near(C.AVC(7.5), C.minAVC, 1e-9); });
+    it('MC meets ATC at its minimum', () => { near(C.MC(C.qMinATC), C.ATC(C.qMinATC), 0.01); });
+    it('ATC = AVC + AFC and TC = TFC + TVC', () => { near(C.ATC(6), C.AVC(6) + C.AFC(6), 1e-9); near(C.TC(6), 30 + C.TVC(6), 1e-9); });
+    it('a firm supplies along MC above the shutdown point only', () => {
+      equal(C.supplyQ(C.minAVC - 0.1), 0);
+      near(C.supplyQ(C.minAVC), 7.5, 1e-6);
+      near(C.MC(C.supplyQ(9)), 9, 1e-6);
+    });
+  });
+
+  describe('perfect competition', () => {
+    const base = { shift: 0, n: 20, fc: 30 };
+    it('starts in long-run equilibrium with zero profit', () => {
+      const e = M.pcEq(base); near(e.profit, 0, 0.05); near(e.P, e.C.minATC, 0.01);
+    });
+    it('more demand brings profit, and entry takes it away again', () => {
+      const p = Object.assign({}, base, { shift: 30 });
+      assert(M.pcEq(p).profit > 0, 'profit after demand rises');
+      const n = M.pcLongRunN(p);
+      assert(n > 20, 'firms enter');
+      near(M.pcEq(p, n).profit, 0, 0.05);
+      near(M.pcEq(p, n).P, M.pcEq(p, n).C.minATC, 0.02);
+    });
+    it('less demand brings losses, and exit takes them away', () => {
+      const p = Object.assign({}, base, { shift: -25 });
+      assert(M.pcEq(p).profit < 0, 'loss after demand falls');
+      assert(M.pcLongRunN(p) < 20, 'firms leave');
+    });
+  });
+
+  describe('monopoly', () => {
+    const p = { kind: 'mono', pd: 'none', mc0: 2, fc: 20, s: 0 };
+    it('produces where MR = MC and prices off the demand curve', () => {
+      const m = M.monoCalc(p); near(m.qm, 14.4, 1e-9); near(m.pm, 12.8, 1e-9); near(m.MR(m.qm), m.MC(m.qm), 1e-9);
+    });
+    it('restricts output below the competitive level, with deadweight loss', () => {
+      const m = M.monoCalc(p); assert(m.qm < m.qc, 'less than competition'); assert(m.dwl > 0, 'deadweight loss');
+    });
+    it('perfect price discrimination removes the deadweight loss', () => {
+      const m = M.monoCalc(Object.assign({}, p, { pd: 'perfect' })); equal(m.dwl, 0); near(m.q, m.qc, 1e-9);
+    });
+    it('long-run entry leaves a monopolistic competitor with zero profit', () => {
+      const q = Object.assign({}, p, { kind: 'mc' }); q.s = M.monoZeroProfitShift(q);
+      near(M.monoCalc(q).profit, 0, 0.01);
+      assert(M.monoCalc(q).qm < M.monoCalc(q).qMinATC, 'excess capacity');
+    });
+  });
+
+  describe('natural monopoly', () => {
+    const p = { c: 3, F: 60 };
+    it('has three outputs in the right order', () => {
+      const m = M.naturalCalc(Object.assign({ reg: 'none' }, p)); assert(m.qU < m.qF && m.qF < m.qS, `${m.qU} ${m.qF} ${m.qS}`);
+    });
+    it('fair-return pricing breaks even; marginal-cost pricing loses the fixed cost', () => {
+      near(M.naturalCalc(Object.assign({ reg: 'fair' }, p)).profit, 0, 1e-6);
+      near(M.naturalCalc(Object.assign({ reg: 'optimal' }, p)).profit, -60, 1e-6);
+    });
+  });
+
+  describe('game theory', () => {
+    it('finds the dominant strategies and the dilemma', () => {
+      const g = M.analyseGame([5, 5, 15, 2, 2, 15, 10, 10]);
+      equal(g.domRow, 0); equal(g.domCol, 0); equal(g.nash.length, 1); equal(g.nash[0].join(), '0,0'); assert(g.dilemma, 'prisoner’s dilemma');
+    });
+    it('finds two equilibria in a coordination game', () => {
+      equal(M.analyseGame([5, 5, 0, 0, 0, 0, 3, 3]).nash.length, 2);
+    });
+    it('finds no pure equilibrium in matching pennies', () => {
+      equal(M.analyseGame([1, -1, -1, 1, -1, 1, 1, -1]).nash.length, 0);
+    });
+  });
+
+  describe('the MU-per-dollar rule', () => {
+    it('spends all the income and equalizes MU/P', () => {
+      const g = M.greedyBuy(24, 2, 4, [20, 16, 12, 8, 5, 3, 1], [36, 28, 20, 16, 8, 4, 2]);
+      equal(g.nx, 4); equal(g.ny, 4); near(g.left, 0, 1e-9);
+    });
+    it('buys less X when X gets dearer', () => {
+      const g = M.greedyBuy(24, 4, 4, [20, 16, 12, 8, 5, 3, 1], [36, 28, 20, 16, 8, 4, 2]);
+      assert(g.nx < 4, 'fewer X');
+    });
+  });
+
+  describe('trade and comparative advantage', () => {
+    it('imports when the world price is below the domestic price', () => {
+      const t = M.tradeCalc({ pw: 3, tariff: 0 }); equal(t.trade, 40); assert(t.cs > t.cs0 && t.ps < t.ps0, 'consumers gain, producers lose');
+    });
+    it('a tariff earns revenue and loses deadweight', () => {
+      const t = M.tradeCalc({ pw: 3, tariff: 1 }); equal(t.pt, 4); near(t.rev, 20, 1e-9); near(t.dwl, 10, 1e-9);
+    });
+    it('the country with the lower opportunity cost has the comparative advantage', () => {
+      const m = M.compCalc({ ax: 40, ay: 40, bx: 10, by: 20, tot: 1.5, q: 4 });
+      equal(m.exporter, 'A'); assert(m.inRange, 'terms of trade in range'); equal(m.A.x + m.B.x, 40);
+    });
+  });
+
+  describe('factor markets and externalities', () => {
+    it('a monopsony hires fewer workers at a lower wage than a competitive market', () => {
+      const m = M.monopsonyCalc({ wmin: 0 }); assert(m.Lm < m.Lc && m.Wm < m.Wc, 'fewer and lower');
+    });
+    it('a minimum wage between the two can raise employment, a high one cuts it', () => {
+      const lo = M.monopsonyCalc({ wmin: 9 }); assert(lo.L > lo.Lm, 'employment rises');
+      const hi = M.monopsonyCalc({ wmin: 13 }); assert(hi.L < hi.Lm, 'employment falls'); assert(hi.unemployed > 0, 'unemployment');
+    });
+    it('a firm in a competitive factor market hires where MRP = W', () => {
+      const m = M.factorCalc({ pi: 1.2, s: 0 }); near(m.MRP(m.lf), m.We, 1e-9);
+    });
+    it('externalities: negative ones overproduce, positive ones underproduce', () => {
+      const f = (kind, e) => M.extCalc({ kind, e: e == null ? 2 : e, policy: false });
+      assert(f('negprod').Qm > f('negprod').Qs, 'negative production');
+      assert(f('negcons').Qm > f('negcons').Qs, 'negative consumption');
+      assert(f('posprod').Qm < f('posprod').Qs, 'positive production');
+      assert(f('poscons').Qm < f('poscons').Qs, 'positive consumption');
+    });
+    it('a tax equal to the externality removes the deadweight loss', () => {
+      const m = M.extCalc({ kind: 'negprod', e: 2, policy: true }); near(m.dwl, 0, 1e-6);
+    });
+    it('a monopolist with an external cost can still produce too little', () => {
+      const m = M.extCalc({ kind: 'mono', e: 2, policy: false }); assert(m.Qm < m.Qs, 'below the social optimum');
+    });
+  });
+
+  describe('drawing', () => {
+    const K = { chart: (o) => M.makeChart(Object.assign({ labels: true, numbers: false }, o)) };
+    const bad = /NaN|undefined|Infinity|null/;
+    const check = (m, p, what) => {
+      M.sanitize(m, p);
+      const out = m.draw(p, K);
+      assert(out.charts.length >= 1, `${m.key} (${what}) drew nothing`);
+      for (const c of out.charts) assert(!bad.test(c.svg('x')), `${m.key} (${what}) put NaN or undefined in the picture`);
+      for (const f of out.facts) assert(!bad.test(`${f.k} ${f.v}`), `${m.key} (${what}) has a bad fact: ${f.k} = ${f.v}`);
+      assert(!bad.test(out.say || ''), `${m.key} (${what}) has bad text`);
+    };
+    for (const m of econ._models.filter((x) => x.draw)) {
+      it(`${m.name}: default, every class question, and both extremes of every slider`, () => {
+        check(m, M.fresh(m.defaults), 'default');
+        for (const numbers of [false, true]) {
+          K.chart = (o) => M.makeChart(Object.assign({ labels: !numbers, numbers }, o));
+          check(m, M.fresh(m.defaults), `numbers=${numbers}`);
+        }
+        for (const sc of m.scenarios) {
+          const p = Object.assign(M.fresh(m.defaults), M.fresh(sc.setup || {}));
+          Object.assign(p, M.fresh(typeof sc.set === 'function' ? sc.set(p) : sc.set));
+          check(m, p, `scenario "${sc.name}"`);
+        }
+        for (const spec of m.controls.filter((c) => !c.type && !c.head)) {
+          for (const v of [spec.min, spec.max]) {
+            const p = M.fresh(m.defaults); p[spec.k] = v;
+            check(m, p, `${spec.k} = ${v}`);
+          }
+        }
+        for (const spec of m.controls.filter((c) => c.type === 'seg')) {
+          for (const [v] of spec.opts) { const p = M.fresh(m.defaults); p[spec.k] = v; check(m, p, `${spec.k} = ${v}`); }
+        }
+      });
+    }
+  });
+});
 
 // ===================================================================
 store.flushSync();
