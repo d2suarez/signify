@@ -25,6 +25,7 @@
     blurb: 'The teaching map — Bible, history and world data. Opens right here on the desk.',
     icon: 'globe',
     category: 'other',
+    role: 'p4',
     guest: true,
     fills: true,
     size: { w: 5, h: 5 },

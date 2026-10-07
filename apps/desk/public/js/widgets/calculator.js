@@ -594,6 +594,7 @@
     blurb: 'Type, paste or press. Open it full-screen for a scientific and graphing calculator.',
     icon: 'calculator',
     category: 'other',
+    role: 'p1',
     guest: true,
     size: { w: 3, h: 6 },
     min: { w: 2, h: 5 },

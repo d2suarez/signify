@@ -2814,3 +2814,25 @@ body.is-seating-drag { user-select: none; }
 .news-actions [hidden] { display: none; }
 @keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .news { animation: none; } }
+
+/* ---------------- colour on the working tools ----------------
+   A tool you lean in and work with stays white so its controls read cleanly,
+   but it should not be a blank sheet: the title strip is the family colour
+   (or the tool's own role), edge to edge, with the ink that colour carries.
+   Block tools are already wholly coloured, so they are left alone. */
+.card:is([data-tone="card"], [data-category="other"]) > .card-head {
+  margin: -18px -22px .35rem;
+  padding: .6rem 22px;
+  background: var(--role);
+  color: var(--role-ink);
+  border-radius: var(--r-panel) var(--r-panel) 0 0;
+}
+.card:is([data-tone="card"], [data-category="other"]) > .card-head .shape { background: currentColor; }
+.card:is([data-tone="card"], [data-category="other"]) > .card-head .shape[data-shape="ring"] { background: none; }
+.card:is([data-tone="card"], [data-category="other"]) > .card-head .icon-btn { color: inherit; }
+.card:is([data-tone="card"], [data-category="other"]) > .card-head .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
+/* A light wash of the same colour behind the tool, so the body is not stark white. */
+.card:is([data-tone="card"], [data-category="other"]):not([data-tone="block"]:not([data-category="other"])) {
+  --card-bg: color-mix(in srgb, var(--role) 6%, var(--surface));
+  background: var(--card-bg);
+}

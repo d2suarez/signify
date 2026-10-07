@@ -60,6 +60,7 @@
     blurb: 'Roll one and it is on your clipboard, ready to paste onto a piece of work.',
     icon: 'smile',
     category: 'other',
+    role: 'p3',
     guest: true,
     fills: true,
     size: { w: 3, h: 4 },
