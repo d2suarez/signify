@@ -88,6 +88,7 @@
     icon: 'cloud',
     category: 'other',
     role: 'p3',
+    tone: 'block',
     guest: true,
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },

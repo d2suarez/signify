@@ -61,6 +61,7 @@
     icon: 'smile',
     category: 'other',
     role: 'p3',
+    tone: 'block',
     guest: true,
     fills: true,
     size: { w: 3, h: 4 },

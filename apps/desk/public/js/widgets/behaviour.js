@@ -40,6 +40,7 @@
     blurb: 'A private running tally for your own classes. Nobody else can read it, and it clears itself.',
     icon: 'behaviour',
     category: 'class',
+    tone: 'card',
     size: { w: 5, h: 6 },
     min: { w: 3, h: 4 },
     needsRoster: true,

@@ -24,6 +24,7 @@
     blurb: 'Who has which job, rotating fairly so the same few do not get everything.',
     icon: 'list',
     category: 'class',
+    tone: 'block',
     guest: true,
     size: { w: 4, h: 5 },
     min: { w: 3, h: 4 },

@@ -453,7 +453,7 @@ p { margin: 0 0 .6rem; }
 /* The category decides the colour. Every card gets --role and --role-ink,
    whether or not it chooses to fill itself with them. */
 .card { --card-bg: var(--surface); }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) { --card-bg: var(--role); }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) { --card-bg: var(--role); }
 :is(.card, .stage)[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
 :is(.card, .stage)[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
 :is(.card, .stage)[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
@@ -468,14 +468,14 @@ p { margin: 0 0 .6rem; }
 
 /* A block is a tool you read from the back of the room: the card is the
    colour, and everything on it is the ink that colour carries. */
-:is(.card, .stage)[data-tone="block"][data-category]:not([data-category="other"]) {
+:is(.card, .stage)[data-tone="block"][data-category]:not([data-category="other"]:not([data-role])) {
   background: var(--role);
   color: var(--role-ink);
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .card-title,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .muted { color: inherit; }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint { opacity: .8; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .card-title,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .muted { color: inherit; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint { opacity: .8; }
 
 /* A card fills the slot it was given, and the slot is measured from the
    tool's own content the moment it is put down. That measurement is the
@@ -565,7 +565,7 @@ p { margin: 0 0 .6rem; }
 }
 /* On a block the marker is the ink, not the colour — the card is already the
    colour, and a marker in the same hue would vanish into it. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .shape { background: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .shape { background: currentColor; }
 :is(.card, .stage)[data-tone="block"] .shape[data-shape="ring"] { background: none; }
 
 
@@ -573,27 +573,27 @@ p { margin: 0 0 .6rem; }
    the two already there, so the buttons are drawn from the block itself: the
    main action is the card's colour on white, and everything beside it is an
    outline in the ink the card is already using. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn {
   background: transparent; color: inherit;
   border: 2px solid currentColor; box-shadow: none;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn--primary,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn--danger {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn--primary,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn--danger {
   background: var(--role-ink); color: var(--role); border-color: transparent;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .btn.is-on,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .chip.is-on,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg-btn.is-on {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .chip.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg-btn.is-on {
   background: var(--role-ink); color: var(--role); border-color: transparent;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .chip,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg-btn {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .chip,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg-btn {
   background: transparent; color: inherit; border: 2px solid currentColor; box-shadow: none;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .seg { background: transparent; border-color: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg { background: transparent; border-color: currentColor; }
 /* Muted greys are invisible on a saturated ground: on a block, "quieter" is
    the same ink at less than full strength. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
   /* Everything drawn on a block is the block's ink. A numeral in the page's
      accent would be a third colour on a card that already has two — and on
      the red timer, blue figures are the one thing you cannot read. */
@@ -601,13 +601,13 @@ p { margin: 0 0 .6rem; }
   --accent: currentColor; --blue: currentColor; --red: currentColor;
   --p1: currentColor; --p2: currentColor; --p3: currentColor; --p4: currentColor;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .muted,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .hint,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .small,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-count,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) label { color: inherit; opacity: .85; }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .input,
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .select {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .muted,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .small,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-count,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) label { color: inherit; opacity: .85; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .input,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .select {
   background: rgba(255,255,255,.16); color: inherit; border-color: currentColor;
 }
 
@@ -678,7 +678,7 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
   font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
 }
 /* A block tool fills the screen with its colour, exactly as it fills its card. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stage-head .icon-btn { color: inherit; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stage-head .icon-btn { color: inherit; }
 .stage-actions { display: flex; align-items: center; gap: .4rem; }
 .stage-body { flex: 1; overflow: auto; padding: clamp(.8rem, 2.4vw, 1.6rem); max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: .7rem; }
 
@@ -2481,12 +2481,12 @@ body.is-seating-drag { user-select: none; }
    Anything on a coloured tool is drawn in that tool's ink — including the
    grey that browsers give a placeholder, which on red or blue is simply not
    there, and the pupil chips, which were white pills with white names. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) ::placeholder { color: currentColor; opacity: .6; }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .timer-title { color: inherit; border-bottom-color: currentColor; }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-chip {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) ::placeholder { color: currentColor; opacity: .6; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .timer-title { color: inherit; border-bottom-color: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-chip {
   background: transparent; color: inherit; border: 1.5px solid currentColor;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .pick-chip.is-had {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-chip.is-had {
   background: var(--role-ink); color: var(--role); border-color: transparent;
 }
 .stage .pick-count { text-align: center; }
@@ -2526,13 +2526,13 @@ body.is-seating-drag { user-select: none; }
 .stage[data-type="breathing"] .breathe-circle { width: min(62vh, 56vw); }
 .stage[data-type="breathing"] .breathe-word { font-size: min(7vw, 9vh); font-weight: 800; }
 .stage[data-type="breathing"] .breathe-count { font-size: min(2.4vw, 2.8vh); }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .breathe-word { font-weight: 800; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .breathe-word { font-weight: 800; }
 
 /* The stepper was a white box with white figures on any coloured tool. */
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stepper {
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stepper {
   background: transparent; border: 2px solid currentColor; color: inherit;
 }
-:is(.card, .stage)[data-tone="block"]:not([data-category="other"]) .stepper .icon-btn { color: inherit; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stepper .icon-btn { color: inherit; }
 
 /* Group tiles opened large: the names are what a class reads to find where
    they sit, so they grow with the screen. */
@@ -2815,24 +2815,25 @@ body.is-seating-drag { user-select: none; }
 @keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .news { animation: none; } }
 
-/* ---------------- colour on the working tools ----------------
-   A tool you lean in and work with stays white so its controls read cleanly,
-   but it should not be a blank sheet: the title strip is the family colour
-   (or the tool's own role), edge to edge, with the ink that colour carries.
-   Block tools are already wholly coloured, so they are left alone. */
-.card:is([data-tone="card"], [data-category="other"]) > .card-head {
-  margin: -18px -22px .35rem;
-  padding: .6rem 22px;
+/* ---------------- working tools: a coloured tile with a white sheet ----------------
+   The tools you lean in and work with — calculator, passage grader, seating —
+   are full colour like the rest, but their controls are drawn for white, so
+   they sit on a white sheet set into the tile. The tile carries the colour and
+   the title; the sheet carries everything you read and press. */
+.card[data-tone="card"] {
+  --card-bg: var(--role);
   background: var(--role);
   color: var(--role-ink);
-  border-radius: var(--r-panel) var(--r-panel) 0 0;
 }
-.card:is([data-tone="card"], [data-category="other"]) > .card-head .shape { background: currentColor; }
-.card:is([data-tone="card"], [data-category="other"]) > .card-head .shape[data-shape="ring"] { background: none; }
-.card:is([data-tone="card"], [data-category="other"]) > .card-head .icon-btn { color: inherit; }
-.card:is([data-tone="card"], [data-category="other"]) > .card-head .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
-/* A light wash of the same colour behind the tool, so the body is not stark white. */
-.card:is([data-tone="card"], [data-category="other"]):not([data-tone="block"]:not([data-category="other"])) {
-  --card-bg: color-mix(in srgb, var(--role) 6%, var(--surface));
-  background: var(--card-bg);
+.card[data-tone="card"] > .card-head .shape { background: currentColor; }
+.card[data-tone="card"] > .card-head .shape[data-shape="ring"] { background: none; }
+.card[data-tone="card"] > .card-head .icon-btn { color: inherit; }
+.card[data-tone="card"] > .card-head .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
+.card[data-tone="card"] > .card-body {
+  --card-bg: var(--surface);
+  background-color: var(--surface);
+  color: var(--ink);
+  border-radius: 14px;
+  padding: .7rem .75rem;
+  margin-top: .35rem;
 }

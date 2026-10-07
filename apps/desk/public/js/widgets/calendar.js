@@ -46,6 +46,7 @@
     icon: 'calendar',
     category: 'other',
     role: 'p2',
+    tone: 'card',
     guest: true,
     fills: true,
     size: { w: 5, h: 5 },

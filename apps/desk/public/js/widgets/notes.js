@@ -29,6 +29,7 @@
     blurb: 'A note to write in, or a checklist to tick off. Big enough to read from the back when you open it.',
     icon: 'notes',
     category: 'board',
+    tone: 'card',
     guest: true,
     fills: true,
     size: { w: 4, h: 5 },

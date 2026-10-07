@@ -595,6 +595,7 @@
     icon: 'calculator',
     category: 'other',
     role: 'p1',
+    tone: 'card',
     guest: true,
     size: { w: 3, h: 6 },
     min: { w: 2, h: 5 },

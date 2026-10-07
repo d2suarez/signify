@@ -434,6 +434,7 @@
     blurb: 'Arrange the room, then sit the class in it. One plan per class, switched from the same card.',
     icon: 'seating',
     category: 'class',
+    tone: 'card',
     guest: true,
     fills: true,
     size: { w: 6, h: 7 },

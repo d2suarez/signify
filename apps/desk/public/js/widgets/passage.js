@@ -463,6 +463,7 @@
     blurb: 'Mark a memorised passage: paste each pupil’s typed answer and see how many words they got right, word by word.',
     icon: 'check',
     category: 'class',
+    tone: 'card',
     guest: true,
     size: { w: 6, h: 9 },
     min: { w: 4, h: 6 },
