@@ -170,8 +170,8 @@ var pages = {};
 pages.overview = function () {
   return api('/overview' + tenantQuery()).then(function (d) {
     var alerts = d.alerts.map(function (a) {
-      return '<div class="notice notice-' + (a.level === 'danger' ? 'danger' : 'warn') + '">' +
-        '<strong>Needs attention</strong>' + esc(a.text) +
+      return '<div class="notice notice-' + (a.level === 'danger' ? 'danger' : a.level === 'info' ? 'info' : 'warn') + '">' +
+        '<strong>' + (a.level === 'info' ? 'For your information' : 'Needs attention') + '</strong>' + esc(a.text) +
         (a.go ? ' <a href="#" data-go="' + esc(a.go) + '">Open</a>' : '') + '</div>';
     }).join('');
 

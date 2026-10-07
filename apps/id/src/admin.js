@@ -203,7 +203,10 @@ router.get('/overview', async (req, res) => {
           AND NOT EXISTS (SELECT 1 FROM consents c
                            WHERE c.tenant_id = t.id AND c.kind = 'school_authorization' AND c.revoked_at IS NULL)`);
     for (const t of noConsent) {
-      alerts.push({ level: 'danger', text: `${t.name} has no recorded school authorization. Under COPPA the school-consent exception needs that record on file.`, go: 'compliance' });
+      // COPPA only applies below the minimum age, so on a school-staff footing this is just a note.
+      alerts.push(require('./policy').POSTURE === 'school-staff'
+        ? { level: 'info', text: `${t.name} has no recorded school authorization. Not needed right now: COPPA only matters if a student under 13 gets an account.`, go: 'compliance' }
+        : { level: 'danger', text: `${t.name} has no recorded school authorization. Under COPPA the school-consent exception needs that record on file.`, go: 'compliance' });
     }
   }
 
