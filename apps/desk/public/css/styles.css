@@ -2814,26 +2814,3 @@ body.is-seating-drag { user-select: none; }
 .news-actions [hidden] { display: none; }
 @keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .news { animation: none; } }
-
-/* ---------------- working tools: a coloured tile with a white sheet ----------------
-   The tools you lean in and work with — calculator, passage grader, seating —
-   are full colour like the rest, but their controls are drawn for white, so
-   they sit on a white sheet set into the tile. The tile carries the colour and
-   the title; the sheet carries everything you read and press. */
-.card[data-tone="card"] {
-  --card-bg: var(--role);
-  background: var(--role);
-  color: var(--role-ink);
-}
-.card[data-tone="card"] > .card-head .shape { background: currentColor; }
-.card[data-tone="card"] > .card-head .shape[data-shape="ring"] { background: none; }
-.card[data-tone="card"] > .card-head .icon-btn { color: inherit; }
-.card[data-tone="card"] > .card-head .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
-.card[data-tone="card"] > .card-body {
-  --card-bg: var(--surface);
-  background-color: var(--surface);
-  color: var(--ink);
-  border-radius: 14px;
-  padding: .7rem .75rem;
-  margin-top: .35rem;
-}
