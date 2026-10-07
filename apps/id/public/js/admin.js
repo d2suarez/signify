@@ -1234,6 +1234,9 @@ pages.compliance = function () {
       ? '<div class="notice notice-ok"><strong>School authorization on file</strong>' +
         esc(auth.signer_name) + ' (' + esc(auth.signer_title) + ', ' + esc(auth.signer_email) + ') on ' +
         esc(new Date(auth.signed_at).toLocaleDateString()) + ', against policy version ' + esc(auth.policy_version) + '.</div>'
+      : d.posture === 'school-staff'
+      ? '<div class="notice notice-info"><strong>No school authorization recorded</strong>' +
+        'Not needed right now — COPPA only matters if a student under ' + esc(d.minimumAge) + ' gets an account.</div>'
       : '<div class="notice notice-danger"><strong>No school authorization recorded</strong>' +
         'COPPA lets a school consent on parents’ behalf for classroom software — but only if the school actually authorized it and was told what is collected. Record that here.</div>';
 
