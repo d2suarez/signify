@@ -1,0 +1,15 @@
+{
+  "name": "classroom-whiteboard",
+  "version": "1.0.0",
+  "description": "Real-time classroom whiteboard for teachers and students",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/offsite.js && node test/teaching.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

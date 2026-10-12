@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signify Learning</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0A7C6E" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+</head>
+<body class="landing">
+  <div class="landing-card">
+    <h1>Signify Learning</h1>
+    <p class="subtitle">Draw together, learn together.</p>
+
+    <div id="landing-columns">
+    <div id="landing-left">
+    <div id="auth-section" hidden>
+      <div id="gsi-button"></div>
+    </div>
+
+    <!-- signed-in actions: a clear way to start a board of your own, and a
+         quieter way to make a classroom (most come from Signify ID now) -->
+    <div id="start-section" hidden>
+      <button id="new-personal-btn" class="primary-btn" type="button">＋ New personal board</button>
+      <p class="start-hint">A board of your own, outside any class.</p>
+      <details id="new-class" hidden>
+        <summary>New classroom</summary>
+        <p class="start-hint">Your Signify ID classes are set up for you automatically. Make one here only for a group that isn't in Signify ID.</p>
+        <label for="new-room-name">Classroom name</label>
+        <div class="room-row">
+          <input id="new-room-name" type="text" maxlength="50" placeholder="e.g. Chess club" />
+          <button id="new-room-btn" type="button">Create</button>
+        </div>
+      </details>
+    </div>
+
+    <div id="join-section">
+      <div class="role-tabs">
+        <button id="tab-teacher" class="role-tab active" type="button">I'm the Teacher</button>
+        <button id="tab-student" class="role-tab" type="button">I'm a Student</button>
+      </div>
+
+      <div id="name-field">
+        <label for="name-input">Your name</label>
+        <input id="name-input" type="text" maxlength="30" placeholder="e.g. Ms. Suarez" autocomplete="off" />
+      </div>
+
+      <label for="room-input" id="room-label">Room code</label>
+      <div class="room-row">
+        <input id="room-input" type="text" maxlength="12" placeholder="e.g. MATH1" autocomplete="off" />
+        <button id="gen-btn" type="button" title="Generate a new room code">🎲</button>
+      </div>
+
+      <button id="join-btn" class="primary-btn" type="button">New classroom</button>
+    </div>
+
+    <p id="landing-error" class="error" hidden></p>
+    </div>
+
+    <div id="landing-right">
+    <div id="my-rooms" hidden>
+      <h2>My classes</h2>
+      <p id="id-note" class="start-hint" hidden></p>
+      <ul id="my-rooms-list"></ul>
+      <p id="no-classes" class="start-hint" hidden>No classes yet. Classes you teach in Signify ID show up here automatically.</p>
+      <details id="archived-rooms" hidden>
+        <summary>Archived classes (<span id="archived-count">0</span>)</summary>
+        <ul id="archived-rooms-list"></ul>
+      </details>
+    </div>
+
+    <div id="personal-boards" hidden>
+      <h2>My boards <span class="h2-note">(not in a class)</span></h2>
+      <ul id="personal-boards-list"></ul>
+      <p id="no-boards" class="start-hint" hidden>No personal boards yet. Start one with ＋ New personal board.</p>
+      <details id="archived-boards" hidden>
+        <summary>Archived boards (<span id="archived-boards-count">0</span>)</summary>
+        <ul id="archived-boards-list"></ul>
+      </details>
+    </div>
+
+    <div id="recent-rooms" hidden>
+      <h2>All rooms (admin)</h2>
+      <ul id="rooms-list"></ul>
+    </div>
+    </div>
+    </div>
+
+    <!-- who you are, and the way to the admin tools: out of the way at the bottom -->
+    <div id="account-bar" hidden>
+      <div id="signed-in" hidden>
+        <span id="signed-in-label"></span>
+        <button id="signout-btn" type="button">Sign out</button>
+      </div>
+      <a id="admin-portal-link" href="#" target="_blank" rel="noopener" hidden>Admin tools (in Signify ID) ↗</a>
+    </div>
+  </div>
+
+  <script>
+    const tabTeacher = document.getElementById('tab-teacher');
+    const tabStudent = document.getElementById('tab-student');
+    const nameInput = document.getElementById('name-input');
+    const roomInput = document.getElementById('room-input');
+    const genBtn = document.getElementById('gen-btn');
+    const joinBtn = document.getElementById('join-btn');
+    const errEl = document.getElementById('landing-error');
+
+    let role = 'teacher';
+    let cfg = { authEnabled: false };
+    // Signed-in state comes from the server. Nothing about the session is
+    // held on this page — it is an httpOnly cookie the browser sends itself.
+    let session = null;
+
+    nameInput.value = localStorage.getItem('wb-name') || '';
+    // Only STUDENTS get their last class code remembered (they rejoin the same
+    // class daily). Teachers get a fresh code every visit, so "Start new
+    // whiteboard" really starts a new, blank class; pre-filling the last code
+    // silently reopened the previous class and its already-drawn-on board.
+    const lastStudentRoom = localStorage.getItem('wb-room') || '';
+    // Codes of classes this user can open as a teacher, to label the button honestly.
+    const myTeacherCodes = new Set();
+
+    function freshCode() {
+      const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      return Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    }
+
+    function currentCode() {
+      return roomInput.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    }
+
+    function updateJoinLabel() {
+      if (role !== 'teacher') { joinBtn.textContent = 'Join Class'; return; }
+      joinBtn.textContent = myTeacherCodes.has(currentCode()) ? 'Open classroom' : 'New classroom';
+    }
+    roomInput.addEventListener('input', updateJoinLabel);
+
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.hidden = !msg;
+    }
+
+    function isSuperSession() {
+      return !!session && (session.isSuper || session.role === 'superadmin');
+    }
+
+    function sessionPerms() {
+      return session && Array.isArray(session.perms) ? session.perms : [];
+    }
+
+    function setRole(r) {
+      if (r === 'teacher' && session && session.role === 'student') return; // not allowed
+      role = r;
+      tabTeacher.classList.toggle('active', r === 'teacher');
+      tabStudent.classList.toggle('active', r === 'student');
+      genBtn.hidden = r !== 'teacher';
+      roomInput.value = r === 'teacher' ? freshCode() : lastStudentRoom;
+      updateJoinLabel();
+      updateRecentVisibility();
+    }
+    tabTeacher.onclick = () => setRole('teacher');
+    tabStudent.onclick = () => setRole('student');
+
+    genBtn.onclick = () => {
+      roomInput.value = freshCode();
+      updateJoinLabel();
+    };
+    roomInput.value = freshCode(); // page opens on the teacher tab
+    updateJoinLabel();
+
+    function join() {
+      const roomCode = currentCode();
+      let name;
+      if (cfg.authEnabled) {
+        if (!session) { showError('Please sign in with your school Google account first.'); return; }
+        name = session.name;
+      } else {
+        name = nameInput.value.trim();
+        if (!name) { showError('Please enter your name.'); return; }
+        localStorage.setItem('wb-name', name);
+      }
+      if (!roomCode) { showError('Please enter a room code.'); return; }
+      if (role === 'student') localStorage.setItem('wb-room', roomCode);
+      location.href = `/board.html?role=${role}&room=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(name)}`;
+    }
+    joinBtn.onclick = join;
+    document.body.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+
+    // ----- sign-in, via Signify ID -----
+
+    function renderSignInButton() {
+      const host = document.getElementById('gsi-button');
+      if (!host) return;
+      host.innerHTML =
+        '<button class="primary-btn" id="signin-btn" style="width:320px">' +
+        'Sign in with your school account</button>';
+      document.getElementById('signin-btn').onclick = () => {
+        window.location.href = (cfg.signInUrl || '/auth/login') + '?return=' +
+          encodeURIComponent(window.location.pathname);
+      };
+    }
+
+    document.getElementById('signout-btn').onclick = () => {
+      window.location.href = cfg.signOutUrl || '/auth/logout';
+    };
+
+    function isTeacherSession() {
+      return isSuperSession() || sessionPerms().includes('teach') || sessionPerms().includes('manage_boards');
+    }
+
+    function applyAuthState() {
+      const authSection = document.getElementById('auth-section');
+      const startSection = document.getElementById('start-section');
+      const joinSection = document.getElementById('join-section');
+      const signedIn = document.getElementById('signed-in');
+      const gsiButton = document.getElementById('gsi-button');
+
+      if (!cfg.authEnabled) {
+        authSection.hidden = true;
+        startSection.hidden = true;
+        joinSection.hidden = false;
+        loadRooms();
+        return;
+      }
+      authSection.hidden = false;
+      document.getElementById('name-field').hidden = true;
+      // Signed in, your role comes from Signify ID, so there is nothing to pick.
+      document.querySelector('.role-tabs').hidden = true;
+      if (session) {
+        gsiButton.hidden = true;
+        authSection.hidden = true; // only the sign-in button lives there; who you are is in the bottom bar
+        document.getElementById('account-bar').hidden = false;
+        signedIn.hidden = false;
+        document.getElementById('signed-in-label').textContent = `Signed in as ${session.name} (${session.email})`;
+        const perms = sessionPerms();
+        // Admin tools live in the Signify ID console now; this is just the way there.
+        const adminLink = document.getElementById('admin-portal-link');
+        adminLink.href = cfg.consoleUrl || '#';
+        adminLink.hidden = !cfg.consoleUrl || !(isSuperSession() || perms.some((p) => p === 'manage_boards' || p === 'view_sessions' || p === 'manage_users'));
+        startSection.hidden = false;
+        const teacher = isTeacherSession();
+        document.getElementById('new-class').hidden = !teacher;
+        // Teachers open their classes from the cards; the code box is how a
+        // pupil joins a class they aren't listed in yet.
+        joinSection.hidden = teacher;
+        if (!teacher) {
+          setRole('student');
+          document.getElementById('room-label').textContent = 'Join a class with a code';
+        }
+        loadRooms();
+        loadMyRooms();
+        loadPersonalBoards();
+      } else {
+        document.getElementById('account-bar').hidden = true;
+        document.getElementById('admin-portal-link').hidden = true;
+        document.getElementById('personal-boards').hidden = true;
+        gsiButton.hidden = false;
+        signedIn.hidden = true;
+        startSection.hidden = true;
+        joinSection.hidden = true;
+        document.getElementById('recent-rooms').hidden = true;
+        document.getElementById('my-rooms').hidden = true;
+        renderSignInButton();
+      }
+    }
+
+    // ----- recent rooms (teachers) -----
+
+    let roomsLoaded = false;
+    function updateRecentVisibility() {
+      document.getElementById('recent-rooms').hidden = role !== 'teacher' || !roomsLoaded;
+    }
+
+    // ----- cards (classes and boards share one look) -----
+
+    function makeCard(thumb, title, meta, open) {
+      const li = document.createElement('li');
+      // board preview on top of the card (set .src as a property — never innerHTML)
+      if (thumb) {
+        const im = document.createElement('img');
+        im.className = 'card-thumb';
+        im.alt = '';
+        im.src = thumb;
+        li.appendChild(im);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'card-thumb card-thumb-empty';
+        ph.textContent = '✎';
+        li.appendChild(ph);
+      }
+      const nm = document.createElement('span');
+      nm.className = 'room-name';
+      nm.textContent = title;
+      const mt = document.createElement('span');
+      mt.className = 'room-meta';
+      mt.textContent = meta;
+      li.append(nm, mt);
+      li.onclick = open;
+      return li;
+    }
+
+    function addCardAction(li, label, title, fn) {
+      let box = li.querySelector('.card-actions');
+      if (!box) {
+        box = document.createElement('div');
+        box.className = 'card-actions';
+        li.appendChild(box);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'room-rename';
+      btn.textContent = label;
+      btn.title = title;
+      btn.setAttribute('aria-label', title);
+      btn.onclick = (e) => { e.stopPropagation(); fn(); };
+      box.appendChild(btn);
+    }
+
+    // The fold-out list of archived things, each with a Restore button.
+    function fillArchived(wrapId, listId, countId, items, nameOf, restore) {
+      const ul = document.getElementById(listId);
+      ul.innerHTML = '';
+      for (const it of items) {
+        const li = document.createElement('li');
+        const nm = document.createElement('span');
+        nm.className = 'room-name';
+        nm.textContent = nameOf(it);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'room-rename';
+        btn.textContent = 'Restore';
+        btn.onclick = () => restore(it);
+        li.append(nm, btn);
+        ul.appendChild(li);
+      }
+      document.getElementById(wrapId).hidden = !items.length;
+      document.getElementById(countId).textContent = items.length;
+    }
+
+    // ----- my classes (auth mode) -----
+
+    async function loadMyRooms() {
+      if (!cfg.authEnabled || !session) return;
+      const wrap = document.getElementById('my-rooms');
+      const teacher = isTeacherSession();
+      try {
+        const r = await fetch('/api/my/rooms', { credentials: 'same-origin' });
+        if (!r.ok) { wrap.hidden = !teacher; return; }
+        const d = await r.json();
+        const ul = document.getElementById('my-rooms-list');
+        ul.innerHTML = '';
+        d.teaching.forEach((x) => myTeacherCodes.add(x.code));
+        updateJoinLabel();
+        const items = [
+          ...d.teaching.map((x) => ({ ...x, mode: 'teacher' })),
+          ...d.enrolled.filter((x) => !d.teaching.some((t) => t.code === x.code)).map((x) => ({ ...x, mode: 'student' })),
+        ];
+        for (const it of items) {
+          const count = `${it.students} student${it.students === 1 ? '' : 's'}`;
+          const meta = it.mode === 'student'
+            ? (it.subject || 'your class')
+            : `${it.fromId ? 'Signify ID class' : 'you teach'} · ${count}`;
+          const li = makeCard(it.thumb, it.name || `Class ${it.code}`, meta, () => {
+            location.href = `/board.html?role=${it.mode}&room=${encodeURIComponent(it.code)}&name=${encodeURIComponent(session.name)}`;
+          });
+          if (it.mode === 'teacher') {
+            // An ID class takes its name from Signify ID; rename it there.
+            if (!it.fromId) {
+              addCardAction(li, '✎', 'Rename this classroom', () => {
+                const name = prompt('Classroom name:', it.name || '');
+                if (name === null) return;
+                roomMeta(it.code, { name }).then(loadMyRooms);
+              });
+            }
+            addCardAction(li, '🗄', 'Archive this class', () => {
+              if (!confirm(`Archive "${it.name || it.code}"? It moves to Archived and disappears from students' lists. You can restore it anytime.`)) return;
+              roomMeta(it.code, { archived: true }).then(loadMyRooms);
+            });
+          }
+          ul.appendChild(li);
+        }
+
+        fillArchived('archived-rooms', 'archived-rooms-list', 'archived-count', d.archived || [],
+          (it) => it.name || `Class ${it.code}`,
+          (it) => roomMeta(it.code, { archived: false }).then(loadMyRooms));
+
+        const note = document.getElementById('id-note');
+        note.hidden = !d.idError;
+        if (d.idError) note.textContent = `Couldn't reach Signify ID just now (${d.idError}) — classes it hasn't set up here yet may be missing.`;
+        document.getElementById('no-classes').hidden = !!items.length || !teacher;
+        wrap.hidden = !items.length && !teacher && !(d.archived || []).length;
+      } catch {
+        wrap.hidden = !teacher;
+      }
+    }
+
+    function roomMeta(code, body) {
+      return fetch(`/api/room/${code}/meta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+    }
+
+    // ----- personal boards (no class) -----
+
+    async function loadPersonalBoards() {
+      if (!cfg.authEnabled || !session) return;
+      const wrap = document.getElementById('personal-boards');
+      try {
+        const [r, ra] = await Promise.all([
+          fetch('/api/boards/personal', { credentials: 'same-origin' }),
+          fetch('/api/boards/personal/archived', { credentials: 'same-origin' }),
+        ]);
+        if (!r.ok) return;
+        const boards = await r.json();
+        const archived = ra.ok ? await ra.json() : [];
+        const ul = document.getElementById('personal-boards-list');
+        ul.innerHTML = '';
+        for (const b of boards) {
+          const when = b.updatedAt ? new Date(b.updatedAt).toLocaleDateString() : '';
+          const li = makeCard(b.thumb, b.title, when, () => { location.href = `/board.html?board=${encodeURIComponent(b.id)}`; });
+          addCardAction(li, '🗄', 'Archive this board', () => setBoardArchived(b.id, true));
+          ul.appendChild(li);
+        }
+        document.getElementById('no-boards').hidden = !!boards.length;
+        fillArchived('archived-boards', 'archived-boards-list', 'archived-boards-count', archived,
+          (b) => b.title, (b) => setBoardArchived(b.id, false));
+        wrap.hidden = false;
+      } catch { /* section stays hidden */ }
+    }
+
+    async function setBoardArchived(id, archived) {
+      try {
+        const r = await fetch(`/api/boards/${encodeURIComponent(id)}/archive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ archived }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); showError(d.error || 'Could not change that board.'); }
+      } catch {
+        showError('Could not reach the server.');
+      }
+      loadPersonalBoards();
+    }
+
+    document.getElementById('new-personal-btn').onclick = async () => {
+      try {
+        const r = await fetch('/api/boards/personal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+          body: JSON.stringify({}),
+        });
+        const d = await r.json();
+        if (!r.ok) { showError(d.error || 'Could not create the board.'); return; }
+        location.href = `/board.html?board=${encodeURIComponent(d.id)}`;
+      } catch {
+        showError('Could not reach the server.');
+      }
+    };
+
+    document.getElementById('new-room-btn').onclick = async () => {
+      const name = document.getElementById('new-room-name').value.trim();
+      if (!name) { showError('Give your classroom a name first.'); return; }
+      try {
+        const r = await fetch('/api/rooms/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+          body: JSON.stringify({ name }),
+        });
+        const d = await r.json();
+        if (!r.ok) { showError(d.error || 'Could not create the classroom.'); return; }
+        location.href = `/board.html?role=teacher&room=${encodeURIComponent(d.code)}&name=${encodeURIComponent(session.name)}`;
+      } catch {
+        showError('Could not reach the server.');
+      }
+    };
+
+    // Open (no sign-in) mode only: every room on this server. Signed in, the
+    // full list is an admin tool and lives in the Signify ID console.
+    function loadRooms() {
+      if (cfg.authEnabled) return;
+      fetch('/api/rooms', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : [])).then((roomsData) => {
+        const ul = document.getElementById('rooms-list');
+        ul.innerHTML = '';
+        if (!roomsData.length) return;
+        roomsLoaded = true;
+        roomsData.slice(0, 8).forEach((r) => {
+          const li = document.createElement('li');
+          const when = r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '';
+          li.innerHTML = `<span class="room-name"></span><span class="room-meta">${r.students} student board${r.students === 1 ? '' : 's'} · ${when}</span>`;
+          li.querySelector('.room-name').textContent = r.name || r.code;
+          myTeacherCodes.add(r.code);
+          li.onclick = () => { setRole('teacher'); roomInput.value = r.code; join(); };
+          ul.appendChild(li);
+        });
+        updateJoinLabel();
+        updateRecentVisibility();
+      }).catch(() => {});
+    }
+
+    (async () => {
+      try { cfg = await (await fetch('/api/config')).json(); }
+      catch { /* open mode */ }
+      if (cfg.authEnabled) {
+        try {
+          const r = await fetch('/api/me', { credentials: 'same-origin' });
+          if (r.ok) session = await r.json();
+        } catch { /* treated as signed out */ }
+      }
+      // A leftover token from the old sign-in is dead weight now.
+      try { localStorage.removeItem('wb-session'); } catch { /* ignore */ }
+      applyAuthState();
+    })();
+  </script>
+  <script src="/vendor/signify-switcher.js" defer></script>
+</body>
+</html>

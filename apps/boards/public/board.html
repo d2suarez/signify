@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Whiteboard</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0A7C6E" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="topbar-group">
+        <a id="home-btn" class="action-btn" href="/" title="Back to my classrooms">⌂</a>
+        <span id="room-badge" class="badge"><span id="room-code-text"></span><button id="code-toggle" type="button" title="Hide or show the join code">👁</button></span>
+        <button id="board-title" class="action-btn" title="Switch, create, or organize your boards">Board ▾</button>
+        <button id="templates-btn" class="action-btn teacher-only" hidden title="Start from a template">Templates</button>
+        <button id="back-my-board" class="action-btn ctx-apply" hidden title="Return to your own board">← My board</button>
+        <span id="user-label"></span>
+        <span id="status-dot" class="dot offline" title="Connection"></span>
+        <span id="save-indicator"></span>
+      </div>
+      <div class="topbar-group">
+        <button id="ctx-crop" class="action-btn ctx-btn" hidden title="Crop the selected image">Crop</button>
+        <button id="ctx-curve" class="action-btn ctx-btn" hidden title="Reshape the selected curve">Edit curve</button>
+        <button id="ctx-beautify" class="action-btn ctx-btn" hidden title="Straighten this sketch into a clean shape">Beautify</button>
+        <button id="ctx-duplicate" class="action-btn ctx-btn" hidden title="Duplicate selection (Ctrl/⌘+D)">Duplicate</button>
+        <button id="ctx-comment" class="action-btn ctx-btn" hidden title="Comment on the selected item">Comment</button>
+        <button id="ctx-send" class="action-btn ctx-btn" hidden title="Send the selected items to students">Send to…</button>
+        <button id="ctx-apply" class="action-btn ctx-apply" hidden>Apply</button>
+        <button id="ctx-cancel" class="action-btn" hidden>Cancel</button>
+        <button id="touch-toggle" class="action-btn" hidden title="What your finger does on the board">Finger: pans</button>
+        <button id="msg-btn" class="action-btn" hidden>Messages <span id="msg-unread" class="count-badge" hidden>0</span></button>
+        <button id="students-btn" class="action-btn" hidden>Students</button>
+        <button id="poll-btn" class="teacher-only action-btn" hidden>Poll</button>
+        <button id="classroom-btn" class="teacher-only action-btn" hidden>Tools</button>
+        <button id="features-btn" class="teacher-only action-btn" hidden>Features</button>
+        <button id="share-btn" class="teacher-only action-btn" hidden title="Show your board live on every student's screen">Share</button>
+        <button id="push-btn" class="teacher-only action-btn" hidden>Push to class</button>
+        <details id="download-menu">
+          <summary class="action-btn" title="Download, clear & more">More ▾</summary>
+          <div class="menu">
+            <button id="dl-full">Download full board</button>
+            <button id="dl-view">Download current view</button>
+            <button id="export-all-btn" class="teacher-only" hidden title="Save every student's current board as one PDF">Export all boards (PDF)</button>
+            <button id="assign-btn" class="teacher-only" hidden title="Assign this board to the whole class as graded work">Assign to class…</button>
+            <button id="assignments-btn" class="teacher-only" hidden title="See turn-ins and grade student work">Assignments…</button>
+            <button id="a11y-btn" title="Accessibility options">Accessibility…</button>
+            <div class="menu-sep"></div>
+            <button id="fullscreen-btn" title="Full screen">Full screen</button>
+            <button id="clear-btn" class="menu-danger" title="Clear the whole board">Clear board</button>
+          </div>
+        </details>
+        <span data-signify-switcher class="signify-switcher-mount"></span>
+      </div>
+    </header>
+
+    <aside id="toolbar">
+      <button class="tool active" data-tool="select" title="Select / move (V)">↖</button>
+      <button class="tool" data-tool="pan" title="Hand — move the board or move objects (H)">✋</button>
+      <button class="tool" data-tool="pen" title="Pen (P)">✏️</button>
+      <button class="tool" data-tool="highlighter" title="Highlighter">🖍️</button>
+      <button class="tool" data-tool="line" title="Straight line — drag">╱</button>
+      <button class="tool" data-tool="curve" title="Curved line — drag the line, move to bend it, click to place. Double-click a placed curve to reshape it.">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M2 16 C 7 2, 13 18, 18 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="2" cy="16" r="1.8" fill="currentColor"/><circle cx="18" cy="4" r="1.8" fill="currentColor"/></svg>
+      </button>
+      <button class="tool" data-tool="arrow" title="Arrow — drag">➜</button>
+      <button id="shapes-btn" class="tool" title="Shapes — click to pick one">▭</button>
+      <div id="shapes-menu" hidden>
+        <button class="shape-opt" data-shape="rect" title="Rectangle">▭</button>
+        <button class="shape-opt" data-shape="ellipse" title="Ellipse">◯</button>
+        <button class="shape-opt" data-shape="triangle" title="Triangle">△</button>
+        <button class="shape-opt" data-shape="diamond" title="Diamond">◇</button>
+        <button class="shape-opt" data-shape="pentagon" title="Pentagon">⬠</button>
+        <button class="shape-opt" data-shape="hexagon" title="Hexagon">⬡</button>
+        <button class="shape-opt" data-shape="star" title="Star">☆</button>
+      </div>
+      <button class="tool" data-tool="text" title="Text — click the board (T)">T</button>
+      <button class="tool" data-tool="eraser" title="Eraser — click or drag over things (E)">🧽</button>
+      <div class="tb-sep"></div>
+      <button id="insert-btn" class="tool" title="Insert — image, document, ruler, graph, chart">＋</button>
+      <div id="insert-menu" hidden>
+        <button id="image-btn" class="insert-opt" title="Add an image">🖼️ <span>Image</span></button>
+        <button id="doc-btn" class="insert-opt" title="Add a document (PDF, Word, PowerPoint…) to draw on">📄 <span>Document</span></button>
+        <button id="ruler-btn" class="insert-opt" title="Add a ruler">📏 <span>Ruler</span></button>
+        <button id="graph-btn" class="insert-opt" title="Insert a coordinate graph">📈 <span>Graph</span></button>
+        <button id="chart-btn" class="insert-opt" title="Make a chart from a CSV file">📊 <span>Chart from CSV</span></button>
+        <button id="equation-btn" class="insert-opt" title="Insert a math equation">∑ <span>Equation</span></button>
+      </div>
+      <input id="image-input" type="file" accept="image/*" hidden />
+      <input id="doc-input" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.odt,.odp,.ods,.rtf,.txt,.xls,.xlsx" hidden />
+      <input id="csv-input" type="file" accept=".csv,text/csv" hidden />
+      <div class="tb-sep"></div>
+      <div id="swatches">
+        <button class="swatch active" data-color="#1e293b" style="background:#1e293b" title="Ink"></button>
+        <button class="swatch" data-color="#dc2626" style="background:#dc2626" title="Red"></button>
+        <button class="swatch" data-color="#2563eb" style="background:#2563eb" title="Blue"></button>
+        <button class="swatch" data-color="#16a34a" style="background:#16a34a" title="Green"></button>
+        <button class="swatch" data-color="#f59e0b" style="background:#f59e0b" title="Orange"></button>
+        <button class="swatch" data-color="#9333ea" style="background:#9333ea" title="Purple"></button>
+      </div>
+      <input id="color-input" type="color" value="#1e293b" title="Custom color" />
+      <input id="width-input" type="range" min="1" max="20" value="4" title="Line thickness" />
+      <input id="opacity-input" type="range" min="10" max="100" value="100" title="Transparency" />
+      <button id="linestyle-btn" class="tool" title="Line style: solid / dashed / dotted">
+        <svg width="22" height="14" viewBox="0 0 22 14"><line x1="1" y1="7" x2="21" y2="7" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <label id="fill-label" title="Fill shapes with color"><input id="fill-input" type="checkbox" /> Fill</label>
+      <div class="tb-sep"></div>
+      <button id="undo-btn" class="tool" title="Undo (Ctrl+Z)">↩</button>
+      <button id="redo-btn" class="tool" title="Redo (Ctrl+Shift+Z)">↪</button>
+      <button id="delete-btn" class="tool" title="Delete selection (Del)">🗑</button>
+    </aside>
+
+    <main id="canvas-wrap">
+      <canvas id="board"></canvas>
+      <div id="cursor-layer" aria-hidden="true"></div>
+      <div id="board-loading" hidden role="status" aria-live="polite">
+        <div class="bl-card">
+          <div id="bl-text">Loading board…</div>
+          <div class="bl-bar"><div id="bl-fill"></div></div>
+        </div>
+      </div>
+      <div id="zoom-dock" class="zoom-controls">
+        <button id="zoom-out" title="Zoom out (Ctrl+scroll)">−</button>
+        <button id="zoom-label" title="Reset to 100%">100%</button>
+        <button id="zoom-in" title="Zoom in (Ctrl+scroll)">+</button>
+        <button id="zoom-fit" title="Fit everything on screen">⛶ Fit</button>
+        <button id="page-prev" title="Previous page" hidden>◀</button>
+        <button id="page-label" title="Document page" hidden>1/1</button>
+        <button id="page-next" title="Next page" hidden>▶</button>
+        <button id="margin-less" title="Less margin around the document" hidden>Margin −</button>
+        <button id="margin-more" title="More margin around the document" hidden>Margin +</button>
+        <button id="page-add" title="Add a blank page to the document" hidden>＋ Page</button>
+      </div>
+      <div id="text-toolbar" hidden>
+        <button id="tt-bold" title="Bold"><b>B</b></button>
+        <button id="tt-italic" title="Italic"><i>I</i></button>
+        <button id="tt-underline" title="Underline"><u>U</u></button>
+        <span class="tt-sep"></span>
+        <button id="tt-smaller" title="Smaller">A−</button>
+        <button id="tt-bigger" title="Bigger">A+</button>
+        <span class="tt-sep"></span>
+        <button id="tt-color" title="Use current color">Color</button>
+        <span class="tt-sep"></span>
+        <button id="tt-font" title="Font">Aa ▾</button>
+      </div>
+      <div id="tt-font-menu" hidden></div>
+      <div id="hand-mode" hidden>
+        <button id="hand-board" class="hand-opt active" type="button">Move board</button>
+        <button id="hand-objects" class="hand-opt" type="button">Move objects</button>
+      </div>
+      <div id="eraser-mode" hidden>
+        <button id="eraser-object" class="hand-opt active" type="button">Whole object</button>
+        <button id="eraser-partial" class="hand-opt" type="button">Parts</button>
+      </div>
+      <div id="comment-pop" hidden>
+        <div id="comment-thread"></div>
+        <textarea id="comment-input" rows="2" placeholder="Write a comment…"></textarea>
+        <div class="role-actions">
+          <button id="comment-save" class="primary-sm" type="button">Comment</button>
+          <button id="comment-close" class="btn-view" type="button">Close</button>
+        </div>
+      </div>
+    </main>
+
+    <aside id="students-panel" hidden>
+      <div id="students-header">
+        <span>Students <span id="student-count">0</span></span>
+        <span class="panel-btns">
+          <input id="preview-size" type="range" min="200" max="480" value="300" hidden title="Preview size" />
+          <button id="overview-btn" type="button" title="Expand — see every student's board large">⤢</button>
+          <button id="panel-collapse" type="button" title="Hide the student panel">⇥</button>
+        </span>
+      </div>
+      <div id="student-tiles"></div>
+      <div id="students-grid" hidden></div>
+    </aside>
+    <button id="panel-reopen" hidden title="Show the student panel">👥</button>
+  </div>
+
+  <!-- Student: full-screen view of the teacher's shared board -->
+  <div id="share-overlay" hidden>
+    <div class="overlay-banner" id="share-banner">Your teacher is sharing their board</div>
+    <div class="overlay-canvas-wrap"><canvas id="share-canvas"></canvas></div>
+  </div>
+
+  <!-- Teacher: close-up live view of one student -->
+  <div id="student-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="modal-title"></span>
+        <div>
+          <button id="modal-spotlight" title="Show this student's board on every student's screen, live">★ Spotlight</button>
+          <button id="modal-draw" title="Open this board on your canvas and draw on it">✏ Draw on board</button>
+          <button id="modal-copy" title="Copy this board into your own boards">⧉ Copy to me</button>
+          <button id="modal-push" title="Send your current board to this student as a new board">Push my board</button>
+          <button id="modal-close">✕ Close</button>
+        </div>
+      </div>
+      <div id="modal-board-strip"></div>
+      <div class="overlay-canvas-wrap"><canvas id="modal-canvas"></canvas></div>
+      <p class="hint modal-hint">Scroll to pan · Ctrl/⌘+scroll to zoom · drag to move around</p>
+    </div>
+  </div>
+
+  <!-- Teacher: pick which students receive selected objects -->
+  <div id="send-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Send selection to students</span>
+        <div><button id="send-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label class="chk send-all-row"><input type="checkbox" id="send-all" checked /> <span>All students</span></label>
+        <div id="send-list" class="chart-valcols"></div>
+        <div class="role-actions"><button id="send-confirm" class="primary-sm">Send</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Messages: teacher <-> students -->
+  <aside id="msg-panel" hidden>
+    <div id="msg-head">
+      <span>Messages</span>
+      <button id="msg-close" type="button">✕</button>
+    </div>
+    <select id="msg-to" hidden></select>
+    <div id="msg-list"></div>
+    <form id="msg-form">
+      <input id="msg-input" type="text" maxlength="1000" placeholder="Write a message…" autocomplete="off" />
+      <button class="primary-sm" type="submit">Send</button>
+    </form>
+  </aside>
+
+  <!-- Board switcher drawer -->
+  <div id="boards-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span>My boards<span id="boards-context"></span></span>
+        <div>
+          <button id="board-new">＋ New board</button>
+          <button id="boards-close">✕ Close</button>
+        </div>
+      </div>
+      <div id="boards-grid"></div>
+    </div>
+  </div>
+
+  <!-- Share a board to the web (read-only embed) -->
+  <div id="embed-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Share to the web — <span id="embed-board-title"></span></span>
+        <div><button id="embed-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">Anyone with the link can view this board — no sign-in needed. It stays live: whatever you draw appears for viewers straight away. Visitors can pan and zoom but cannot edit, and they see nothing else from your class.</p>
+        <div id="embed-off">
+          <div class="role-actions"><button id="embed-publish" class="primary-sm">Publish this board</button></div>
+        </div>
+        <div id="embed-on" hidden>
+          <label>Public link</label>
+          <input id="embed-url" type="text" readonly />
+          <div class="embed-opts">
+            <div class="embed-opt">
+              <label for="embed-w">Size (px)</label>
+              <div class="embed-size">
+                <input id="embed-w" type="number" min="200" max="4000" value="800" /> ×
+                <input id="embed-h" type="number" min="200" max="4000" value="600" />
+              </div>
+            </div>
+            <div class="embed-opt">
+              <label for="embed-fit">Opening view</label>
+              <select id="embed-fit">
+                <option value="page">First page (documents)</option>
+                <option value="all">Whole board</option>
+              </select>
+            </div>
+            <div class="embed-opt">
+              <label for="embed-start">Start on page</label>
+              <input id="embed-start" type="number" min="1" max="999" value="1" />
+            </div>
+            <label class="embed-check"><input type="checkbox" id="embed-nav" checked /> Show page controls in the embed</label>
+            <label class="embed-check"><input type="checkbox" id="embed-autoplay" /> Start interactive right away (skip the click-to-play)</label>
+          </div>
+          <label>Embed code for a webpage</label>
+          <textarea id="embed-code" rows="3" readonly></textarea>
+          <div class="role-actions">
+            <button id="embed-copy" class="primary-sm">Copy embed code</button>
+            <button id="embed-open" class="btn-view">Preview</button>
+            <button id="embed-revoke" class="btn-block">Unpublish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How to place an added document -->
+  <div id="docmode-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Add <span id="docmode-name">document</span></span>
+        <div><button id="docmode-cancel">✕ Cancel</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">How should this document sit on your board?</p>
+        <div class="docmode-choices">
+          <button id="docmode-doc" class="docmode-choice">
+            <span class="dc-icon">📄</span>
+            <span class="dc-title">As a document</span>
+            <span class="dc-sub">Pages fill the board and it stays fenced in — scroll and zoom without getting lost. Add blank pages and margins to keep working.</span>
+          </button>
+          <button id="docmode-object" class="docmode-choice">
+            <span class="dc-icon">🖼️</span>
+            <span class="dc-title">Place on the board</span>
+            <span class="dc-sub">Drop the pages on as movable, resizable objects — arrange them anywhere, like any other shape or image.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Board version history -->
+  <div id="history-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Version history — <span id="history-board-title"></span></span>
+        <div><button id="history-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">A snapshot is kept about every 10 minutes while a board changes. Restoring makes an extra snapshot first, so you can always come back.</p>
+        <div id="history-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copy / move destination picker -->
+  <div id="transfer-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span id="transfer-title">Copy board</span>
+        <div><button id="transfer-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label for="transfer-dest">Destination</label>
+        <select id="transfer-dest"></select>
+        <div class="role-actions">
+          <button id="transfer-copy" class="primary-sm">Copy there</button>
+          <button id="transfer-move" class="btn-view">Move there</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher: class roster (search, bulk add, remove) -->
+  <div id="roster-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span>Class roster — <span id="roster-room"></span></span>
+        <div><button id="roster-close">✕ Close</button></div>
+      </div>
+      <div id="code-controls" hidden>
+        <span id="code-current"></span>
+        <span>
+          <button id="code-reset" class="btn-view" type="button" title="Generate a new join code — the old one stops working">Reset code</button>
+          <button id="code-disable" class="btn-block" type="button" title="Stop anyone new from joining with a code">Disable joining</button>
+        </span>
+      </div>
+      <div class="roster-body">
+        <div class="roster-col">
+          <h3>Find students at your school</h3>
+          <input id="roster-search" type="text" placeholder="Search by name or email…" autocomplete="off" />
+          <div id="roster-results"></div>
+          <h3>Bulk add</h3>
+          <textarea id="roster-bulk" rows="4" placeholder="Paste email addresses separated by commas or new lines"></textarea>
+          <button id="roster-bulk-btn" class="primary-sm">Add all</button>
+          <div id="roster-classroom" hidden>
+            <h3>Google Classroom</h3>
+            <button id="roster-classroom-btn" class="btn-view" type="button">Import from Google Classroom</button>
+            <div id="roster-classroom-picker"></div>
+          </div>
+        </div>
+        <div class="roster-col">
+          <h3>Enrolled <span id="roster-count" class="count-badge">0</span></h3>
+          <div id="roster-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher: per-room and per-student feature switches -->
+  <div id="features-modal" hidden>
+    <div class="modal-box features-box">
+      <div class="modal-head">
+        <span>Class features — <span id="features-room"></span></span>
+        <div><button id="features-close">✕ Close</button></div>
+      </div>
+      <div class="features-body">
+        <p class="hint">Click a chip to cycle it: <span class="f-chip f-inherit">Inherited</span> → <span class="f-chip f-off">Off</span> → <span class="f-chip f-on">On</span>. Student settings override the room; the room overrides the school default.</p>
+        <div id="features-room-row"></div>
+        <h3 class="features-h3">Per student</h3>
+        <div id="features-students"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template library -->
+  <div id="templates-modal" hidden>
+    <div class="modal-box overview-box">
+      <div class="modal-head">
+        <span>Template library</span>
+        <div>
+          <button id="tmpl-save">＋ Save this board as a template</button>
+          <button id="templates-close">✕ Close</button>
+        </div>
+      </div>
+      <div class="tmpl-toolbar">
+        <div class="tmpl-tabs">
+          <button class="tmpl-tab active" data-lib="public">Public</button>
+          <button class="tmpl-tab" data-lib="school">My school</button>
+          <button class="tmpl-tab" data-lib="mine">Mine</button>
+        </div>
+        <select id="tmpl-subject"><option value="">All subjects</option></select>
+      </div>
+      <div id="tmpl-grid"></div>
+    </div>
+  </div>
+
+  <!-- Save-as-template dialog -->
+  <div id="tmpl-save-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head"><span>Save as template</span><div><button id="tmpl-save-close">✕ Close</button></div></div>
+      <div class="transfer-body">
+        <label>Name</label>
+        <input id="tmpl-save-title" type="text" maxlength="60" placeholder="e.g. Weekly warm-up" />
+        <label>Subject</label>
+        <select id="tmpl-save-subject"></select>
+        <label>Save to</label>
+        <select id="tmpl-save-scope">
+          <option value="personal">My templates (just me)</option>
+          <option value="school">My school library</option>
+          <option value="public">Public library</option>
+        </select>
+        <p id="tmpl-save-note" class="hint"></p>
+        <div class="role-actions"><button id="tmpl-save-go" class="primary-sm">Save template</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coordinate graph setup -->
+  <div id="graph-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Insert coordinate graph</span>
+        <div><button id="graph-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label>Title (optional)</label>
+        <input id="graph-title" type="text" maxlength="40" placeholder="e.g. Supply &amp; Demand" />
+        <div class="grid2">
+          <div><label>X min</label><input id="graph-xmin" type="number" value="-10" /></div>
+          <div><label>X max</label><input id="graph-xmax" type="number" value="10" /></div>
+          <div><label>Y min</label><input id="graph-ymin" type="number" value="-10" /></div>
+          <div><label>Y max</label><input id="graph-ymax" type="number" value="10" /></div>
+          <div><label>X axis label</label><input id="graph-xlabel" type="text" maxlength="14" value="x" /></div>
+          <div><label>Y axis label</label><input id="graph-ylabel" type="text" maxlength="14" value="y" /></div>
+        </div>
+        <div class="role-actions"><button id="graph-insert" class="primary-sm">Insert graph</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- accessibility options -->
+  <div id="a11y-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Accessibility</span>
+        <div><button id="a11y-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div class="a11y-row">
+          <div><div>Dyslexia-friendly text</div><div class="a11y-desc">Uses the OpenDyslexic font with extra spacing.</div></div>
+          <button id="a11y-dyslexic" class="action-btn a11y-switch" role="switch" aria-checked="false">Off</button>
+        </div>
+        <div class="a11y-row">
+          <div><div>High contrast</div><div class="a11y-desc">Darker text and borders for easier reading.</div></div>
+          <button id="a11y-contrast" class="action-btn a11y-switch" role="switch" aria-checked="false">Off</button>
+        </div>
+        <p class="hint">Tip: press <kbd>Esc</kbd> to close any dialog. Tools have keyboard shortcuts — V select, P pen, T text, E eraser, H hand.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- assign work to the class -->
+  <div id="assign-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Assign to class</span>
+        <div><button id="assign-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <p class="hint">Every student gets their own copy of your current board to work on and turn in.</p>
+        <label>Title</label>
+        <input id="assign-title" type="text" maxlength="80" placeholder="e.g. Fractions practice" />
+        <label>Instructions (optional)</label>
+        <textarea id="assign-instructions" rows="3" maxlength="2000" placeholder="What should students do?"></textarea>
+        <label>Due (optional)</label>
+        <input id="assign-due" type="datetime-local" />
+        <div class="role-actions"><button id="assign-send" class="primary-sm">Assign to class</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- teacher: assignment dashboard + grading -->
+  <div id="assignments-modal" hidden>
+    <div class="modal-box transfer-box wide-box">
+      <div class="modal-head">
+        <span>Assignments</span>
+        <div><button id="assignments-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div id="assignments-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- student: assignment banner on an assignment board -->
+  <div id="assignment-banner" hidden>
+    <div class="ab-main">
+      <span class="ab-badge" id="ab-status">Assignment</span>
+      <span class="ab-title" id="ab-title"></span>
+      <button id="ab-info" class="ab-info" title="Show instructions" hidden>ⓘ</button>
+    </div>
+    <div class="ab-actions">
+      <span id="ab-grade" class="ab-grade" hidden></span>
+      <button id="ab-turnin" class="primary-sm">Turn in</button>
+    </div>
+    <div id="ab-instructions" class="ab-instructions" hidden></div>
+  </div>
+
+  <!-- math equation editor -->
+  <div id="equation-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Insert equation</span>
+        <div><button id="equation-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <div id="eqn-symbols" class="eqn-symbols"></div>
+        <label>Type math (LaTeX)</label>
+        <textarea id="eqn-input" rows="2" placeholder="e.g. x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}"></textarea>
+        <label>Preview</label>
+        <div id="eqn-preview" class="eqn-preview"><span class="hint">Your equation appears here.</span></div>
+        <p class="hint">Tip: use <code>^</code> for powers, <code>_</code> for subscripts, <code>\frac{a}{b}</code> for fractions, <code>\sqrt{ }</code> for roots.</p>
+        <div class="role-actions"><button id="eqn-insert" class="primary-sm" disabled>Insert equation</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV chart setup -->
+  <div id="chart-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>Make a chart</span>
+        <div><button id="chart-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label>Chart type</label>
+        <div id="chart-types" class="chart-types">
+          <button class="chart-type active" data-type="bar">Bar</button>
+          <button class="chart-type" data-type="line">Line</button>
+          <button class="chart-type" data-type="pie">Pie</button>
+        </div>
+        <label>Title (optional)</label>
+        <input id="chart-title" type="text" maxlength="40" placeholder="Chart title" />
+        <label>Labels column</label>
+        <select id="chart-labelcol"></select>
+        <label>Value column(s)</label>
+        <div id="chart-valcols" class="chart-valcols"></div>
+        <p id="chart-summary" class="hint"></p>
+        <div class="role-actions"><button id="chart-insert" class="primary-sm">Insert chart</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher: poll composer -->
+  <div id="poll-compose" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head">
+        <span>New poll</span>
+        <div><button id="poll-compose-close">✕ Close</button></div>
+      </div>
+      <div class="transfer-body">
+        <label>Question</label>
+        <input id="poll-question" type="text" maxlength="200" placeholder="Ask your class a question…" />
+        <label>Response type</label>
+        <div class="chart-types">
+          <button class="poll-type active" data-type="choice">Multiple choice</button>
+          <button class="poll-type" data-type="text">Short answer</button>
+        </div>
+        <div id="poll-options-wrap">
+          <label>Options</label>
+          <div id="poll-options"></div>
+          <button id="poll-add-option" class="ghost-btn">＋ Add option</button>
+        </div>
+        <div class="role-actions"><button id="poll-start" class="primary-sm">Start poll</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Teacher: live results -->
+  <div id="poll-results" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="poll-results-title">Poll results</span>
+        <div>
+          <button id="poll-newpoll">New poll</button>
+          <button id="poll-end">End poll</button>
+          <button id="poll-results-close">✕ Close</button>
+        </div>
+      </div>
+      <div class="poll-results-body">
+        <div class="poll-status"><span id="poll-count">0 responses</span> <span id="poll-openflag" class="status-badge status-approved">Open</span></div>
+        <div id="poll-choice-view" hidden>
+          <div id="poll-bars"></div>
+          <div class="poll-insert-row">
+            <span class="hint">Add results to the board:</span>
+            <button class="btn-view" data-chart="bar">Bar chart</button>
+            <button class="btn-view" data-chart="pie">Pie chart</button>
+          </div>
+        </div>
+        <div id="poll-text-view" hidden>
+          <div id="poll-wall"></div>
+          <div class="poll-insert-row">
+            <button class="btn-view" id="poll-wall-insert">Add response wall to board</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Student: respond to a poll -->
+  <div id="poll-overlay" hidden>
+    <div class="poll-card">
+      <div class="poll-ask">Your teacher asks</div>
+      <h2 id="poll-overlay-q"></h2>
+      <div id="poll-choice-opts" class="poll-choice-opts" hidden></div>
+      <div id="poll-text-input" hidden>
+        <textarea id="poll-answer" maxlength="280" rows="3" placeholder="Type your answer…"></textarea>
+        <button id="poll-send" class="primary-btn">Send answer</button>
+      </div>
+      <div id="poll-sent" class="poll-sent" hidden>✓ Answer sent — you can change it while the poll is open.</div>
+      <div id="poll-closed" class="poll-sent" hidden>This poll has closed.</div>
+    </div>
+  </div>
+
+  <!-- Live-classroom tools: timer + random picker (teacher) -->
+  <div id="classroom-modal" hidden>
+    <div class="modal-box transfer-box">
+      <div class="modal-head"><span>Class tools</span><div><button id="classroom-close">✕ Close</button></div></div>
+      <div class="transfer-body">
+        <h3 class="features-h3">Countdown timer</h3>
+        <div class="timer-presets">
+          <button class="timer-preset" data-sec="60">1 min</button>
+          <button class="timer-preset" data-sec="120">2 min</button>
+          <button class="timer-preset" data-sec="300">5 min</button>
+          <button class="timer-preset" data-sec="600">10 min</button>
+        </div>
+        <div class="add-user-row" style="margin-top:8px">
+          <input id="timer-custom" type="number" min="1" max="60" placeholder="minutes" style="max-width:120px" />
+          <button id="timer-custom-btn" class="primary-sm">Start</button>
+          <button id="timer-stop-btn" class="btn-block">Stop timer</button>
+        </div>
+        <h3 class="features-h3">Random student</h3>
+        <p class="hint">Pick a student at random from the class — everyone sees the reveal.</p>
+        <div class="role-actions"><button id="picker-btn" class="primary-sm">🎲 Pick a student</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Countdown overlay (everyone) -->
+  <div id="timer-chip" hidden><span id="timer-time">0:00</span></div>
+
+  <!-- Random-picker reveal (everyone) -->
+  <div id="picker-overlay" hidden>
+    <div class="picker-card">
+      <div class="picker-label">Random student</div>
+      <div id="picker-name">…</div>
+      <button id="picker-dismiss">Close</button>
+    </div>
+  </div>
+
+  <!-- Reactions bar (students) -->
+  <div id="reactions-bar" hidden></div>
+  <div id="reactions-layer"></div>
+
+  <div id="toast" hidden></div>
+
+  <script src="/vendor/fabric.min.js"></script>
+  <script src="/vendor/pdf.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/whiteboard.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/vendor/signify-switcher.js" defer></script>
+</body>
+</html>

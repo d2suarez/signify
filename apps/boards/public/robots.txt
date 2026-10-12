@@ -1,0 +1,3 @@
+User-agent: *
+# Published boards are shared by link only — keep them out of search indexes.
+Disallow: /embed/

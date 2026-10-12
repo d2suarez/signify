@@ -1,0 +1,15 @@
+{
+  "name": "Signify Learning",
+  "short_name": "Signify",
+  "description": "Real-time classroom whiteboards — draw together, assign work, and see every student's board live.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A7C6E",
+  "theme_color": "#0A7C6E",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

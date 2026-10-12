@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: classroom-whiteboard
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: GOOGLE_CLASSROOM_CLIENT_ID
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: boards
+      mountPath: /var/data
+      sizeGB: 1

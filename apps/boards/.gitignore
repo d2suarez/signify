@@ -1,0 +1,13 @@
+node_modules/
+data/
+.DS_Store
+
+# Google OAuth client secrets — never in the repo
+client_secret*.json
+*.credentials.json
+
+# Environment files hold live secrets
+.env
+.env.*
+!.env.example
+.dev-data/
