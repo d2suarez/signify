@@ -78,6 +78,17 @@ function setCookie(res, name, value, maxAgeMs) {
   appendHeader(res, 'Set-Cookie', bits.join('; '));
 }
 
+// A plain marker, readable by the page, saying "this browser has signed in
+// here before". It carries nothing about who. The page uses it to go straight
+// to sign-in instead of waiting for a click; it is set on a successful
+// sign-in and removed on sign-out, so a person who chose to leave is not
+// pulled back in.
+const RETURNING_COOKIE = 'sfy_ret';
+function setReturning(res) {
+  appendHeader(res, 'Set-Cookie',
+    `${RETURNING_COOKIE}=1; Path=/; SameSite=Lax; Max-Age=${30 * 86400}${PRODUCTION ? '; Secure' : ''}`);
+}
+
 function clearCookie(res, name) {
   appendHeader(res, 'Set-Cookie', `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${PRODUCTION ? '; Secure' : ''}`);
 }
@@ -322,6 +333,7 @@ function mount(app, options = {}) {
       if (parked.n && claims.nonce !== parked.n) return res.status(400).send('Sign-in could not be verified. Please try again.');
 
       storeTokens(res, tokens);
+      setReturning(res);
       if (options.onSignIn) await options.onSignIn(claims, req, res);
       res.redirect(parked.r || '/');
     } catch (e) {
@@ -334,6 +346,7 @@ function mount(app, options = {}) {
     clearCookie(res, TOKEN_COOKIE);
     clearCookie(res, REFRESH_COOKIE);
     clearCookie(res, STATE_COOKIE);
+    clearCookie(res, RETURNING_COOKIE);
     // Ending the session centrally as well, so every other app drops too.
     const url = new URL(`${ISSUER}/logout`);
     if (options.postLogoutUri) url.searchParams.set('post_logout_redirect_uri', options.postLogoutUri);

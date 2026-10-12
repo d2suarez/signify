@@ -217,10 +217,6 @@ function isSafeKey(k) {
   return k !== '__proto__' && k !== 'constructor' && k !== 'prototype';
 }
 
-function domainApproved(email) {
-  return store.domains.includes(domainOf(email));
-}
-
 // Approval, suspension and blocking all live in Signify ID now — it simply
 // will not issue a token to an account in any of those states, so anyone
 // reaching this code has already passed. Kept as a function because the call
@@ -238,14 +234,6 @@ function canManageTarget(manager, targetEmail) {
   if (adminPerms(permsFor(targetEmail))) return false;
   const rec = store.users[targetEmail];
   return domainOf(manager.email) === domainOf(targetEmail) || !!(rec && rec.addedBy === manager.email);
-}
-
-// Non-super managers may only hand out roles that carry no admin permissions
-function canAssignRole(manager, roleId) {
-  const role = store.roles[roleId];
-  if (!role) return false;
-  if (manager.isSuper) return true;
-  return !adminPerms(role.perms);
 }
 
 // ---------- sessions ----------
@@ -766,7 +754,7 @@ app.post('/api/room/:code/roster', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Room not found.' });
   if (!canEditRoom(user, room.data)) return res.status(403).json({ error: 'Only the room owner or an admin can manage this class.' });
 
-  const results = { added: [], pendingApproval: [], skipped: [], invalid: [], removed: [] };
+  const results = { added: [], notSignedIn: [], skipped: [], invalid: [], removed: [] };
   let usersChanged = false;
   const now = Date.now();
 
@@ -782,11 +770,11 @@ app.post('/api/room/:code/roster', (req, res) => {
       continue;
     }
     if (!store.users[email]) {
-      // Enrolling someone who has never signed in creates their account;
-      // outside approved domains it stays pending until an admin approves.
+      // A placeholder only, so the roster can show a name. Whether this
+      // person may sign in is Signify ID's decision; they have not been
+      // through here yet, so say so rather than implying they are set up.
       store.users[email] = {
         name: email, role: 'student',
-        status: domainApproved(email) ? 'approved' : 'pending',
         firstSeen: now, lastSeen: null, addedBy: user.email,
       };
       usersChanged = true;
@@ -795,9 +783,9 @@ app.post('/api/room/:code/roster', (req, res) => {
       results.skipped.push(email);
       continue;
     }
+    if (!store.users[email].uid) results.notSignedIn.push(email);
     room.data.roster.push(email);
     room.data.names[email] = room.data.names[email] || store.users[email].name || email;
-    if (accessStatus(email) === 'pending') results.pendingApproval.push(email);
     results.added.push({ email, name: room.data.names[email] });
   }
 
@@ -955,12 +943,6 @@ function requirePerm(req, res, perm) {
     return null;
   }
   return admin;
-}
-
-function kickUser(email) {
-  for (const s of io.of('/').sockets.values()) {
-    if (s.data && s.data.user && s.data.user.email === email) s.disconnect(true);
-  }
 }
 
 function userView(email, rec) {
@@ -1188,142 +1170,6 @@ app.post('/api/client-error', (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/admin/user', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const { role, status } = req.body;
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'That is not a valid email address.' });
-  if (isSuperAdmin(email)) return res.status(403).json({ error: 'Super admin accounts cannot be modified.' });
-
-  const exists = !!store.users[email];
-  if (exists && !canManageTarget(admin, email)) {
-    return res.status(403).json({ error: 'You can only manage accounts on your own domain or accounts you added yourself.' });
-  }
-  // Creating a NEW account: non-super admins are confined to their own school
-  // domain, so they can't pre-create (and thereby own) other schools' accounts.
-  if (!exists && !admin.isSuper && domainOf(email) !== domainOf(admin.email)) {
-    return res.status(403).json({ error: 'You can only add accounts in your own school domain.' });
-  }
-  if (role && !store.roles[role]) return res.status(400).json({ error: 'Unknown role.' });
-  if (role && !canAssignRole(admin, role)) {
-    return res.status(403).json({ error: 'Only the super admin can assign roles with admin permissions.' });
-  }
-  if (status && !['approved', 'pending', 'blocked', 'suspended'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
-  if (req.body.grade !== undefined && req.body.grade !== '' && !GRADES.includes(req.body.grade)) {
-    return res.status(400).json({ error: 'Unknown grade level.' });
-  }
-
-  const now = Date.now();
-  let rec = store.users[email];
-  if (!rec) rec = store.users[email] = { name: email, role: 'student', status: 'approved', firstSeen: now, lastSeen: null, addedBy: admin.email };
-  if (role) rec.role = role;
-  if (status) {
-    rec.status = status;
-    delete rec.suspendUntil;
-    if (status === 'suspended') {
-      // Optional timed suspension; a number in ms since epoch, else indefinite
-      const until = Number(req.body.suspendUntil);
-      if (Number.isFinite(until) && until > now) rec.suspendUntil = until;
-      kickUser(email);
-    }
-    if (status === 'blocked') kickUser(email);
-    appendAudit(admin.email, 'user:' + status, email);
-  }
-  if (role) appendAudit(admin.email, 'user:role', `${email} → ${role}`);
-  if (req.body.grade !== undefined) {
-    if (req.body.grade === '') delete rec.grade;
-    else rec.grade = req.body.grade;
-    appendAudit(admin.email, 'user:grade', `${email} → ${req.body.grade || 'none'}`);
-  }
-  saveStore();
-  res.json(userView(email, rec));
-});
-
-// Set one grade on many students at once
-app.post('/api/admin/users/grade', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const grade = String(req.body.grade || '');
-  if (grade !== '' && !GRADES.includes(grade)) return res.status(400).json({ error: 'Unknown grade level.' });
-  const emails = Array.isArray(req.body.emails) ? req.body.emails.slice(0, 500) : [];
-  const updated = [];
-  const skipped = [];
-  for (const raw of emails) {
-    const email = String(raw).trim().toLowerCase();
-    const rec = store.users[email];
-    if (!rec || isSuperAdmin(email) || !canManageTarget(admin, email)) { skipped.push(email); continue; }
-    if (grade === '') delete rec.grade; else rec.grade = grade;
-    updated.push(email);
-  }
-  if (updated.length) {
-    appendAudit(admin.email, 'user:grade-bulk', `${updated.length} → ${grade || 'none'}`);
-    saveStore();
-  }
-  res.json({ ok: true, updated: updated.length, skipped: skipped.length });
-});
-
-// Move students up a grade — everyone in scope, or just the selected emails
-app.post('/api/admin/users/promote', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const r = shiftGrades(admin, req.body.emails, 'up');
-  if (r.changed) {
-    appendAudit(admin.email, 'user:promote', `${r.changed} student${r.changed === 1 ? '' : 's'} advanced${r.graduated ? `, ${r.graduated} graduated` : ''}`);
-    saveStore();
-  }
-  res.json({ ok: true, promoted: r.changed, graduated: r.graduated, noGrade: r.noGrade, atEnd: r.atEnd });
-});
-
-// Undo a promotion: move students back down a grade (Graduated -> 12)
-app.post('/api/admin/users/demote', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const r = shiftGrades(admin, req.body.emails, 'down');
-  if (r.changed) {
-    appendAudit(admin.email, 'user:demote', `${r.changed} student${r.changed === 1 ? '' : 's'} moved back a grade`);
-    saveStore();
-  }
-  res.json({ ok: true, demoted: r.changed, noGrade: r.noGrade, atEnd: r.atEnd });
-});
-
-app.delete('/api/admin/user/:email', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const email = String(req.params.email || '').trim().toLowerCase();
-  if (isSuperAdmin(email)) return res.status(403).json({ error: 'Super admin accounts cannot be deleted.' });
-  if (!store.users[email]) return res.status(404).json({ error: 'User not found.' });
-  if (!canManageTarget(admin, email)) {
-    return res.status(403).json({ error: 'You can only manage accounts on your own domain or accounts you added yourself.' });
-  }
-  kickUser(email);
-  // Remove the account and everything tied to it: all boards (personal + every
-  // room), roster spots, and per-student switches — including rooms not in memory.
-  for (const b of [...boardsIndex.values()]) {
-    if (b.owner === email) deleteBoard(b.id);
-  }
-  for (const f of fs.readdirSync(DATA_DIR)) {
-    const m = /^room-(.+)\.json$/.exec(f);
-    if (!m) continue;
-    const room = getRoom(sanitizeCode(m[1]), false);
-    if (!room) continue;
-    let touched = false;
-    if ((room.data.roster || []).includes(email)) {
-      room.data.roster = room.data.roster.filter((e) => e !== email);
-      touched = true;
-    }
-    if (room.data.studentFeatures && room.data.studentFeatures[email]) {
-      delete room.data.studentFeatures[email];
-      touched = true;
-    }
-    if (touched) scheduleSave(room);
-  }
-  delete store.users[email];
-  appendAudit(admin.email, 'user:delete', email);
-  saveStore();
-  res.json({ ok: true });
-});
-
 // Full data export — pull this to your own computer for true off-site backup
 app.get('/api/admin/backup', (req, res) => {
   const admin = requireAuthed(req, res);
@@ -1334,84 +1180,6 @@ app.get('/api/admin/backup', (req, res) => {
   const tar = spawn('tar', ['-czf', '-', '--exclude=./backups', '-C', DATA_DIR, '.']);
   tar.stdout.pipe(res);
   tar.on('error', () => res.end());
-});
-
-app.post('/api/admin/users/bulk', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_users');
-  if (!admin) return;
-  const role = req.body.role || 'student';
-  if (!store.roles[role]) return res.status(400).json({ error: 'Unknown role.' });
-  if (!canAssignRole(admin, role)) {
-    return res.status(403).json({ error: 'Only the super admin can assign roles with admin permissions.' });
-  }
-  const emails = Array.isArray(req.body.emails) ? req.body.emails.slice(0, 300) : [];
-  const results = { added: [], skipped: [], invalid: [] };
-  const now = Date.now();
-  for (const raw of emails) {
-    const email = String(raw).trim().toLowerCase();
-    if (!EMAIL_RE.test(email)) {
-      if (email) results.invalid.push(email);
-      continue;
-    }
-    // A non-super admin may only pre-create accounts in their own school's
-    // domain. Otherwise they could squat other schools' accounts (approved +
-    // addedBy them), then read/alter those users once they sign in.
-    if (!admin.isSuper && domainOf(email) !== domainOf(admin.email)) {
-      results.invalid.push(email);
-      continue;
-    }
-    if (isSuperAdmin(email) || store.users[email]) {
-      results.skipped.push(email);
-      continue;
-    }
-    store.users[email] = { name: email, role, status: 'approved', firstSeen: now, lastSeen: null, addedBy: admin.email };
-    results.added.push(email);
-  }
-  if (results.added.length) saveStore();
-  res.json(results);
-});
-
-app.post('/api/admin/roles', (req, res) => {
-  const admin = requireAuthed(req, res);
-  if (!admin) return;
-  if (!admin.isSuper) return res.status(403).json({ error: 'Only the super admin can manage roles.' });
-
-  const action = req.body.action;
-  const id = String(req.body.id || '').trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]{1,24}$/.test(id)) return res.status(400).json({ error: 'Role ids are 2-25 characters: lowercase letters, numbers, dashes.' });
-  if (id === 'superadmin') return res.status(400).json({ error: 'That role id is reserved.' });
-
-  let perms = req.body.perms;
-  if (perms !== undefined) {
-    if (!Array.isArray(perms) || perms.some((p) => !PERMISSIONS.includes(p))) {
-      return res.status(400).json({ error: 'Unknown permission.' });
-    }
-    perms = [...new Set(perms)];
-  }
-  const label = req.body.label !== undefined ? String(req.body.label).trim().slice(0, 40) : undefined;
-
-  if (action === 'create') {
-    if (store.roles[id]) return res.status(400).json({ error: 'That role id already exists.' });
-    store.roles[id] = { label: label || id, builtin: false, perms: perms || [] };
-  } else if (action === 'update') {
-    const role = store.roles[id];
-    if (!role) return res.status(404).json({ error: 'Role not found.' });
-    if (id === 'student') return res.status(400).json({ error: 'The student role is the default and cannot be changed.' });
-    if (label) role.label = label;
-    if (perms) role.perms = perms;
-  } else if (action === 'delete') {
-    const role = store.roles[id];
-    if (!role) return res.status(404).json({ error: 'Role not found.' });
-    if (role.builtin) return res.status(400).json({ error: 'Built-in roles cannot be deleted.' });
-    for (const rec of Object.values(store.users)) {
-      if (rec.role === id) rec.role = 'student';
-    }
-    delete store.roles[id];
-  } else {
-    return res.status(400).json({ error: 'Unknown action.' });
-  }
-  saveStore();
-  res.json({ roles: Object.entries(store.roles).map(([rid, r]) => ({ id: rid, label: r.label, builtin: !!r.builtin, perms: r.perms })) });
 });
 
 // School-wide feature switches: scoped admins manage their own domain, super any
@@ -1434,23 +1202,6 @@ app.post('/api/admin/features', (req, res) => {
     }
   }
   res.json({ domain, features: store.domainFeatures[domain] || {} });
-});
-
-app.post('/api/admin/domains', (req, res) => {
-  const admin = requirePerm(req, res, 'manage_domains');
-  if (!admin) return;
-  const domain = String(req.body.domain || '').trim().toLowerCase().replace(/^@/, '');
-  const action = req.body.action;
-  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(domain)) return res.status(400).json({ error: 'That is not a valid domain.' });
-  if (action === 'add') {
-    if (!store.domains.includes(domain)) store.domains.push(domain);
-  } else if (action === 'remove') {
-    store.domains = store.domains.filter((d) => d !== domain);
-  } else {
-    return res.status(400).json({ error: 'Unknown action.' });
-  }
-  saveStore();
-  res.json({ domains: store.domains });
 });
 
 app.get('/api/admin/room/:code', (req, res) => {

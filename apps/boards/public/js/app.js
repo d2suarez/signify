@@ -3255,7 +3255,7 @@ function wireRoster() {
       d.added.forEach((s) => upsertStudent({ id: s.email, name: s.name, online: false }));
       const parts = [];
       if (d.added.length) parts.push(`added ${d.added.length}`);
-      if (d.pendingApproval.length) parts.push(`${d.pendingApproval.length} awaiting admin approval`);
+      if (d.notSignedIn.length) parts.push(`${d.notSignedIn.length} not signed in yet (they need an account in Signify ID)`);
       if (d.skipped.length) parts.push(`${d.skipped.length} already enrolled/skipped`);
       if (d.invalid.length) parts.push(`${d.invalid.length} invalid`);
       toast(parts.join(', ') || 'No changes');

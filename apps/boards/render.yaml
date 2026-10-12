@@ -6,14 +6,8 @@ services:
     buildCommand: npm install
     startCommand: node server.js
     envVars:
-      - key: GOOGLE_CLIENT_ID
+      - key: GOOGLE_CLASSROOM_CLIENT_ID
         sync: false
-      - key: ALLOWED_DOMAINS
-        sync: false
-      - key: TEACHER_EMAILS
-        sync: false
-      - key: SESSION_SECRET
-        generateValue: true
       - key: DATA_DIR
         value: /var/data
     disk:
