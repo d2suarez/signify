@@ -1,0 +1,2819 @@
+/* ===================================================================
+   Teacher's Desk — styles
+   Same palette, type and paper as the rest of the Signify apps: primary
+   colours on off-white, small radii, a tight contact shadow under a soft
+   ambient one. Fonts are self-hosted; no request ever leaves for a CDN.
+   =================================================================== */
+
+/* Big figures are set only a hair tight (-.01em). The -.04em the handoff
+   asked for was tuned to Archivo's wide figures; on Bricolage it pushes the
+   colons of a time into the digits beside them.
+
+   The same three faces, from the same files, as Signify ID — so moving from
+   the identity page to the desk is moving within one product. Bricolage
+   Grotesque for headings and the big figures, IBM Plex Sans for everything
+   read, IBM Plex Mono for the few things that label data. All self-hosted:
+   nothing here ever asks a CDN, which is the point — a font fetched from
+   somebody else's server tells them when a lesson starts. */
+@font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 200 800; font-stretch: 100%; font-display: swap; src: url('/vendor/bricolage-grotesque.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 100 700; font-display: swap; src: url('/vendor/ibm-plex-sans.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/vendor/ibm-plex-mono-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/vendor/ibm-plex-mono-500.woff2') format('woff2'); }
+
+/* ---------------- Signify tokens ----------------
+   Four role colours, each carrying the ink that sits on it: p1 time, p2 your
+   class, p3 the board, p4 sound and calm. A teacher changes the palette — the
+   hues move together, the meanings do not. The repo's own names are kept
+   (--blue, --ink, --r …) so every existing rule still resolves; only their
+   values changed. */
+:root {
+  --p1: #ec3013; --p1-ink: #fff;    /* Time — circle   */
+  --p2: #1f4fd1; --p2-ink: #fff;    /* Your class — square */
+  --p3: #f5c400; --p3-ink: #201e1d; /* On the board — triangle */
+  --p4: #0e7f89; --p4-ink: #fff;    /* Sound and calm — arch */
+
+  /* The accent is no longer a hue of its own: it is the class role, so
+     anything written against --accent or --blue lands on p2. */
+  --accent: var(--p2);
+  --accent-dark: color-mix(in srgb, var(--p2) 78%, #000);
+  --accent-soft: color-mix(in srgb, var(--p2) 12%, var(--surface, #fff));
+  --on-accent: var(--p2-ink);
+
+  --blue: var(--p2); --blue-dark: var(--accent-dark); --blue-soft: var(--accent-soft);
+  --red: var(--p1);  --red-dark: color-mix(in srgb, var(--p1) 78%, #000);
+  --red-soft: color-mix(in srgb, var(--p1) 12%, var(--surface, #fff));
+  --yellow: var(--p3); --yellow-dark: color-mix(in srgb, var(--p3) 78%, #000);
+  --yellow-soft: color-mix(in srgb, var(--p3) 16%, var(--surface, #fff));
+  /* Green stays semantic — a tick, a point earned. It is not a block colour. */
+  --green: #1B7F4B; --green-soft: color-mix(in srgb, #1B7F4B 12%, var(--surface, #fff));
+
+  --ink: #201e1d; --muted: #605d5d; --faint: #8a8686;
+  --line: #d7d3d3; --bg: #f3f2f2; --surface: #ffffff; --desk: #eae9e9;
+
+  --r: 10px; --r-sm: 8px; --r-panel: 14px;
+  --radius-xs: 3px; --radius-xl: 18px; --radius-pill: 999px;
+
+  --display: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Paper on a desk: a hard contact line, a tight shadow, then a soft drop.
+     Warm ink rather than black, so nothing looks punched out of the page. */
+  --shadow-1: 0 1px 0 rgba(32,30,29,.05), 0 1px 2px rgba(32,30,29,.1);
+  --shadow-2: 0 1px 0 rgba(32,30,29,.06), 0 1px 2px rgba(32,30,29,.12), 0 4px 10px -4px rgba(32,30,29,.18);
+  --shadow-3: 0 1px 0 rgba(32,30,29,.08), 0 2px 3px rgba(32,30,29,.12), 0 10px 22px -8px rgba(32,30,29,.3);
+  --shadow-4: 0 1px 0 rgba(32,30,29,.06), 0 2px 4px rgba(32,30,29,.12), 0 18px 40px -12px rgba(32,30,29,.35);
+  --shadow-island: 0 1px 0 rgba(32,30,29,.06), 0 2px 4px rgba(32,30,29,.1), 0 10px 24px -8px rgba(32,30,29,.28);
+
+  --lift: var(--shadow-3);
+  --lift-hover: var(--shadow-4);
+  /* The cut edge and its inset highlight are gone: a card is flat white with a
+     shadow, and nothing is drawn round it. Kept as transparent so the rules
+     that still mention it resolve to nothing rather than breaking. */
+  --cut-edge: transparent;
+
+  --ease: cubic-bezier(.2,.7,.2,1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  /* Board-facing numerals, sized against their own card rather than the
+     window, so a timer dragged wider grows with it. */
+  --fluid-hero: clamp(64px, 26cqi, 220px);
+  --fluid-display-xl: clamp(56px, 34cqi, 140px);
+  --fluid-display-l: clamp(56px, 20cqi, 160px);
+  --fluid-display-m: clamp(40px, 22cqi, 120px);
+  --fluid-display-s: clamp(26px, 9cqi, 64px);
+
+  --row: 54px;
+  --gap: 14px;
+}
+
+/* The palettes a teacher can choose. Only the hues move; p1 is still time and
+   p2 is still their class, whichever palette is on. */
+:root[data-palette="garden"]   { --p1: #1f8a4c; --p1-ink: #fff; --p2: #0f6f80; --p2-ink: #fff; --p3: #f2b233; --p3-ink: #201e1d; --p4: #e0643a; --p4-ink: #201e1d; }
+:root[data-palette="berry"]    { --p1: #7a3fd1; --p1-ink: #fff; --p2: #d63c72; --p2-ink: #fff; --p3: #f28c28; --p3-ink: #201e1d; --p4: #0f8a7e; --p4-ink: #fff; }
+:root[data-palette="ocean"]    { --p1: #1d4ed8; --p1-ink: #fff; --p2: #0e7f89; --p2-ink: #fff; --p3: #ffc83d; --p3-ink: #201e1d; --p4: #ef6f5c; --p4-ink: #201e1d; }
+:root[data-palette="mono-red"] { --p1: #ec3013; --p1-ink: #fff; --p2: #7c1405; --p2-ink: #fff; --p3: #ffc4b8; --p3-ink: #201e1d; --p4: #b8220c; --p4-ink: #fff; }
+
+/* A colour of the teacher's own replaces p1 only — the other three roles keep
+   the Primary hues, so the board stays readable whatever they pick. The ink
+   that sits on it is decided in theme.js from the colour's own luminance. */
+:root[data-palette="custom"] {
+  --p1: var(--accent-pick, #ec3013);
+  --p1-ink: var(--accent-pick-ink, #fff);
+}
+
+/* Classrooms turn the lights down for the projector, so the board follows the
+   machine's own setting unless the teacher has said which they want. The block
+   colours do NOT change on the dark ground — only the paper under them does,
+   which is what keeps a red timer the same red in both rooms. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #f3f2f2; --muted: #bab6b6; --faint: #8a8686;
+    --line: #444141; --bg: #161514; --surface: #2a2726; --desk: #221f1e;
+    --shadow-1: 0 1px 0 rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.5);
+    --shadow-2: 0 1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5);
+    --shadow-3: 0 1px 0 rgba(0,0,0,.5), 0 2px 3px rgba(0,0,0,.45), 0 10px 22px -8px rgba(0,0,0,.7);
+    --shadow-4: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.5), 0 18px 40px -12px rgba(0,0,0,.75);
+    --shadow-island: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.45), 0 10px 24px -8px rgba(0,0,0,.7);
+  }
+}
+
+/* The same dark ground again, for when the teacher has chosen it outright
+   rather than leaving it to the machine. CSS has no way to share a block
+   between a media query and a selector, so it is written twice on purpose. */
+:root[data-theme="dark"] {
+  --ink: #f3f2f2; --muted: #bab6b6; --faint: #8a8686;
+  --line: #444141; --bg: #161514; --surface: #2a2726; --desk: #221f1e;
+  --shadow-1: 0 1px 0 rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.5);
+  --shadow-2: 0 1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5);
+  --shadow-3: 0 1px 0 rgba(0,0,0,.5), 0 2px 3px rgba(0,0,0,.45), 0 10px 22px -8px rgba(0,0,0,.7);
+  --shadow-4: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.5), 0 18px 40px -12px rgba(0,0,0,.75);
+  --shadow-island: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.45), 0 10px 24px -8px rgba(0,0,0,.7);
+}
+
+/* ---------------- what is behind the board ---------------- */
+
+#backdrop {
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-color: var(--bg);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+#backdrop[data-fit="contain"] { background-size: contain; background-repeat: no-repeat; }
+#backdrop[data-fit="tile"] { background-size: auto; background-repeat: repeat; }
+/* A picture behind a working board has to lose an argument with the cards on
+   top of it, so it sits under a scrim the teacher controls. */
+#backdrop::after {
+  content: ''; position: absolute; inset: 0;
+  background: var(--bg);
+  opacity: calc(var(--backdrop-dim, 40) / 100);
+}
+#backdrop[data-pattern] { background-image: none; }
+#backdrop[data-pattern]::after { opacity: 0; }
+#backdrop[data-pattern="dots"] {
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--faint) 30%, transparent) 1px, transparent 0);
+  background-size: 22px 22px; background-repeat: repeat;
+}
+#backdrop[data-pattern="grid"] {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--faint) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--faint) 18%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px; background-repeat: repeat;
+}
+/* With something behind the board, the board's own dot grid would fight it. */
+body.has-backdrop .board { background-image: none; }
+body.has-backdrop .card { backdrop-filter: blur(2px); }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+/* The base colour lives on html, not body: a body background propagates to
+   the page canvas and would paint straight over #backdrop, which sits at
+   z-index -1. */
+html { background: var(--bg); }
+body {
+  margin: 0;
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+body.has-stage { overflow: hidden; }
+body.is-arranging { user-select: none; cursor: grabbing; }
+
+button, input, select, textarea { font-family: var(--body); font-size: inherit; color: inherit; }
+a { color: var(--blue); }
+
+h1, h2, h3, h4 {
+  margin: 0 0 .4rem;
+  font-family: var(--display);
+  font-optical-sizing: auto;
+  line-height: 1.2;
+  font-weight: 800;
+  font-stretch: 112%;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+p { margin: 0 0 .6rem; }
+.hint { color: var(--muted); font-size: .82rem; margin: 0; display: flex; align-items: center; gap: .3rem; }
+.section-title { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink); margin: 1rem 0 .35rem; font-family: var(--body); font-weight: 800; }
+.icon { display: block; }
+.icon-wrap { display: inline-flex; }
+
+/* ---------------- buttons and fields ---------------- */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+  padding: .5rem .85rem; border-radius: var(--r); cursor: pointer; min-height: 44px;
+  border: 1px solid transparent; background: var(--surface); color: var(--ink);
+  font-weight: 800; white-space: nowrap;
+  /* The same idea as a card, an order of magnitude smaller: a button is a
+     small raised thing, not a rectangle with a line round it. */
+  box-shadow: var(--shadow-2);
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+              filter var(--dur-fast) var(--ease), transform 60ms var(--ease);
+}
+.btn:hover { box-shadow: 0 2px 4px rgba(64,72,120,.08), 0 6px 14px rgba(64,72,120,.10); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: default; box-shadow: none; }
+.btn--primary { background: var(--p2); color: var(--p2-ink); }
+.btn--primary:hover { filter: brightness(.94); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; }
+.btn--small { min-height: 34px; border-radius: var(--r-sm); }
+.btn--danger { background: var(--red); border-color: var(--red); color: var(--on-accent); }
+.btn--danger:hover { background: var(--red-dark); border-color: var(--red-dark); }
+.btn--ghost { background: transparent; box-shadow: none; }
+.btn--small { padding: .24rem .55rem; font-size: .82rem; }
+.btn--wide { width: 100%; }
+.btn--block { width: 100%; margin-top: .5rem; }
+.btn.is-on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex: none; padding: 0;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.icon-btn:hover { background: var(--desk); color: var(--ink); }
+.icon-btn--danger:hover { background: var(--red-soft); color: var(--red); }
+
+.input, .select, .textarea {
+  width: 100%; padding: .45rem .65rem;
+  border: 1px solid transparent; border-radius: var(--r);
+  /* Recessed rather than raised: a field is somewhere to put something, so it
+     reads as a shallow well in the card instead of another slab on top of it. */
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+  box-shadow: inset 0 1px 2px rgba(64,72,120,.07);
+  color: var(--ink);
+}
+.textarea { resize: vertical; line-height: 1.45; }
+.select--small { padding: .2rem .35rem; font-size: .85rem; width: auto; }
+.input:focus-visible, .select:focus-visible, .textarea:focus-visible,
+.btn:focus-visible, .icon-btn:focus-visible, .chip:focus-visible, button:focus-visible {
+  outline: 2px solid var(--p2); outline-offset: 2px;
+}
+::selection { background: color-mix(in srgb, var(--p3) 55%, transparent); }
+
+.field { display: block; margin-bottom: .6rem; }
+.field--row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.field-label { display: flex; align-items: center; gap: .3rem; font-size: .82rem; color: var(--muted); margin-bottom: .18rem; }
+
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+.chip {
+  padding: .22rem .55rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font-size: .82rem; font-weight: 550; white-space: nowrap;
+}
+.chip:hover { border-color: var(--faint); }
+.chip.is-on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.chip--ghost { border-style: dashed; color: var(--muted); }
+.chip--positive { background: var(--green-soft); border-color: transparent; color: var(--green); }
+.chip--concern { background: var(--red-soft); border-color: transparent; color: var(--red); }
+
+/* `flex: none` matters: a .seg is a flex child in most widgets, and in a
+   column layout it would otherwise shrink below its own height and clip its
+   labels — which is what cut the top off the Number / Dice / Coin tabs.
+   `align-self` keeps it its own width instead of stretching. */
+.seg { display: inline-flex; flex: none; align-self: flex-start; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.seg-btn { border: 0; background: transparent; padding: .28rem .6rem; cursor: pointer; color: var(--muted); font-size: .85rem; font-weight: 550; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn.is-on { background: var(--blue); color: var(--on-accent); }
+.seg--tiny .seg-btn { padding: .15rem .4rem; font-size: .75rem; }
+
+.tag { display: inline-block; padding: .05rem .4rem; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: .72rem; font-weight: 600; }
+.tag--quiet { background: var(--desk); color: var(--muted); }
+
+.switch { width: 38px; height: 22px; flex: none; border-radius: 999px; border: 1px solid var(--line); background: var(--desk); cursor: pointer; padding: 2px; display: flex; }
+.switch-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-1); transition: transform .14s; }
+.switch.is-on { background: var(--blue); border-color: var(--blue); }
+.switch.is-on .switch-dot { transform: translateX(16px); }
+
+.check-inline { display: flex; align-items: center; gap: .4rem; font-size: .86rem; cursor: pointer; }
+.stepper { display: inline-flex; align-items: center; gap: .2rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: .1rem; }
+.stepper-value { min-width: 2ch; text-align: center; font-family: var(--mono); font-weight: 500; }
+
+/* ---------------- the frame ---------------- */
+
+#app { min-height: 100%; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 20px;
+  height: 84px; padding: 0 24px;
+  /* Written here rather than as a token: a color-mix of a themed variable
+     resolves once, against whichever ground happened to be current. */
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px);
+  border: 0;
+}
+.topbar-tools { display: flex; align-items: center; gap: .6rem; margin-left: auto; }
+.topbar-spacer { flex: 1; }
+
+/* The mark is the board's own alphabet: the three shapes, bottom-aligned,
+   in the order a teacher meets them. */
+.brand { display: flex; align-items: center; gap: .6rem; }
+.brand-mark { display: flex; align-items: flex-end; gap: 3px; width: auto; height: auto; background: none; }
+.brand-mark .shape { --shape-size: 20px; }
+.brand-word {
+  font-family: var(--display); font-size: 24px; font-weight: 800;
+  font-stretch: 118%; letter-spacing: -.02em; white-space: nowrap;
+}
+.brand--big { font-size: 1.4rem; justify-content: center; margin-bottom: .6rem; }
+.brand--big .brand-mark .shape { --shape-size: 26px; }
+
+/* ---------------- the island ----------------
+   The board, read from across the room. Whatever the tools are saying, in one
+   pill in the middle of the header. */
+.island {
+  display: flex; align-items: center; gap: 14px;
+  height: 52px; padding: 0 8px; margin: 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--surface); box-shadow: var(--shadow-island);
+}
+.island[hidden] { display: none; }
+.island-rule { width: 1px; height: 26px; background: var(--line); }
+.island-item {
+  position: relative; display: flex; align-items: center; gap: .45rem;
+  padding: .3rem .55rem; border: 0; border-radius: var(--r-sm);
+  background: none; color: inherit; cursor: pointer; font: inherit;
+}
+.island-item:hover { background: var(--desk); }
+.island-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+.island-value {
+  font-family: var(--display); font-size: 21px; font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.island-caption { font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* A timer says how much is left twice over: in figures, and in a bar that
+   empties — which is the one you can read without reading. */
+.island-bar {
+  position: absolute; left: .55rem; right: .55rem; bottom: 2px;
+  height: 3px; border-radius: 2px; background: var(--line); overflow: hidden;
+}
+.island-bar::after {
+  content: ''; position: absolute; inset: 0 auto 0 0;
+  width: calc(var(--fill, 0) * 100%); background: var(--p1);
+}
+
+/* ---------------- the filter chips ---------------- */
+.filters {
+  display: flex; align-items: center; gap: 6px;
+  padding: 18px 24px 14px; overflow-x: auto; scrollbar-width: none;
+}
+.filters::-webkit-scrollbar { display: none; }
+.filter {
+  display: inline-flex; align-items: center; gap: .4rem; flex: none;
+  height: 38px; padding: 0 .8rem; border: 0; border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.filter.is-on { background: var(--p4); color: var(--p4-ink); box-shadow: none; }
+.filter.is-on .shape { --role: currentColor; }
+.card.is-filtered-out { display: none; }
+
+/* Muted is a state the teacher must be able to see at a glance, or a timer
+   running out in silence looks like a broken app rather than a choice. */
+.mute-btn { gap: .3rem; }
+.mute-btn.is-muted { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); }
+.mute-label { font-size: .84rem; }
+@media (max-width: 720px) { .mute-label { display: none; } }
+
+.user { position: relative; }
+.user-btn { display: flex; align-items: center; gap: .4rem; padding: .2rem .45rem .2rem .2rem; border: 1px solid transparent; border-radius: 999px; background: transparent; cursor: pointer; }
+.user-btn:hover { background: var(--desk); }
+.user-name { font-size: .86rem; font-weight: 550; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--desk); }
+.avatar--initials { display: inline-flex; align-items: center; justify-content: center; background: var(--blue); color: var(--on-accent); font-size: .74rem; font-weight: 700; }
+
+.menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
+  min-width: 234px; padding: .3rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-3);
+}
+.menu-head { display: flex; flex-direction: column; gap: .12rem; padding: .5rem .6rem .6rem; border-bottom: 1px solid var(--line); margin-bottom: .3rem; }
+.menu-head .tag { align-self: flex-start; margin-top: .2rem; }
+.menu-item {
+  display: flex; align-items: center; gap: .5rem; width: 100%;
+  padding: .42rem .6rem; border: 0; border-radius: var(--r-sm);
+  background: transparent; cursor: pointer; text-align: left; text-decoration: none; color: var(--ink); font-size: .88rem;
+}
+.menu-item:hover { background: var(--desk); }
+.menu-item--danger { color: var(--red); }
+
+/* ---------------- the board ---------------- */
+
+.board {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 12), 1fr);
+  /* The row unit answers to the board's own width, not the window's: 58px at
+     1440, 77px at 1920, so a desk on a projector is not the same desk with
+     everything smaller. */
+  container-type: inline-size;
+  grid-auto-rows: clamp(52px, 4cqi, 96px);
+  gap: var(--gap);
+  padding: clamp(.6rem, 2vw, 1.25rem);
+  align-content: start;
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--faint) 26%, transparent) 1px, transparent 0)
+    0 0 / 22px 22px;
+}
+
+.card {
+  grid-column: calc(var(--x) + 1) / span var(--w);
+  grid-row: calc(var(--y) + 1) / span var(--h);
+  position: relative;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  /* Numerals are sized against the card they sit in rather than the window,
+     so a timer dragged wider genuinely grows. Inline size only: `size`
+     containment collapses a grid item's width to nothing here, which takes
+     every container query with it. Height is handled by Desk.fitText, which
+     measures rather than queries. */
+  container-type: inline-size;
+  /* Paper on a desk: flat white, no border, and the whole effect carried by
+     the shadow stack. Nothing is drawn round a card. */
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-3);
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.card > .card-head, .card > .card-body { padding-left: 0; padding-right: 0; }
+/* Less at the foot than at the sides: a wide margin under content that has
+   been cut off reads as a mistake rather than as a margin. */
+.card { padding: 18px 22px 14px; }
+
+/* The category decides the colour. Every card gets --role and --role-ink,
+   whether or not it chooses to fill itself with them. */
+.card { --card-bg: var(--surface); }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) { --card-bg: var(--role); }
+:is(.card, .stage)[data-category="time"]  { --role: var(--p1); --role-ink: var(--p1-ink); }
+:is(.card, .stage)[data-category="class"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+:is(.card, .stage)[data-category="board"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+:is(.card, .stage)[data-category="calm"]  { --role: var(--p4); --role-ink: var(--p4-ink); }
+:is(.card, .stage)[data-category="other"] { --role: var(--ink); --role-ink: var(--surface); }
+/* A tool may take a colour that is not its family's, so that a board of time
+   tools is not a wall of one hue. The shape it wears does not change. */
+:is(.card, .stage)[data-role="p1"] { --role: var(--p1); --role-ink: var(--p1-ink); }
+:is(.card, .stage)[data-role="p2"] { --role: var(--p2); --role-ink: var(--p2-ink); }
+:is(.card, .stage)[data-role="p3"] { --role: var(--p3); --role-ink: var(--p3-ink); }
+:is(.card, .stage)[data-role="p4"] { --role: var(--p4); --role-ink: var(--p4-ink); }
+
+/* A block is a tool you read from the back of the room: the card is the
+   colour, and everything on it is the ink that colour carries. */
+:is(.card, .stage)[data-tone="block"][data-category]:not([data-category="other"]:not([data-role])) {
+  background: var(--role);
+  color: var(--role-ink);
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .card-title,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .muted { color: inherit; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint { opacity: .8; }
+
+/* A card fills the slot it was given, and the slot is measured from the
+   tool's own content the moment it is put down. That measurement is the
+   reason there is no empty space in a card; filling the slot afterwards is
+   the reason the card does not change shape while the teacher is using it.
+
+   The earlier version let the card end where its content ended, which looked
+   right in a screenshot and was wrong in a classroom: a randomiser landing on
+   a longer name, or a list gaining a row, resized the card under the
+   teacher's hand. The card now holds still and the contents fit themselves to
+   it. */
+.card:not(.is-fluid) { align-self: stretch; max-height: 100%; }
+.card:not(.is-fluid) .card-body { flex: 1 1 auto; overflow: auto; }
+
+/* The exceptions, which want every pixel they were given: a seating plan
+   sized by an observer, an embedded video, a clock face that scales. */
+.card.is-fluid { align-self: stretch; }
+/* Picked up very slightly, the way you would lift a card off a table. */
+.card:hover { box-shadow: var(--lift-hover); transform: translateY(-1px); }
+.card.is-dragging, .card.is-resizing {
+  z-index: 20; box-shadow: var(--shadow-3); border-color: var(--blue);
+  transform: translate(var(--drag-x, 0), var(--drag-y, 0)) scale(1.012);
+  transition: none;
+}
+/* A new tool arrives: up from a little smaller and a little lower, with a
+   touch of overshoot, so it lands on the desk rather than appearing on it. */
+.card.is-new { animation: pop .5s cubic-bezier(.2,1.4,.4,1); }
+@keyframes pop { from { transform: translateY(10px) scale(.9); opacity: 0; } }
+
+.card-head {
+  display: flex; align-items: center; gap: .45rem;
+  padding: 0 0 .1rem;
+  cursor: grab; touch-action: none;
+}
+.card-title {
+  margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .81rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+}
+.card-actions { display: flex; gap: .1rem; opacity: 0; transition: opacity .12s; }
+.card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
+
+/* Where content runs past the edge of a card, the edge says so: the card's
+   own colour fades out at the top and bottom, and a soft shadow sits under
+   the fade. Both are painted by the scroll box itself — the fades scroll with
+   the content and uncover the shadow only while there is more of it, so a box
+   whose content fits shows nothing at all, and no JavaScript has to watch a
+   scroll position to keep it honest.
+
+   It is on the card body AND on the lists that scroll inside widgets, since
+   from the teacher's side those are the same thing: something continues and
+   the card does not say so.
+
+   This is also why the bottom padding is small: the cue lives in the last few
+   pixels of the card, and a deep margin under a cut-off line looks like a
+   layout fault instead. */
+.card-body, .sw-laps, .note-text, .alarm-list, .beh-grid,
+.calc-tape, .group-output, .jobs-list, .score-list, .plan-side, .cat-list, .link-list {
+  background:
+    linear-gradient(var(--card-bg, var(--surface)) 40%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--card-bg, var(--surface)) 65%) bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(32,30,29,.15), transparent) top / 100% 11px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(32,30,29,.15), transparent) bottom / 100% 11px no-repeat scroll;
+}
+.card-body { flex: 1; min-height: 0; overflow: auto; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+
+/* ---------------- the four shapes ----------------
+   Time is a circle, your class a square, the board a triangle, sound and calm
+   an arch. Odds and ends get a hollow ring — deliberately not a fifth colour,
+   because a fifth would make the other four mean less. */
+.shape {
+  --shape-size: 14px;
+  display: inline-block; flex: none;
+  width: var(--shape-size); height: var(--shape-size);
+  background: var(--role, var(--ink));
+}
+.shape[data-shape="circle"] { border-radius: 50%; }
+.shape[data-shape="square"] { border-radius: var(--radius-xs); }
+.shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+/* An arch is a half-disc: flat on the ground, round over the top. */
+.shape[data-shape="arch"] {
+  height: calc(var(--shape-size) / 2);
+  border-radius: var(--shape-size) var(--shape-size) 0 0;
+}
+.shape[data-shape="ring"] {
+  width: calc(var(--shape-size) - 2px); height: calc(var(--shape-size) - 2px);
+  background: none; border: 2px solid currentColor; border-radius: 50%; opacity: .8;
+}
+/* On a block the marker is the ink, not the colour — the card is already the
+   colour, and a marker in the same hue would vanish into it. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .shape { background: currentColor; }
+:is(.card, .stage)[data-tone="block"] .shape[data-shape="ring"] { background: none; }
+
+
+/* Inside a block card the page's own accent would be a third colour fighting
+   the two already there, so the buttons are drawn from the block itself: the
+   main action is the card's colour on white, and everything beside it is an
+   outline in the ink the card is already using. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn {
+  background: transparent; color: inherit;
+  border: 2px solid currentColor; box-shadow: none;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn--primary,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn--danger {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .btn.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .chip.is-on,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg-btn.is-on {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .chip,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg-btn {
+  background: transparent; color: inherit; border: 2px solid currentColor; box-shadow: none;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .seg { background: transparent; border-color: currentColor; }
+/* Muted greys are invisible on a saturated ground: on a block, "quieter" is
+   the same ink at less than full strength. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) *:not(.btn):not(.chip):not(.seg-btn):not(.input):not(.select) {
+  /* Everything drawn on a block is the block's ink. A numeral in the page's
+     accent would be a third colour on a card that already has two — and on
+     the red timer, blue figures are the one thing you cannot read. */
+  --muted: currentColor; --faint: currentColor; --ink: currentColor;
+  --accent: currentColor; --blue: currentColor; --red: currentColor;
+  --p1: currentColor; --p2: currentColor; --p3: currentColor; --p4: currentColor;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .muted,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .hint,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .small,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-count,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) label { color: inherit; opacity: .85; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .input,
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .select {
+  background: rgba(255,255,255,.16); color: inherit; border-color: currentColor;
+}
+
+.card-resize {
+  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px;
+  cursor: nwse-resize; touch-action: none; opacity: 0; transition: opacity .12s;
+  background:
+    linear-gradient(135deg, transparent 48%, var(--faint) 48%, var(--faint) 56%, transparent 56%,
+                    transparent 68%, var(--faint) 68%, var(--faint) 76%, transparent 76%);
+  border-bottom-right-radius: var(--r-panel);
+}
+.card:hover .card-resize { opacity: .8; }
+
+.board-empty { grid-column: 1 / -1; text-align: center; padding: 4rem 1rem; color: var(--muted); }
+
+/* Below this the twelve columns mean nothing, so the board stacks and
+   rearranging is switched off rather than silently flattening the layout. */
+/* Below twelve columns the saved x/y stop meaning anything — a card placed
+   in column 9 has nowhere to be — so the board packs instead: each card keeps
+   its proportions, takes what width it can, and dense filling closes the
+   gaps. Rearranging is off, exactly as it is when stacked, because the
+   alternative is a teacher on a tablet quietly flattening the layout they
+   built on a laptop. */
+.board[data-cols="8"] .card,
+.board[data-cols="4"] .card {
+  grid-column: auto / span min(var(--w), var(--cols));
+  grid-row: auto / span var(--h);
+}
+.board[data-cols="8"], .board[data-cols="4"] { grid-auto-flow: dense; }
+.board[data-cols="8"] .card-grip, .board[data-cols="4"] .card-grip,
+.board[data-cols="8"] .card-resize, .board[data-cols="4"] .card-resize { display: none; }
+.board[data-cols="8"] .card-head, .board[data-cols="4"] .card-head { cursor: default; }
+
+/* Choosing one family of tools gathers them at the top of the desk, in the
+   order they sit on it, instead of leaving them scattered among the gaps the
+   others left. It is a view, not a rearrangement: the saved places are
+   untouched and come back with "All tools", so moving and resizing wait
+   until then. */
+.board.is-filtered { grid-auto-flow: dense; }
+/* Stacked, the column is already one card after another in board order. */
+body:not(.is-stacked) .board.is-filtered .card {
+  grid-column: auto / span min(var(--w), var(--cols));
+  grid-row: auto / span var(--h);
+}
+.board.is-filtered .card-grip, .board.is-filtered .card-resize { display: none; }
+.board.is-filtered .card-head { cursor: default; }
+
+body.is-stacked .board { grid-template-columns: 1fr; grid-auto-rows: min-content; }
+body.is-stacked .card { grid-column: 1 / -1; grid-row: auto; height: calc(var(--h) * var(--row) + (var(--h) - 1) * var(--gap)); }
+body.is-stacked .card-head { cursor: default; }
+body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
+
+/* ---------------- the big view ---------------- */
+
+.stage {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.stage { --card-bg: var(--bg); }
+.stage-head {
+  display: flex; align-items: center; gap: .6rem;
+  padding: 1rem clamp(1rem, 3vw, 2rem) .4rem; border: 0; background: transparent;
+}
+/* The title is the card's title, grown: its shape, then the name in capitals. */
+.stage-title {
+  display: flex; align-items: center; gap: .6rem; margin: 0; flex: 1;
+  font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+}
+/* A block tool fills the screen with its colour, exactly as it fills its card. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stage-head .icon-btn { color: inherit; }
+.stage-actions { display: flex; align-items: center; gap: .4rem; }
+.stage-body { flex: 1; overflow: auto; padding: clamp(.8rem, 2.4vw, 1.6rem); max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: .7rem; }
+
+/* Presenting: the chrome goes, the type grows, and everything that is not
+   the number or the name gets out of the way. */
+.stage.is-present .stage-head { opacity: 0; height: 0; padding: 0; overflow: hidden; border: 0; }
+.stage.is-present:hover .stage-head { opacity: 1; height: auto; padding: .55rem 1.25rem; border-bottom: 1px solid var(--line); }
+.stage.is-present .stage-body { max-width: none; justify-content: center; padding: 2vh 4vw; }
+.stage.is-present .hint, .stage.is-present .section-title { display: none; }
+.stage.is-present .timer-title:placeholder-shown { display: none; }
+.stage.is-present .timer-title { text-align: center; font-size: clamp(1rem, 3.4vh, 2rem); color: var(--muted); border: 0; }
+.stage.is-present .timer-controls .btn, .stage.is-present .timer-adjust .btn,
+.stage.is-present .chips, .stage.is-present .field { opacity: .55; transition: opacity .15s; }
+.stage.is-present .timer-controls:hover .btn, .stage.is-present .timer-adjust:hover .btn,
+.stage.is-present .chips:hover, .stage.is-present .field:hover { opacity: 1; }
+.stage.is-present .group-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.4rem; }
+.stage.is-present .group-names li { font-size: clamp(1.1rem, 2.4vh, 2rem); }
+.stage.is-present .group-title-text, .stage.is-present .group-title { font-size: clamp(1.2rem, 3vh, 2.2rem); }
+.stage.is-present .beh-name { font-size: 1.15rem; }
+.stage.is-present .note-text, .stage.is-present .check-text { font-size: clamp(1.1rem, 3.2vh, 2.4rem); }
+
+/* In the big view the page itself scrolls, so the panes inside a widget
+   stop being their own little scrolling boxes and simply run on. */
+.stage-body .group-output,
+.stage-body .beh-grid,
+.stage-body .alarm-list,
+.stage-body .sw-laps { flex: none; overflow: visible; }
+.stage-body .groups,
+.stage-body .behaviour,
+.stage-body .alarms,
+.stage-body .note { flex: none; }
+/* auto-FIT, not auto-fill: four groups stretch across the whole screen
+   rather than sitting in four narrow columns beside four empty ones. */
+.stage-body .group-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.stage-body .note-text { min-height: 46vh; }
+
+/* ---------------- dialogs and toasts ---------------- */
+
+.scrim {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center; padding: 1rem;
+  background: rgba(15, 20, 28, .45); backdrop-filter: blur(2px);
+}
+.dialog {
+  width: min(440px, 100%); max-height: 88vh; overflow: auto;
+  padding: 1.1rem; border-radius: var(--r-panel);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-3);
+}
+.dialog--wide { width: min(620px, 100%); }
+.dialog-title { font-size: 1.1rem; }
+.dialog-body { margin-bottom: .8rem; }
+.dialog-note { color: var(--muted); font-size: .84rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: .4rem; margin-top: .9rem; }
+
+.toasts { position: fixed; left: 50%; bottom: 1.1rem; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; gap: .4rem; align-items: center; pointer-events: none; }
+.toast { padding: .45rem .8rem; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: .86rem; box-shadow: var(--shadow-2); animation: toast-in .2s ease; }
+.toast--warn { background: var(--red); color: var(--on-accent); }
+.toast--out { opacity: 0; transition: opacity .3s; }
+/* A toast carrying an action has to be clickable, unlike the rest of the
+   stack, which deliberately lets clicks through to the page underneath. */
+.toast--action { pointer-events: auto; display: flex; align-items: center; gap: .6rem; padding-right: .3rem; }
+.toast-btn {
+  border: 0; border-radius: 999px; cursor: pointer;
+  padding: .18rem .6rem; font-size: .82rem; font-weight: 650;
+  background: color-mix(in srgb, var(--bg) 22%, transparent); color: inherit;
+}
+.toast-btn:hover { background: color-mix(in srgb, var(--bg) 38%, transparent); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+
+.centre { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.centre-card { width: min(430px, 100%); padding: 1.6rem; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-2); }
+.centre-title { font-size: 1.25rem; }
+.centre-body { color: var(--muted); }
+.centre-actions { display: flex; flex-direction: column; gap: .5rem; margin-top: 1rem; }
+.centre-note { font-size: .8rem; color: var(--faint); margin-top: .9rem; }
+
+/* ---------------- catalogue ---------------- */
+
+.catalogue { display: flex; flex-direction: column; gap: .35rem; }
+
+/* The search box sticks to the top of the dialog, because the list below it
+   is now long enough to scroll away from whoever is typing into it. */
+.cat-search {
+  position: sticky; top: 0; z-index: 2; margin-bottom: .1rem;
+  background: var(--surface);
+}
+.cat-count { margin: 0; }
+.cat-empty { padding: 1.4rem .2rem; text-align: center; }
+
+/* A drawer heading. Sticky as well, so it is always clear which group the
+   row under your cursor belongs to. */
+.cat-head {
+  position: sticky; top: 2.35rem; z-index: 1;
+  display: flex; align-items: baseline; gap: .45rem; flex-wrap: wrap;
+  padding: .5rem .1rem .25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.cat-head:first-child { padding-top: .2rem; }
+.cat-head-name { margin: 0; font-family: var(--display); font-size: .82rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.cat-head-blurb { font-size: .78rem; color: var(--muted); }
+.cat-item {
+  display: flex; align-items: flex-start; gap: .7rem; width: 100%; text-align: left;
+  padding: .6rem .7rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer;
+}
+.cat-item:hover { border-color: var(--blue); background: var(--blue-soft); }
+.cat-icon { display: flex; color: var(--blue); padding-top: .1rem; }
+.cat-text { flex: 1; display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.cat-name { font-weight: 650; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.cat-blurb { font-size: .82rem; color: var(--muted); }
+.cat-plus { display: flex; color: var(--faint); align-self: center; }
+
+/* ---------------- class lists ---------------- */
+
+.picker { display: flex; gap: .3rem; align-items: center; }
+/* A refused lookup has to look different from an empty one. */
+.picker.is-broken .select { border-color: var(--red); color: var(--red); }
+.picker-retry:empty { display: none; }
+.picker .select { flex: 1; min-width: 0; }
+.lists { display: flex; flex-direction: column; gap: .35rem; }
+.list-row { display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: var(--r); }
+.list-row-name { flex: 1; font-weight: 550; }
+
+/* ---------------- timer ---------------- */
+
+.timer, .stopwatch, .alarms, .randomiser, .groups, .behaviour, .note { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.timer-label { font-size: .82rem; color: var(--muted); text-align: center; }
+.timer-title { width: 100%; border: 0; border-bottom: 1px dashed var(--line); background: transparent; padding: .1rem 0; text-align: center; font-size: .86rem; color: var(--muted); }
+/* Square by its own arithmetic, not by whatever height was left over.
+   The ring used to take its height from a `flex: 1` face — fine while every
+   card was stretched to its grid slot, and an ellipse the moment cards
+   started ending where their content ends. A width and an aspect ratio do
+   not care how tall the card is. */
+.timer-face {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  flex: none; width: min(100%, 190px); aspect-ratio: 1; margin: 0 auto;
+}
+.timer-ring { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.timer-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-track { fill: none; stroke: var(--desk); stroke-width: 6; }
+.ring-value { fill: none; stroke: var(--blue); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset .25s linear, stroke .2s; }
+.ring-value.is-low { stroke: var(--yellow); }
+.ring-value.is-over { stroke: var(--red); }
+.timer-readout { position: relative; text-align: center; }
+/* The digits are a button: tapping them types a time in. It has to keep
+   looking like plain digits, so every button affordance is stripped back and
+   only shown on hover. */
+.timer-digits {
+  display: block; width: 100%; margin: 0; padding: 0 .1rem;
+  border: 0; background: transparent; color: inherit; cursor: text;
+  border-radius: var(--r-sm);
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  font-size: clamp(1.9rem, 7cqw, 3.2rem); line-height: 1;
+}
+.timer-digits:hover { background: color-mix(in srgb, var(--blue) 8%, transparent); }
+.timer-digits.is-over { color: var(--red); }
+
+.timer-input {
+  /* 7 tabular characters is "1:02:30", the longest thing anyone types here —
+     so the underline sits under the digits rather than spanning the whole
+     card. Bricolage's tabular figures are one width, which is what makes that hold. */
+  display: block; width: 100%; max-width: 7ch; margin: 0 auto;
+  padding: 0 .1rem; text-align: center;
+  border: 0; border-bottom: 2px solid var(--p2); border-radius: 0;
+  background: transparent; color: var(--ink);
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  font-size: clamp(1.9rem, 7cqw, 3.2rem); line-height: 1;
+}
+.timer-input:focus { outline: none; }
+.stage-body .timer-input { font-size: clamp(3rem, 13cqw, 8rem); }
+.stage.is-present .timer-input { font-size: min(30vw, 46vh); }
+.timer-over { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--red); }
+.timer-bar { display: none; height: 10px; border-radius: 999px; background: var(--desk); overflow: hidden; }
+.timer-bar-fill { height: 100%; background: var(--blue); border-radius: 999px; transition: width .25s linear, background .2s; }
+.timer-bar-fill.is-low { background: var(--yellow); }
+.timer-bar-fill.is-over { background: var(--red); }
+.timer-controls { display: flex; gap: .35rem; }
+.timer-adjust { display: flex; gap: .3rem; }
+.timer-adjust .btn { flex: 1; }
+
+/* ---------------- stopwatch ---------------- */
+
+.sw-digits {
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  font-size: clamp(1.8rem, 6cqw, 3rem); text-align: center; line-height: 1.1;
+}
+.sw-laps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .12rem; overflow: auto; }
+.sw-lap { display: grid; grid-template-columns: 2ch 1fr auto auto; gap: .4rem; align-items: center; font-size: .82rem; padding: .12rem .1rem; border-bottom: 1px solid var(--line); }
+.sw-lap-n { color: var(--faint); font-family: var(--mono); }
+.sw-lap-label { border: 0; background: transparent; border-bottom: 1px dashed transparent; padding: 0; min-width: 0; }
+.sw-lap-label:hover, .sw-lap-label:focus { border-bottom-color: var(--line); }
+.sw-lap-split { font-family: var(--mono); color: var(--muted); }
+.sw-lap-total { font-family: var(--mono); font-weight: 500; }
+
+/* ---------------- alarms ---------------- */
+
+.alarm-next { display: flex; justify-content: space-between; gap: .5rem; padding: .35rem .5rem; border-radius: var(--r-sm); background: var(--desk); font-size: .84rem; color: var(--muted); }
+.alarm-next.is-live { background: var(--blue-soft); color: var(--blue); font-weight: 550; }
+.alarm-next-when { font-family: var(--mono); }
+.alarm-list { display: flex; flex-direction: column; gap: .4rem; overflow: auto; }
+.alarm { padding: .4rem .5rem; border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; gap: .3rem; }
+.alarm.is-off { opacity: .55; }
+.alarm-head { display: flex; align-items: center; gap: .4rem; }
+.alarm-time { border: 0; background: transparent; font-family: var(--mono); font-size: .95rem; font-weight: 500; padding: 0; width: auto; }
+.alarm-label { flex: 1; min-width: 0; border: 0; border-bottom: 1px dashed transparent; background: transparent; padding: .05rem 0; font-size: .86rem; }
+.alarm-label:hover, .alarm-label:focus { border-bottom-color: var(--line); }
+.alarm-days { display: flex; gap: .15rem; }
+.day { width: 22px; height: 22px; border-radius: var(--r-sm); border: 1px solid var(--line); background: transparent; color: var(--faint); font-size: .7rem; font-weight: 600; cursor: pointer; }
+.day.is-on { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.alarm-sound { display: flex; align-items: center; gap: .35rem; color: var(--muted); }
+.alarm-ringing { display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem; border-radius: var(--r); background: var(--red); color: var(--on-accent); font-weight: 600; animation: ring 1s ease-in-out infinite; }
+.alarm-ringing-label { flex: 1; }
+.alarm-ringing .btn { background: color-mix(in srgb, var(--on-accent) 18%, transparent); border-color: transparent; color: var(--on-accent); }
+@keyframes ring { 50% { filter: brightness(1.18); } }
+
+/* ---------------- notes ---------------- */
+
+.note { border-radius: var(--r-sm); }
+.note-head { display: flex; align-items: center; gap: .4rem; }
+.note-title { flex: 1; min-width: 0; border: 0; background: transparent; font-family: var(--display); font-weight: 650; font-size: .95rem; padding: 0; }
+.note-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.note-text { flex: 1; width: 100%; min-height: 60px; border: 0; background: transparent; resize: none; padding: .2rem 0; line-height: 1.5; font-size: .92rem; }
+/* The colour is a variable rather than a background: the note paints itself
+   edge to edge inside the card from it. */
+.note[data-colour="yellow"] { --note-bg: var(--yellow-soft); }
+.note[data-colour="blue"]   { --note-bg: var(--blue-soft); }
+.note[data-colour="green"]  { --note-bg: var(--green-soft); }
+.note[data-colour="pink"]   { --note-bg: var(--red-soft); }
+.note[data-colour] { background: var(--note-bg); margin: -.6rem -.7rem -.7rem; padding: .6rem .7rem .7rem; }
+.swatches { display: flex; gap: .3rem; }
+.swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); }
+.swatch[data-colour="yellow"] { background: var(--yellow-soft); }
+.swatch[data-colour="blue"] { background: var(--blue-soft); }
+.swatch[data-colour="green"] { background: var(--green-soft); }
+.swatch[data-colour="pink"] { background: var(--red-soft); }
+.swatch[data-colour="plain"] { background: var(--surface); }
+.swatch.is-on { border-color: var(--ink); }
+
+.check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
+.check-row { display: flex; align-items: center; gap: .4rem; }
+.check { width: 20px; height: 20px; flex: none; border: 1.5px solid var(--faint); border-radius: var(--r-sm); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--on-accent); }
+.check.is-on { background: var(--green); border-color: var(--green); }
+.check-text { flex: 1; min-width: 0; border: 0; background: transparent; padding: .15rem 0; }
+.check-text.is-done { color: var(--faint); text-decoration: line-through; }
+.check-foot { display: flex; align-items: center; gap: .5rem; margin-top: .4rem; flex-wrap: wrap; }
+
+/* ---------------- randomiser ---------------- */
+
+/* The face holds whatever name comes up without changing shape. Names are
+   not one length — "Mia" and "Konstantinos" both have to land in the same
+   box, or the card reflows on every draw and the buttons move under the
+   teacher's finger. */
+.pick-face {
+  flex: 1 1 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .25rem;
+  min-height: 60px; text-align: center; overflow: hidden;
+}
+.pick-name {
+  font-family: var(--display); font-weight: 700; letter-spacing: -.02em;
+  font-size: clamp(1.3rem, 5.5cqw, 2.6rem); line-height: 1.1;
+  overflow-wrap: anywhere; width: 100%; overflow: hidden;
+}
+.pick-name.is-rolling { color: var(--faint); }
+.pick-name.is-landed { animation: land .5s cubic-bezier(.2,1.5,.4,1); color: var(--blue); }
+.pick-count { font-size: .8rem; color: var(--muted); }
+.pick-extra { display: flex; flex-direction: column; gap: .4rem; }
+.pick-roll { display: flex; flex-wrap: wrap; gap: .25rem; }
+.pick-chip { padding: .18rem .5rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: .8rem; cursor: pointer; }
+.pick-chip.is-had { background: var(--blue-soft); border-color: transparent; color: var(--blue); }
+.pick-chip.is-away { opacity: .45; text-decoration: line-through; }
+
+/* ---------------- groups ---------------- */
+
+.group-controls { display: flex; flex-direction: column; gap: .4rem; }
+.group-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.group-output { flex: 1; min-height: 0; overflow: auto; }
+.group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .5rem; }
+.group-card { position: relative; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.group-title, .group-title-text { font-family: var(--display); font-weight: 650; font-size: .85rem; margin: 0 0 .2rem; border: 0; background: transparent; padding: 0; width: 100%; }
+.group-names { list-style: none; margin: 0; padding: 0; font-size: .85rem; display: flex; flex-direction: column; gap: .05rem; }
+.group-size { position: absolute; top: .35rem; right: .45rem; font-family: var(--mono); font-size: .7rem; color: var(--faint); }
+.group-extra { display: flex; flex-direction: column; gap: .3rem; }
+.apart { display: flex; flex-direction: column; gap: .3rem; }
+.apart-row { display: flex; align-items: center; gap: .35rem; font-size: .85rem; flex-wrap: wrap; }
+.saved { display: flex; flex-direction: column; gap: .3rem; }
+.saved-row { display: flex; align-items: center; gap: .5rem; padding: .3rem .45rem; border: 1px solid var(--line); border-radius: var(--r); }
+.saved-name { flex: 1; font-weight: 550; font-size: .88rem; }
+/* A history row says more than a saved room does, so its label stacks. */
+.saved-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.saved-what .saved-name { flex: none; }
+.saved-what .hint { font-size: .74rem; }
+
+/* ---------------- behaviour ---------------- */
+
+.beh-grid { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .2rem; }
+.beh-pupil {
+  display: flex; align-items: center; gap: .5rem; width: 100%;
+  padding: .32rem .45rem; border: 1px solid transparent; border-radius: var(--r);
+  background: transparent; cursor: pointer; text-align: left;
+}
+.beh-pupil:hover { background: var(--desk); }
+.beh-pupil.is-open { background: var(--blue-soft); border-color: var(--blue); }
+.beh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; }
+.beh-tallies { display: flex; gap: .25rem; }
+.tally { min-width: 22px; padding: .02rem .32rem; border-radius: 999px; font-family: var(--mono); font-size: .76rem; font-weight: 500; text-align: center; }
+.tally--pos { background: var(--green-soft); color: var(--green); }
+.tally--neg { background: var(--red-soft); color: var(--red); }
+.beh-chips { display: flex; flex-direction: column; gap: .25rem; padding: .35rem .45rem .5rem; }
+.beh-chip-row { display: flex; flex-wrap: wrap; gap: .25rem; }
+
+/* What is already against this pupil, each with a way to take it back. */
+.beh-mine { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; margin-top: .35rem; padding-top: .35rem; border-top: 1px dashed var(--line); }
+.beh-mine .section-title { margin: 0 .2rem 0 0; }
+.beh-pill { display: inline-flex; align-items: center; gap: .25rem; padding: .08rem .12rem .08rem .5rem; border-radius: 999px; font-size: .78rem; }
+.beh-pill--positive { background: var(--green-soft); color: var(--green); }
+.beh-pill--concern { background: var(--red-soft); color: var(--red); }
+.beh-pill-text { font-weight: 550; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beh-pill-when { font-family: var(--mono); font-size: .68rem; opacity: .75; }
+.beh-pill .icon-btn { width: 20px; height: 20px; color: inherit; }
+.beh-foot { display: flex; flex-direction: column; gap: .3rem; border-top: 1px solid var(--line); padding-top: .4rem; }
+.beh-summary { display: flex; align-items: center; gap: .3rem; font-size: .82rem; color: var(--muted); }
+.beh-privacy { color: var(--faint); font-size: .76rem; }
+.beh-log { display: flex; flex-direction: column; gap: .15rem; }
+.beh-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto; gap: .5rem; align-items: center; padding: .25rem .4rem; border-left: 3px solid var(--line); font-size: .84rem; }
+.beh-entry--positive { border-left-color: var(--green); }
+.beh-entry--concern { border-left-color: var(--red); }
+.beh-entry-who { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beh-entry-what { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beh-entry-note { color: var(--faint); font-style: italic; }
+.beh-entry-when { font-family: var(--mono); font-size: .74rem; color: var(--faint); }
+.reason-editor { display: flex; flex-direction: column; gap: .3rem; }
+.reason-row { display: flex; align-items: center; gap: .4rem; }
+
+/* ---------------- seating plan ---------------- */
+
+.seating { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.plan-head { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.plan-head .picker { flex: 1; min-width: 150px; }
+.plan-toolbar { display: flex; gap: .3rem; flex-wrap: wrap; }
+.plan-stage { flex: 1; min-height: 0; display: flex; gap: .6rem; }
+/* The room's pixel size is worked out in JS, because aspect-ratio loses to a
+   flex parent that has already chosen the height — and a room with
+   non-square cells draws round tables as ellipses. */
+/* Wraps the room for printing. On screen it is just a pass-through flex box;
+   on paper it becomes a block so the heading stacks above the plan. */
+.plan-print { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.room-wrap { flex: 1; min-width: 0; min-height: 0; position: relative; }
+/* The room is taken out of flow so the wrapper's size comes only from the
+   layout around it. Left in flow, the room's own last size propped the
+   wrapper open, the observer never saw a change, and a plan opened into a
+   bigger box stayed at its old scale until something redrew it. */
+.room-box { max-width: 100%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+/* The whiteboard end. Without it the plan is ambiguous the moment anybody
+   but the person who made it looks at it — and it can be on any of the four
+   walls, because not every room faces the way a plan was first drawn. */
+.room-front {
+  position: absolute; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; text-align: center;
+  color: var(--muted); background: var(--desk);
+  pointer-events: none;
+}
+.room[data-front="top"] .room-front    { top: 0; left: 0; right: 0; height: 1.15rem; }
+.room[data-front="bottom"] .room-front { bottom: 0; left: 0; right: 0; height: 1.15rem; }
+.room[data-front="left"] .room-front   { left: 0; top: 0; bottom: 0; width: 1.15rem; writing-mode: vertical-rl; transform: rotate(180deg); }
+.room[data-front="right"] .room-front  { right: 0; top: 0; bottom: 0; width: 1.15rem; writing-mode: vertical-rl; }
+.room {
+  position: relative; width: 100%; min-height: 60px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--faint) 22%, transparent) 1px, transparent 0)
+    0 0 / calc(var(--cell, 8px) * 2) calc(var(--cell, 8px) * 2);
+  overflow: hidden;
+}
+.room-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 1rem; }
+
+.desk {
+  position: absolute;
+  left: calc(var(--x) / var(--cols) * 100%);
+  top: calc(var(--y) / var(--rows) * 100%);
+  width: calc(var(--w) / var(--cols) * 100%);
+  height: calc(var(--h) / var(--rows) * 100%);
+}
+.desk-surface {
+  position: absolute; cursor: grab; touch-action: none;
+  left: calc(var(--bx) / var(--w) * 100%); top: calc(var(--by) / var(--h) * 100%);
+  width: calc(var(--bw) / var(--w) * 100%); height: calc(var(--bh) / var(--h) * 100%);
+  background: var(--desk); border: 1px solid var(--line); border-radius: 3px;
+}
+.desk-surface--round { border-radius: 50%; }
+.desk.is-selected .desk-surface { border-color: var(--blue); background: var(--blue-soft); }
+.is-seating-drag .desk-surface { cursor: grabbing; }
+
+.seat {
+  position: absolute; overflow: hidden; touch-action: none;
+  left: calc(var(--bx) / var(--w) * 100%); top: calc(var(--by) / var(--h) * 100%);
+  width: calc(var(--bw) / var(--w) * 100%); height: calc(var(--bh) / var(--h) * 100%);
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 1px 2px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--surface); font-size: calc(var(--cell, 8px) * 0.82); line-height: 1.1;
+}
+.seat.is-free { border-style: dashed; background: transparent; }
+.seat.is-taken { background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 45%, transparent); color: var(--blue); font-weight: 550; }
+.seating.is-editable .seat { cursor: pointer; }
+.seat.is-selected { outline: 2px solid var(--blue); outline-offset: 1px; }
+.seat.is-drop { background: var(--yellow-soft); border-color: var(--yellow); border-style: solid; }
+.seat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.seat-initials { display: none; font-family: var(--mono); font-weight: 500; }
+/* Too small for a name is not too small to be useful — initials still tell a
+   teacher who is sitting where. */
+.room.is-tiny .seat-name { display: none; }
+.room.is-tiny .seat-initials { display: block; font-size: calc(var(--cell, 8px) * 1.5); }
+/* A pupil's full name, shown over their chair when tapped. Positioned in the
+   desk's own units, the same way the seat is, so it follows the room. */
+.desk.has-tag { z-index: 6; }
+.seat-tag {
+  position: absolute; z-index: 6; pointer-events: none; white-space: nowrap;
+  left: calc((var(--bx) + var(--bw) / 2) / var(--w) * 100%);
+  top: calc(var(--by) / var(--h) * 100%);
+  transform: translate(-50%, calc(-100% - 4px));
+  padding: .2rem .5rem; border-radius: 999px;
+  background: var(--ink); color: var(--surface);
+  font-size: .8rem; font-weight: 600; line-height: 1.2; box-shadow: var(--lift);
+}
+.seat-tag.is-below { top: calc((var(--by) + var(--bh)) / var(--h) * 100%); transform: translate(-50%, 4px); }
+.seat-tag.is-left { left: calc(var(--bx) / var(--w) * 100%); transform: translate(0, calc(-100% - 4px)); }
+.seat-tag.is-left.is-below { transform: translate(0, 4px); }
+.seat-tag.is-right { left: calc((var(--bx) + var(--bw)) / var(--w) * 100%); transform: translate(-100%, calc(-100% - 4px)); }
+.seat-tag.is-right.is-below { transform: translate(-100%, 4px); }
+@media print { .seat-tag { display: none; } }
+html.is-printing .seat-tag { display: none; }
+
+/* Everything in the room that is not a desk: the teacher's own desk, a
+   bookcase, the door, a rug. Drawn plainly and labelled by the teacher —
+   a fixed catalogue of furniture would never have had the right thing. */
+.room-object {
+  position: absolute; z-index: 1;
+  left: calc(var(--x) / var(--cols) * 100%);
+  top: calc(var(--y) / var(--rows) * 100%);
+  width: calc(var(--w) / var(--cols) * 100%);
+  height: calc(var(--h) / var(--rows) * 100%);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; padding: 1px 3px; text-align: center;
+  background: color-mix(in srgb, var(--faint) 16%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--faint) 60%, transparent);
+  border-radius: 3px; color: var(--muted);
+  font-size: calc(var(--cell, 8px) * 0.78); line-height: 1.05;
+}
+.seating.is-editable .room-object { cursor: grab; touch-action: none; }
+.is-seating-drag .room-object { cursor: grabbing; }
+.room-object--circle { border-radius: 50%; }
+.room-object--strip { background: color-mix(in srgb, var(--faint) 34%, transparent); border-style: solid; }
+.room-object.is-selected { border-color: var(--blue); border-style: solid; background: var(--blue-soft); color: var(--blue); }
+.room-object-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.room.is-tiny .room-object-label { display: none; }
+.object-resize {
+  position: absolute; right: 0; bottom: 0; width: 12px; height: 12px;
+  cursor: nwse-resize; touch-action: none; opacity: 0;
+  background: linear-gradient(135deg, transparent 50%, var(--blue) 50%);
+}
+.room-object.is-selected .object-resize { opacity: 1; }
+
+.starters { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; padding: 1rem; text-align: center; }
+.starter-row { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: center; }
+
+.plan-side { width: 200px; flex: none; display: flex; flex-direction: column; gap: .4rem; overflow: auto; }
+.plan-tray { display: flex; flex-direction: column; gap: .3rem; }
+.tray-list { display: flex; flex-wrap: wrap; gap: .25rem; }
+.tray-chip {
+  padding: .18rem .5rem; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); font-size: .8rem; cursor: grab; touch-action: none;
+}
+.tray-chip:hover { border-color: var(--blue); }
+.tray-chip.is-selected { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.plan-inspector { display: flex; flex-direction: column; gap: .35rem; border-top: 1px solid var(--line); padding-top: .4rem; }
+.fold-head {
+  display: flex; align-items: center; gap: .35rem; width: 100%; padding: .1rem 0;
+  background: none; border: 0; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.fold-head .icon { transition: transform .15s; transform: rotate(90deg); }
+.fold.is-folded .fold-head .icon { transform: none; }
+.fold.is-folded .fold-body { display: none; }
+.fold-body { display: flex; flex-direction: column; gap: .35rem; margin-top: .3rem; }
+.fold + .fold { margin-top: .2rem; }
+.plan-row { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+.plan-row .is-flipped .icon { transform: scaleX(-1); }
+
+.drag-ghost {
+  position: fixed; z-index: 95; pointer-events: none;
+  transform: translate(-50%, -140%);
+  padding: .2rem .55rem; border-radius: 999px;
+  background: var(--blue); color: var(--on-accent);
+  font-size: .82rem; font-weight: 550; box-shadow: var(--shadow-2);
+}
+body.is-seating-drag { user-select: none; }
+
+.stage-body .seating { flex: 1; }
+.stage-body .plan-side { width: 240px; }
+.stage.is-present .plan-head, .stage.is-present .plan-side { display: none; }
+.stage.is-present .room-front { font-size: 1rem; padding: .3rem; }
+.stage.is-present .seat { font-size: calc(var(--cell, 8px) * 0.9); }
+
+@media (max-width: 900px) {
+  .plan-stage { flex-direction: column; }
+  .plan-side { width: auto; max-height: 40vh; }
+}
+
+/* ---------------- appearance panel ---------------- */
+
+.appearance { display: flex; flex-direction: column; gap: .25rem; }
+/* A palette is four colours doing four jobs, so the tile shows all four —
+   weighted 2:1:1:1, because the lead colour is the one a teacher sees most. */
+.palettes {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; margin: .2rem 0 .5rem;
+}
+.palette {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 10px; border-radius: var(--r-panel); cursor: pointer;
+  background: var(--surface); box-shadow: var(--shadow-2);
+  border: 2px solid transparent; text-align: left;
+}
+.palette.is-on { border-color: var(--ink); }
+.palette--custom { border-style: dashed; border-color: var(--line); }
+.palette--custom.is-on { border-style: solid; border-color: var(--ink); }
+.palette-strip { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; height: 56px; border-radius: 9px; overflow: hidden; }
+.palette-name { font-size: 14px; font-weight: 800; color: var(--ink); }
+.palette-note { font-size: 11px; color: var(--muted); margin-top: -6px; }
+
+.picture-list { display: flex; flex-direction: column; gap: .3rem; }
+.picture-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+.picture {
+  position: relative; width: 74px; height: 48px; border-radius: var(--r-sm);
+  border: 2px solid transparent; box-shadow: inset 0 0 0 1px var(--line);
+  background-size: cover; background-position: center; cursor: pointer;
+}
+.picture.is-on { border-color: var(--accent); }
+.picture-x {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--red); color: var(--on-accent);
+}
+.range { width: 100%; accent-color: var(--accent); }
+
+/* ---------------- clock ---------------- */
+
+.clock { display: flex; flex-direction: column; align-items: center; gap: .3rem; flex: 1; min-height: 0; }
+.clock-zone { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.clock-date { font-size: .82rem; color: var(--muted); }
+/* The face takes whatever the card has left after the zone, the date and the
+   controls, and no more: the digits are fitted to it in JS, and a box that
+   can grow is a box they can grow out of. */
+.clock-face { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; width: 100%; }
+.clock-svg { width: auto; height: 100%; max-width: 100%; aspect-ratio: 1; }
+.clock-rim { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.tick { stroke: var(--faint); stroke-width: .7; }
+.tick--hour { stroke: var(--ink); stroke-width: 1.4; }
+.numeral { fill: var(--ink); font-family: var(--display); font-size: 7.5px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.hand { stroke: var(--ink); stroke-linecap: round; }
+.hand--hour { stroke-width: 4; }
+.hand--minute { stroke-width: 2.6; }
+.hand--second { stroke: var(--clock-colour, var(--accent)); stroke-width: 1.2; }
+.clock-pin { fill: var(--clock-colour, var(--accent)); }
+/* One unit: the figures in the display face, with am/pm set small beside
+   them on the same line. The size lives on the unit, so fitting it fits both. */
+.clock-time {
+  display: inline-flex; align-items: baseline; gap: .06em; white-space: nowrap;
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: .9;
+  font-size: clamp(1.8rem, 9cqw, 4rem); color: var(--clock-colour, var(--accent));
+}
+.clock-digits { font: inherit; letter-spacing: inherit; }
+.clock-suffix { font-size: .28em; font-weight: 700; letter-spacing: .02em; opacity: .8; }
+.clock-controls { width: 100%; display: flex; flex-direction: column; gap: .35rem; }
+.clock-toggles { display: flex; flex-direction: column; gap: .2rem; }
+.stage.is-present .clock-controls { display: none; }
+.stage-body .clock-face { min-height: 40vh; }
+
+/* ---------------- emoji ---------------- */
+
+.emoji { display: flex; flex-direction: column; gap: .45rem; flex: 1; min-height: 0; }
+.emoji-face { flex: 1; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; }
+.emoji-big {
+  border: 0; background: transparent; cursor: pointer; padding: 0; line-height: 1;
+  font-size: clamp(2.6rem, 18cqw, 6rem);
+}
+.emoji-big.is-new { animation: land .45s cubic-bezier(.2,1.5,.4,1); }
+.emoji-status { font-size: .78rem; color: var(--muted); text-align: center; }
+.emoji-status.is-warn { color: var(--red); }
+.emoji-tabs { margin-top: .2rem; }
+.emoji-tray { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: .2rem; overflow: auto; }
+.emoji-cell {
+  border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
+  cursor: pointer; font-size: 1.5rem; line-height: 1; padding: .2rem 0;
+}
+.emoji-cell:hover { background: var(--desk); border-color: var(--line); }
+.emoji-cell--small { font-size: 1.1rem; }
+.emoji-recent { display: flex; align-items: center; gap: .2rem; flex-wrap: wrap; }
+.stage.is-present .emoji-big { font-size: min(40vw, 55vh); }
+
+/* ---------------- soundboard ---------------- */
+
+.soundboard { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.pads { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: .35rem; align-content: start; }
+.pad {
+  position: relative; min-height: 54px; padding: .4rem .3rem;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  font-weight: 600; font-size: .84rem; line-height: 1.15;
+  box-shadow: var(--shadow-1); transition: transform .06s, filter .12s;
+}
+.pad:hover { filter: brightness(.97); }
+.pad:active { transform: translateY(2px); box-shadow: none; }
+.pad--accent { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
+.pad--green { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 40%, transparent); color: var(--green); }
+.pad--red { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+.pad--yellow { background: var(--yellow-soft); border-color: color-mix(in srgb, var(--yellow) 45%, transparent); color: var(--yellow-dark); }
+.pad--add { border-style: dashed; color: var(--muted); flex-direction: column; gap: .15rem; font-weight: 550; }
+.pad-edit {
+  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); color: inherit; opacity: 0;
+}
+.pad:hover .pad-edit { opacity: .7; }
+.pad-edit:hover { opacity: 1; background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.pad-foot { display: flex; gap: .3rem; }
+.pad-editor { display: flex; flex-direction: column; gap: .4rem; }
+.sound-list { max-height: 40vh; overflow: auto; }
+.sound-row { display: flex; flex-wrap: wrap; gap: .25rem; }
+.sound-chip { display: inline-flex; align-items: center; gap: .25rem; }
+.sound-x { display: inline-flex; opacity: .5; }
+.sound-x:hover { opacity: 1; color: var(--red); }
+.swatch[data-pad-colour="accent"] { background: var(--accent); }
+.swatch[data-pad-colour="green"] { background: var(--green); }
+.swatch[data-pad-colour="red"] { background: var(--red); }
+.swatch[data-pad-colour="yellow"] { background: var(--yellow); }
+
+/* ---------------- weather ---------------- */
+
+.weather { display: flex; flex-direction: column; gap: .45rem; flex: 1; min-height: 0; overflow: auto; }
+.wx-head { display: flex; align-items: center; gap: .3rem; }
+.wx-place { flex: 1; font-weight: 600; font-size: .9rem; }
+.wx-now { display: flex; align-items: center; gap: .6rem; }
+.wx-icon { font-size: 2.2rem; line-height: 1; color: var(--accent); }
+.wx-temp { font-family: var(--mono); font-weight: 500; font-size: 1.9rem; line-height: 1; }
+.wx-outings { display: flex; flex-direction: column; gap: .35rem; }
+.wx-outing { padding: .4rem .5rem; border-radius: var(--r); border-left: 3px solid var(--line); background: var(--desk); }
+.wx-outing.is-past { opacity: .5; }
+.wx-outing--go { border-left-color: var(--green); background: var(--green-soft); }
+.wx-outing--warn { border-left-color: var(--yellow); background: var(--yellow-soft); }
+.wx-outing--stop { border-left-color: var(--red); background: var(--red-soft); }
+.wx-outing--wow { border-left-color: var(--accent); background: var(--accent-soft); }
+.wx-outing-head { display: flex; align-items: baseline; gap: .4rem; }
+.wx-when { font-family: var(--mono); font-size: .82rem; font-weight: 500; }
+.wx-label { flex: 1; font-weight: 600; font-size: .86rem; }
+.wx-badge { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; opacity: .8; }
+.wx-verdict { font-size: .88rem; margin: .15rem 0; }
+.wx-facts { font-size: .74rem; }
+.wx-setup, .wx-settings { display: flex; flex-direction: column; gap: .35rem; }
+.wx-results { display: flex; flex-direction: column; gap: .2rem; max-height: 30vh; overflow: auto; }
+.stage.is-present .wx-verdict { font-size: clamp(1.2rem, 3.5vh, 2.4rem); }
+.stage.is-present .wx-temp { font-size: clamp(3rem, 12vh, 7rem); }
+.stage.is-present .wx-settings, .stage.is-present .wx-head { display: none; }
+
+/* ---------------- random number / dice / coin ---------------- */
+
+.random { display: flex; flex-direction: column; gap: .45rem; flex: 1; min-height: 0; }
+.rnd-face { flex: 1; min-height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; }
+.rnd-display { display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+.rnd-display.is-rolling { opacity: .55; }
+.rnd-display.is-landed .rnd-number, .rnd-display.is-landed .coin { animation: land .5s cubic-bezier(.2,1.5,.4,1); }
+.rnd-number { font-family: var(--mono); font-weight: 500; font-size: clamp(2.2rem, 13cqw, 5rem); line-height: 1; color: var(--accent); }
+.coin { color: var(--yellow-dark); line-height: 0; }
+.coin-svg { width: clamp(56px, 26cqw, 160px); height: auto; }
+.coin-letter {
+  fill: currentColor; font-family: var(--display); font-weight: 700; font-size: 44px;
+  text-anchor: middle; dominant-baseline: central;
+}
+.coin-word { font-family: var(--display); font-weight: 650; font-size: clamp(.9rem, 4cqw, 1.6rem); color: var(--ink); }
+/* Spinning while it is in the air, and a settle when it lands. */
+.rnd-display.is-rolling .coin-svg { animation: coin-spin .5s linear infinite; }
+@keyframes coin-spin { to { transform: rotateY(360deg); } }
+.rnd-display.is-landed .coin-svg { animation: coin-land .55s cubic-bezier(.2,1.4,.4,1); }
+@keyframes coin-land { from { transform: rotateY(180deg) scale(.7); } }
+.stage.is-present .coin-svg { width: min(30vw, 42vh); }
+.stage.is-present .coin-word { font-size: clamp(1.6rem, 5vh, 3.5rem); }
+.dice-row { display: flex; gap: .35rem; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--accent); }
+.die { width: clamp(34px, 9cqw, 76px); height: auto; }
+.dice-total { font-family: var(--mono); font-size: .9rem; color: var(--muted); }
+.rnd-note { font-size: .78rem; color: var(--muted); }
+.rnd-extra { display: flex; flex-direction: column; gap: .35rem; }
+.rnd-range { display: flex; gap: .4rem; }
+.rnd-range .field { flex: 1; margin: 0; }
+.input--num { text-align: center; }
+.stage.is-present .rnd-number { font-size: min(34vw, 46vh); }
+.stage.is-present .die { width: min(22vw, 30vh); }
+
+/* ---------------- countdown ---------------- */
+
+.countdown { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.cd-face { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: .1rem; }
+.cd-emoji { font-size: clamp(1.4rem, 7cqw, 3rem); line-height: 1; }
+.cd-big { font-family: var(--display); font-weight: 700; font-size: clamp(2.2rem, 14cqw, 5.5rem); line-height: 1; color: var(--accent); }
+.cd-big.is-today { color: var(--green); }
+.cd-big.is-past { color: var(--faint); }
+.cd-small { font-size: .9rem; color: var(--muted); }
+.cd-label { font-weight: 600; margin-top: .2rem; }
+.cd-settings { display: flex; flex-direction: column; gap: .3rem; }
+
+/* The days after the next one, small enough that the big number keeps the
+   room it needs to be read from the back of the class. */
+.cd-others { width: min(100%, 20rem); margin: .5rem auto 0; display: flex; flex-direction: column; gap: .15rem; }
+.cd-other { display: flex; align-items: baseline; gap: .4rem; font-size: .82rem; text-align: left; }
+.cd-other.is-past { opacity: .5; }
+.cd-other-when { font-weight: 700; color: var(--accent); min-width: 2.2em; text-align: right; flex: none; }
+.cd-other.is-past .cd-other-when { color: var(--faint); }
+.cd-other-what { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cd-rows { display: flex; flex-direction: column; gap: .35rem; }
+.cd-row { display: flex; flex-direction: column; gap: .25rem; }
+.cd-line { display: flex; align-items: center; gap: .3rem; }
+.cd-line .input { flex: 1; min-width: 0; }
+.cd-line .cd-date { flex: 0 1 9.5rem; }
+.cd-emoji-btn { flex: none; min-width: 2rem; text-align: center; }
+
+.stage.is-present .cd-big { font-size: min(30vw, 44vh); }
+.stage.is-present .cd-others { width: min(100%, 34rem); }
+.stage.is-present .cd-other { font-size: 1.4rem; }
+.stage.is-present .cd-settings { display: none; }
+
+/* ---------------- big message ---------------- */
+
+.message { display: flex; flex-direction: column; gap: .45rem; flex: 1; min-height: 0; }
+.msg {
+  flex: 1; min-height: 60px; display: flex; align-items: center; justify-content: center;
+  padding: .5rem; border-radius: var(--r); text-align: center; overflow: hidden;
+}
+.msg[data-style="accent"] { color: var(--accent); }
+.msg[data-style="invert"] { background: var(--ink); color: var(--bg); }
+.msg.is-flashing { animation: msg-pulse 2.2s ease-in-out infinite; }
+@keyframes msg-pulse { 50% { opacity: .45; } }
+/* The size is measured and set in JS — see the widget for why guessing from
+   the character count was not good enough. */
+.msg-text { font-family: var(--display); font-weight: 700; line-height: 1.05; overflow-wrap: anywhere; }
+.msg-text.is-placeholder { color: var(--faint); font-weight: 500; }
+.msg-controls { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .msg-controls { display: none; }
+
+/* ---------------- word count ---------------- */
+
+.wordcount { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.wc-text { flex: 1 1 0; min-height: 70px; resize: none; }
+.wc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: .4rem; }
+.wc-fig { padding: .4rem .55rem; border-radius: var(--r); background: var(--bg); }
+.wc-label { font-size: .72rem; color: var(--muted); }
+.wc-num { font-family: var(--display); font-weight: 700; font-size: 1.35rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.wc-goal-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.wc-goal { width: 5.5rem; }
+.wc-bar { flex: 1; min-width: 5rem; height: .5rem; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.wc-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+
+/* ---------------- convert ---------------- */
+
+.cv { display: flex; flex-direction: column; gap: .55rem; flex: 1; min-height: 0; }
+.cv-tabs { flex: none; }
+.cv-tabs .seg { max-width: 100%; }
+.cv-body { flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .55rem; padding-bottom: .25rem; }
+.cv-drop { flex: none; display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .85rem .75rem; text-align: center;
+  border: 1.5px dashed var(--line); border-radius: var(--r); color: var(--muted); font-size: .85rem; cursor: pointer; background: var(--bg); }
+.cv-drop:hover, .cv-drop.is-over { border-color: var(--accent); color: var(--ink); }
+.cv-drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cv-drop-icon { flex: none; display: inline-flex; }
+.cv-settings { display: flex; flex-wrap: wrap; gap: .45rem .9rem; align-items: center; }
+.cv-field { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; min-width: 0; }
+.cv-label { font-size: .78rem; color: var(--muted); font-weight: 550; }
+.cv-range { width: 7rem; accent-color: var(--accent); }
+.cv-val { font-family: var(--mono, monospace); font-size: .8rem; min-width: 2.6rem; }
+.cv-pages { width: 15rem; max-width: 100%; }
+.cv-err { color: var(--red); flex-basis: 100%; }
+.cv-err:empty { display: none; }
+.cv-list { display: flex; flex-direction: column; gap: .3rem; }
+.cv-row { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border-radius: var(--r-sm); background: var(--bg); }
+.cv-row.is-error .cv-detail { color: var(--red); }
+.cv-row-text { flex: 1; min-width: 0; }
+.cv-name { font-size: .85rem; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-detail { font-size: .75rem; color: var(--muted); }
+.cv-row-actions { flex: none; display: flex; gap: .25rem; }
+.cv-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.cv-out { display: flex; flex-direction: column; gap: .45rem; }
+.cv-drive { margin-top: auto; padding: .6rem .75rem; border-radius: var(--r); border: 1px solid var(--line); display: flex; flex-direction: column; gap: .35rem; align-items: flex-start; }
+.cv-drive-head { font-weight: 600; font-size: .88rem; }
+.cv-steps { margin: 0; padding-left: 1.2rem; font-size: .82rem; display: flex; flex-direction: column; gap: .15rem; }
+
+/* ---------------- calm down ---------------- */
+
+.breathing { display: flex; flex-direction: column; gap: .45rem; flex: 1; min-height: 0; }
+.breathe-stage { position: relative; flex: 1; min-height: 90px; display: flex; align-items: center; justify-content: center; }
+.breathe-circle {
+  width: min(70%, 190px); aspect-ratio: 1; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 2px solid var(--accent);
+  transform: scale(.45); transition: transform .12s linear;
+}
+.breathe-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem; pointer-events: none; }
+.breathe-word { font-family: var(--display); font-weight: 650; font-size: clamp(1rem, 5cqw, 1.8rem); }
+.breathe-count { font-size: .78rem; color: var(--muted); }
+.breathe-settings { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .breathe-word { font-size: clamp(2rem, 6vh, 4rem); }
+.stage.is-present .breathe-settings { display: none; }
+
+/* ---------------- scoreboard ---------------- */
+
+.scoreboard { display: flex; flex-direction: column; gap: .35rem; flex: 1; min-height: 0; }
+.score-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .25rem; }
+/* Each team IS its colour: the whole row is filled with it and everything
+   on the row is drawn in that colour's own ink. The card behind is plain
+   white on purpose — six coloured teams on a coloured card is one colour too
+   many, and a blue team on a blue card is no team at all. */
+.score-row {
+  --team: var(--desk); --team-ink: var(--ink);
+  display: flex; align-items: center; gap: .4rem;
+  padding: .35rem .45rem .35rem .7rem; border-radius: var(--r); border: 0;
+  background: var(--team); color: var(--team-ink);
+}
+.score-row--red    { --team: var(--p1); --team-ink: var(--p1-ink); }
+.score-row--accent { --team: var(--p2); --team-ink: var(--p2-ink); }
+.score-row--yellow { --team: var(--p3); --team-ink: var(--p3-ink); }
+.score-row--teal   { --team: var(--p4); --team-ink: var(--p4-ink); }
+.score-row--green  { --team: var(--green); --team-ink: #fff; }
+.score-row--purple { --team: #7a3fd1; --team-ink: #fff; }
+/* The team in front gets a ring in its own colour, set off from the row. */
+.score-row.is-leading { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--team); }
+.score-name, .score-name-text {
+  flex: 1; min-width: 0; font-weight: 700; font-size: .95rem;
+  border: 0; background: transparent; padding: 0; color: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.score-name::placeholder { color: inherit; opacity: .6; }
+.score-value {
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  font-size: 1.35rem; min-width: 2.5ch; text-align: center;
+}
+/* Minus is an outline in the team's ink; plus is the ink filled in, with the
+   team's colour as its label — the one a teacher reaches for most. */
+.score-btn {
+  width: 30px; height: 30px; flex: none; border-radius: var(--r-sm);
+  border: 2px solid currentColor; background: transparent; color: inherit;
+  cursor: pointer; font-size: 1.05rem; font-weight: 800; line-height: 1;
+}
+.score-btn:hover { filter: brightness(.94); }
+.score-btn--plus { background: var(--team-ink); border-color: transparent; color: var(--team); }
+.score-row .icon-btn { color: inherit; }
+.score-foot { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.stage.is-present .score-value { font-size: 2.4rem; }
+.stage.is-present .score-name-text { font-size: 1.6rem; }
+
+/* ---------------- jobs ---------------- */
+
+.jobs { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.jobs-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .2rem; }
+.job-row { display: flex; align-items: center; gap: .5rem; padding: .28rem .4rem; border-bottom: 1px solid var(--line); }
+.job-name { flex: 1; font-size: .86rem; color: var(--muted); }
+.job-who { font-weight: 600; font-size: .9rem; }
+.jobs-foot { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.jobs-settings { display: flex; flex-direction: column; gap: .3rem; }
+.jobs-edit { display: flex; flex-direction: column; gap: .2rem; }
+.stage.is-present .job-name, .stage.is-present .job-who { font-size: clamp(1rem, 2.6vh, 1.8rem); }
+.stage.is-present .jobs-settings, .stage.is-present .jobs-foot { display: none; }
+
+/* ---------------- noise meter ---------------- */
+
+.noise { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.noise-word { font-family: var(--display); font-weight: 650; font-size: clamp(.95rem, 4.5cqw, 1.6rem); text-align: center; min-height: 1.2em; }
+.noise-track {
+  position: relative; flex: 1; min-height: 60px; width: 100%;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--desk); overflow: hidden;
+}
+.noise-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; transition: height .08s linear, background .25s; }
+.noise-fill--silent { background: color-mix(in srgb, var(--green) 45%, transparent); }
+.noise-fill--whisper { background: color-mix(in srgb, var(--green) 70%, transparent); }
+.noise-fill--work { background: var(--green); }
+.noise-fill--loud { background: var(--yellow); }
+.noise-fill--over { background: var(--red); }
+.noise-limit { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed color-mix(in srgb, var(--ink) 45%, transparent); }
+.noise-track.is-over { box-shadow: inset 0 0 0 2px var(--red); }
+.noise-hint { font-size: .74rem; }
+.noise-settings { display: flex; flex-direction: column; gap: .3rem; }
+.stage.is-present .noise-word { font-size: clamp(2rem, 7vh, 5rem); }
+.stage.is-present .noise-settings, .stage.is-present .noise-hint { display: none; }
+
+/* ---------------- QR ---------------- */
+
+.qr { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+/* The code is square and the card is not, so whichever of the two runs out
+   first decides: the holder takes the height it is given, keeps its square,
+   and never grows past the width. A QR code that has to be scrolled to is a
+   QR code nobody scans. */
+.qr-face { flex: 1 1 auto; min-height: 60px; display: flex; align-items: center; justify-content: center; }
+.qr-holder { height: 100%; max-height: 100%; aspect-ratio: 1; width: auto; max-width: min(100%, 240px); }
+.qr-svg { width: 100%; height: 100%; display: block; border-radius: 3px; }
+/* Always dark-on-light, whatever the theme: a scanner wants contrast in that
+   direction and an inverted QR is one many phones refuse. */
+.qr { --qr-bg: #ffffff; --qr-ink: #111111; }
+.qr-caption { font-size: .82rem; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.qr-controls { display: flex; flex-direction: column; gap: .35rem; }
+.stage-body .qr-holder { max-width: min(100%, 46vh); }
+.stage.is-present .qr-holder { max-width: min(70vw, 66vh); }
+.stage.is-present .qr-controls { display: none; }
+
+/* ---------------- embedded / launched apps ---------------- */
+
+.embed { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.embed-card {
+  flex: 1; min-height: 90px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .15rem; text-align: center;
+  padding: .8rem; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface); cursor: pointer; text-decoration: none; color: var(--ink);
+}
+.embed-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.embed-icon { color: var(--accent); }
+.embed-card--green .embed-icon { color: var(--green); }
+.embed-card--green:hover { border-color: var(--green); background: var(--green-soft); }
+.embed-name { font-family: var(--display); font-weight: 700; font-size: 1rem; }
+.embed-blurb { font-size: .8rem; color: var(--muted); }
+.embed-go { display: inline-flex; align-items: center; gap: .25rem; margin-top: .3rem; font-size: .78rem; color: var(--muted); }
+.embed-link { justify-content: center; }
+.embed-bar { display: flex; align-items: center; gap: .35rem; }
+.embed-bar-name { flex: 1; font-weight: 600; font-size: .88rem; }
+.embed-frame { flex: 1; min-height: 240px; width: 100%; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.stage.is-present .embed-bar { display: none; }
+
+/* ---------------- calendar ---------------- */
+
+.calendar { display: flex; flex-direction: column; gap: .35rem; flex: 1; min-height: 0; }
+.cal-frame.is-dark { filter: invert(1) hue-rotate(180deg); }
+.cal-settings { display: flex; flex-direction: column; gap: .35rem; }
+.cal-rows { display: flex; flex-direction: column; gap: .3rem; }
+.cal-row { display: flex; align-items: center; gap: .35rem; }
+.cal-row .input { flex: 1; min-width: 0; }
+.swatches--tiny { flex: none; display: grid; grid-template-columns: repeat(4, 14px); gap: 3px; }
+.swatches--tiny .swatch { width: 14px; height: 14px; border-width: 1.5px; }
+.cal-note { font-size: .72rem; }
+.stage.is-present .cal-note { display: none; }
+
+/* Widget bodies size their type against their own width, not the page's,
+   so a narrow timer card does not spill its digits. */
+.card-body, .stage-body { container-type: inline-size; }
+
+@media (max-width: 560px) {
+  .user-name { display: none; }
+  .beh-entry { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .beh-entry-note { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
+}
+
+/* ---------------- picture ---------------- */
+
+.picture-widget { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.pic-stage {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .3rem; text-align: center;
+}
+.pic-img {
+  min-height: 0; max-width: 100%; max-height: 100%;
+  object-fit: contain; border-radius: var(--r-sm);
+}
+/* "Fill the card" has to be told a size to fill, since an <img> otherwise
+   sizes itself to its own picture and object-fit has nothing to work with. */
+.pic-img.is-cover { width: 100%; height: 100%; object-fit: cover; }
+.pic-caption { flex: none; font-size: .85rem; color: var(--muted); }
+.pic-settings { display: flex; flex-direction: column; gap: .4rem; }
+.pic-gallery { display: flex; flex-wrap: wrap; gap: .4rem; }
+.stage.is-present .pic-settings { display: none; }
+.stage.is-present .pic-caption { font-size: 1.6rem; }
+
+/* ---------------- video ---------------- */
+
+.video { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.vid-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .35rem; align-items: center; justify-content: center; }
+.vid-frame { flex: 1; min-height: 180px; width: 100%; border: 0; border-radius: var(--r); background: #000; }
+.vid-poster {
+  flex: 1; width: 100%; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem;
+  border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
+  background: var(--bg); color: inherit;
+}
+.vid-poster:hover { border-color: var(--accent); }
+.vid-play {
+  display: flex; align-items: center; justify-content: center;
+  width: 58px; height: 58px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent);
+}
+.vid-title { font-family: var(--display); font-weight: 700; font-size: 1rem; text-align: center; padding: 0 .6rem; }
+.vid-from { font-size: .78rem; color: var(--muted); }
+.vid-settings { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .vid-settings { display: none; }
+.stage.is-present .vid-play { width: 96px; height: 96px; }
+.stage.is-present .vid-title { font-size: 2rem; }
+
+/* ---------------- Google Slides ---------------- */
+
+.slides { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.slides-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .3rem; align-items: center; justify-content: center; }
+.slides-frame { flex: 1; min-height: 160px; width: 100%; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.slides-caption { flex: none; font-size: .85rem; color: var(--muted); }
+.slides-settings { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .slides-settings { display: none; }
+.stage.is-present .slides-caption { font-size: 1.4rem; }
+
+/* ---------------- printing ---------------- */
+
+/* The heading only exists on paper. */
+.print-head { display: none; }
+
+@media print {
+  /* Everything is hidden and the chosen element is made visible again, rather
+     than the element being moved into a print container — moving it would
+     sever its listeners and the observers it is sized by. Visibility, not
+     display, because a hidden ancestor still shows a visible descendant. */
+  html.is-printing body * { visibility: hidden; }
+  html.is-printing .is-print-target,
+  html.is-printing .is-print-target * { visibility: visible; }
+
+  html.is-printing .is-print-target {
+    position: absolute; left: 0; top: 0;
+    width: 100%; margin: 0; padding: 0;
+    background: #fff;
+    /* Borders and fills carry meaning on a seating plan — an empty chair is a
+       dashed one — so they have to survive the browser's ink-saving. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html.is-printing .print-head {
+    display: block; margin: 0 0 .6rem;
+    border-bottom: 1.5px solid #000; padding-bottom: .3rem;
+  }
+  .print-title { font-family: var(--display); font-size: 15pt; margin: 0; color: #000; }
+  .print-meta { font-size: 9pt; color: #333; }
+
+  /* Nothing on paper is clickable, so the controls are only clutter. */
+  html.is-printing .is-print-target .no-print,
+  html.is-printing .is-print-target .btn,
+  html.is-printing .is-print-target .icon-btn,
+  html.is-printing .is-print-target .seg,
+  html.is-printing .is-print-target .swatches,
+  html.is-printing .is-print-target .stepper { display: none !important; }
+
+  @page { margin: 12mm; }
+}
+
+@media print {
+  /* The seating plan on paper. Ink is expensive and a plan is read at arm's
+     length, so the tinted seats become white with a firm outline, an empty
+     chair stays dashed, and every name is black. */
+  html.is-printing .plan-print { display: block; }
+  html.is-printing .plan-print .room-wrap { display: block; }
+  html.is-printing .room-wrap { position: static; }
+  html.is-printing .room-box { max-width: none; margin: 0 auto; position: static; transform: none; }
+  html.is-printing .room { border-color: #000; background-image: none; }
+  html.is-printing .room-front { background: #000; color: #fff; }
+  html.is-printing .desk-surface { border-color: #444; background: #fff; }
+  html.is-printing .seat { border-color: #000; background: #fff; color: #000; }
+  html.is-printing .seat.is-free { border-style: dashed; border-color: #999; }
+  html.is-printing .seat.is-selected { outline: none; }
+  html.is-printing .room-object { border-color: #444; background: #fff; color: #000; }
+}
+
+@media print {
+  /* Fields are for filling in on screen; on paper they are just boxes around
+     the words, so the chrome goes and the text stays. */
+  html.is-printing .is-print-target input,
+  html.is-printing .is-print-target textarea {
+    border: 0 !important; background: transparent !important; padding-left: 0; color: #000;
+  }
+
+  /* Groups and rotas: keep a card whole rather than split across two sheets. */
+  html.is-printing .group-card,
+  html.is-printing .job-row,
+  html.is-printing .check-item { break-inside: avoid; page-break-inside: avoid; }
+  html.is-printing .group-grid { grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+  html.is-printing .group-card { border-color: #000; background: #fff; }
+  html.is-printing .job-row { border-bottom: 1px solid #999; }
+
+  /* A note prints as text that flows, not as a scrolling box. The note's own
+     title bar goes, because the heading above the rule already says it. */
+  html.is-printing .note { background: #fff !important; box-shadow: none; }
+  html.is-printing .note-head { display: none !important; }
+  html.is-printing .note-text { display: none !important; }
+  html.is-printing .note-print { display: block; white-space: pre-wrap; font-size: 11pt; }
+
+  /* A QR poster: big, black, and square. */
+  html.is-printing .qr-holder { width: 60%; margin: 0 auto; }
+  html.is-printing .qr-svg { --qr-bg: #fff; --qr-ink: #000; }
+  html.is-printing .qr-caption { font-size: 12pt; color: #000; text-align: center; margin-top: .4rem; word-break: break-all; }
+}
+
+.note-print { display: none; }
+
+/* ---------------- music ---------------- */
+
+.music { display: flex; flex-direction: column; gap: .4rem; flex: 1; min-height: 0; }
+.music-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .35rem; align-items: center; justify-content: center; }
+.music-frame { width: 100%; border: 0; border-radius: var(--r); background: var(--bg); }
+.music-frame.is-fill { flex: 1; min-height: 140px; }
+.music-poster {
+  flex: 1; width: 100%; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem;
+  border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
+  background: var(--bg); color: inherit;
+}
+.music-poster:hover { border-color: var(--accent); }
+.music-play {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent);
+}
+.music-title { font-family: var(--display); font-weight: 700; font-size: .95rem; text-align: center; padding: 0 .6rem; }
+.music-where { font-size: .75rem; color: var(--muted); }
+.music-settings { display: flex; flex-direction: column; gap: .35rem; }
+.stage.is-present .music-settings { display: none; }
+
+/* The first-name-and-initial nudge in the class-list editor. Advisory, so it
+   sits quietly under the box rather than shouting in a warning colour. */
+.name-nudge { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
+.name-nudge .hint { flex: 1; min-width: 0; }
+
+/* Where a centrally managed class is actually edited. A link, because the
+   answer to "where do I add a pupil?" should be clickable. */
+.list-row-where { text-decoration: none; white-space: nowrap; }
+.list-row-where:hover { text-decoration: underline; }
+
+/* Class lists in the top bar. The label hides on a narrow screen, where the
+   bar has to hold the brand, two buttons and a name. */
+.lists-btn { display: inline-flex; align-items: center; gap: .35rem; }
+@media (max-width: 620px) { .lists-label { display: none; } }
+
+.accent-custom { display: flex; align-items: center; gap: .5rem; margin-top: .45rem; }
+.accent-picker {
+  flex: none; width: 46px; height: 32px; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--r); background: none; cursor: pointer;
+}
+.accent-hex { flex: 1; min-width: 0; font-family: var(--mono); text-transform: lowercase; }
+
+
+
+
+
+/* ---------------- calculator ---------------- */
+
+.calculator { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+
+/* The screen is recessed, like the fields are: somewhere the numbers sit
+   rather than another slab stacked on the card. */
+.calc-screen {
+  flex: none; padding: .6rem .75rem; border-radius: var(--r);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  box-shadow: inset 0 1px 3px rgba(64, 72, 120, .09);
+  text-align: right; overflow: hidden;
+}
+/* The sum is a real field, so it can be typed into and pasted into. It is
+   dressed as the screen rather than as a form control. */
+.calc-sum {
+  display: block; width: 100%; box-sizing: border-box; padding: 0; margin: 0;
+  border: 0; outline: 0; background: transparent; text-align: right;
+  font-family: var(--mono); font-size: clamp(.9rem, 5cqw, 1.6rem); color: var(--ink);
+  caret-color: var(--accent); text-overflow: clip;
+}
+.calc-sum::placeholder { color: var(--muted); opacity: 1; }
+.calc-screen { position: relative; cursor: text; }
+.calc-screen:focus-within { box-shadow: inset 0 1px 3px rgba(64,72,120,.09), 0 0 0 2px var(--accent); }
+.calc-mode {
+  position: absolute; left: .7rem; top: .5rem; font-family: var(--mono); font-size: .7rem;
+  font-weight: 700; letter-spacing: .08em; color: var(--muted);
+}
+.calc-answer {
+  font-family: var(--display); font-weight: 700; line-height: 1.1;
+  font-size: clamp(1.4rem, 11cqw, 3rem); color: var(--accent);
+  min-height: 0; max-height: 0; opacity: 0; transition: max-height .14s, opacity .14s;
+}
+.calc-answer.is-shown { max-height: 4em; opacity: 1; }
+
+.calc-pad { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; }
+.calc-key {
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r); cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  font-family: var(--display); font-weight: 650;
+  font-size: clamp(.85rem, 5cqw, 1.5rem);
+  box-shadow: 0 1px 2px rgba(64,72,120,.07), 0 3px 7px rgba(64,72,120,.08);
+  transition: box-shadow .1s, transform .06s, background .1s;
+}
+.calc-key:hover { box-shadow: 0 2px 4px rgba(64,72,120,.09), 0 6px 13px rgba(64,72,120,.11); }
+/* Pressed keys go IN, which is the whole point of everything else standing out. */
+.calc-key:active { transform: translateY(1px); box-shadow: inset 0 2px 4px rgba(64,72,120,.14); }
+
+.calc-key[data-kind="op"] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.calc-key[data-kind="equals"] { background: var(--accent); color: var(--on-accent); }
+.calc-key[data-kind="clear"], .calc-key[data-kind="back"] { color: var(--red); }
+
+.calc-tape { display: flex; flex-direction: column; gap: .1rem; max-height: 40%; overflow-y: auto; }
+.calc-tape-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.calc-tape-row {
+  display: flex; justify-content: space-between; gap: .6rem; font-size: .85rem; padding: .22rem .1rem;
+  border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: .85rem; text-align: left; cursor: pointer;
+}
+.calc-tape-row:hover .calc-tape-sum { color: var(--ink); }
+.calc-tape-sum { font-family: var(--mono); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calc-tape-eq { font-weight: 650; white-space: nowrap; }
+
+.stage.is-present .calc-tape { display: none; }
+.stage.is-present .calc-answer { font-size: min(18vw, 26vh); }
+.stage.is-present .calc-sum { font-size: min(6vw, 8vh); }
+
+/* ---- the calculator, opened full-screen ---- */
+
+.calculator.is-big { gap: .75rem; }
+.calc-body { display: flex; flex-direction: column; gap: .6rem; flex: 1; min-height: 0; }
+.calc-inner { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.calc-modebar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex: none; }
+.calc-wrap { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.calc-main { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.is-big .calc-wrap { flex-direction: row; gap: 1rem; align-items: stretch; }
+.is-big .calc-main { flex: 1 1 62%; max-width: 760px; }
+.is-big .calc-tape { flex: 1 1 30%; max-height: none; min-width: 0; padding: .25rem .1rem; overflow-y: auto; }
+.is-big .calc-answer { font-size: clamp(1.6rem, 6vw, 3.4rem); }
+.is-big .calc-sum { font-size: clamp(1.1rem, 3vw, 2rem); }
+.calc-keys { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.calc-sci { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: .35rem; min-height: 0; }
+.calc-key--sci { font-size: clamp(.8rem, 1.6vw, 1.15rem); font-weight: 600; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.calc-key--sci[data-kind="angle"] { color: var(--accent); }
+.is-big .calc-pad { grid-auto-rows: 1fr; }
+.is-big .calc-key { min-height: 44px; font-size: clamp(1rem, 2.2vw, 1.5rem); }
+.is-big .calc-key--sci { font-size: clamp(.8rem, 1.6vw, 1.15rem); }
+
+@media (max-width: 860px) {
+  .is-big .calc-wrap { flex-direction: column; }
+  .is-big .calc-main { max-width: none; flex: 1 1 auto; }
+  .calc-keys { grid-template-columns: 1fr; }
+  .is-big .calc-tape { max-height: 9rem; flex: none; }
+}
+
+/* ---- the grapher ---- */
+
+.gr { display: grid; grid-template-columns: minmax(250px, 340px) 1fr; gap: 1rem; flex: 1; min-height: 0; }
+.gr-side { display: flex; flex-direction: column; gap: .4rem; min-height: 0; overflow-y: auto; padding-right: .25rem; }
+.gr-side .section-title { margin: .6rem 0 .1rem; }
+.gr-side .section-title:first-child { margin-top: 0; }
+.gr-main { display: flex; flex-direction: column; gap: .4rem; min-height: 0; min-width: 0; }
+.gr-bar { display: flex; align-items: center; gap: .6rem; flex: none; }
+.gr-view { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-height: 0; }
+.gr-stage {
+  position: relative; flex: 1; min-height: 280px; border-radius: var(--r); overflow: hidden;
+  background: var(--surface); box-shadow: inset 0 1px 3px rgba(64,72,120,.09), 0 0 0 1px var(--line);
+}
+.gr-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; outline: none; }
+.gr-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.gr-tip { flex: none; }
+.gr-read {
+  position: absolute; left: .6rem; top: .6rem; display: none; gap: .15rem .7rem; flex-wrap: wrap; align-items: baseline;
+  max-width: calc(100% - 1.2rem); padding: .3rem .6rem; border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: 0 0 0 1px var(--line);
+  font-family: var(--mono); font-size: .8rem; pointer-events: none;
+}
+.gr-read.is-shown { display: flex; }
+.gr-read-name { font-weight: 700; }
+.gr-read-pin { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+
+.gr-row { display: flex; align-items: center; gap: .4rem; }
+.gr-label { font-family: var(--mono); font-size: .85rem; color: var(--muted); white-space: nowrap; min-width: 2.6rem; }
+.gr-fn { flex: 1; min-width: 0; font-family: var(--mono); }
+.gr-fn.is-bad { box-shadow: inset 0 1px 3px rgba(64,72,120,.09), 0 0 0 2px var(--red); }
+.gr-dot {
+  flex: none; width: 1.35rem; height: 1.35rem; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 3px solid var(--c); background: var(--c);
+}
+.gr-dot[aria-pressed="false"] { background: transparent; }
+.gr-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .15rem; }
+.gr-win { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+.gr-win-item { display: flex; flex-direction: column; gap: .15rem; font-size: .7rem; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.gr-win-item .input { font-family: var(--mono); font-size: .85rem; letter-spacing: 0; }
+.gr-zoom, .gr-analyse-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.gr-analyse { display: flex; flex-direction: column; gap: .4rem; }
+.gr-analyse .input { width: 4.4rem; font-family: var(--mono); }
+.gr-analyse .select { width: auto; }
+.gr-results { display: flex; flex-direction: column; gap: .15rem; }
+.gr-result { font-family: var(--mono); font-size: .78rem; padding: .2rem 0; border-bottom: 1px solid var(--line); }
+
+.gr-table-head { display: flex; align-items: center; gap: .5rem; flex: none; }
+.gr-table-head .input { width: 5.5rem; font-family: var(--mono); }
+.gr-table { flex: 1; min-height: 0; overflow: auto; border-radius: var(--r); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.gr-tbl { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: .9rem; }
+.gr-tbl th, .gr-tbl td { padding: .35rem .8rem; text-align: right; border-bottom: 1px solid var(--line); }
+.gr-tbl th { position: sticky; top: 0; background: var(--surface); font-weight: 700; }
+
+@media (max-width: 860px) {
+  .gr { grid-template-columns: 1fr; overflow-y: auto; }
+  .gr-side { overflow: visible; }
+  .gr-main { min-height: 360px; }
+}
+
+.stage.is-present .gr { grid-template-columns: 1fr; }
+.stage.is-present .gr-side, .stage.is-present .gr-bar, .stage.is-present .calc-modebar { display: none; }
+
+/* The Signify app switcher pins itself top-right (a 40px button, 12px in) —
+   it loads before the top bar exists, so it cannot mount inside it. It marks
+   the page once it is actually showing, and only then does the bar make room
+   on the right, so a signed-out visitor never sees a gap. The big view gets
+   the same room, or its close button would sit underneath the switcher. */
+[data-signify-switcher-ready] .topbar,
+[data-signify-switcher-ready] .stage-head { padding-right: 64px; }
+
+/* ---------------- the timer as a block ----------------
+   On a card the ring is gone: the digits are the tool, sized against the card
+   itself, and the time already spent creeps in from the right as a shadow
+   over the whole block. The ring comes back when the timer is presented,
+   where there is room for it. */
+:is(.card, .stage)[data-type="timer"] .timer-ring,
+:is(.card, .stage)[data-type="timer"] .timer-bar { display: none; }
+:is(.card, .stage)[data-type="timer"] .timer-digits,
+:is(.card, .stage)[data-type="timer"] .timer-input {
+  font-size: var(--fluid-hero); line-height: .85; text-align: left;
+}
+:is(.card, .stage)[data-type="timer"] .timer-input { max-width: none; margin: 0; text-align: left; }
+:is(.card, .stage)[data-type="timer"] .timer {
+  position: relative; gap: .5rem;
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+}
+:is(.card, .stage)[data-type="timer"] .timer-face { display: block; }
+/* The face was a 190px square holding a ring. With the ring gone it is just
+   the frame round the digits, so it takes the whole card and stops centring
+   what is inside it — the figures start at the left edge, under the title. */
+:is(.card, .stage)[data-type="timer"] .timer-face {
+  margin: 0; width: 100%; max-width: none; aspect-ratio: auto;
+  justify-content: flex-start; align-items: flex-end;
+  /* The room left after the controls, and nothing more. The digits are
+     fitted to THIS box, so its size must come from the card and never from
+     the digits: fitted to a box that follows them, they shrink, the box
+     shrinks with them, and the time spirals down to nothing. */
+  flex: 1 1 0; min-height: 0; overflow: hidden;
+}
+:is(.card, .stage)[data-type="timer"] .timer-readout { width: 100%; text-align: left; }
+/* The shadow belongs to the CARD, not to the body inside it: on the body it
+   stopped at the padding and left a red margin at the top, bottom and sides,
+   which read as a stripe rather than as time running out. */
+:is(.card, .stage)[data-tone="block"][data-type="timer"] { overflow: hidden; }
+/* Over everything, not behind it. Behind, the card's own colour — including
+   the fade that marks scrollable content — was painted on top of the shadow
+   and cut bands across it. Over, it simply dims whatever it crosses, digits
+   included, which is what the design asks for: the part of the card that has
+   gone is darker, end of story. It never takes a click. */
+:is(.card, .stage)[data-tone="block"][data-type="timer"]::before {
+  content: ''; position: absolute; inset: 0 0 0 auto; z-index: 3;
+  width: calc(var(--elapsed, 0) * 100%);
+  background: rgba(0,0,0,.16); pointer-events: none;
+  transition: width 1s linear;
+}
+/* The resize corner stays above the shadow, since it is a control rather
+   than part of the face of the card. */
+:is(.card, .stage)[data-tone="block"][data-type="timer"] > .card-resize { z-index: 4; }
+:is(.card, .stage)[data-type="timer"] .timer-controls .btn { min-height: 52px; }
+:is(.card, .stage)[data-type="timer"] .timer-digits:hover { background: rgba(255,255,255,.14); }
+
+
+/* ---------------- the clock and the picked name as blocks ---------------- */
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-time { font-size: var(--fluid-display-l); }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name {
+  font-family: var(--display); font-weight: 800; font-stretch: 112%;
+  letter-spacing: -.01em; line-height: .85; font-size: var(--fluid-display-m);
+}
+:is(.card, .stage)[data-tone="block"] .card-body > * { margin-top: auto; }
+
+/* ---------------- stage 5: the tools that are read at a glance ---------------- */
+
+/* The noise meter states keep their meaning — quiet is green, loud is the
+   warning colour — but the card behind them is yellow, so the bars are drawn
+   in the card's own ink and it is their HEIGHT that says how loud it is. */
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-word {
+  font-size: var(--fluid-display-s); font-weight: 800; font-stretch: 112%;
+  letter-spacing: -.01em; line-height: .85; text-align: left; margin-top: auto;
+}
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-track { background: rgba(0,0,0,.12); }
+:is(.card, .stage)[data-tone="block"][data-type="noise"] .noise-fill { background: currentColor; }
+
+/* A clock on the board is a time, not a dial: big figures, the date as a
+   quiet line above them. The face with hands is still there when it is the
+   face the teacher chose. */
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock { align-items: stretch; }
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-digital { margin-top: auto; align-items: flex-start; }
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-zone,
+:is(.card, .stage)[data-tone="block"][data-type="clock"] .clock-date { text-align: left; }
+
+/* The randomiser's whole job is one name, as big as the card allows. */
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-face { align-items: stretch; margin-top: auto; }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; }
+:is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
+
+/* Groups are the one place four colours appear at once: the tiles cycle
+   through the roles, so two groups are never the same colour side by side. */
+.group-card {
+  border-radius: var(--r); padding: 12px 14px; border: 0;
+  background: var(--group-colour, var(--desk)); color: var(--group-ink, var(--ink));
+}
+.group-grid > :nth-child(4n+1) { --group-colour: var(--p1); --group-ink: var(--p1-ink); }
+.group-grid > :nth-child(4n+2) { --group-colour: var(--p2); --group-ink: var(--p2-ink); }
+.group-grid > :nth-child(4n+3) { --group-colour: var(--p3); --group-ink: var(--p3-ink); }
+.group-grid > :nth-child(4n+4) { --group-colour: var(--p4); --group-ink: var(--p4-ink); }
+.group-grid > * .group-title, .group-grid > * .group-title-text { color: inherit; }
+
+/* Scores: the two sides of a class are the two ends of the palette. */
+
+/* Notes take their tints from the roles rather than from four unrelated
+   pastels — the same yellow, blue and green the rest of the board uses. */
+.note[data-colour="yellow"] { --note-bg: color-mix(in srgb, var(--p3) 12%, var(--surface)); }
+.note[data-colour="blue"]   { --note-bg: color-mix(in srgb, var(--p2) 12%, var(--surface)); }
+.note[data-colour="green"]  { --note-bg: color-mix(in srgb, var(--green) 12%, var(--surface)); }
+.note[data-colour="pink"]   { --note-bg: color-mix(in srgb, var(--p1) 12%, var(--surface)); }
+
+/* ---------------- the header as the room narrows ----------------
+   Things leave in the order a teacher would give them up: the wordmark, then
+   the words on the buttons, then the avatar. What survives to the last is the
+   island — the tools' own readouts — and the way to add another tool. */
+@media (max-width: 1280px) {
+  .topbar { height: 72px; padding: 0 16px; gap: 12px; }
+  /* Only in the bar, where the room is tight. The sign-in screen has nothing
+     but the mark on it and must keep its name. */
+  .topbar .brand-word { display: none; }
+  .filters { padding: 14px 16px 10px; }
+}
+@media (max-width: 880px) {
+  .island { gap: 8px; }
+  .add-btn { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+  .add-btn .icon-wrap, .add-btn svg { font-size: 1rem; }
+  .user-name { display: none; }
+  .lists-label { display: none; }
+}
+@media (max-width: 620px) {
+  .topbar { gap: 8px; }
+  .island { display: none; }
+}
+
+/* ---------------- the seating plan, restyled ----------------
+   A room is furniture on paper: the tables are the inset grey, the chairs are
+   white cards on them, and the front of the room is a plain bar rather than a
+   tinted strip. The teacher's own desk is the one thing drawn as an outline,
+   because it is where they are rather than where a pupil sits. */
+.room { border-radius: var(--r-panel); border-color: var(--line); }
+.room-front {
+  color: var(--ink); background: var(--line); border-radius: 9px;
+  font-size: .7rem; font-weight: 800; letter-spacing: .1em;
+}
+.desk-surface { background: var(--desk); border: 0; border-radius: var(--r); }
+/* The teacher's desk, and anything else the teacher labels themselves. */
+.room-object { border-radius: var(--r); }
+.room-object--box, .room-object--strip { border: 2px solid var(--ink); background: transparent; }
+
+.seat {
+  border-radius: var(--r); border: 0; background: var(--surface);
+  box-shadow: var(--shadow-2); font-size: .95rem; font-weight: 600;
+  color: var(--ink);
+}
+.seat.is-taken { background: var(--surface); color: var(--ink); font-weight: 600; }
+.seat.is-selected, .seat.is-taken.is-selected {
+  background: var(--p2); color: var(--p2-ink); outline: none; box-shadow: var(--shadow-3);
+}
+.seat.is-free {
+  background: transparent; box-shadow: none;
+  border: 2px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+}
+/* The seat a pupil is about to land in, while one is in hand. */
+.seat.is-drop {
+  background: color-mix(in srgb, var(--p2) 10%, var(--surface));
+  border: 2px dashed var(--p2); box-shadow: none; color: var(--p2);
+}
+.seat-tag { border-radius: var(--r-sm); font-weight: 800; }
+
+/* The edit view: a room on the left, everything that is not the room on the
+   right, in a column wide enough to hold a class list. */
+.plan-side, .stage-body .plan-side { width: 320px; gap: .6rem; }
+.stage .stage-title { font-size: 1.6rem; font-weight: 800; font-stretch: 112%; letter-spacing: -.02em; }
+.tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
+.tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
+
+/* Below 1100px the panel goes above the room rather than beside it, and the
+   page scrolls — a side panel squeezed to nothing helps nobody. */
+@media (max-width: 1100px) {
+  .plan-stage { flex-direction: column; }
+  /* The room stays at the top, and keeps a height of its own: stacked, the
+     flex row that used to give it its size is gone, and a room measured
+     against nothing collapses to nothing. */
+  .plan-stage { overflow: auto; }
+  .plan-stage .plan-print { order: -1; flex: none; width: 100%; min-height: 52vh; }
+  .plan-side, .stage-body .plan-side { width: auto; max-height: none; }
+}
+
+/* ---------------- the catalogue ----------------
+   Each family keeps its shape here too, so "Add a tool" is arranged by the
+   same alphabet as the board itself. */
+.cat-head-name { color: var(--ink); font-weight: 800; letter-spacing: .08em; }
+.cat-item { border-radius: var(--r-panel); box-shadow: var(--shadow-2); border: 0; background: var(--surface); }
+.cat-item:hover { box-shadow: var(--shadow-3); }
+.cat-head { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.cat-search { border-radius: var(--r); }
+
+/* ---------------- the desk without an account ----------------
+   A locked tool is shown as the shape of an interface in its own colour,
+   blurred, with one way in on top. The blur is on a drawing of the tool rather
+   than on the tool: the real one would go looking for a class list. */
+.locked { position: relative; flex: 1; min-height: 90px; display: flex; }
+.locked-ghost {
+  flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px;
+  filter: blur(5px); opacity: .75; pointer-events: none; user-select: none;
+}
+.ghost-bar {
+  display: block; height: 14px; width: var(--len, 70%); border-radius: 6px;
+  background: color-mix(in srgb, var(--role, var(--ink)) 22%, var(--desk));
+}
+.ghost-bar--pick { height: 30px; width: 100%; border-radius: var(--r-sm); background: var(--desk); }
+.ghost-bar--button { height: 36px; width: 100%; margin-top: auto; border-radius: var(--r); background: var(--role, var(--p2)); opacity: .8; }
+.locked-over {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .5rem; text-align: center;
+}
+.locked-icon { color: var(--ink); opacity: .7; }
+.locked-cta { text-decoration: none; }
+
+/* The way in: a card in the middle of the page over a dimmed backdrop, so a
+   timed-out sign-in is impossible to miss. Folded, the backdrop goes and only
+   a small button is left in the lower third. */
+.guest-gate {
+  position: fixed; inset: 0; z-index: 65; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: color-mix(in srgb, var(--ink) 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+.guest-prompt {
+  display: flex; flex-direction: column; align-items: stretch; gap: 16px; text-align: center;
+  width: min(440px, 100%); padding: 28px 28px 22px; border-radius: var(--radius-xl);
+  background: var(--surface); box-shadow: var(--shadow-4);
+}
+.guest-prompt-text { display: flex; flex-direction: column; gap: 6px; font-size: .95rem; }
+.guest-prompt-text strong { font-size: 1.15rem; }
+.guest-prompt-text span { color: var(--muted); }
+.guest-prompt-btn { justify-content: center; text-decoration: none; min-height: 44px; }
+.guest-prompt-skip { justify-content: center; font-size: .85rem; }
+.guest-prompt-mini { display: none; text-decoration: none; }
+.guest-gate.is-folded {
+  inset: auto; left: 50%; bottom: 10vh; transform: translateX(-50%); z-index: 40;
+  padding: 0; background: none; backdrop-filter: none;
+}
+.guest-gate.is-folded .guest-prompt { display: none; }
+.guest-gate.is-folded .guest-prompt-mini { display: inline-flex; box-shadow: var(--shadow-4); }
+@media print { .guest-gate { display: none; } }
+
+/* Locked tools in "Add a tool": listed, because the list is the best account
+   of what signing in is for, but plainly not addable. */
+.cat-item.is-locked { text-decoration: none; color: inherit; opacity: .8; }
+.cat-item.is-locked .cat-icon { opacity: .6; }
+
+/* ---------------- saved links ----------------
+   A list of rows you tap. The whole row is the link — a small target on a
+   touchscreen at the front of a room is a missed tap — and the site's own
+   address sits under the name, so a teacher can see where it goes before a
+   class does. */
+.links { display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0; }
+.link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; flex: 1 1 0; min-height: 0; overflow: auto; }
+.link-row { display: flex; align-items: center; gap: .25rem; }
+.link-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: .55rem;
+  padding: .5rem .6rem; border-radius: var(--r); background: var(--desk);
+  color: var(--ink); text-decoration: none;
+  transition: background var(--dur-fast) var(--ease);
+}
+.link-open:hover { background: color-mix(in srgb, var(--p3) 22%, var(--desk)); }
+.link-icon { flex: none; color: var(--muted); }
+.link-text { min-width: 0; display: flex; flex-direction: column; }
+.link-label, .link-title {
+  font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.link-title { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 700; color: inherit; width: 100%; }
+.link-title:focus { outline: 2px solid var(--p2); outline-offset: 2px; border-radius: 4px; }
+.link-host { font-size: .78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-remove { opacity: 0; transition: opacity var(--dur-fast); }
+.link-row:hover .link-remove, .link-row:focus-within .link-remove, .stage .link-remove { opacity: 1; }
+.link-empty { padding: .4rem .1rem; }
+.link-add { display: flex; gap: .35rem; flex-wrap: wrap; }
+.link-add .input { flex: 1 1 140px; min-width: 0; }
+
+/* ---------------- passage grader ---------------- */
+/* The marking colours are fixed, like the noise meter's: green, amber and red
+   mean right, nearly and wrong whatever palette the desk is wearing, because
+   a teacher reads them faster than they read a legend. */
+.pg {
+  --pg-ok: #1b7f4b; --pg-near: #9a6700; --pg-near-bg: color-mix(in srgb, #f5c400 26%, var(--surface));
+  --pg-miss: #c62a12; --pg-miss-bg: color-mix(in srgb, #ec3013 13%, var(--surface));
+  display: flex; flex-direction: column; gap: .8rem; flex: 1; min-height: 0;
+}
+:root[data-theme="dark"] .pg { --pg-ok: #5cc98d; --pg-near: #f5c400; --pg-miss: #ff7a63; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pg { --pg-ok: #5cc98d; --pg-near: #f5c400; --pg-miss: #ff7a63; } }
+.pg-left, .pg-right { display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
+.pg-label { font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pg-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.pg-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pg-passage, .pg-grade { display: flex; flex-direction: column; gap: .4rem; }
+.pg-passage-set { justify-content: space-between; padding: .5rem .7rem; border-radius: var(--r); background: var(--desk); }
+.pg-passage-name { display: flex; align-items: baseline; gap: .5rem; min-width: 0; }
+.pg-passage-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-passage-text, .pg-answer { width: 100%; min-height: 5.5em; }
+.pg-who .pg-name { flex: 1 1 140px; min-width: 0; }
+.pg-who .picker { flex: 1 1 160px; min-width: 0; display: flex; gap: .2rem; }
+.pg-who .picker .select { min-width: 0; }
+
+.pg-rules { border-radius: var(--r); background: var(--desk); padding: .45rem .7rem; }
+.pg-rules > summary { display: flex; align-items: baseline; gap: .5rem; cursor: pointer; list-style: none; }
+.pg-rules > summary::-webkit-details-marker { display: none; }
+.pg-rules > summary::after { content: 'Change'; margin-left: auto; font-size: .8rem; font-weight: 650; color: var(--p2); }
+.pg-rules[open] > summary::after { content: 'Done'; }
+.pg-rules-say { font-size: .82rem; color: var(--ink); min-width: 0; }
+.pg-rule { display: grid; grid-template-columns: 6.5rem 1fr; align-items: center; gap: .15rem .5rem; margin-top: .5rem; }
+.pg-rule .seg { justify-self: start; flex-wrap: wrap; }
+.pg-rule-hint { grid-column: 2; font-size: .76rem; }
+
+.pg-empty { padding: .6rem 0; }
+.pg-score { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; }
+.pg-score-num { font-family: var(--display); font-weight: 800; font-size: clamp(1.8rem, 7cqi, 3rem); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pg-score-pct { font-family: var(--display); font-weight: 700; font-size: 1.3rem; color: var(--p2); }
+.pg-tally { margin-top: -.3rem; }
+
+/* The passage, marked. Words sit on one line of text like the original, so
+   a teacher reads it as the passage rather than as a table of words. */
+.pg-marked {
+  line-height: 2.1; font-size: .98rem; padding: .5rem .7rem; border-radius: var(--r);
+  border: 1px solid var(--line); max-height: 16rem; overflow: auto;
+}
+.pg-w { border-radius: 4px; padding: .05rem .15rem; }
+.pg-ok { color: var(--ink); }
+.pg-miss { color: var(--pg-miss); background: var(--pg-miss-bg); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.pg-near {
+  position: relative; display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15;
+  vertical-align: -0.55em; background: var(--pg-near-bg); color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--pg-near);
+}
+.pg-near small { font-size: .68rem; color: var(--pg-near); font-weight: 650; }
+.pg-near.is-forgiven { box-shadow: inset 0 -2px 0 var(--pg-ok); background: color-mix(in srgb, var(--pg-ok) 12%, var(--surface)); }
+.pg-near.is-forgiven small { color: var(--pg-ok); }
+.pg-extra { color: var(--muted); font-style: italic; box-shadow: inset 0 0 0 1px var(--line); }
+.pg-extra::before { content: '+'; font-style: normal; margin-right: 1px; }
+.pg-actions .pg-left-count { margin-left: auto; }
+
+/* A marked-down word is a button: the teacher has the last word on it. */
+.pg-flip {
+  border: 0; font: inherit; line-height: inherit; cursor: pointer; margin: 0;
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.pg-flip.pg-miss { background: var(--pg-miss-bg); }
+.pg-flip:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--p2) 55%, transparent); }
+.pg-flip:focus-visible { outline: 2px solid var(--p2); outline-offset: 2px; }
+/* Counted right by the teacher: green, and no longer struck through. */
+.pg-flip.is-mine-right, .pg-flip.is-mine-right.pg-near {
+  background: color-mix(in srgb, var(--pg-ok) 16%, var(--surface)); color: var(--ink);
+  text-decoration: none; box-shadow: inset 0 -2px 0 var(--pg-ok);
+}
+.pg-flip.is-mine-right small { color: var(--pg-ok); }
+/* Counted wrong by the teacher: red, the way a missing word is. */
+.pg-flip.is-mine-wrong, .pg-flip.is-mine-wrong.pg-near {
+  background: var(--pg-miss-bg); color: var(--pg-miss); box-shadow: inset 0 -2px 0 var(--pg-miss);
+}
+.pg-flip.is-mine-wrong small { color: var(--pg-miss); }
+.pg-flip.is-mine-right::after, .pg-flip.is-mine-wrong::after {
+  font-size: .7em; font-weight: 800; margin-left: 2px; vertical-align: super;
+}
+.pg-flip.is-mine-right::after { content: '\2713'; color: var(--pg-ok); }
+.pg-flip.is-mine-wrong::after { content: '\2715'; color: var(--pg-miss); }
+.pg-near.is-mine-right::after, .pg-near.is-mine-wrong::after { position: absolute; top: -7px; right: -3px; margin: 0; line-height: 1; }
+.pg-flip-hint { margin-top: -.3rem; }
+/* An added word: free and grey until counted, then struck through in red
+   with the point it cost. */
+.pg-flip.pg-extra { background: transparent; font-style: italic; color: var(--muted); }
+.pg-flip.pg-extra.is-mine-wrong {
+  background: var(--pg-miss-bg); color: var(--pg-miss);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pg-miss) 45%, transparent);
+  text-decoration: line-through; text-decoration-thickness: 1.5px;
+}
+.pg-flip.pg-extra.is-mine-wrong::after { content: '\2212 1'; text-decoration: none; display: inline-block; margin-left: 3px; }
+
+/* Anti-copy versions, and the flag for an answer that was pasted. */
+.pg-copies .pg-rule { margin-top: .5rem; }
+.pg-copy-count { width: 4.5rem; flex: none; }
+.pg-copy-list { list-style: none; margin: .5rem 0; padding: 0; max-height: 11rem; overflow: auto; display: flex; flex-direction: column; gap: .25rem; }
+.pg-copy { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.pg-copy-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; }
+.pg-alert { padding: .5rem .7rem; border-radius: var(--r); font-size: .88rem; line-height: 1.4;
+  background: color-mix(in srgb, var(--pg-miss) 14%, var(--surface)); box-shadow: inset 3px 0 0 var(--pg-miss); }
+.pg-alert.is-soft { background: var(--pg-near-bg); box-shadow: inset 3px 0 0 var(--pg-near); }
+.pg-look small { font-size: .68rem; color: var(--pg-near); font-weight: 650; }
+.pg-tag { font-style: normal; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  margin-left: .45rem; padding: .05rem .35rem; border-radius: 999px; color: var(--on-accent); background: var(--pg-miss); vertical-align: .08em; }
+.pg-saved { display: flex; flex-direction: column; gap: .4rem; }
+.pg-saved-head { justify-content: space-between; }
+.pg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 14rem; overflow: auto; }
+.pg-item { display: flex; align-items: center; gap: .2rem; }
+.pg-open {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto 3.2rem; gap: .6rem; align-items: center;
+  padding: .4rem .6rem; border: 0; border-radius: var(--r-sm); background: var(--desk);
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+.pg-open:hover { background: color-mix(in srgb, var(--p2) 12%, var(--desk)); }
+.pg-item.is-open .pg-open { box-shadow: inset 0 0 0 2px var(--p2); }
+.pg-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.pg-item-score { font-variant-numeric: tabular-nums; color: var(--muted); }
+.pg-item-pct { font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Opened large: the passage and the pupil's answer side by side, in the same
+   type at the same size, under headings on the same line — so the eye goes
+   straight across from what was learned to what was written. The marked
+   passage runs underneath, beside the saved scores and the rules. */
+.pg--wide { display: flex; flex-direction: column; gap: 1.2rem; }
+.pg-pair {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto; gap: .55rem 1.4rem;
+}
+.pg-head { display: flex; align-items: center; gap: .6rem; min-width: 0; min-height: 40px; }
+.pg-head .pg-label { flex: none; }
+.pg-passage-head .pg-passage-name { flex: 1; }
+.pg-passage-head .pg-title { flex: 1; min-width: 0; }
+.pg-who-head .pg-name { flex: 1 1 10rem; min-width: 0; }
+.pg-who-head .picker { flex: 1 1 12rem; min-width: 0; display: flex; gap: .2rem; }
+.pg-who-head .picker .select { min-width: 0; }
+.pg--wide .pg-passage, .pg--wide .pg-grade { min-height: 0; display: flex; flex-direction: column; gap: .5rem; }
+.pg-original, .pg--wide .pg-answer, .pg--wide .pg-passage-text {
+  flex: 1; min-height: 0; margin: 0; resize: none;
+  font-size: 1.15rem; line-height: 1.65;
+  padding: .75rem .9rem; border-radius: var(--r);
+}
+.pg-original {
+  white-space: pre-wrap; overflow: auto; background: var(--desk); color: var(--ink);
+  /* As tall as the passage needs, within reason; the answer beside it
+     stretches to match, so the two always end on the same line. */
+  min-height: 8rem; max-height: 44vh;
+}
+.pg--wide .pg-answer, .pg--wide .pg-passage-text { min-height: 8rem; }
+.pg--wide .pg-passage-text { min-height: 14rem; }
+
+.pg-below { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 1.4rem; align-items: start; }
+.pg-side { display: flex; flex-direction: column; gap: .9rem; min-width: 0; }
+.pg--wide .pg-marked { max-height: 40vh; font-size: 1.15rem; }
+.pg--wide .pg-list { max-height: 28vh; }
+
+@media (max-width: 860px) {
+  .pg-pair { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .pg-pair > * { order: 0; }
+  .pg-pair .pg-passage { min-height: 10rem; }
+  .pg-pair .pg-who-head { order: 1; }
+  .pg-pair .pg-grade { order: 2; min-height: 10rem; }
+  .pg-below { grid-template-columns: minmax(0, 1fr); }
+}
+@media (hover: none) { .link-remove { opacity: 1; } }
+
+/* ---------------- the big view: fill the room ----------------
+   Opened larger, a tool's one important thing — the time, the name, the
+   number — takes all the height it is given. Each starts far too big and is
+   brought down by Desk.fitText until it is inside its box, so the same rule
+   fills a laptop, a projector and a presented full screen alike. The boxes
+   take their size from the screen, never from the type, or the fitting would
+   chase its own tail. */
+.stage-body { container-type: inline-size; max-width: 1400px; }
+.stage-body > .timer, .stage-body > .clock, .stage-body > .stopwatch,
+.stage-body > .randomiser, .stage-body > .noise, .stage-body > .random-tool { flex: 1; min-height: 0; }
+/* These name the tool and its tone as the card rules do, so they are at
+   least as specific and — being later — win. Without that the card's own
+   size cap (220px for a timer) held the figures small on a full screen. */
+.stage[data-type="timer"] .timer-face {
+  flex: 1 1 0; min-height: 0; justify-content: center; align-items: center;
+}
+.stage[data-type="timer"] .timer-readout { width: auto; text-align: center; }
+.stage[data-type="timer"] .timer-digits,
+.stage[data-type="timer"] .timer-input { font-size: min(34vw, 64vh); text-align: center; }
+.stage[data-type="clock"] .clock-face { flex: 1 1 0; min-height: 0; }
+.stage[data-tone="block"][data-type="clock"] .clock-time,
+.stage[data-type="clock"] .clock-time { font-size: min(24vw, 54vh); }
+.stage[data-type="randomiser"] .pick-face { flex: 1 1 0; min-height: 0; }
+.stage[data-tone="block"][data-type="randomiser"] .pick-name { font-size: min(16vw, 36vh); text-align: center; }
+.stage[data-type="stopwatch"] .sw-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="stopwatch"] .sw-digits { font-size: min(22vw, 50vh); }
+.stage[data-tone="block"][data-type="noise"] .noise-word { font-size: min(10vw, 22vh); }
+/* Presenting drops the controls to a whisper so the value has the screen. */
+.stage.is-present .stage-body { padding: 3vh 4vw; }
+
+/* The stopwatch's time, like the timer's, fills the room the controls leave. */
+.sw-face { flex: 1 1 0; min-height: 2.4rem; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+:is(.card, .stage)[data-type="stopwatch"] .sw-digits { font-size: var(--fluid-hero); line-height: .9; white-space: nowrap; }
+.stage .sw-digits { font-size: min(22vw, 44vh); }
+
+/* ---------------- the last pieces drawn in the old colours ----------------
+   Anything on a coloured tool is drawn in that tool's ink — including the
+   grey that browsers give a placeholder, which on red or blue is simply not
+   there, and the pupil chips, which were white pills with white names. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) ::placeholder { color: currentColor; opacity: .6; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .timer-title { color: inherit; border-bottom-color: currentColor; }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-chip {
+  background: transparent; color: inherit; border: 1.5px solid currentColor;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .pick-chip.is-had {
+  background: var(--role-ink); color: var(--role); border-color: transparent;
+}
+.stage .pick-count { text-align: center; }
+
+/* The countdown's number is its whole point, so it gets the display face on
+   the card and the height of the screen when it is opened large. Everything
+   around it grows with it, so the date and the label stay in proportion. */
+.cd-big { font-weight: 800; font-stretch: 112%; letter-spacing: -.01em; line-height: .9; }
+.stage[data-type="countdown"] .cd-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="countdown"] .cd-big { font-size: min(28vw, 34vh); }
+.stage[data-type="countdown"] .cd-emoji { font-size: min(8vw, 9vh); }
+.stage[data-type="countdown"] .cd-small { font-size: min(3.2vw, 3.6vh); }
+.stage[data-type="countdown"] .cd-label { font-size: min(4.6vw, 5.4vh); font-weight: 800; }
+.stage[data-type="countdown"] .cd-others { width: min(100%, 36rem); }
+.stage[data-type="countdown"] .cd-other { font-size: min(2vw, 2.4vh); }
+
+/* An expanded tool is its card, grown. A white card grows into a white page
+   — the grey was the desk showing through, which a tool that fills the
+   screen no longer sits on. A coloured tool overrides this with its colour. */
+.stage { background: var(--surface); }
+.stage { --card-bg: var(--surface); }
+
+/* The random number is read from the back of the room like a timer is, so
+   it gets the display face on the card and the screen's height opened large. */
+.rnd-number { font-family: var(--display); font-weight: 800; font-stretch: 112%; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.stage[data-type="random"] .rnd-face { flex: 1 1 0; min-height: 0; }
+.stage[data-type="random"] .rnd-number { font-size: min(30vw, 44vh); }
+.stage[data-type="random"] .rnd-note { font-size: min(2.6vw, 3vh); }
+.stage[data-type="random"] .coin-svg { width: min(34vw, 44vh); }
+.stage[data-type="random"] .die { width: min(16vw, 28vh); }
+.stage[data-type="random"] .dice-total { font-size: min(3vw, 3.6vh); }
+
+/* Calm-down, opened large: the circle is the thing the class breathes with,
+   so it takes the height of the screen, and the word inside it grows to
+   match instead of spilling out of a circle drawn for a card. */
+.stage[data-type="breathing"] .breathe-stage { flex: 1 1 0; min-height: 0; }
+.stage[data-type="breathing"] .breathe-circle { width: min(62vh, 56vw); }
+.stage[data-type="breathing"] .breathe-word { font-size: min(7vw, 9vh); font-weight: 800; }
+.stage[data-type="breathing"] .breathe-count { font-size: min(2.4vw, 2.8vh); }
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .breathe-word { font-weight: 800; }
+
+/* The stepper was a white box with white figures on any coloured tool. */
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stepper {
+  background: transparent; border: 2px solid currentColor; color: inherit;
+}
+:is(.card, .stage)[data-tone="block"]:not([data-category="other"]:not([data-role])) .stepper .icon-btn { color: inherit; }
+
+/* Group tiles opened large: the names are what a class reads to find where
+   they sit, so they grow with the screen. */
+.stage .group-card { padding: 16px 18px; }
+.stage .group-title, .stage .group-title-text { font-size: clamp(1.2rem, 2vw, 2rem); font-weight: 800; }
+.stage .group-names li { font-size: clamp(1rem, 1.5vw, 1.6rem); font-weight: 600; line-height: 1.35; }
+.group-size { color: inherit; opacity: .75; }
+
+/* ---------------- telling a visitor where their things are ----------------
+   Polite and never hidden: a quiet pill in the header that is always there,
+   the fuller story one tap behind it, and a plain note where names are typed. */
+.guest-pill {
+  gap: .35rem; min-height: 38px; padding: .3rem .75rem;
+  background: color-mix(in srgb, var(--p3) 22%, var(--surface));
+  color: var(--ink); box-shadow: none; font-weight: 700; font-size: .85rem;
+}
+.guest-pill:hover { background: color-mix(in srgb, var(--p3) 34%, var(--surface)); }
+@media (max-width: 880px) { .guest-pill-label { display: none; } }
+.guest-info ul { margin: .4rem 0 .7rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+.guest-info p { margin: 0 0 .5rem; }
+.guest-forget { margin-top: .3rem; color: var(--p1); padding-left: 0; }
+.guest-note {
+  padding: .6rem .75rem; border-radius: var(--r);
+  background: color-mix(in srgb, var(--p3) 18%, var(--surface)); color: var(--ink);
+}
+
+/* The noise meter's colour follows the room. The level is already smoothed,
+   but a short transition takes the flicker out of a single cough, and the ink
+   crossfades with it so the words never flash from white to black. */
+:is(.card, .stage)[data-type="noise"].is-listening {
+  transition: background-color .45s var(--ease), color .45s var(--ease),
+              box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+/* ---------------- the fun ----------------
+   Movement where something HAPPENS: a group is made, a pupil is seated, a
+   point is scored, time runs out. Nothing moves for the sake of moving, and
+   all of it is switched off for anyone whose computer asks for less motion
+   (see prefers-reduced-motion above). */
+
+/* New groups are dealt out one after another, each landing with a slight
+   tilt that straightens as it settles. */
+.group-card.is-dealt {
+  animation: deal .46s cubic-bezier(.2,1.3,.4,1) backwards;
+  animation-delay: calc(var(--deal, 0) * 70ms);
+}
+@keyframes deal { from { opacity: 0; transform: translateY(16px) rotate(-4deg) scale(.88); } }
+
+/* Seated at random, pupils drop into their chairs in the order they were
+   dealt. */
+.seat.is-arriving {
+  animation: seat-in .38s cubic-bezier(.2,1.4,.4,1) backwards;
+  animation-delay: calc(min(var(--arrive, 0), 40) * 40ms);
+}
+@keyframes seat-in { from { opacity: 0; transform: translateY(-10px) scale(.7); } }
+
+/* A point scored jumps; a point taken away dips. */
+.score-value.is-up { animation: score-up .42s cubic-bezier(.2,1.6,.4,1); }
+.score-value.is-down { animation: score-down .34s ease-out; }
+@keyframes score-up { 0% { transform: scale(1); } 35% { transform: scale(1.55) translateY(-3px); } 100% { transform: scale(1); } }
+@keyframes score-down { 40% { transform: scale(.8) translateY(3px); opacity: .6; } }
+
+/* Time is up: the whole card shakes twice and flashes, for the class that
+   did not hear the chime. */
+:is(.card, .stage).is-ringing { animation: ring-shake .5s cubic-bezier(.36,.07,.19,.97) 2; }
+@keyframes ring-shake {
+  10%, 90% { transform: translateX(-2px) rotate(-.4deg); }
+  20%, 80% { transform: translateX(4px) rotate(.6deg); }
+  30%, 50%, 70% { transform: translateX(-7px) rotate(-.8deg); filter: brightness(1.15); }
+  40%, 60% { transform: translateX(7px) rotate(.8deg); }
+}
+
+/* The lap just taken slides in at the top of the list. */
+.sw-lap.is-fresh { animation: lap-in .32s cubic-bezier(.2,.7,.2,1); }
+@keyframes lap-in { from { opacity: 0; transform: translateX(-14px); } }
+
+/* The header's readout pill eases down when a tool starts talking. */
+.island.is-arriving { animation: island-in .36s cubic-bezier(.2,1.3,.4,1); }
+@keyframes island-in { from { opacity: 0; transform: translateY(-10px) scale(.94); } }
+
+/* The picked name already lands (land, above); give it a little more spring. */
+.pick-name.is-landed { animation: land .55s cubic-bezier(.2,1.6,.4,1); }
+@keyframes land { 0% { transform: scale(.7); opacity: .4; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
+
+/* Choosing a family: the chip fills rather than switching. */
+.filter { transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur-fast) var(--ease); }
+.filter:active { transform: scale(.96); }
+
+/* ---- parametric and polar ---- */
+.gr-kind { align-self: flex-start; margin-bottom: .2rem; }
+.gr-pair { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 0; }
+.gr-line { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.gr-range { grid-template-columns: 1fr 1fr 1fr; }
+
+/* ---------------- economics graphs ---------------- */
+
+/* The curve colours are fixed on purpose. A student learns "blue is demand,
+   red is supply" once, so they do not follow the board palette, which a
+   teacher may change. They are mid-tones that read on white and on the dark
+   ground, and every curve is also labelled, so colour is never the only cue. */
+.econ {
+  --ec-d: #3d6fe0; --ec-s: #e5502f; --ec-a: #1f9b5f; --ec-v: #8a5bd6;
+  --ec-f: #d99a00; --ec-m: #0e9aa6; --ec-g: #8a8686;
+  display: flex; flex-direction: column; gap: .5rem; flex: 1; min-height: 0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .econ { --ec-d: #6f97ff; --ec-s: #ff7a5c; --ec-a: #3fc687; --ec-v: #b08cff; --ec-f: #f2b92c; --ec-m: #35c1cd; }
+}
+:root[data-theme="dark"] .econ { --ec-d: #6f97ff; --ec-s: #ff7a5c; --ec-a: #3fc687; --ec-v: #b08cff; --ec-f: #f2b92c; --ec-m: #35c1cd; }
+
+.econ .ec-d, .econ .ec-cs { --c: var(--ec-d); }
+.econ .ec-s, .econ .ec-ps, .econ .ec-loss { --c: var(--ec-s); }
+.econ .ec-a, .econ .ec-profit { --c: var(--ec-a); }
+.econ .ec-v, .econ .ec-alt { --c: var(--ec-v); }
+.econ .ec-f, .econ .ec-rev { --c: var(--ec-f); }
+.econ .ec-m { --c: var(--ec-m); }
+.econ .ec-g, .econ .ec-off { --c: var(--ec-g); }
+.econ .ec-k, .econ .ec-dwl { --c: var(--ink); }
+
+.ec-top { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.ec-pick { flex: 1 1 12rem; min-width: 0; }
+.ec-nav { min-width: 34px; padding: .2rem .5rem; font-size: 1.1rem; line-height: 1; }
+.ec-togs { display: flex; gap: .25rem; }
+.ec-tog, .ec-segbtn, .ec-scn-btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+  border-radius: var(--r-sm); font: 700 .8rem var(--body); padding: .3rem .6rem; min-height: 32px;
+}
+.ec-tog[aria-pressed="true"], .ec-segbtn[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+
+.ec-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .5rem; }
+.ec-main { flex: 1 1 58%; min-height: 160px; display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.ec-side { flex: 1 1 42%; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .6rem; padding-right: .15rem; }
+@container (min-width: 760px) {
+  .ec-body { flex-direction: row; }
+  .ec-main { flex: 1 1 auto; }
+  .ec-side { flex: 0 0 320px; }
+}
+
+.ec-stage { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); gap: .5rem; }
+.ec-stage[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ec-stage:not([data-n]) { display: block; overflow: auto; }
+.ec-fig { margin: 0; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.ec-fig figcaption { font: 800 .85rem var(--display); color: var(--ink); text-align: center; }
+.ec-fig .ec-svg { flex: 1; min-height: 0; }
+.ec-say { margin: 0; font-size: .92rem; line-height: 1.35; color: var(--ink); }
+.is-big .ec-say { font-size: 1.05rem; }
+
+.ec-svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; }
+.ec-svg text { font-family: var(--body); }
+.ec-ln { fill: none; stroke: var(--c, var(--ink)); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ec-ln.is-ghost { opacity: .5; stroke-dasharray: 7 6; stroke-width: 2.5; }
+.ec-ln.is-dash { stroke-dasharray: 8 6; }
+.ec-area { fill: var(--c); fill-opacity: .26; stroke: none; }
+.ec-area.ec-dwl { fill: url(#ec-hatch); fill-opacity: 1; }
+.ec-hatch-bg { fill: transparent; }
+.ec-hatch-ln { stroke: var(--ink); stroke-width: 2; opacity: .55; }
+.ec-t { font-size: 15px; font-weight: 600; fill: var(--c, var(--ink)); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.ec-t.is-bold { font-weight: 800; }
+.ec-arealab { fill: var(--ink); font-weight: 800; font-size: 14px; }
+.ec-sub { font-size: 70%; }
+.ec-tick { font-size: 12px; fill: var(--muted); }
+.ec-axt { font-size: 14px; font-weight: 700; fill: var(--ink); }
+.ec-axis { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.ec-arrow { fill: var(--ink); }
+.ec-grid { stroke: var(--line); stroke-width: 1; fill: none; }
+.ec-drop { fill: none; stroke: var(--c, var(--ink)); stroke-width: 1.7; stroke-dasharray: 5 5; opacity: .85; }
+.ec-dot { fill: var(--c, var(--ink)); stroke: var(--surface); stroke-width: 2; }
+.ec-hit { fill: transparent; cursor: grab; }
+.ec-grip { fill: var(--surface); stroke: var(--c, var(--ink)); stroke-width: 3.5; pointer-events: none; }
+
+.ec-ask { background: var(--yellow-soft); border: 1px solid var(--yellow-dark); border-radius: var(--r); padding: .55rem .7rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.ec-ask-text { flex: 1 1 14rem; margin: 0; font-weight: 700; color: var(--ink); }
+.is-big .ec-ask-text { font-size: 1.2rem; }
+.ec-ask-btns { display: flex; gap: .35rem; }
+
+.ec-controls { display: flex; flex-direction: column; gap: .45rem; }
+.ec-h { font: 800 .72rem var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: .3rem; font-size: .72rem; }
+.ec-row { display: grid; grid-template-columns: 1fr auto; gap: .1rem .6rem; align-items: center; font-size: .88rem; }
+.ec-row .ec-range { grid-column: 1 / -1; width: 100%; accent-color: var(--p2); min-height: 26px; margin: 0; }
+.ec-val { font: 700 .82rem var(--mono); color: var(--ink); }
+.ec-row--seg { grid-template-columns: 1fr; }
+.ec-seg { display: flex; flex-wrap: wrap; gap: .25rem; }
+.ec-row--toggle { grid-template-columns: auto 1fr; cursor: pointer; }
+.ec-row--btn { display: flex; }
+.ec-lab { font-weight: 600; }
+
+.ec-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; font-size: .88rem; }
+.ec-facts:empty { display: none; }
+.ec-facts li { display: flex; align-items: baseline; gap: .45rem; }
+.ec-facts li b { margin-left: auto; text-align: right; font-family: var(--mono); font-size: .84rem; }
+.ec-sw { flex: none; width: 12px; height: 12px; border-radius: 3px; background: color-mix(in srgb, var(--c, var(--faint)) 60%, transparent); border: 1.5px solid var(--c, var(--faint)); align-self: center; }
+.ec-sw.is-none { visibility: hidden; }
+.ec-sw.ec-dwl { background: repeating-linear-gradient(45deg, var(--ink) 0 1.5px, transparent 1.5px 4px); border-color: var(--ink); }
+
+.ec-scn { display: flex; flex-direction: column; gap: .3rem; align-items: stretch; }
+.ec-scn:empty { display: none; }
+.ec-scn-btn { text-align: left; }
+.ec-about { font-size: .85rem; color: var(--muted); }
+.ec-about summary { cursor: pointer; font-weight: 700; color: var(--ink); }
+.ec-about ul { margin: .2rem 0 .4rem 1.1rem; padding: 0; }
+.ec-ced { font-family: var(--mono); font-size: .76rem; }
+
+.ec-tablewrap { overflow: auto; padding: .2rem; }
+.ec-table { border-collapse: collapse; margin: 0 auto; font-size: 1rem; }
+.ec-table th, .ec-table td { border: 1px solid var(--line); padding: .3rem .5rem; text-align: center; }
+.ec-table thead th { background: var(--desk); font-weight: 800; }
+.ec-cell { width: 5rem; text-align: center; }
+.ec-ratio { font-family: var(--mono); min-width: 6.5rem; }
+.ec-ratio.is-bought { background: color-mix(in srgb, var(--ec-d) 22%, var(--surface)); font-weight: 800; }
+.ec-calcs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .7rem; padding: .2rem; overflow: auto; }
+.ec-calc { border: 1px solid var(--line); border-radius: var(--r); padding: .6rem; display: flex; flex-direction: column; gap: .35rem; background: var(--surface); }
+.ec-calc h4 { margin: 0; font-size: .95rem; }
+.ec-calc-field { display: grid; grid-template-columns: 1fr 6.5rem; gap: .4rem; align-items: center; font-size: .82rem; }
+.ec-calc-field .ec-cell { width: 100%; }
+.ec-calc-out { margin: .2rem 0 0; font-weight: 800; }
+.ec-reset { align-self: flex-start; }
+.ec-matrix { border-collapse: separate; border-spacing: 6px; margin: .5rem auto; }
+.ec-matrix th, .ec-matrix td { padding: .35rem; vertical-align: middle; text-align: center; }
+.ec-gcell { border: 2px solid var(--line); border-radius: var(--r); background: var(--surface); white-space: nowrap; font-size: 1.1rem; }
+.ec-gcell.is-nash { border-color: var(--ec-a); background: color-mix(in srgb, var(--ec-a) 18%, var(--surface)); box-shadow: 0 0 0 2px var(--ec-a); }
+.ec-paren { color: var(--muted); padding: 0 .1rem; }
+.ec-pay { width: 4.2rem; text-align: center; font-weight: 800; font-size: 1.15rem; }
+.ec-pay.is-row { color: var(--ec-d); }
+.ec-pay.is-col { color: var(--ec-s); }
+.ec-pay.is-br { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 4px; background: var(--yellow-soft); }
+.ec-gname { width: 100%; min-width: 7rem; text-align: center; font-weight: 700; }
+.ec-gname.is-row { color: var(--ec-d); }
+.ec-gname.is-col { color: var(--ec-s); }
+.ec-gwho { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: block; }
+.ec-gtop .ec-gwho { display: inline; }
+.ec-gnote { justify-content: center; }
+
+.is-big .ec-gcell { font-size: 1.5rem; }
+.is-big .ec-pay { width: 5.5rem; font-size: 1.5rem; }
+.is-big .ec-gname { font-size: 1.15rem; }
+.is-big .ec-table { font-size: 1.25rem; }
+.ec-facts li b { max-width: 62%; overflow-wrap: anywhere; }
+
+@container (max-width: 520px) {
+  .ec-say { font-size: .8rem; line-height: 1.25; }
+  .ec-main { flex-basis: 64%; }
+  .ec-tog { padding: .25rem .45rem; }
+}
+
+/* ---------------- what's new ---------------- */
+
+.cat-views { margin: .1rem 0 .2rem; }
+.tag--new { background: var(--p1); color: var(--p1-ink); }
+
+/* A small note hanging from "Add a tool" — not a dialog, so it never gets
+   between a teacher and a lesson that has already started. */
+.news {
+  position: fixed; z-index: 60; width: min(300px, calc(100vw - 24px));
+  display: flex; flex-direction: column; gap: .45rem;
+  padding: .75rem; border-radius: var(--r-panel);
+  background: var(--surface); box-shadow: var(--shadow-3);
+  animation: news-in .28s cubic-bezier(.2,.7,.2,1);
+}
+.news::before {
+  content: ''; position: absolute; top: -6px; right: calc(var(--tail-right, 40px) - 6px);
+  width: 12px; height: 12px; background: var(--surface); transform: rotate(45deg);
+  border-radius: 2px 0 0 0;
+}
+.news-head { display: flex; align-items: center; gap: .5rem; }
+.news-pager { font-size: .75rem; color: var(--muted); }
+.news-close {
+  margin-left: auto; display: flex; padding: .2rem; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.news-close:hover { background: var(--desk); color: var(--ink); }
+.news-shot {
+  display: block; width: 100%; height: auto; max-height: 200px; object-fit: contain;
+  border-radius: var(--r); background: var(--desk);
+}
+.news-shot[hidden] { display: none; }
+.news-name { font-family: var(--display); font-size: 1rem; }
+.news-line { margin: 0; font-size: .85rem; color: var(--muted); line-height: 1.4; }
+.news-actions { display: flex; justify-content: flex-end; gap: .4rem; }
+.news-actions [hidden] { display: none; }
+@keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .news { animation: none; } }

@@ -1,0 +1,16 @@
+{
+  "name": "teachers-desk",
+  "version": "1.0.0",
+  "description": "A board of classroom tools — timers, stopwatches, alarms, notes, behaviour, randomiser and groups — for teachers signed in with Signify ID",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "DESK_DEV_USER=1 PORT=8770 node server.js",
+    "test": "node test/run.js && node test/backup.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.19.2"
+  }
+}

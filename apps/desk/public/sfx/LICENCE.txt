@@ -1,0 +1,35 @@
+Sound effects in this folder
+============================
+
+Source:   Kenney — https://kenney.nl
+Packs:    "Interface Sounds" (v1.0) and "Music Jingles"
+Licence:  Creative Commons Zero (CC0 1.0 Universal)
+          http://creativecommons.org/publicdomain/zero/1.0/
+
+Kenney's own licence text, verbatim:
+
+    License: (Creative Commons Zero, CC0)
+    http://creativecommons.org/publicdomain/zero/1.0/
+
+    This content is free to use in personal, educational and commercial
+    projects. Support us by crediting Kenney or www.kenney.nl (this is not
+    mandatory)
+
+Credit is not required, and is given here anyway.
+
+What was changed
+----------------
+A subset was selected and the files were converted from Ogg Vorbis to AAC
+(.m4a). Ogg is not safe to rely on in Safari, and a soundboard that is silent
+on the teacher's iPad is not a soundboard. Nothing else was altered.
+
+Why only one source
+-------------------
+Everything bundled here comes from Kenney because the provenance is
+unambiguous: one author, one CC0 dedication, stated on the pack itself. Sites
+that aggregate "free" sound effects mix licences per file — Pixabay, for
+instance, moved off CC0 to its own licence in 2019 — and a classroom app is
+the wrong place to be casual about that.
+
+Anything not covered here is what the upload button is for: a teacher can add
+their own sounds, and those stay private to them.
