@@ -14,6 +14,22 @@
   let config = null;
   let me = null;
 
+  // A browser that has signed in here before goes straight to sign-in rather
+  // than waiting on a button. The marker cookie is set on sign-in and removed
+  // on sign-out; the timestamp stops a refused or abandoned sign-in from
+  // bouncing the page in a loop.
+  function autoSignIn(signInUrl) {
+    try {
+      if (!/(?:^|; )sfy_ret=1/.test(document.cookie)) return false;
+      const last = Number(sessionStorage.getItem('sfy_auto')) || 0;
+      if (Date.now() - last < 120000) return false;
+      sessionStorage.setItem('sfy_auto', String(Date.now()));
+      window.location.replace(signInUrl + '?return=' +
+        encodeURIComponent(window.location.pathname + window.location.search));
+      return true;
+    } catch (e) { return false; }
+  }
+
   async function start() {
     const shell = document.getElementById('app');
     try {
@@ -34,6 +50,7 @@
       // Not signed in. If this server can sign people in at all, they get a
       // working desk with the tools that need no account, and the rest shown
       // but locked. If it cannot, there is nothing to offer beyond saying so.
+      if (config.authEnabled && autoSignIn(config.signInUrl)) return;
       return config.authEnabled ? guestDesk(shell) : signInScreen(shell);
     }
 
@@ -299,28 +316,27 @@
   }
 
   /**
-   * The way in, in the lower third of the page: close enough to the tools to
-   * be found, far enough down not to sit on top of the timer a visitor has
-   * just started. It folds down to a small button once they have read it.
+   * The way in: a card in the middle of the screen over a dimmed page, so a
+   * teacher whose sign-in has timed out cannot miss it. "Keep going without
+   * logging in" folds it down to a small button for visitors who want the
+   * account-free tools; it comes back on the next load.
    */
   function signInPrompt() {
     const href = config.signInUrl;
-    const card = el('aside.guest-prompt', { 'aria-label': 'Sign in' }, [
-      el('div.guest-prompt-text', {}, [
-        el('strong', { text: 'You’re not logged in, so nothing here is saved to an account.' }),
-        el('span', { text: `What you set up stays in this browser only, and is cleared after ${Desk.localApi.EXPIRY_DAYS} days unused. Log in to keep it.` }),
+    const gate = el('div.guest-gate', {}, [
+      el('aside.guest-prompt', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Log in' }, [
+        el('div.guest-prompt-text', {}, [
+          el('strong', { text: 'You’re not logged in.' }),
+          el('span', { text: `Log in to get your desk and class lists back. Anything you set up without logging in stays in this browser only, and is cleared after ${Desk.localApi.EXPIRY_DAYS} days unused.` }),
+        ]),
+        el('a.btn.btn--primary.guest-prompt-btn', { href }, 'Log in'),
+        el('button.btn.btn--ghost.guest-prompt-skip', {
+          type: 'button', onclick: () => gate.classList.add('is-folded'),
+        }, 'Keep going without logging in'),
       ]),
-      el('a.btn.btn--primary.guest-prompt-btn', { href }, 'Log in'),
-      el('button.icon-btn.guest-prompt-fold', {
-        'aria-label': 'Make this smaller', title: 'Make this smaller', svg: icon('close', 16),
-        onclick: () => {
-          card.classList.add('is-folded');
-          try { sessionStorage.setItem('desk:guest-folded', '1'); } catch { /* fine */ }
-        },
-      }),
+      el('a.btn.btn--primary.guest-prompt-mini', { href }, 'Log in'),
     ]);
-    try { if (sessionStorage.getItem('desk:guest-folded')) card.classList.add('is-folded'); } catch { /* fine */ }
-    return card;
+    return gate;
   }
 
   // ---------- the screens before the board ----------
