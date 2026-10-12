@@ -1,0 +1,1 @@
+{ "name": "@signify/auth", "version": "0.0.0", "private": true, "main": "signify-auth.js", "description": "Relying-party client for Signify ID" }

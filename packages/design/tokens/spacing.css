@@ -1,0 +1,36 @@
+:root {
+  --space-1: 3px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 16px;
+  --space-8: 20px;
+  --space-9: 24px;
+  --space-10: 28px;
+  --space-11: 36px;
+
+  --gutter-desk: 14px;   /* gap between widgets */
+  --pad-widget: 20px 24px 24px;
+  --row-desk: 58px;      /* desk grid row unit at 1440 */
+  --row-desk-fluid: clamp(52px, 4cqi, 96px); /* resolves against the desk container: 58 at 1440, 77 at 1920 */
+
+  /* Desk layouts (container width of the app, not the viewport) */
+  --bp-wide: 1280px;     /* ≥ 12 columns */
+  --bp-medium: 880px;    /* ≥ 8 columns; below = 4 columns */
+
+  --radius-xs: 3px;      /* square shape marker */
+  --radius-sm: 8px;      /* small buttons, badges */
+  --radius-md: 10px;     /* buttons, tiles, group blocks */
+  --radius-lg: 14px;     /* widget cards */
+  --radius-xl: 18px;     /* dialogs */
+  --radius-pill: 999px;  /* chips, island */
+
+  --control-sm: 34px;
+  --control-md: 44px;
+  --control-lg: 52px;
+  --chip-h: 38px;
+  --island-h: 52px;
+  --header-h: 84px;
+}

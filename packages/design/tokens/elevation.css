@@ -1,0 +1,15 @@
+:root {
+  /* Paper-on-desk: a hard 1px contact line, a tight shadow, then a soft drop. Warm ink, never pure black. */
+  --shadow-1: 0 1px 0 rgba(32,30,29,.05), 0 1px 2px rgba(32,30,29,.1);                                /* chips */
+  --shadow-2: 0 1px 0 rgba(32,30,29,.06), 0 1px 2px rgba(32,30,29,.12), 0 4px 10px -4px rgba(32,30,29,.18); /* buttons, seats */
+  --shadow-3: 0 1px 0 rgba(32,30,29,.08), 0 2px 3px rgba(32,30,29,.12), 0 10px 22px -8px rgba(32,30,29,.3); /* widgets */
+  --shadow-4: 0 1px 0 rgba(32,30,29,.06), 0 2px 4px rgba(32,30,29,.12), 0 18px 40px -12px rgba(32,30,29,.35); /* popovers, dialogs */
+  --shadow-island: 0 1px 0 rgba(32,30,29,.06), 0 2px 4px rgba(32,30,29,.1), 0 10px 24px -8px rgba(32,30,29,.28);
+
+  /* Header glass: write color-mix(in srgb, var(--ground) 86%, transparent) at the use site — as a token it would freeze the light ground. */
+  --header-blur: blur(14px);
+
+  --ease: cubic-bezier(.2,.7,.2,1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+}

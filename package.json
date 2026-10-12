@@ -1,0 +1,9 @@
+{
+  "name": "signify",
+  "private": true,
+  "description": "The Signify platform: Signify ID, Teacher's Desk, Signify Boards, Signify Learning, and shared packages",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "test": "npm test --workspaces --if-present"
+  }
+}

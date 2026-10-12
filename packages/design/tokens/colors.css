@@ -1,0 +1,37 @@
+:root {
+  /* Block colours — Primary palette (default). Four roles, each with the ink that sits on it. */
+  --sg-red: #ec3013;
+  --sg-blue: #1f4fd1;
+  --sg-yellow: #f5c400;
+  --sg-teal: #0e7f89;
+
+  --p1: var(--sg-red);    --p1-ink: #ffffff;
+  --p2: var(--sg-blue);   --p2-ink: #ffffff;
+  --p3: var(--sg-yellow); --p3-ink: #201e1d;
+  --p4: var(--sg-teal);   --p4-ink: #ffffff;
+
+  /* Neutrals (light ground) */
+  --ink: #201e1d;
+  --mute: #605d5d;
+  --ground: #f3f2f2;
+  --surface: #eae9e9;
+  --card: #ffffff;
+  --track: #d7d3d3;
+  --desk: #e6e4e3;
+
+  /* Semantic aliases */
+  --text-body: var(--ink);
+  --text-muted: var(--mute);
+  --surface-page: var(--ground);
+  --surface-inset: var(--surface);
+  --surface-card: var(--card);
+  --border-strong: var(--ink);
+  --border-subtle: color-mix(in srgb, var(--ink) 20%, transparent);
+  --focus-ring: var(--p2);
+
+  /* Category roles — every tool belongs to one; the role picks its block colour and shape. */
+  --role-time: var(--p1);   /* circle   */
+  --role-class: var(--p2);  /* square   */
+  --role-board: var(--p3);  /* triangle */
+  --role-calm: var(--p4);   /* arch     */
+}

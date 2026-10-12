@@ -1,0 +1,37 @@
+:root {
+  --font-display: "Archivo", system-ui, sans-serif;
+  --font-body: "Archivo", system-ui, sans-serif;
+
+  /* Display numerals & names — weight 800, width 112%, tight tracking */
+  --type-hero: 150px;       /* running timer */
+  --type-display-xl: 104px; /* scores */
+  --type-display-l: 96px;   /* clock */
+  --type-display-m: 78px;   /* picked name */
+  --type-display-s: 44px;   /* status phrase */
+  --type-title: 26px;       /* dialog / screen title */
+  --type-numeral-s: 21px;   /* island readouts */
+  --type-body-l: 17px;
+  --type-body: 15px;
+  --type-body-s: 14px;
+  --type-label: 13px;       /* widget labels, uppercase */
+  --type-caption: 12px;
+  --type-micro: 11px;
+
+  /* Fluid display sizes — resolve against the nearest widget (container-type: inline-size). Use for board-facing numerals. */
+  --fluid-hero: clamp(64px, 26cqi, 220px);      /* timer */
+  --fluid-display-xl: clamp(56px, 34cqi, 140px); /* scores — give score widgets ≥ 4 rows */
+  --fluid-display-l: clamp(56px, 20cqi, 160px); /* clock */
+  --fluid-display-m: clamp(40px, 22cqi, 120px); /* picked name */
+  --fluid-display-s: clamp(26px, 9cqi, 64px);   /* status phrase */
+
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 800;
+  --stretch-display: 112%;
+  --stretch-brand: 118%;
+  --tracking-display: -0.04em;
+  --tracking-title: -0.02em;
+  --tracking-label: 0.08em;
+  --leading-display: 0.85;
+  --leading-body: 1.45;
+}

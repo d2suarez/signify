@@ -1,0 +1,6 @@
+html { color-scheme: light; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+a { color: var(--p2); }
+a:hover { color: color-mix(in oklab, var(--p2) 80%, black); }
+::selection { background: color-mix(in srgb, var(--p3) 55%, transparent); }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

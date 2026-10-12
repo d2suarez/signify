@@ -1,0 +1,6 @@
+/* Teacher-chosen palettes. Set data-palette on any ancestor; roles keep their meaning, only hues change. */
+[data-palette="garden"] { --p1: #1f8a4c; --p1-ink: #ffffff; --p2: #0f6f80; --p2-ink: #ffffff; --p3: #f2b233; --p3-ink: #201e1d; --p4: #e0643a; --p4-ink: #201e1d; }
+[data-palette="berry"] { --p1: #7a3fd1; --p1-ink: #ffffff; --p2: #d63c72; --p2-ink: #ffffff; --p3: #f28c28; --p3-ink: #201e1d; --p4: #0f8a7e; --p4-ink: #ffffff; }
+[data-palette="ocean"] { --p1: #1d4ed8; --p1-ink: #ffffff; --p2: #0e7f89; --p2-ink: #ffffff; --p3: #ffc83d; --p3-ink: #201e1d; --p4: #ef6f5c; --p4-ink: #201e1d; }
+[data-palette="mono-red"] { --p1: #ec3013; --p1-ink: #ffffff; --p2: #7c1405; --p2-ink: #ffffff; --p3: #ffc4b8; --p3-ink: #201e1d; --p4: #b8220c; --p4-ink: #ffffff; }
+[data-ground="dark"] { --ground: #161514; --surface: #221f1e; --card: #2a2726; --ink: #f3f2f2; --mute: #bab6b6; --track: #444141; --desk: #0f0e0d; }
