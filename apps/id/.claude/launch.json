@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "signify-id",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["test/dev-server.js"],
+      "port": 3010
+    },
+    {
+      "name": "demo-app",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["test/dev-app.js"],
+      "port": 3011
+    }
+  ]
+}
