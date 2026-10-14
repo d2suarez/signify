@@ -61,6 +61,7 @@
     Desk.theme.init({ prefs: data.prefs, save: (prefs) => Desk.board.setPrefs(prefs) });
     drawChrome(shell);
     Desk.board.init({ root: document.getElementById('board'), data, me });
+    app.signedIn = true;
     if (location.hash === '#versions') openHistory();
     offerVisitorDesk();
     announceNew();

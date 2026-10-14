@@ -2239,6 +2239,10 @@ body.is-seating-drag { user-select: none; }
 }
 .guest-gate.is-folded .guest-prompt { display: none; }
 .guest-gate.is-folded .guest-prompt-mini { display: inline-flex; box-shadow: var(--shadow-4); }
+/* A sign-in that ended under an open desk: fully opaque, and everything else
+   on the page unreadable, however it was drawn. */
+.session-gate { background: var(--desk); backdrop-filter: none; z-index: 200; }
+html.session-ended body > *:not(.session-gate) { visibility: hidden !important; }
 @media print { .guest-gate { display: none; } }
 
 /* Locked tools in "Add a tool": listed, because the list is the best account

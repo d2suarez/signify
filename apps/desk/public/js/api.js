@@ -19,7 +19,7 @@ window.Desk = window.Desk || {};
     try { data = await res.json(); } catch { /* an empty body is fine */ }
 
     if (!res.ok) {
-      if (res.status === 401 && data && data.signedOut) signInAgain();
+      if (res.status === 401) sessionEnded();
       const err = new Error((data && data.error) || `The server said ${res.status}.`);
       err.status = res.status;
       err.data = data;
@@ -29,21 +29,41 @@ window.Desk = window.Desk || {};
   }
 
   /**
-   * The server has told us this sign-in is over and cleared its cookies, so a
-   * reload lands on the sign-in page. The teacher was doing this by hand.
+   * The sign-in has ended while a desk was open on screen. Cover the page
+   * with a solid log-in screen rather than a toast: the board holds class
+   * lists and behaviour notes, and nobody who is logged out should be able to
+   * read them over the top of a small red message.
    *
-   * Guarded by a timestamp, because a reload that came back to the same answer
-   * would otherwise spin: if it happens twice inside a minute, something else
-   * is wrong and a stuck page is easier to report than a flickering one.
+   * Only for a desk that WAS signed in (Desk.app.signedIn, set once the board
+   * is up): the very first lookup of a visitor also answers 401, and there is
+   * no sign-in to have lost.
    */
-  function signInAgain() {
-    const KEY = 'desk:reauth';
-    let last = 0;
-    try { last = Number(sessionStorage.getItem(KEY)) || 0; } catch { /* private mode */ }
-    if (Date.now() - last < 60_000) return;
-    try { sessionStorage.setItem(KEY, String(Date.now())); } catch { /* private mode */ }
-    window.location.reload();
+  function sessionEnded() {
+    if (!Desk.app || !Desk.app.signedIn || document.querySelector('.session-gate')) return;
+    const href = (Desk.config && Desk.config.signInUrl) || '/auth/login';
+    const gate = document.createElement('div');
+    gate.className = 'guest-gate session-gate';
+    gate.innerHTML =
+      '<aside class="guest-prompt" role="alertdialog" aria-modal="true" aria-label="Log in">' +
+        '<div class="guest-prompt-text"><strong>You’ve been logged out.</strong>' +
+        '<span>Your desk is hidden until you log in again. Nothing has been lost.</span></div>' +
+        '<a class="btn btn--primary guest-prompt-btn"></a></aside>';
+    gate.querySelector('a').href = href;
+    gate.querySelector('a').textContent = 'Log in';
+    document.documentElement.classList.add('session-ended');
+    document.body.append(gate);
+    gate.querySelector('a').focus();
   }
+
+  /**
+   * A desk left open in a tab for hours finds out it is logged out only when
+   * it next talks to the server — which may be a click, minutes after the
+   * teacher came back to it. Ask the moment the tab is shown again.
+   */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !Desk.app || !Desk.app.signedIn) return;
+    request('GET', '/api/me').catch(() => { /* a 401 is handled in request() */ });
+  });
 
   /**
    * Uploads one file as a raw body. The name rides in a header rather than a
@@ -63,6 +83,7 @@ window.Desk = window.Desk || {};
     let data = null;
     try { data = await res.json(); } catch { /* empty body */ }
     if (!res.ok) {
+      if (res.status === 401) sessionEnded();
       const err = new Error((data && data.error) || `The server said ${res.status}.`);
       err.status = res.status;
       throw err;
