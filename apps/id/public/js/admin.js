@@ -442,6 +442,7 @@ var CLASS_ROLE_LABELS = { student: 'Student', teacher: 'Teacher', aide: 'Aide', 
 
 function classPickerHtml() {
   return '<div class="field" id="m_classes_wrap"><label>Classes</label>' +
+    '<div id="m_enrolled" class="small" style="margin-bottom:.5rem"></div>' +
     '<input type="search" id="m_class_q" placeholder="Filter classes" style="margin-bottom:.4rem">' +
     '<div id="m_classes" class="class-picker"><div class="small muted">Loading classes…</div></div>' +
     '<div class="hint" id="m_classes_hint"></div></div>';
@@ -451,8 +452,25 @@ function classPickerHtml() {
 // current place, or null) and editable.
 function fillClassPicker(m, classes, defaultRole) {
   var box = m.querySelector('#m_classes');
+  // The classes they are in now, said plainly above the list, and ticked
+  // first in it, so nobody has to scroll to find out.
+  var enrolled = m.querySelector('#m_enrolled');
+  var showEnrolled = function () {
+    if (!enrolled) return;
+    var now = Array.prototype.filter.call(box.querySelectorAll('[data-class]'), function (cb) { return cb.checked; })
+      .map(function (cb) {
+        var role = box.querySelector('[data-class-role="' + cb.dataset.class + '"]').value;
+        return '<span class="chip chip-blue" style="margin:0 .25rem .25rem 0">' + esc(cb.dataset.label) +
+          (role !== defaultRole ? ' · ' + esc(CLASS_ROLE_LABELS[role]) : '') + '</span>';
+      });
+    enrolled.innerHTML = now.length
+      ? '<div class="muted" style="margin-bottom:.25rem">Enrolled in ' + now.length + ' class' + (now.length === 1 ? '' : 'es') + ':</div>' + now.join('')
+      : '<span class="muted">Not in any class yet.</span>';
+  };
+  classes = classes.slice().sort(function (a, b) { return (b.role ? 1 : 0) - (a.role ? 1 : 0); });
   if (!classes.length) {
     box.innerHTML = '<div class="small muted">This school has no classes yet. Make them on the Classes page.</div>';
+    if (enrolled) enrolled.innerHTML = '';
     return;
   }
   box.innerHTML = classes.map(function (c) {
@@ -462,7 +480,7 @@ function fillClassPicker(m, classes, defaultRole) {
       (c.teachers ? '<div class="small muted">' + esc(c.teachers) + '</div>' : '');
     return '<div class="class-pick" data-name="' + esc((c.name + ' ' + (c.subject || '') + ' ' + (c.teachers || '')).toLowerCase()) + '">' +
       '<label style="display:flex;gap:.5rem;align-items:flex-start;flex:1;margin:0;font-weight:400">' +
-        '<input type="checkbox" data-class="' + esc(c.id) + '"' + (on ? ' checked' : '') + (c.editable === false ? ' disabled' : '') + '>' +
+        '<input type="checkbox" data-class="' + esc(c.id) + '" data-label="' + esc(c.name) + '"' + (on ? ' checked' : '') + (c.editable === false ? ' disabled' : '') + '>' +
         '<span>' + label + '</span></label>' +
       '<select data-class-role="' + esc(c.id) + '" style="width:auto"' + (on ? '' : ' hidden') + (c.editable === false ? ' disabled' : '') + '>' +
         Object.keys(CLASS_ROLE_LABELS).map(function (k) {
@@ -477,8 +495,11 @@ function fillClassPicker(m, classes, defaultRole) {
   Array.prototype.forEach.call(box.querySelectorAll('[data-class]'), function (cb) {
     cb.onchange = function () {
       box.querySelector('[data-class-role="' + cb.dataset.class + '"]').hidden = !cb.checked;
+      showEnrolled();
     };
   });
+  Array.prototype.forEach.call(box.querySelectorAll('[data-class-role]'), function (sel) { sel.onchange = showEnrolled; });
+  showEnrolled();
   var q = m.querySelector('#m_class_q');
   q.oninput = function () {
     var v = q.value.trim().toLowerCase();
