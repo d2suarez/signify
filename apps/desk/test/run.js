@@ -1355,6 +1355,25 @@ describe('the clock', () => {
 });
 
 // ===================================================================
+describe('copying the groups', () => {
+  const w = loadWidget('groups');
+  const gs = [
+    { label: 'Group A', members: [{ name: 'Ada' }, { name: 'Ben' }] },
+    { label: 'Group B', members: [{ name: 'Cy <3' }] },
+  ];
+  it('pastes as headings and names in plain text', () => {
+    equal(w._asText(gs, 'Science'), 'Science\n\nGroup A\n- Ada\n- Ben\n\nGroup B\n- Cy <3');
+    equal(w._asText(gs, ''), 'Group A\n- Ada\n- Ben\n\nGroup B\n- Cy <3');
+  });
+  it('pastes as a table with a column per group, names escaped', () => {
+    const h = w._asHtml(gs, 'Science');
+    equal((h.match(/<tr>/g) || []).length, 3, 'a head row and two name rows');
+    equal(h.includes('Cy &lt;3') && !h.includes('Cy <3'), true, 'escaped');
+    equal(h.includes('<b>Science</b>'), true);
+  });
+});
+
+// ===================================================================
 describe('the word count', () => {
   const count = loadWidget('wordcount')._count;
   it('counts words, sentences and paragraphs', () => {

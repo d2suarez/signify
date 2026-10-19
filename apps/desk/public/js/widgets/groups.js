@@ -44,6 +44,54 @@
     return { groups: best || [], unmet: bestScore };
   }
 
+  /**
+   * The groups as something to paste. Plain text is a heading and its names,
+   * group after group — what an email, a chat or Classroom wants. The HTML is
+   * a table with a column per group, so Docs, Slides and Sheets get a grid.
+   */
+  function asText(groups, title) {
+    const blocks = groups.map((g) => [g.label, ...g.members.map((m) => `- ${m.name}`)].join('\n'));
+    return (title ? `${title}\n\n` : '') + blocks.join('\n\n');
+  }
+
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function asHtml(groups, title) {
+    const rows = Math.max(0, ...groups.map((g) => g.members.length));
+    const cell = 'border:1px solid #999;padding:4px 8px;vertical-align:top';
+    const head = groups.map((g) => `<th style="${cell};text-align:left">${esc(g.label)}</th>`).join('');
+    let body = '';
+    for (let r = 0; r < rows; r += 1) {
+      body += `<tr>${groups.map((g) => `<td style="${cell}">${g.members[r] ? esc(g.members[r].name) : ''}</td>`).join('')}</tr>`;
+    }
+    return (title ? `<p><b>${esc(title)}</b></p>` : '')
+      + `<table style="border-collapse:collapse"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  /** Both forms when the browser allows it; plain text, then the old textarea trick, when it does not. */
+  async function toClipboard(text, html) {
+    try {
+      if (window.isSecureContext && navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        })]);
+        return true;
+      }
+    } catch { /* fall through */ }
+    try {
+      if (window.isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(text); return true; }
+    } catch { /* fall through */ }
+    try {
+      const box = el('textarea', { value: text, style: { position: 'fixed', top: '-1000px', opacity: '0' } });
+      document.body.append(box);
+      box.select();
+      const ok = document.execCommand('copy');
+      box.remove();
+      return ok;
+    } catch { return false; }
+  }
+
   Desk.widget({
     type: 'groups',
     name: 'Student groups',
@@ -64,6 +112,9 @@
       if (!Array.isArray(s.away)) s.away = [];
       if (!Array.isArray(s.apart)) s.apart = [];
     },
+
+    _asText: asText,
+    _asHtml: asHtml,
 
     holdsContent: (s) => (s.groups.length ? `The ${s.groups.length} groups on it go too.` : ''),
 
@@ -180,6 +231,8 @@
           el('div.group-row', {}, [
             stepper,
             el('button.btn.btn--primary', { svg: icon('shuffle', 16), onclick: make }, ' Make groups'),
+            // Up here rather than under the groups, where a short card would scroll it out of sight.
+            s.groups.length ? el('button.btn', { svg: icon('copy', 16), onclick: copyGroups, title: 'Copy the groups to paste into a doc, a slide or an email' }, ' Copy') : null,
           ]),
           el('p.hint', { text: `${present().length} here${s.away.length ? `, ${s.away.length} away` : ''}` }),
         );
@@ -216,6 +269,14 @@
             el('button.btn.btn--small', { svg: icon('save', 14), onclick: saveGrouping }, ' Keep these groups'),
           ]));
         }
+      }
+
+      /** Onto the clipboard, to paste into a doc, a slide, an email or Classroom. */
+      async function copyGroups() {
+        if (!s.groups.length) { toast('There are no groups to copy yet.', 'warn'); return; }
+        const ok = await toClipboard(asText(s.groups, className), asHtml(s.groups, className));
+        if (ok) toast(`${s.groups.length} group${s.groups.length === 1 ? '' : 's'} copied — paste them anywhere.`);
+        else toast('This browser would not let the groups be copied.', 'warn');
       }
 
       /** The groups on paper, to hand out or stick on the wall. */
