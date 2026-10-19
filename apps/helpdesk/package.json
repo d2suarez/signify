@@ -37,5 +37,8 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "main": "server.js"
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  }
 }
