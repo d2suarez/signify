@@ -26,6 +26,7 @@ export type SignifyClaims = {
   isMinor?: boolean;
   tenantId?: string | null;
   tenantName?: string | null;
+  tenantKind?: string | null;
   perms?: Record<string, string>;
 };
 
@@ -73,7 +74,10 @@ export const getCurrentUser = cache(async () => {
     picture: c.picture || "",
     role: roleFromClaims(c),
     roleLabel: c.roleLabel || "",
-    tenantId: c.tenantId || null,
+    // The Independent group (people with no school) is one tenant in Signify
+    // ID, but its members are strangers to each other. Here they count as
+    // having no school, so "open to my school" never reaches between them.
+    tenantId: c.tenantKind === "independent" ? null : c.tenantId || null,
   };
 
   let user = await prisma.user.findUnique({ where: { signifyId: c.id } });

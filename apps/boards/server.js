@@ -207,8 +207,18 @@ function adminPerms(perms) {
   return perms.some((p) => p !== 'teach');
 }
 
+// The email domain stands in for "school" throughout this file. A personal
+// address is at no school: everyone on gmail.com is a stranger to everyone
+// else on it (people with no school in Signify ID mostly use one). So a
+// consumer domain answers with the whole address, which matches only itself.
+const CONSUMER_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'ymail.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'mail.com',
+]);
 function domainOf(email) {
-  return email.split('@')[1] || '';
+  const domain = String(email).split('@')[1] || '';
+  return CONSUMER_DOMAINS.has(domain.toLowerCase()) ? String(email).toLowerCase() : domain;
 }
 
 // A client-supplied string is about to be used as an object/map key. Reject the

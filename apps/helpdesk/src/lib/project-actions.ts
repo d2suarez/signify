@@ -103,7 +103,16 @@ export async function addMember(projectId: string, _prev: FormState, formData: F
   const userId = field(formData, "userId");
   const email = field(formData, "email").toLowerCase();
 
+  // Someone with no school has nobody in common to add: a shared domain such as
+  // gmail.com is not a school, and looking an address up would name its owner.
+  if (!user.tenantId && user.role !== "ADMIN") {
+    return { error: "Only people at a school can add others to a project." };
+  }
+
   let person = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+  // Picked from the search, which only offers your own school. Hold any id
+  // sent straight to this action to the same rule.
+  if (person && user.role !== "ADMIN" && person.tenantId !== user.tenantId) person = null;
   if (!person && email) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "That address doesn't look right." };
     // Only addresses at your own school. Someone from outside can't be pulled
@@ -181,10 +190,13 @@ export async function searchPeople(projectId: string, q: string) {
   if (!canManage(project, user)) return [];
   const term = q.trim();
   if (term.length < 2) return [];
+  // Without a school there is nobody to search among. (This used to search
+  // everyone at every school.)
+  if (user.role !== "ADMIN" && !user.tenantId) return [];
   const people = await prisma.user.findMany({
     where: {
       active: true,
-      ...(user.role === "ADMIN" || !user.tenantId ? {} : { tenantId: user.tenantId }),
+      ...(user.role === "ADMIN" ? {} : { tenantId: user.tenantId }),
       OR: [{ name: { contains: term } }, { email: { startsWith: term } }],
       NOT: { projectMembers: { some: { projectId } } },
     },

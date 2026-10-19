@@ -115,9 +115,43 @@ router.get('/bootstrap', async (req, res) => {
 
 // ---------- overview ----------
 
+// Anyone signed in may open the console, so the Overview is the page every
+// teacher, student or person with no school lands on. It used to give all of
+// them the school's head-counts and its recent audit trail (other people's
+// email addresses and what they did). Now each part needs the permission its
+// own page needs: the counts need the directory, the activity needs the audit
+// log. Everyone else gets their own account and the apps they can open.
+async function appsFor(actor) {
+  if (!actor.tenantId) {
+    return actor.isSuper
+      ? db.many(`SELECT name, short_name, launch_url FROM apps
+                  WHERE status = 'active' AND launch_url IS NOT NULL ORDER BY sort_order, name`)
+      : [];
+  }
+  return db.many(
+    `SELECT a.name, a.short_name, a.launch_url
+       FROM apps a
+       JOIN app_tenants at ON at.app_id = a.id AND at.enabled
+      WHERE a.status = 'active' AND a.launch_url IS NOT NULL AND at.tenant_id = $1
+        AND NOT EXISTS (SELECT 1 FROM user_app_access ua
+                         WHERE ua.user_id = $2 AND ua.app_id = a.id AND ua.allowed = false)
+      ORDER BY a.sort_order, a.name`, [actor.tenantId, actor.userId]);
+}
+
 router.get('/overview', async (req, res) => {
   const actor = guards.requireActor(req, res);
   if (!actor) return;
+  res.set('Cache-Control', 'no-store');
+
+  const me = {
+    name: actor.name, email: actor.email, roleLabel: actor.roleLabel,
+    tenantName: actor.tenantName,
+    apps: (await appsFor(actor)).map((a) => ({ name: a.short_name || a.name, url: a.launch_url })),
+  };
+  const seesSchool = actor.isSuper || rbac.allows(actor.perms, 'core:view_directory', 'tenant');
+  const seesAudit = actor.isSuper || rbac.allows(actor.perms, 'core:view_audit', 'tenant');
+  if (!seesSchool && !seesAudit) return res.json({ me, school: false, audit: false });
+
   const tenantId = guards.tenantScope(actor, req.query.tenant_id);
   const p = tenantId ? [tenantId] : [];
   const w = tenantId ? 'WHERE m.tenant_id = $1' : '';
@@ -210,7 +244,17 @@ router.get('/overview', async (req, res) => {
     }
   }
 
-  res.json({ counts, classes: Number(classes.n), recent, alerts, sensitive });
+  res.json({
+    me,
+    school: seesSchool,
+    audit: seesAudit,
+    counts: seesSchool ? counts : null,
+    classes: seesSchool ? Number(classes.n) : null,
+    // Admin to-dos: nobody else can act on them.
+    alerts: (actor.isSuper || rbac.allows(actor.perms, 'core:manage_users', 'tenant')) ? alerts : [],
+    recent: seesAudit ? recent : [],
+    sensitive: seesAudit ? sensitive : [],
+  });
 });
 
 // ---------- users ----------
@@ -441,6 +485,18 @@ router.get('/users/:id/export', async (req, res) => {
   if (!actor.isSuper) {
     const inTenant = await db.one('SELECT 1 FROM memberships WHERE user_id = $1 AND tenant_id = $2', [req.params.id, actor.tenantId]);
     if (!inTenant) return fail(res, 403, 'That person is not in your school.');
+    // Class reach means a student in a class this person teaches. It used to
+    // reach anyone in the school, including colleagues' sign-ins and IPs.
+    if (!rbac.allows(actor.perms, 'core:export_student_data', 'tenant')) {
+      const shared = await db.one(
+        `SELECT 1 FROM class_access mine
+           JOIN class_access theirs ON theirs.class_id = mine.class_id
+           JOIN classes c ON c.id = mine.class_id
+          WHERE mine.user_id = $1 AND mine.role IN ('teacher','aide')
+            AND theirs.user_id = $2 AND theirs.role = 'student' AND c.archived = false
+          LIMIT 1`, [actor.userId, req.params.id]);
+      if (!shared) return fail(res, 403, 'You can export the record of a student in a class you teach.');
+    }
   }
 
   const user = await db.one('SELECT * FROM users WHERE id = $1', [req.params.id]);
@@ -523,6 +579,12 @@ router.delete('/users/:id', async (req, res) => {
 router.get('/roles', async (req, res) => {
   const actor = guards.requireActor(req, res);
   if (!actor) return;
+  // The People and Roles pages need this; nobody else does. It names who
+  // customised a role and how many people hold each one.
+  if (!actor.isSuper && !rbac.allows(actor.perms, 'core:view_directory', 'tenant')
+      && !rbac.allows(actor.perms, 'core:manage_roles', 'tenant')) {
+    return fail(res, 403, 'Your role does not include seeing the school’s roles.');
+  }
   const tenantId = guards.tenantScope(actor, req.query.tenant_id);
 
   const roles = await db.many(
@@ -693,10 +755,13 @@ router.get('/tenants', async (req, res) => {
                             (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id) AS people,
                             (SELECT array_agg(d.domain) FROM tenant_domains d WHERE d.tenant_id = t.id) AS domains
                        FROM tenants t ORDER BY (t.kind = 'independent'), t.name`)
-    : await db.many(`SELECT t.*,
-                            (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id) AS people,
-                            (SELECT array_agg(d.domain) FROM tenant_domains d WHERE d.tenant_id = t.id) AS domains
-                       FROM tenants t WHERE t.id = $1`, [actor.tenantId]);
+    : rbac.allows(actor.perms, 'core:manage_tenants', 'tenant')
+      ? await db.many(`SELECT t.*,
+                              (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id) AS people,
+                              (SELECT array_agg(d.domain) FROM tenant_domains d WHERE d.tenant_id = t.id) AS domains
+                         FROM tenants t WHERE t.id = $1`, [actor.tenantId])
+      // Everyone else learns only the name of their own school.
+      : await db.many('SELECT id, slug, name, status, kind FROM tenants WHERE id = $1', [actor.tenantId]);
   res.json({ tenants: rows });
 });
 
@@ -972,6 +1037,14 @@ router.get('/classes/:id/members', async (req, res) => {
   const cls = await db.one('SELECT * FROM classes WHERE id = $1', [req.params.id]);
   if (!cls) return fail(res, 404, 'No such class.');
   if (!actor.isSuper && cls.tenant_id !== actor.tenantId) return fail(res, 403, 'That class is in a different school.');
+  // Same school is not enough: a student, or a teacher of another class, has
+  // no business reading this roster and its email addresses.
+  if (!actor.isSuper && !rbac.allows(actor.perms, 'core:manage_classes', 'tenant')) {
+    const teaches = await db.one(
+      `SELECT 1 FROM class_access WHERE class_id = $1 AND user_id = $2 AND role IN ('teacher','aide')`,
+      [cls.id, actor.userId]);
+    if (!teaches) return fail(res, 403, 'You do not teach that class.');
+  }
 
   const members = await db.many(
     `SELECT u.id, u.display_name, u.email, u.picture_url, cm.role, cm.added_at
@@ -1081,6 +1154,11 @@ router.get('/audit', async (req, res) => {
 router.get('/compliance', async (req, res) => {
   const actor = guards.requireActor(req, res);
   if (!actor) return;
+  // Disclosures carry who read whose record, from which IP address.
+  if (!actor.isSuper && !rbac.allows(actor.perms, 'core:view_audit', 'tenant')
+      && !rbac.allows(actor.perms, 'core:manage_tenants', 'tenant')) {
+    return fail(res, 403, 'Your role does not include the compliance records.');
+  }
   const tenantId = guards.tenantScope(actor, req.query.tenant_id) || actor.tenantId;
 
   const consents = tenantId
@@ -1089,10 +1167,12 @@ router.get('/compliance', async (req, res) => {
 
   const tenant = tenantId ? await db.one('SELECT * FROM tenants WHERE id = $1', [tenantId]) : null;
 
+  // Scoped to the school: this used to list erased people from every school.
   const pendingPurge = await db.many(
-    `SELECT id, display_name, purge_after FROM users
-      WHERE purge_after IS NOT NULL AND deleted_at IS NOT NULL
-      ORDER BY purge_after LIMIT 50`);
+    `SELECT u.id, u.display_name, u.purge_after FROM users u
+      WHERE u.purge_after IS NOT NULL AND u.deleted_at IS NOT NULL
+        AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.tenant_id = $1))
+      ORDER BY u.purge_after LIMIT 50`, [tenantId || null]);
 
   const disclosures = await audit.list({ tenantId, disclosuresOnly: true, limit: 25 });
 

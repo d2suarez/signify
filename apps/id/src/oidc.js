@@ -142,11 +142,10 @@ router.get('/authorize', async (req, res) => {
   if (!session) {
     // Park the request and send them to the sign-in page. The full original
     // query string comes back afterwards.
-    // The sign-in page is drawn right here rather than redirected to: it is
-    // the same page, one request sooner, and it carries on to this request.
+    // (Held back 2026-10-18: drawing the sign-in page right here, from
+    // 0c4bd48, is not live yet and waits on Desmond's OK. Revert this to ship it.)
     const back = `/authorize?${new URLSearchParams(q).toString()}`;
-    res.set('Cache-Control', 'no-store');
-    return res.send(views.signinPage({ continueTo: back, appName: app.name }));
+    return res.redirect(`/signin?continue=${encodeURIComponent(back)}`);
   }
 
   const access = await identity.accessFor(session.user_id);

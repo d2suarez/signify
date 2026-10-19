@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireAgent } from "@/lib/auth";
 import { CATEGORIES, PRIORITIES, ROLES, timeAgo } from "@/lib/labels";
 import { STALE_DAYS, staleCutoff } from "@/lib/digest";
 import { CategoryLabel, PriorityBadge, StatusBadge } from "@/components/badges";
@@ -25,7 +25,9 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<Search>;
 }) {
-  const user = await requireUser();
+  // Checked here as well as in the layout: a layout does not run on every
+  // request that renders this page.
+  const user = await requireAgent();
   const sp = await searchParams;
   const view = sp.view || "active";
 

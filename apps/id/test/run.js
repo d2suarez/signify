@@ -2419,6 +2419,54 @@ function section(title) { console.log(`\n${title}`); }
       (await call(bossCookie, '/classes', 'POST', { name: 'Nope', tenant_id: indep.id })).status, 400);
     const imported = await roster.analyse({ text: 'email,name\nz@gmail.com,Z', actor: { isSuper: true, userId: boss.user.id, perms: {} }, tenantId: indep.id });
     ok('and no roster import goes into it', imported.ok === false);
+
+    // ---- what the console shows someone with no administrative reach ----
+    const school = await db.one("SELECT * FROM tenants WHERE kind = 'school' ORDER BY created_at LIMIT 1");
+    const person = async (email, role) => {
+      const r = await call(bossCookie, '/users', 'POST', { email, name: email.split('@')[0], role_id: await roleId(role), tenant_id: school.id });
+      const id = (await r.json()).id;
+      await db.query("UPDATE memberships SET status = 'active' WHERE user_id = $1", [id]);
+      return id;
+    };
+    const pupil = await person('leak-pupil@' + 'school.test', 'student');
+    const teachA = await person('leak-teach-a@school.test', 'teacher');
+    const teachB = await person('leak-teach-b@school.test', 'teacher');
+    const cls = await db.one(
+      "INSERT INTO classes (tenant_id, name, school_year) VALUES ($1, 'Leak test', '2026') RETURNING id", [school.id]);
+    await db.query("INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,'teacher'), ($1,$3,'student')",
+      [cls.id, teachA, pupil]);
+    const pupilCookie = await cookieFor(pupil);
+    const teachACookie = await cookieFor(teachA);
+    const teachBCookie = await cookieFor(teachB);
+
+    const pupilView = await (await call(pupilCookie, '/overview')).json();
+    ok('a student’s Overview is their own account only',
+      pupilView.me && pupilView.me.email === 'leak-pupil@school.test'
+      && !pupilView.counts && !pupilView.recent && !pupilView.sensitive && !pupilView.alerts);
+    const friendView = await (await call(friendCookie, '/overview')).json();
+    ok('and so is that of someone with no school', !friendView.counts && !friendView.recent);
+    const teacherView = await (await call(teachACookie, '/overview')).json();
+    ok('a teacher sees the school’s counts but not its audit trail',
+      !!teacherView.counts && teacherView.audit === false && teacherView.recent.length === 0 && teacherView.sensitive.length === 0
+      && teacherView.alerts.length === 0);
+    const bossView = await (await call(bossCookie, '/overview')).json();
+    ok('a super admin still sees everything', !!bossView.counts && bossView.audit === true && Array.isArray(bossView.recent));
+
+    eq('a student cannot list the roles', (await call(pupilCookie, '/roles')).status, 403);
+    eq('or read the compliance records', (await call(pupilCookie, '/compliance')).status, 403);
+    eq('and nor can a teacher', (await call(teachACookie, '/compliance')).status, 403);
+    const pupilTenants = (await (await call(pupilCookie, '/tenants')).json()).tenants;
+    ok('a student learns only their school’s name, not its domains or head-count',
+      pupilTenants.length === 1 && pupilTenants[0].name === school.name
+      && pupilTenants[0].domains === undefined && pupilTenants[0].people === undefined && pupilTenants[0].settings === undefined);
+
+    eq('a student cannot read a class roster', (await call(pupilCookie, `/classes/${cls.id}/members`)).status, 403);
+    eq('nor a teacher of another class', (await call(teachBCookie, `/classes/${cls.id}/members`)).status, 403);
+    eq('the class’s own teacher can', (await call(teachACookie, `/classes/${cls.id}/members`)).status, 200);
+
+    eq('a teacher exports a student in their class', (await call(teachACookie, `/users/${pupil}/export`)).status, 200);
+    eq('but not a colleague’s record', (await call(teachACookie, `/users/${teachB}/export`)).status, 403);
+    eq('nor a student they do not teach', (await call(teachBCookie, `/users/${pupil}/export`)).status, 403);
     srv.close();
   }
 

@@ -167,22 +167,42 @@ function tenantQuery() {
 
 var pages = {};
 
+// Someone with no administrative reach sees their own account and nothing of
+// anybody else's.
+function personalOverview(me) {
+  var apps = (me.apps || []).map(function (a) {
+    return '<tr><td>' + esc(a.name) + '</td><td style="text-align:right">' +
+      '<a class="btn btn-sm" href="' + esc(a.url) + '">Open</a></td></tr>';
+  }).join('') || '<tr><td class="muted">No apps are switched on for you yet.</td></tr>';
+  document.getElementById('main').innerHTML =
+    head('Your account', 'You are signed in to Signify ID. It is what lets you into the Signify apps.') +
+    '<div class="card" style="margin-bottom:1rem"><div class="card-body">' +
+      '<div style="font-weight:600">' + esc(me.name) + '</div>' +
+      '<div class="muted small">' + esc(me.email) + '</div>' +
+      '<div class="small" style="margin-top:.5rem">' + esc(me.roleLabel || 'No role') +
+        (me.tenantName ? ' · ' + esc(me.tenantName) : '') + '</div>' +
+    '</div></div>' +
+    '<div class="card"><div class="card-head"><h2>Your apps</h2></div>' +
+    '<div class="table-wrap"><table><tbody>' + apps + '</tbody></table></div></div>';
+}
+
 pages.overview = function () {
   return api('/overview' + tenantQuery()).then(function (d) {
+    if (!d.school && !d.audit) { personalOverview(d.me); return; }
     var alerts = d.alerts.map(function (a) {
       return '<div class="notice notice-' + (a.level === 'danger' ? 'danger' : a.level === 'info' ? 'info' : 'warn') + '">' +
         '<strong>' + (a.level === 'info' ? 'For your information' : 'Needs attention') + '</strong>' + esc(a.text) +
         (a.go ? ' <a href="#" data-go="' + esc(a.go) + '">Open</a>' : '') + '</div>';
     }).join('');
 
-    var stats = [
+    var stats = (d.counts ? [
       ['Active people', d.counts.active],
       ['Students', d.counts.students],
       ['Staff', d.counts.staff],
       ['Awaiting approval', d.counts.pending],
       ['Restricted', d.counts.restricted],
       ['Classes', d.classes],
-    ].map(function (s) {
+    ] : []).map(function (s) {
       return '<div class="card stat"><div class="n">' + esc(s[1]) + '</div><div class="k">' + esc(s[0]) + '</div></div>';
     }).join('');
 
@@ -225,11 +245,13 @@ pages.overview = function () {
     document.getElementById('main').innerHTML =
       head('Overview', 'Who has access to your school’s apps, and what changed recently.') +
       alerts + sensitive +
-      '<div class="grid-2" style="margin-bottom:1rem">' + stats + '</div>' +
-      '<div class="card"><div class="card-head"><h2>Recent activity</h2><div class="spacer"></div>' +
-      '<button class="btn btn-sm" data-go="audit">Full log</button></div>' +
-      '<div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>Action</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div></div>';
+      (stats ? '<div class="grid-2" style="margin-bottom:1rem">' + stats + '</div>' : '') +
+      (d.audit
+        ? '<div class="card"><div class="card-head"><h2>Recent activity</h2><div class="spacer"></div>' +
+          '<button class="btn btn-sm" data-go="audit">Full log</button></div>' +
+          '<div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>Action</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div></div>'
+        : '');
 
     bindGo();
   });
@@ -3007,9 +3029,15 @@ api('/bootstrap').then(function (d) {
   document.getElementById('whoRole').textContent = d.actor.roleLabel || 'No role';
 
   // A page that needs a permission this person does not hold is not offered.
+  // data-needs may list alternatives ("a|b"), each optionally "perm@scope".
   Array.prototype.forEach.call(document.querySelectorAll('#nav [data-needs]'), function (el) {
-    if (!can(el.dataset.needs, 'tenant')) el.hidden = true;
+    var ok = el.dataset.needs.split('|').some(function (n) {
+      var parts = n.split('@');
+      return can(parts[0], parts[1] || 'tenant');
+    });
+    if (!ok) el.hidden = true;
   });
+
 
   if (!d.actor.isSuper) {
     Array.prototype.forEach.call(document.querySelectorAll('[data-super]'), function (el) { el.hidden = true; });
@@ -3030,6 +3058,13 @@ api('/bootstrap').then(function (d) {
   var hasApps = !!wbApp();
   wbBtn.hidden = !hasApps;
   document.getElementById('appsGroup').hidden = !hasApps;
+
+  // A heading with nothing left under it goes too.
+  Array.prototype.forEach.call(document.querySelectorAll('#nav .nav-group'), function (g) {
+    var el = g.nextElementSibling, any = false;
+    while (el && !el.classList.contains('nav-group')) { if (!el.hidden) any = true; el = el.nextElementSibling; }
+    if (!any) g.hidden = true;
+  });
 
   Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
     b.onclick = function () { setPage(b.dataset.page); };
