@@ -2091,10 +2091,18 @@ body.is-seating-drag { user-select: none; }
   border-radius: var(--r); padding: 12px 14px; border: 0;
   background: var(--group-colour, var(--desk)); color: var(--group-ink, var(--ink));
 }
-.group-grid > :nth-child(4n+1) { --group-colour: var(--p1); --group-ink: var(--p1-ink); }
-.group-grid > :nth-child(4n+2) { --group-colour: var(--p2); --group-ink: var(--p2-ink); }
-.group-grid > :nth-child(4n+3) { --group-colour: var(--p3); --group-ink: var(--p3-ink); }
-.group-grid > :nth-child(4n+4) { --group-colour: var(--p4); --group-ink: var(--p4-ink); }
+/* The groups card is a block, and a block resets --p1..--p4 to currentColor on
+   everything inside it — so a tile reading var(--p1) would be painted in its
+   own ink, white on white. Take the real hues on the card itself, above that
+   reset, and let the tiles inherit them. */
+:is(.card, .stage)[data-type="groups"] {
+  --g1: var(--p1); --g1-ink: var(--p1-ink); --g2: var(--p2); --g2-ink: var(--p2-ink);
+  --g3: var(--p3); --g3-ink: var(--p3-ink); --g4: var(--p4); --g4-ink: var(--p4-ink);
+}
+.group-grid > :nth-child(4n+1) { --group-colour: var(--g1, var(--p1)); --group-ink: var(--g1-ink, var(--p1-ink)); }
+.group-grid > :nth-child(4n+2) { --group-colour: var(--g2, var(--p2)); --group-ink: var(--g2-ink, var(--p2-ink)); }
+.group-grid > :nth-child(4n+3) { --group-colour: var(--g3, var(--p3)); --group-ink: var(--g3-ink, var(--p3-ink)); }
+.group-grid > :nth-child(4n+4) { --group-colour: var(--g4, var(--p4)); --group-ink: var(--g4-ink, var(--p4-ink)); }
 .group-grid > * .group-title, .group-grid > * .group-title-text { color: inherit; }
 
 /* Scores: the two sides of a class are the two ends of the palette. */
