@@ -2467,6 +2467,63 @@ function section(title) { console.log(`\n${title}`); }
     eq('a teacher exports a student in their class', (await call(teachACookie, `/users/${pupil}/export`)).status, 200);
     eq('but not a colleague’s record', (await call(teachACookie, `/users/${teachB}/export`)).status, 403);
     eq('nor a student they do not teach', (await call(teachBCookie, `/users/${pupil}/export`)).status, 403);
+
+    // ---- someone from outside the school's domains, and moving people ----
+    await db.query("INSERT INTO tenant_domains (tenant_id, domain) VALUES ($1, 'claimed-test.edu') ON CONFLICT DO NOTHING", [school.id]);
+    const insider = await person('insider@claimed-test.edu', 'teacher');
+    const outsider = await person('aaron@elsewhere-test.org', 'teacher');
+    await db.query("INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,'teacher')", [cls.id, outsider]);
+    const listed = (await (await call(bossCookie, `/users?tenant_id=${school.id}&limit=500`)).json()).users;
+    const rowOf = (id) => listed.filter((u) => u.id === id)[0] || {};
+    ok('someone signing in from another domain is flagged as an outside address', rowOf(outsider).outside_domain === true);
+    ok('someone on the school’s own domain is not', rowOf(insider).outside_domain === false);
+    ok('and every row says which school it is', rowOf(outsider).tenant_name === school.name);
+
+    const localAdmin = await person('leak-admin@claimed-test.edu', 'local_admin');
+    const adminCookie = await cookieFor(localAdmin);
+    const moveBody = (role) => ({ from_tenant_id: school.id, to_tenant_id: indep.id, role_id: role });
+    eq('a local admin cannot move someone out of the school',
+      (await call(adminCookie, `/users/${outsider}/move`, 'POST', moveBody(await roleId('teacher')))).status, 403);
+    eq('a super admin cannot move them to Independent as an admin',
+      (await call(bossCookie, `/users/${outsider}/move`, 'POST', moveBody(await roleId('local_admin')))).status, 400);
+    eq('nor into a school they are already in',
+      (await call(bossCookie, `/users/${outsider}/move`, 'POST', { ...moveBody(await roleId('teacher')), to_tenant_id: school.id })).status, 400);
+    const outsiderSession = await sessions.create(outsider, { ip: '10.0.0.21', userAgent: 'test', isStaff: true });
+    eq('a super admin moves them to Independent',
+      (await call(bossCookie, `/users/${outsider}/move`, 'POST', moveBody(await roleId('teacher')))).status, 200);
+    const now = await db.many('SELECT tenant_id FROM memberships WHERE user_id = $1', [outsider]);
+    ok('they now belong to Independent and nowhere else', now.length === 1 && now[0].tenant_id === indep.id);
+    ok('their classes at the old school went with the move',
+      !(await db.one('SELECT 1 FROM class_members WHERE user_id = $1', [outsider])));
+    ok('and they were signed out so every app sees the change',
+      !(await sessions.touch(outsiderSession.raw)));
+    // ---- one person's classes, set in one place ----
+    const mkClass = async (name) => (await db.one(
+      "INSERT INTO classes (tenant_id, name, school_year) VALUES ($1, $2, '2026') RETURNING id", [school.id, name])).id;
+    const algebra = await mkClass('Algebra');
+    const biology = await mkClass('Biology');
+    const newGirl = await person('new-girl@claimed-test.edu', 'student');
+    const listing = await (await call(adminCookie, `/users/${newGirl}/classes`)).json();
+    ok('an admin sees every class in the school against a new student',
+      [algebra, biology, cls.id].every((id) => listing.classes.some((c) => c.id === id && c.role === null && c.editable)));
+    const set = await call(adminCookie, `/users/${newGirl}/classes`, 'PUT',
+      { classes: [{ id: algebra, role: 'student' }, { id: biology, role: 'student' }] });
+    eq('and puts her in two of them at once', set.status, 200);
+    const placed = (await db.many('SELECT class_id FROM class_members WHERE user_id = $1', [newGirl])).map((r) => r.class_id);
+    ok('she is on both rosters and nothing else', placed.length === 2 && placed.includes(algebra) && placed.includes(biology));
+    await call(adminCookie, `/users/${newGirl}/classes`, 'PUT', { classes: [{ id: biology, role: 'student' }] });
+    ok('unticking a class takes her off that roster only',
+      (await db.many('SELECT class_id FROM class_members WHERE user_id = $1', [newGirl])).map((r) => r.class_id).join() === biology);
+    eq('a teacher cannot put her in a class they do not teach',
+      (await call(teachBCookie, `/users/${newGirl}/classes`, 'PUT', { classes: [{ id: algebra, role: 'student' }] })).status, 403);
+    eq('a student cannot use it at all', (await call(pupilCookie, `/users/${newGirl}/classes`)).status, 403);
+    eq('an admin cannot reach someone outside the school', (await call(adminCookie, `/users/${outsider}/classes`)).status, 404);
+    ok('setting classes is in the audit log',
+      !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'user.classes_set' LIMIT 1")));
+
+    ok('both schools’ records show the move',
+      !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'user.moved_out' AND tenant_id = $1", [school.id]))
+      && !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'user.moved_in' AND tenant_id = $1", [indep.id])));
     srv.close();
   }
 

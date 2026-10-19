@@ -284,6 +284,8 @@ pages.users = function () {
       else if (u.is_admin) flags += ' <span class="chip chip-blue">Admin</span>';
       if (Number(u.identity_count) === 0) flags += ' <span class="chip chip-grey" title="Created in advance; has not signed in yet">Not signed in</span>';
       if (u.is_minor) flags += ' <span class="chip chip-yellow" title="Treated as a minor: shorter sessions and stricter data handling">Minor</span>';
+      if (u.outside_domain) flags += ' <span class="chip chip-grey" title="Signs in with an address that is not on one of ' +
+        esc(u.tenant_name) + '’s domains. They are still a member of ' + esc(u.tenant_name) + '.">Outside address</span>';
 
       return '<tr data-id="' + esc(u.id) + '">' +
         (canManage ? '<td><input type="checkbox" class="pick" value="' + esc(u.id) + '"></td>' : '') +
@@ -389,6 +391,73 @@ function roleOptions(roles, selected) {
   }).join('');
 }
 
+// ---------- a person's classes, all in one place ----------
+// A tick per class, with their place in it. Used when adding someone and when
+// managing them, so a new student can be put in every class at once rather
+// than being added roster by roster.
+
+var CLASS_ROLE_LABELS = { student: 'Student', teacher: 'Teacher', aide: 'Aide', observer: 'Observer' };
+
+function classPickerHtml() {
+  return '<div class="field" id="m_classes_wrap"><label>Classes</label>' +
+    '<input type="search" id="m_class_q" placeholder="Filter classes" style="margin-bottom:.4rem">' +
+    '<div id="m_classes" class="class-picker"><div class="small muted">Loading classes…</div></div>' +
+    '<div class="hint" id="m_classes_hint"></div></div>';
+}
+
+// Fills the picker. `classes` carry id, name, subject, teachers, role (their
+// current place, or null) and editable.
+function fillClassPicker(m, classes, defaultRole) {
+  var box = m.querySelector('#m_classes');
+  if (!classes.length) {
+    box.innerHTML = '<div class="small muted">This school has no classes yet. Make them on the Classes page.</div>';
+    return;
+  }
+  box.innerHTML = classes.map(function (c) {
+    var on = !!c.role;
+    var role = c.role || defaultRole;
+    var label = esc(c.name) + (c.subject ? ' <span class="muted small">· ' + esc(c.subject) + '</span>' : '') +
+      (c.teachers ? '<div class="small muted">' + esc(c.teachers) + '</div>' : '');
+    return '<div class="class-pick" data-name="' + esc((c.name + ' ' + (c.subject || '') + ' ' + (c.teachers || '')).toLowerCase()) + '">' +
+      '<label style="display:flex;gap:.5rem;align-items:flex-start;flex:1;margin:0;font-weight:400">' +
+        '<input type="checkbox" data-class="' + esc(c.id) + '"' + (on ? ' checked' : '') + (c.editable === false ? ' disabled' : '') + '>' +
+        '<span>' + label + '</span></label>' +
+      '<select data-class-role="' + esc(c.id) + '" style="width:auto"' + (on ? '' : ' hidden') + (c.editable === false ? ' disabled' : '') + '>' +
+        Object.keys(CLASS_ROLE_LABELS).map(function (k) {
+          return '<option value="' + k + '"' + (k === role ? ' selected' : '') + '>' + CLASS_ROLE_LABELS[k] + '</option>';
+        }).join('') +
+      '</select></div>';
+  }).join('');
+  var locked = classes.filter(function (c) { return c.editable === false; }).length;
+  m.querySelector('#m_classes_hint').textContent = locked
+    ? 'Greyed-out classes are not yours to change.' : '';
+
+  Array.prototype.forEach.call(box.querySelectorAll('[data-class]'), function (cb) {
+    cb.onchange = function () {
+      box.querySelector('[data-class-role="' + cb.dataset.class + '"]').hidden = !cb.checked;
+    };
+  });
+  var q = m.querySelector('#m_class_q');
+  q.oninput = function () {
+    var v = q.value.trim().toLowerCase();
+    Array.prototype.forEach.call(box.querySelectorAll('.class-pick'), function (row) {
+      row.hidden = !!v && row.dataset.name.indexOf(v) === -1;
+    });
+  };
+}
+
+function pickedClasses(m) {
+  return Array.prototype.filter.call(m.querySelectorAll('#m_classes [data-class]'), function (cb) {
+    return cb.checked && !cb.disabled;
+  }).map(function (cb) {
+    return { id: cb.dataset.class, role: m.querySelector('[data-class-role="' + cb.dataset.class + '"]').value };
+  });
+}
+
+function classRoleFor(roleKey) {
+  return roleKey === 'teacher' || roleKey === 'substitute' ? 'teacher' : roleKey === 'staff' ? 'aide' : 'student';
+}
+
 function addUserDialog() {
   var roles = state.cache.roles || [];
   var indep = independentView();
@@ -418,8 +487,29 @@ function addUserDialog() {
           '<input id="m_gradyear" type="number" min="1900" max="2200" placeholder="e.g. 2035">' +
           '<div class="hint">Stays true as they move up. Year group does not.</div></div></div>') +
       (indep ? '<div class="notice notice-info" style="margin:1rem 0 0"><strong>Which apps they get</strong>' +
-        'Whatever is turned on for Independent on the Apps page, the same way as for a school.</div>' : ''),
+        'Whatever is turned on for Independent on the Apps page, the same way as for a school.</div>' : '') +
+      (!indep && can('core:manage_classes', 'own') ? classPickerHtml() : ''),
+    onOpen: function (m) {
+      if (indep || !m.querySelector('#m_classes')) return;
+      var roleSel = m.querySelector('#m_role');
+      var keyOf = function () {
+        return (offered.filter(function (r) { return r.id === roleSel.value; })[0] || {}).key;
+      };
+      api('/classes' + tenantQuery()).then(function (d) {
+        fillClassPicker(m, d.classes.map(function (c) {
+          return { id: c.id, name: c.name, subject: c.subject, teachers: c.teachers, role: null };
+        }), classRoleFor(keyOf()));
+        // Picking a role first sets the place they take in the classes ticked after.
+        roleSel.addEventListener('change', function () {
+          var r = classRoleFor(keyOf());
+          Array.prototype.forEach.call(m.querySelectorAll('#m_classes [data-class]'), function (cb) {
+            if (!cb.checked) m.querySelector('[data-class-role="' + cb.dataset.class + '"]').value = r;
+          });
+        });
+      }).catch(function (e) { m.querySelector('#m_classes').innerHTML = '<div class="small muted">' + esc(e.message) + '</div>'; });
+    },
     onConfirm: function (m) {
+      var classes = m.querySelector('#m_classes') ? pickedClasses(m) : [];
       return api('/users', { method: 'POST', body: {
         email: val(m, '#m_email'),
         name: val(m, '#m_name'),
@@ -427,7 +517,12 @@ function addUserDialog() {
         grade_level: val(m, '#m_grade'),
         graduation_year: val(m, '#m_gradyear'),
         tenant_id: state.tenantId,
-      } }).then(function () { toast('Account added.'); setPage('users'); });
+      } }).then(function (d) {
+        if (!classes.length) return 'Account added.';
+        return api('/users/' + d.id + '/classes', { method: 'PUT', body: { classes: classes } })
+          .then(function () { return 'Account added to ' + classes.length + ' class' + (classes.length === 1 ? '' : 'es') + '.'; })
+          .catch(function (e) { return 'Account added, but the classes were not saved: ' + e.message; });
+      }).then(function (msg) { toast(msg); setPage('users'); });
     },
   });
 }
@@ -439,6 +534,12 @@ function editUserDialog(u, roles) {
     subtitle: u.email,
     confirm: 'Save changes',
     body:
+      '<div class="field"><label>School</label><div>' + esc(u.tenant_kind === 'independent' ? 'Independent (no school)' : (u.tenant_name || '—')) +
+        (state.actor.isSuper
+          ? ' <button class="btn btn-sm btn-quiet" id="m_move" type="button">Move to another school</button>'
+          : '<div class="hint">Only a super admin can move someone to another school.</div>') +
+        (u.outside_domain ? '<div class="hint">Their address is not on one of this school’s domains, but they are a member here.</div>' : '') +
+      '</div></div>' +
       '<div class="row">' +
         '<div class="field"><label for="m_role">Role</label><select id="m_role">' + roleOptions(assignable, u.role_id) + '</select></div>' +
         '<div class="field"><label for="m_status">Status</label><select id="m_status">' +
@@ -451,6 +552,7 @@ function editUserDialog(u, roles) {
       '<input id="m_grade" type="text" value="' + esc(u.grade_level || '') + '"></div>' +
       '<div class="field"><label for="m_gradyear">Graduation year</label>' +
       '<input id="m_gradyear" type="number" min="1900" max="2200" value="' + esc(u.graduation_year || '') + '"></div></div>' +
+      (u.tenant_kind !== 'independent' && can('core:manage_classes', 'own') ? classPickerHtml() : '') +
       '<div class="notice notice-info" style="margin:1rem 0 0"><strong>Blocking ends live sessions</strong>' +
       'Every device this person is signed in on, in every app, stops working immediately.</div>' +
       '<hr style="border:none;border-top:1px solid var(--line);margin:1.25rem 0">' +
@@ -462,6 +564,14 @@ function editUserDialog(u, roles) {
       '</div>' +
       '<p class="small muted" style="margin:.6rem 0 0">Release the address when a different person inherits it — the old account is archived rather than handed over.</p>',
     onOpen: function (m) {
+      if (m.querySelector('#m_classes')) {
+        api('/users/' + u.id + '/classes').then(function (d) {
+          fillClassPicker(m, d.classes, classRoleFor(u.role_key));
+          m.dataset.classesLoaded = '1';
+        }).catch(function (e) { m.querySelector('#m_classes').innerHTML = '<div class="small muted">' + esc(e.message) + '</div>'; });
+      }
+      var move = m.querySelector('#m_move');
+      if (move) move.onclick = function () { closeModal(); moveDialog(u, roles); };
       m.querySelector('#m_revoke').onclick = function () {
         api('/users/' + u.id + '/sessions', { method: 'DELETE' })
           .then(function (d) { toast('Signed out of ' + d.revoked + ' session' + (d.revoked === 1 ? '' : 's') + '.'); })
@@ -492,7 +602,58 @@ function editUserDialog(u, roles) {
         grade_level: m.querySelector('#m_grade').value,
         graduation_year: m.querySelector('#m_gradyear').value,
         tenant_id: state.tenantId,
-      } }).then(function () { toast('Saved.'); setPage('users'); });
+      } }).then(function () {
+        // Only once the list has loaded: saving an empty, unloaded list would
+        // take them out of every class.
+        if (m.dataset.classesLoaded !== '1') return;
+        return api('/users/' + u.id + '/classes', { method: 'PUT', body: { classes: pickedClasses(m) } });
+      }).then(function () { toast('Saved.'); setPage('users'); });
+    },
+  });
+}
+
+// Super admins only. Custom roles belong to one school, so only the built-in
+// ones are offered; Independent takes no admin or substitute role.
+function moveDialog(u, roles) {
+  var others = (state.tenants || []).filter(function (t) { return t.id !== u.tenant_id; });
+  if (!others.length) { toast('There is nowhere else to move them.', true); return; }
+  var builtin = roles.filter(function (r) { return !r.tenant_id; });
+  var rolesFor = function (tenantId) {
+    var t = others.filter(function (x) { return x.id === tenantId; })[0];
+    return builtin.filter(function (r) {
+      return !(t && t.kind === 'independent' && (r.is_admin || r.key === 'substitute'));
+    });
+  };
+  var keep = function (list) {
+    return (list.filter(function (r) { return r.id === u.role_id; })[0] ||
+      list.filter(function (r) { return r.key === 'teacher'; })[0] || list[0] || {}).id;
+  };
+  modal({
+    title: 'Move ' + u.display_name,
+    subtitle: 'From ' + (u.tenant_kind === 'independent' ? 'Independent (no school)' : u.tenant_name),
+    confirm: 'Move',
+    danger: true,
+    body:
+      '<div class="row"><div class="field"><label for="m_to">To</label><select id="m_to">' +
+        others.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(tenantLabel(t)) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field"><label for="m_role">Role there</label><select id="m_role"></select></div></div>' +
+      '<div class="notice notice-warn" style="margin:1rem 0 0"><strong>What stays behind</strong>' +
+      'Their classes, cover, guardian links and app exceptions at the old school are removed, and they are signed out ' +
+      'everywhere so every app sees the new school. Their account, sign-in and history stay as they are.</div>',
+    onOpen: function (m) {
+      var to = m.querySelector('#m_to');
+      var role = m.querySelector('#m_role');
+      var fill = function () { var list = rolesFor(to.value); role.innerHTML = roleOptions(list, keep(list)); };
+      to.onchange = fill;
+      fill();
+    },
+    onConfirm: function (m) {
+      return api('/users/' + u.id + '/move', { method: 'POST', body: {
+        from_tenant_id: u.tenant_id,
+        to_tenant_id: m.querySelector('#m_to').value,
+        role_id: m.querySelector('#m_role').value,
+      } }).then(function () { toast('Moved.'); setPage('users'); });
     },
   });
 }

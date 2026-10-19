@@ -281,7 +281,12 @@ router.get('/users', async (req, res) => {
             m.id AS membership_id, m.status, m.grade_level, m.graduation_year,
             m.suspend_until, m.tenant_id,
             r.id AS role_id, r.key AS role_key, r.label AS role_label, r.is_admin,
-            t.name AS tenant_name,
+            t.name AS tenant_name, t.kind AS tenant_kind,
+            -- A school's people normally sign in on its own domain. Someone
+            -- who does not is easy to mistake for a stranger, so say so.
+            (t.kind = 'school' AND NOT EXISTS (
+               SELECT 1 FROM tenant_domains d
+                WHERE d.tenant_id = m.tenant_id AND d.domain = split_part(u.email, '@', 2))) AS outside_domain,
             (SELECT 1 FROM platform_admins pa WHERE pa.user_id = u.id) AS is_super,
             (SELECT COUNT(*) FROM identities i WHERE i.user_id = u.id) AS identity_count
        FROM users u
@@ -412,6 +417,66 @@ router.patch('/users/:id', async (req, res) => {
     tenantId: updated.tenant_id, action: 'user.updated',
     targetType: 'user', targetId: req.params.id, detail: changes,
   });
+  res.json({ ok: true });
+});
+
+// Move someone from one school to another, or to or from Independent.
+// Super admins only: a local admin can neither push their own people out nor
+// pull anyone in from elsewhere. Their place in the old school goes with
+// them: classes, cover, guardian links and app exceptions there are removed,
+// and live sessions end so every app sees the new school at once.
+router.post('/users/:id/move', async (req, res) => {
+  const actor = guards.requirePlatformAdmin(req, res, 'Moving someone to another school');
+  if (!actor) return;
+  const b = req.body || {};
+  const userId = req.params.id;
+
+  const from = await db.one(
+    `SELECT m.*, t.name AS tenant_name FROM memberships m JOIN tenants t ON t.id = m.tenant_id
+      WHERE m.user_id = $1 AND m.tenant_id = $2`, [userId, b.from_tenant_id]);
+  if (!from) return fail(res, 404, 'They are not in that school.');
+  const to = await db.one('SELECT id, name, kind FROM tenants WHERE id = $1', [b.to_tenant_id]);
+  if (!to) return fail(res, 404, 'Choose where to move them.');
+  if (to.id === from.tenant_id) return fail(res, 400, 'They are already there.');
+  if (await db.one('SELECT 1 FROM memberships WHERE user_id = $1 AND tenant_id = $2', [userId, to.id])) {
+    return fail(res, 409, `They already have an account at ${to.name}.`);
+  }
+  if (await db.one('SELECT 1 FROM platform_admins WHERE user_id = $1', [userId])) {
+    return fail(res, 400, 'Super admins belong to no school.');
+  }
+
+  const check = await guards.canAssignRole(actor, b.role_id);
+  if (!check.ok) return fail(res, 403, check.reason);
+  if (check.role.tenant_id && check.role.tenant_id !== to.id) {
+    return fail(res, 400, 'That role belongs to a different school.');
+  }
+  if (to.kind === 'independent') {
+    const refused = roleRefusedForIndependent(check.role);
+    if (refused) return fail(res, 400, refused);
+  }
+
+  await db.tx(async (client) => {
+    await client.query(
+      `UPDATE memberships SET tenant_id = $3, role_id = $4, suspend_until = NULL,
+              grade_level = CASE WHEN $5 THEN NULL ELSE grade_level END, updated_at = now()
+        WHERE user_id = $1 AND tenant_id = $2`,
+      [userId, from.tenant_id, to.id, check.role.id, to.kind === 'independent']);
+    await client.query(
+      'DELETE FROM class_members WHERE user_id = $1 AND class_id IN (SELECT id FROM classes WHERE tenant_id = $2)',
+      [userId, from.tenant_id]);
+    await client.query(
+      `UPDATE coverages SET ended_at = now(), ended_by = $3
+        WHERE substitute_id = $1 AND tenant_id = $2 AND ended_at IS NULL`, [userId, from.tenant_id, actor.userId]);
+    await client.query(
+      'DELETE FROM guardian_links WHERE tenant_id = $2 AND (guardian_id = $1 OR student_id = $1)', [userId, from.tenant_id]);
+    await client.query('DELETE FROM user_app_access WHERE user_id = $1 AND tenant_id = $2', [userId, from.tenant_id]);
+  });
+  await sessions.revokeAllForUser(userId);
+
+  const detail = { from: from.tenant_name, to: to.name, role: check.role.key };
+  // On both schools' records: one lost a person, the other gained one.
+  await audit.from(req, { tenantId: from.tenant_id, action: 'user.moved_out', targetType: 'user', targetId: userId, detail });
+  await audit.from(req, { tenantId: to.id, action: 'user.moved_in', targetType: 'user', targetId: userId, detail });
   res.json({ ok: true });
 });
 
@@ -1052,6 +1117,108 @@ router.get('/classes/:id/members', async (req, res) => {
       WHERE cm.class_id = $1 AND u.deleted_at IS NULL
       ORDER BY cm.role, u.display_name`, [req.params.id]);
   res.json({ class: cls, members });
+});
+
+// ---------- one person's classes ----------
+// The other way round from a class roster: every class in the person's school,
+// and their place in each, so a new student can be put in all of theirs at once.
+
+const CLASS_ROLES = ['teacher', 'student', 'aide', 'observer'];
+
+// Which school is this person in, as far as this actor may see? Null when the
+// actor has no business with them.
+async function personForClasses(actor, userId) {
+  const row = await db.one(
+    `SELECT m.tenant_id, t.kind FROM memberships m JOIN tenants t ON t.id = m.tenant_id
+       JOIN users u ON u.id = m.user_id
+      WHERE m.user_id = $1 AND u.deleted_at IS NULL
+        AND ($2::uuid IS NULL OR m.tenant_id = $2)
+      ORDER BY (t.kind = 'independent') LIMIT 1`,
+    [userId, actor.isSuper ? null : actor.tenantId]);
+  return row;
+}
+
+// The classes this actor may change: all of the school's with tenant-wide
+// reach, otherwise only the ones they teach.
+async function editableClassIds(actor, tenantId) {
+  const wide = actor.isSuper || rbac.allows(actor.perms, 'core:manage_classes', 'tenant');
+  const rows = await db.many(
+    `SELECT c.id FROM classes c
+      WHERE c.tenant_id = $1 AND c.archived = false
+        AND ($2 OR EXISTS (SELECT 1 FROM class_members cm WHERE cm.class_id = c.id
+                            AND cm.user_id = $3 AND cm.role IN ('teacher','aide')))`,
+    [tenantId, wide, actor.userId]);
+  return new Set(rows.map((r) => r.id));
+}
+
+router.get('/users/:id/classes', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_classes', 'own');
+  if (!actor) return;
+  const person = await personForClasses(actor, req.params.id);
+  if (!person) return fail(res, 404, 'That person is not in your school.');
+  if (person.kind === 'independent') return res.json({ classes: [], independent: true });
+
+  const editable = await editableClassIds(actor, person.tenant_id);
+  const rows = await db.many(
+    `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year,
+            (SELECT string_agg(u.display_name, ', ') FROM class_members t JOIN users u ON u.id = t.user_id
+              WHERE t.class_id = c.id AND t.role = 'teacher') AS teachers,
+            cm.role
+       FROM classes c
+       LEFT JOIN class_members cm ON cm.class_id = c.id AND cm.user_id = $2
+      WHERE c.tenant_id = $1 AND c.archived = false
+      ORDER BY c.name`, [person.tenant_id, req.params.id]);
+  res.json({ classes: rows.map((c) => ({ ...c, editable: editable.has(c.id) })) });
+});
+
+// Sets the person's place in every class the actor may change, in one go.
+// Classes the actor cannot change are left exactly as they were.
+router.put('/users/:id/classes', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_classes', 'own');
+  if (!actor) return;
+  const person = await personForClasses(actor, req.params.id);
+  if (!person) return fail(res, 404, 'That person is not in your school.');
+  if (person.kind === 'independent') return fail(res, 400, 'Classes belong to a school. People with no school are not in classes.');
+
+  const wanted = new Map();
+  for (const c of Array.isArray((req.body || {}).classes) ? req.body.classes.slice(0, 200) : []) {
+    if (!c || typeof c.id !== 'string') continue;
+    wanted.set(c.id, CLASS_ROLES.includes(c.role) ? c.role : 'student');
+  }
+  const editable = await editableClassIds(actor, person.tenant_id);
+  for (const id of wanted.keys()) {
+    if (!editable.has(id)) return fail(res, 403, 'One of those classes is not yours to change.');
+  }
+
+  const current = await db.many(
+    'SELECT class_id, role FROM class_members WHERE user_id = $1 AND class_id = ANY($2::uuid[])',
+    [req.params.id, [...editable]]);
+  const had = new Map(current.map((r) => [r.class_id, r.role]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  await db.tx(async (client) => {
+    for (const [id, role] of wanted) {
+      if (had.get(id) === role) continue;
+      await client.query(
+        `INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,$3)
+         ON CONFLICT (class_id, user_id) DO UPDATE SET role = EXCLUDED.role`, [id, req.params.id, role]);
+      (had.has(id) ? changed : added).push(id);
+    }
+    for (const id of had.keys()) {
+      if (wanted.has(id)) continue;
+      await client.query('DELETE FROM class_members WHERE class_id = $1 AND user_id = $2', [id, req.params.id]);
+      removed.push(id);
+    }
+  });
+
+  if (added.length || removed.length || changed.length) {
+    await audit.from(req, {
+      tenantId: person.tenant_id, action: 'user.classes_set', targetType: 'user', targetId: req.params.id,
+      detail: { added: added.length, removed: removed.length, changed: changed.length },
+    });
+  }
+  res.json({ ok: true, added: added.length, removed: removed.length, changed: changed.length });
 });
 
 // Who could be added to this class? Gated on the same permission as adding
