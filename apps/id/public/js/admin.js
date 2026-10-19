@@ -263,13 +263,44 @@ function bindGo() {
   });
 }
 
+function usersUrl() {
+  var q = (state.cache.userQuery || '');
+  var filter = (state.cache.userFilter || '');
+  return '/users' + tenantQuery() + (state.tenantId ? '&' : '?') +
+    'q=' + encodeURIComponent(q) + (filter ? '&status=' + encodeURIComponent(filter) : '');
+}
+
+function userRows(users, canManage) {
+  return users.map(function (u) {
+    var flags = '';
+    if (u.is_super) flags += ' <span class="chip chip-red">Super admin</span>';
+    else if (u.is_admin) flags += ' <span class="chip chip-blue">Admin</span>';
+    if (Number(u.identity_count) === 0) flags += ' <span class="chip chip-grey" title="Created in advance; has not signed in yet">Not signed in</span>';
+    if (u.is_minor) flags += ' <span class="chip chip-yellow" title="Treated as a minor: shorter sessions and stricter data handling">Minor</span>';
+    if (u.outside_domain) flags += ' <span class="chip chip-grey" title="Signs in with an address that is not on one of ' +
+      esc(u.tenant_name) + '’s domains. They are still a member of ' + esc(u.tenant_name) + '.">Outside address</span>';
+
+    return '<tr data-id="' + esc(u.id) + '">' +
+      (canManage ? '<td><input type="checkbox" class="pick" value="' + esc(u.id) + '"></td>' : '') +
+      '<td><div style="font-weight:550">' + esc(u.display_name) + flags + '</div>' +
+      '<div class="small muted">' + esc(u.email) + '</div></td>' +
+      '<td>' + esc(u.role_label || '—') + '</td>' +
+      '<td>' + esc(u.grade_level || '—') + '</td>' +
+      '<td class="muted">' + esc(u.graduation_year || '—') + '</td>' +
+      '<td>' + statusChip(u.status) + '</td>' +
+      '<td class="muted small">' + esc(when(u.last_seen_at)) + '</td>' +
+      '<td style="text-align:right;white-space:nowrap">' +
+        '<button class="btn btn-sm btn-quiet" data-act="record">Record</button>' +
+        (canManage && !u.is_super ? ' <button class="btn btn-sm" data-act="edit">Manage</button>' : '') +
+      '</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">Nobody matches that.</td></tr>';
+}
+
 pages.users = function () {
   var q = (state.cache.userQuery || '');
   var filter = (state.cache.userFilter || '');
-  var url = '/users' + tenantQuery() + (state.tenantId ? '&' : '?') +
-    'q=' + encodeURIComponent(q) + (filter ? '&status=' + encodeURIComponent(filter) : '');
 
-  return Promise.all([api(url), api('/roles' + tenantQuery())]).then(function (r) {
+  return Promise.all([api(usersUrl()), api('/roles' + tenantQuery())]).then(function (r) {
     var users = r[0].users;
     var roles = r[1].roles;
     state.cache.roles = roles;
@@ -277,30 +308,6 @@ pages.users = function () {
 
     var canManage = can('core:manage_users', 'tenant');
     var indep = independentView();
-
-    var rows = users.map(function (u) {
-      var flags = '';
-      if (u.is_super) flags += ' <span class="chip chip-red">Super admin</span>';
-      else if (u.is_admin) flags += ' <span class="chip chip-blue">Admin</span>';
-      if (Number(u.identity_count) === 0) flags += ' <span class="chip chip-grey" title="Created in advance; has not signed in yet">Not signed in</span>';
-      if (u.is_minor) flags += ' <span class="chip chip-yellow" title="Treated as a minor: shorter sessions and stricter data handling">Minor</span>';
-      if (u.outside_domain) flags += ' <span class="chip chip-grey" title="Signs in with an address that is not on one of ' +
-        esc(u.tenant_name) + '’s domains. They are still a member of ' + esc(u.tenant_name) + '.">Outside address</span>';
-
-      return '<tr data-id="' + esc(u.id) + '">' +
-        (canManage ? '<td><input type="checkbox" class="pick" value="' + esc(u.id) + '"></td>' : '') +
-        '<td><div style="font-weight:550">' + esc(u.display_name) + flags + '</div>' +
-        '<div class="small muted">' + esc(u.email) + '</div></td>' +
-        '<td>' + esc(u.role_label || '—') + '</td>' +
-        '<td>' + esc(u.grade_level || '—') + '</td>' +
-        '<td class="muted">' + esc(u.graduation_year || '—') + '</td>' +
-        '<td>' + statusChip(u.status) + '</td>' +
-        '<td class="muted small">' + esc(when(u.last_seen_at)) + '</td>' +
-        '<td style="text-align:right;white-space:nowrap">' +
-          '<button class="btn btn-sm btn-quiet" data-act="record">Record</button>' +
-          (canManage && !u.is_super ? ' <button class="btn btn-sm" data-act="edit">Manage</button>' : '') +
-        '</td></tr>';
-    }).join('') || '<tr><td colspan="8" class="empty">Nobody matches that.</td></tr>';
 
     document.getElementById('main').innerHTML =
       (indep
@@ -327,28 +334,71 @@ pages.users = function () {
       '<div class="card"><div class="table-wrap"><table><thead><tr>' +
         (canManage ? '<th style="width:2rem"><input type="checkbox" id="pickAll"></th>' : '') +
         '<th>Person</th><th>Role</th><th>Year</th><th>Graduates</th><th>Status</th><th>Last seen</th><th></th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      '</tr></thead><tbody id="userRows">' + userRows(users, canManage) + '</tbody></table></div></div>';
+
+    var picks = function () {
+      return Array.prototype.slice.call(document.querySelectorAll('.pick:checked')).map(function (c) { return c.value; });
+    };
+    var sync = function () {
+      if (!canManage) return;
+      var n = picks().length;
+      document.getElementById('bulkApprove').disabled = !n;
+      document.getElementById('bulkBlock').disabled = !n;
+    };
+
+    var bindRows = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.pick'), function (c) { c.onchange = sync; });
+      Array.prototype.forEach.call(document.querySelectorAll('tr[data-id]'), function (tr) {
+        var u = users.filter(function (x) { return x.id === tr.dataset.id; })[0];
+        Array.prototype.forEach.call(tr.querySelectorAll('[data-act]'), function (b) {
+          b.onclick = function () {
+            if (b.dataset.act === 'edit') editUserDialog(u, roles);
+            else recordDialog(u);
+          };
+        });
+      });
+    };
+
+    // Searching swaps only the table rows, so the box keeps focus and the
+    // page doesn't flash "Loading…" on every letter. A slow answer to an
+    // earlier term is dropped rather than overwriting a newer one.
+    var seq = 0;
+    var tbody = document.getElementById('userRows');
+    var refresh = function () {
+      var mine = ++seq;
+      tbody.style.opacity = '.55';
+      api(usersUrl()).then(function (d) {
+        if (mine !== seq || !document.body.contains(tbody)) return;
+        users = d.users;
+        state.cache.users = users;
+        tbody.innerHTML = userRows(users, canManage);
+        tbody.style.opacity = '';
+        var all = document.getElementById('pickAll');
+        if (all) all.checked = false;
+        bindRows();
+        sync();
+      }).catch(function (e) {
+        if (mine !== seq) return;
+        tbody.style.opacity = '';
+        toast(e.message, true);
+      });
+    };
 
     var qEl = document.getElementById('q');
     var t = null;
     qEl.oninput = function () {
       clearTimeout(t);
-      t = setTimeout(function () { state.cache.userQuery = qEl.value; setPage('users'); }, 300);
+      t = setTimeout(function () {
+        if (qEl.value === (state.cache.userQuery || '')) return;
+        state.cache.userQuery = qEl.value;
+        refresh();
+      }, 200);
     };
     document.getElementById('filter').onchange = function () {
-      state.cache.userFilter = this.value; setPage('users');
+      state.cache.userFilter = this.value; refresh();
     };
 
     if (canManage) {
-      var picks = function () {
-        return Array.prototype.slice.call(document.querySelectorAll('.pick:checked')).map(function (c) { return c.value; });
-      };
-      var sync = function () {
-        var n = picks().length;
-        document.getElementById('bulkApprove').disabled = !n;
-        document.getElementById('bulkBlock').disabled = !n;
-      };
-      Array.prototype.forEach.call(document.querySelectorAll('.pick'), function (c) { c.onchange = sync; });
       document.getElementById('pickAll').onchange = function () {
         var v = this.checked;
         Array.prototype.forEach.call(document.querySelectorAll('.pick'), function (c) { c.checked = v; });
@@ -361,15 +411,7 @@ pages.users = function () {
       if (importBtn) importBtn.onclick = importDialog;
     }
 
-    Array.prototype.forEach.call(document.querySelectorAll('tr[data-id]'), function (tr) {
-      var u = users.filter(function (x) { return x.id === tr.dataset.id; })[0];
-      Array.prototype.forEach.call(tr.querySelectorAll('[data-act]'), function (b) {
-        b.onclick = function () {
-          if (b.dataset.act === 'edit') editUserDialog(u, roles);
-          else recordDialog(u);
-        };
-      });
-    });
+    bindRows();
   });
 };
 
