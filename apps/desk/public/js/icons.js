@@ -68,6 +68,7 @@ window.Desk = window.Desk || {};
     shuffle: '<path d="M16 3h5v5M21 3l-7 7M16 21h5v-5M21 21l-6-6M3 3l6 6M3 21l7-7"/>',
     convert: '<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>',
     lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    lifebuoy: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9"/>',
   };
 
   /** Icon markup. `name` is one of the keys above; unknown names draw nothing. */

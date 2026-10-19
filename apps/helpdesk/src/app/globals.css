@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+/* ===================================================================
+   Signify Help Desk — styles
+   The Signify look, with the same tokens, type and paper as Teacher's Desk
+   and Signify ID: four block colours that each carry their own ink, warm
+   neutrals, soft radii, and paper-on-a-desk shadows. Fonts are self-hosted
+   (public/vendor), so no request ever goes to a CDN.
+
+   The pages were written against Tailwind's palette. Rather than rewrite
+   every class, the palette itself is pointed at Signify's tokens below:
+   slate becomes the warm neutrals, blue the class role (p2), red p1, amber
+   p3, teal p4. Green stays green because it means "done", not a category.
+   Because each step is a mix of live tokens, a palette or dark-ground change
+   reaches every page at once.
+   =================================================================== */
+
+@font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 200 800; font-stretch: 100%; font-display: swap; src: url('/vendor/bricolage-grotesque.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 100 700; font-display: swap; src: url('/vendor/ibm-plex-sans.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/vendor/ibm-plex-mono-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/vendor/ibm-plex-mono-500.woff2') format('woff2'); }
+
+:root {
+  --p1: #ec3013; --p1-ink: #fff;    /* red — circle */
+  --p2: #1f4fd1; --p2-ink: #fff;    /* blue — square */
+  --p3: #f5c400; --p3-ink: #201e1d; /* yellow — triangle */
+  --p4: #0e7f89; --p4-ink: #fff;    /* teal — arch */
+  --good: #1b7f4b;
+
+  --ink: #201e1d; --muted: #605d5d; --faint: #8a8686;
+  --line: #d7d3d3; --bg: #f3f2f2; --surface: #ffffff; --desk: #eae9e9;
+
+  --display: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-xs: 3px; --radius-sm: 8px; --radius-md: 10px; --radius-lg: 14px; --radius-xl: 18px; --radius-pill: 999px;
+
+  --shadow-1: 0 1px 0 rgba(32,30,29,.05), 0 1px 2px rgba(32,30,29,.1);
+  --shadow-2: 0 1px 0 rgba(32,30,29,.06), 0 1px 2px rgba(32,30,29,.12), 0 4px 10px -4px rgba(32,30,29,.18);
+  --shadow-3: 0 1px 0 rgba(32,30,29,.08), 0 2px 3px rgba(32,30,29,.12), 0 10px 22px -8px rgba(32,30,29,.3);
+  --shadow-4: 0 1px 0 rgba(32,30,29,.06), 0 2px 4px rgba(32,30,29,.12), 0 18px 40px -12px rgba(32,30,29,.35);
+
+  --ease: cubic-bezier(.2,.7,.2,1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  color-scheme: light;
+}
+
+/* Same dark ground as the rest of the fleet. The block colours do not change
+   — only the paper under them does. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f3f2f2; --muted: #bab6b6; --faint: #8a8686;
+    --line: #444141; --bg: #161514; --surface: #2a2726; --desk: #221f1e;
+    --good: #4cc38a;
+    --shadow-1: 0 1px 0 rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.5);
+    --shadow-2: 0 1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5);
+    --shadow-3: 0 1px 0 rgba(0,0,0,.5), 0 2px 3px rgba(0,0,0,.45), 0 10px 22px -8px rgba(0,0,0,.7);
+    --shadow-4: 0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.5), 0 18px 40px -12px rgba(0,0,0,.75);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: var(--body);
+  --font-display: var(--display);
+  --font-mono: var(--mono);
+
+  --color-surface: var(--surface);
+  --color-desk: var(--desk);
+  --color-ink: var(--ink);
+  --color-p1: var(--p1); --color-p1-ink: var(--p1-ink);
+  --color-p2: var(--p2); --color-p2-ink: var(--p2-ink);
+  --color-p3: var(--p3); --color-p3-ink: var(--p3-ink);
+  --color-p4: var(--p4); --color-p4-ink: var(--p4-ink);
+
+  /* Warm neutrals */
+  --color-slate-50: var(--bg);
+  --color-slate-100: var(--desk);
+  --color-slate-200: var(--line);
+  --color-slate-300: color-mix(in srgb, var(--line) 70%, var(--faint));
+  --color-slate-400: var(--faint);
+  --color-slate-500: color-mix(in srgb, var(--muted) 80%, var(--faint));
+  --color-slate-600: var(--muted);
+  --color-slate-700: color-mix(in srgb, var(--ink) 80%, var(--muted));
+  --color-slate-800: color-mix(in srgb, var(--ink) 90%, var(--muted));
+  --color-slate-900: var(--ink);
+  --color-gray-100: var(--desk); --color-gray-200: var(--line); --color-gray-500: var(--muted);
+
+  /* p2 — blue */
+  --color-blue-50: color-mix(in srgb, var(--p2) 8%, var(--surface));
+  --color-blue-100: color-mix(in srgb, var(--p2) 14%, var(--surface));
+  --color-blue-200: color-mix(in srgb, var(--p2) 26%, var(--surface));
+  --color-blue-300: color-mix(in srgb, var(--p2) 45%, var(--surface));
+  --color-blue-500: var(--p2);
+  --color-blue-600: var(--p2);
+  --color-blue-700: color-mix(in srgb, var(--p2) 88%, var(--ink));
+  --color-blue-800: color-mix(in srgb, var(--p2) 72%, var(--ink));
+  --color-sky-100: color-mix(in srgb, var(--p2) 14%, var(--surface));
+  --color-sky-700: color-mix(in srgb, var(--p2) 80%, var(--ink));
+
+  /* p1 — red */
+  --color-red-50: color-mix(in srgb, var(--p1) 8%, var(--surface));
+  --color-red-100: color-mix(in srgb, var(--p1) 14%, var(--surface));
+  --color-red-200: color-mix(in srgb, var(--p1) 28%, var(--surface));
+  --color-red-600: var(--p1);
+  --color-red-700: color-mix(in srgb, var(--p1) 85%, var(--ink));
+  --color-red-800: color-mix(in srgb, var(--p1) 70%, var(--ink));
+  --color-orange-100: color-mix(in srgb, var(--p1) 12%, var(--surface));
+  --color-orange-700: color-mix(in srgb, var(--p1) 80%, var(--ink));
+
+  /* p3 — yellow (its text is always darkened: yellow ink on white is unreadable) */
+  --color-amber-50: color-mix(in srgb, var(--p3) 12%, var(--surface));
+  --color-amber-100: color-mix(in srgb, var(--p3) 26%, var(--surface));
+  --color-amber-200: color-mix(in srgb, var(--p3) 45%, var(--surface));
+  --color-amber-500: var(--p3);
+  --color-amber-700: color-mix(in srgb, var(--p3) 35%, var(--ink));
+  --color-amber-800: color-mix(in srgb, var(--p3) 25%, var(--ink));
+
+  /* p4 — teal */
+  --color-violet-100: color-mix(in srgb, var(--p4) 14%, var(--surface));
+  --color-violet-700: color-mix(in srgb, var(--p4) 85%, var(--ink));
+  --color-violet-800: color-mix(in srgb, var(--p4) 70%, var(--ink));
+  --color-teal-100: color-mix(in srgb, var(--p4) 14%, var(--surface));
+  --color-teal-700: color-mix(in srgb, var(--p4) 85%, var(--ink));
+
+  /* Green means done */
+  --color-green-50: color-mix(in srgb, var(--good) 8%, var(--surface));
+  --color-green-100: color-mix(in srgb, var(--good) 14%, var(--surface));
+  --color-green-200: color-mix(in srgb, var(--good) 28%, var(--surface));
+  --color-green-500: var(--good);
+  --color-green-700: color-mix(in srgb, var(--good) 88%, var(--ink));
+  --color-green-800: color-mix(in srgb, var(--good) 72%, var(--ink));
+  --color-green-900: color-mix(in srgb, var(--good) 55%, var(--ink));
+  --color-green-950: color-mix(in srgb, var(--good) 40%, var(--ink));
+
+  --radius-lg: var(--radius-md);
+  --radius-xl: var(--radius-lg);
+  --shadow-sm: var(--shadow-1);
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, .font-display {
+  font-family: var(--display);
+  letter-spacing: -0.01em;
+}
+a { text-underline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--p3) 55%, transparent); }
+:focus-visible { outline: 2px solid var(--p2); outline-offset: 2px; }
+
+@layer components {
+  .input {
+    display: block; width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9375rem;
+    transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  .input::placeholder { color: var(--faint); }
+  .input:focus { outline: none; border-color: var(--p2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--p2) 22%, transparent); }
+
+  .label {
+    display: block; margin-bottom: 0.375rem;
+    font-size: 0.875rem; font-weight: 600; color: var(--ink);
+  }
+
+  /* Buttons: label flush left, icon first. Never ink-filled. */
+  .btn-primary, .btn-secondary, .btn-danger, .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: flex-start; gap: 0.5rem;
+    border-radius: var(--radius-md);
+    padding: 0.55rem 1rem;
+    font-size: 0.875rem; font-weight: 600; line-height: 1.25;
+    cursor: pointer; text-decoration: none;
+    transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    border: 0;
+  }
+  .btn-primary { background: var(--p2); color: var(--p2-ink); box-shadow: var(--shadow-2); }
+  .btn-secondary { background: var(--desk); color: var(--ink); }
+  .btn-danger { background: var(--p1); color: var(--p1-ink); box-shadow: var(--shadow-2); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0.45rem 0.6rem; }
+  .btn-ghost:hover { color: var(--ink); background: var(--desk); }
+  .btn-primary:hover, .btn-secondary:hover, .btn-danger:hover { filter: brightness(.94); }
+  .btn-primary:active, .btn-secondary:active, .btn-danger:active { transform: translateY(1px); }
+  .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: .45; cursor: default; }
+  .w-full.btn-primary, .w-full.btn-secondary { justify-content: center; }
+
+  .card {
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-3);
+  }
+  .inset {
+    border-radius: var(--radius-md);
+    background: var(--desk);
+  }
+
+  /* Uppercase is only ever the small label, set in CSS. */
+  .eyebrow {
+    font-family: var(--body);
+    font-size: 0.75rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted);
+  }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8125rem; font-weight: 600; color: var(--ink);
+    text-decoration: none;
+  }
+  .chip[aria-current="true"], .chip.is-on { background: var(--p4); color: var(--p4-ink); }
+
+  /* The four Signify shapes — meaning carried by shape as well as colour. */
+  .shape { display: inline-block; flex: none; width: 0.7em; height: 0.7em; background: currentColor; }
+  .shape-circle { border-radius: 50%; }
+  .shape-square { border-radius: var(--radius-xs); }
+  .shape-triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .shape-arch { border-radius: 0.35em 0.35em 0 0; }
+  .text-p1 { color: var(--p1); } .text-p2 { color: var(--p2); }
+  .text-p3 { color: color-mix(in srgb, var(--p3) 80%, var(--ink) 20%); } .text-p4 { color: var(--p4); }
+
+  .mono { font-family: var(--mono); }
+}
+
+/* Rendered markdown in Help Center articles */
+.kb-content { font-size: 0.9375rem; line-height: 1.6; color: var(--ink); }
+.kb-content h1, .kb-content h2 { margin: 1.5rem 0 .5rem; font-size: 1.15rem; font-weight: 700; }
+.kb-content h1:first-child, .kb-content h2:first-child { margin-top: 0; }
+.kb-content h3 { margin: 1.25rem 0 .4rem; font-size: 1rem; font-weight: 600; }
+.kb-content p { margin: .75rem 0; }
+.kb-content ul { margin: .75rem 0; list-style: disc; padding-left: 1.5rem; }
+.kb-content ol { margin: .75rem 0; list-style: decimal; padding-left: 1.5rem; }
+.kb-content li + li { margin-top: .25rem; }
+.kb-content a { font-weight: 500; color: var(--p2); text-decoration: underline; }
+.kb-content code { border-radius: var(--radius-xs); background: var(--desk); padding: 0 .25rem; font-family: var(--mono); font-size: 13px; }
+.kb-content pre { margin: .75rem 0; overflow-x: auto; border-radius: var(--radius-md); background: var(--desk); padding: .75rem; }
+.kb-content img { margin: .75rem 0; max-width: 100%; border-radius: var(--radius-md); }
+.kb-content blockquote { margin: .75rem 0; border-left: 3px solid var(--line); padding-left: .75rem; color: var(--muted); }
+
+@media print {
+  body { background: #fff; }
+  .card { box-shadow: none; border: 1px solid #ddd; }
+}

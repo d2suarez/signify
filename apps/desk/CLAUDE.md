@@ -12,6 +12,9 @@ Classroom tools board (timers, seating, randomiser, notes, passage grader, ~26 w
 `Desk.widget({...})` in `public/js/registry.js`, one file in `public/js/widgets/`, one `<script>` line in `index.html`. No server change. Declare `category` (`time|class|board|calm|other`). Widgets are locked for guests unless `guest: true`; only opt in if the widget holds nothing about pupils and makes no API call.
 To announce it under "Add a tool" for 45 days: `added: 'YYYY-MM-DD'` + `news: '...'` on the definition, and a ~720px card screenshot at `public/img/new/<type>.png` (README, "Announcing a tool").
 
+## Help desk widget
+`public/js/widgets/helpdesk.js` talks straight to the Signify Help Desk (`HELPDESK_URL`, default https://help.signify.one; http://localhost:3110 locally) with `credentials: 'include'`. The desk server is not involved; the origin is in `/api/config` (`helpDeskUrl`) and in CSP `connect-src`. See `apps/helpdesk/CLAUDE.md`.
+
 ## Rules that came from the user
 - Cards never follow their content. Size is chosen once at add; content fits itself to the card.
 - Floating/"bare" mode was removed on request. Do not reintroduce it, per-widget shapes, or anything reacting to plain hover.

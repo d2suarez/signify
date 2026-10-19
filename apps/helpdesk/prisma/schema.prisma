@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A person, as Signify ID last described them. Signify ID owns who someone is
+// and what they may do; this row is the help desk's copy, refreshed on every
+// visit, so tickets and projects have someone to point at. Keyed on the
+// Signify ID uuid (signifyId), never on the address: a school can hand an
+// address to somebody new.
+model User {
+  id              String    @id @default(cuid())
+  signifyId       String?   @unique // null only for rows from before Signify ID
+  name            String
+  email           String    @unique
+  picture         String    @default("")
+  role            String    @default("STUDENT") // ADMIN | TECH | STAFF | STUDENT — derived from Signify ID on each visit
+  roleLabel       String    @default("") // the school's own name for their role
+  tenantId        String?
+  active          Boolean   @default(true)
+  phone           String? // E.164, for text notifications
+  notifyPrefs     String    @default("{}") // JSON: { event: { email, push, sms } }
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+  assignedTickets Ticket[]  @relation("AssignedTickets")
+  submittedTickets Ticket[] @relation("SubmittedTickets")
+  comments        Comment[]
+  pushSubscriptions PushSubscription[]
+  articles        Article[]
+  ownedProjects   Project[]        @relation("ProjectOwner")
+  projectMembers  ProjectMember[]
+  assignedTasks   ProjectTask[]    @relation("TaskAssignee")
+  createdTasks    ProjectTask[]    @relation("TaskCreator")
+  projectUpdates  ProjectUpdate[]
+}
+
+model Form {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  category    String   @default("OTHER") // ticket category submissions land in
+  roles       String   @default("[\"STAFF\",\"STUDENT\"]") // JSON array of roles
+  fieldsJson  String   @default("[]") // JSON array of field definitions
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tickets     Ticket[]
+}
+
+model Device {
+  id         String   @id @default(cuid())
+  tag        String   @unique // asset tag, e.g. C-114
+  type       String   @default("CHROMEBOOK") // CHROMEBOOK | IPAD | LAPTOP | DESKTOP | PROJECTOR | PRINTER | OTHER
+  model      String   @default("")
+  location   String   @default("") // room or cart
+  assignedTo String   @default("") // person or cart, free text
+  status     String   @default("ACTIVE") // ACTIVE | REPAIR | RETIRED
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tickets    Ticket[]
+}
+
+model Snippet {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model RecurringTask {
+  id           String   @id @default(cuid())
+  title        String
+  description  String   @default("")
+  category     String   @default("MAINTENANCE")
+  everyDays    Int
+  nextRunAt    DateTime
+  assignedToId String?
+  createdById  String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+model Meta {
+  key   String @id
+  value String
+}
+
+model Article {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  body      String   @default("") // markdown
+  category  String   @default("OTHER")
+  roles     String   @default("[\"ADMIN\",\"TECH\",\"STAFF\",\"STUDENT\"]") // JSON array
+  published Boolean  @default(false)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
+
+model Ticket {
+  id             Int          @id @default(autoincrement())
+  token          String       @unique @default(cuid())
+  title          String
+  description    String       @default("")
+  category       String // TECHNOLOGY | MAINTENANCE | OTHER
+  priority       String       @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  status         String       @default("OPEN") // OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
+  requesterName  String
+  requesterEmail String
+  requesterRole  String // STAFF | STUDENT
+  source         String       @default("WEB") // WEB | EMAIL | SCHEDULED | DESK (the ticket box on Teacher's Desk)
+  deviceId       String?
+  linkedDevice   Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  duplicateOfId  Int?
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  requesterId    String?
+  requester      User?        @relation("SubmittedTickets", fields: [requesterId], references: [id])
+  formId         String?
+  form           Form?        @relation(fields: [formId], references: [id], onDelete: SetNull)
+  formName       String? // snapshot — survives form deletion
+  formData       String? // JSON: [{ label, value }]
+  location       String?
+  device         String?
+  assignedToId   String?
+  assignedTo     User?        @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  resolvedAt     DateTime?
+  comments       Comment[]
+  attachments    Attachment[]
+}
+
+model Comment {
+  id         Int      @id @default(autoincrement())
+  ticketId   Int
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     User?    @relation(fields: [authorId], references: [id])
+  authorName String
+  body       String
+  internal   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  ticketId  Int
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  filename  String
+  mimetype  String
+  size      Int
+  createdAt DateTime @default(now())
+}
+
+/* ---------- Projects ----------
+   Planning for anything the school does together: a science fair, a
+   Chromebook rollout, a fundraiser. Anyone can start one and add people.
+   A project is seen by its members — and by help desk admins, who can see
+   every project so nothing between staff and students is out of sight. */
+
+model Project {
+  id          String          @id @default(cuid())
+  title       String
+  description String          @default("")
+  status      String          @default("PLANNING") // PLANNING | ACTIVE | ON_HOLD | DONE
+  color       String          @default("p2") // p1 | p2 | p3 | p4 — a Signify block colour
+  visibility  String          @default("MEMBERS") // MEMBERS | SCHOOL (anyone at the school can look)
+  startDate   DateTime?
+  dueDate     DateTime?
+  tenantId    String?
+  ownerId     String
+  owner       User            @relation("ProjectOwner", fields: [ownerId], references: [id])
+  archived    Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  members     ProjectMember[]
+  tasks       ProjectTask[]
+  updates     ProjectUpdate[]
+  tickets     Ticket[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("EDITOR") // LEAD | EDITOR | VIEWER
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model ProjectTask {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  notes       String    @default("")
+  kind        String    @default("TASK") // TASK | MILESTONE
+  status      String    @default("TODO") // TODO | DOING | DONE
+  section     String    @default("") // optional grouping, e.g. "Venue", "Food"
+  startDate   DateTime?
+  dueDate     DateTime?
+  assigneeId  String?
+  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  sortOrder   Int       @default(0)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ProjectUpdate {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  system    Boolean  @default(false) // "Ana moved Book the hall to Done"
+  createdAt DateTime @default(now())
+}

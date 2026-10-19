@@ -43,6 +43,13 @@ const backups = createBackups({
   maxAgeDays: BACKUP_DAYS,
 });
 
+// The Signify help desk, for the ticket box widget. Its own origin, never a
+// path: the browser talks to it directly, so CSP has to name it.
+const HELPDESK_ORIGIN = (() => {
+  const raw = process.env.HELPDESK_URL || (process.env.RAILWAY_ENVIRONMENT ? 'https://help.signify.one' : 'http://localhost:3110');
+  try { return new URL(raw).origin; } catch { return 'https://help.signify.one'; }
+})();
+
 const app = express();
 app.disable('x-powered-by');
 app.use(compression());
@@ -73,7 +80,9 @@ app.use((req, res, next) => {
     // created, so it grants no reach anywhere new.
     "img-src 'self' data: blob: https://lh3.googleusercontent.com",
     "font-src 'self'",
-    "connect-src 'self' blob:",
+    // The help desk box sends requests to the help desk itself, a sibling on
+    // the same site, with that app's own sign-in cookie.
+    `connect-src 'self' blob: ${HELPDESK_ORIGIN}`,
     // The converter's iPhone-photo (HEIC) decoder runs in a worker it builds
     // from a blob of its own code, and pdf.js runs its worker from /vendor.
     // Same reasoning as img-src: a blob URL can only hold what this page made.
@@ -169,6 +178,7 @@ app.get('/api/config', (req, res) => ok(res, {
   signInUrl: '/auth/login',
   signOutUrl: '/auth/logout',
   identityUrl: signify.ISSUER || '',
+  helpDeskUrl: HELPDESK_ORIGIN,
   behaviourRetentionDays: behaviour.RETENTION_DAYS,
   backupDays: BACKUP_DAYS,
   columns: board.COLUMNS,

@@ -7,6 +7,7 @@ One private repo (`github.com/d2suarez/signify`) for the Signify apps and the co
 apps/id/         Signify ID: identity, roles, rosters (OIDC + Postgres). id.signify.one   (was signify-id)
 apps/desk/       Teacher's Desk: classroom tool board. desk.signify.one                  (was teachers-desk)
 apps/boards/     Signify Boards: real-time whiteboard. draw.signify.one                   (was classroom-whiteboard)
+apps/helpdesk/   Signify Help Desk: tickets + project planning (Next.js + SQLite). help.signify.one (not yet deployed)
 apps/learning/   Signify Learning: empty scaffold (README only)
 packages/auth/   signify-auth.js, the Signify ID client. NOT yet used by the apps
 packages/design/ Signify design tokens (CSS). NOT yet used by anything
@@ -33,7 +34,7 @@ Use `--project/--environment/--service` if the folder is not linked. Never touch
 **Sabbath:** no deploys from Friday sunset to Saturday sunset, and none in school hours (deploy evenings and weekends).
 
 ## Rules across apps
-- `signify-auth.js` is one file copied into id (`client/`), desk and boards. It was identical in all three at the move (and equals `packages/auth`). Never fork it in one app; fix it in all, then in `packages/auth`.
+- `signify-auth.js` is one file copied into id (`client/`), desk, boards and helpdesk. It was identical in all three at the move (and equals `packages/auth`). Never fork it in one app; fix it in all, then in `packages/auth`.
 - The old repos (`signify-id`, `teachers-desk`, `classroom-whiteboard`) are left as they were. Do not delete them; Desmond archives them read-only after a week of normal use. New work goes here.
 
 ## Follow-ups (deferred)

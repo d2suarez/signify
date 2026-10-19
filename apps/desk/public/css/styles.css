@@ -2821,3 +2821,42 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 .news-actions [hidden] { display: none; }
 @keyframes news-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .news { animation: none; } }
+
+/* ---------------- Help desk ----------------
+   A short request form and the last few requests, talking straight to the
+   Signify Help Desk. Kinds carry the same shapes the help desk itself uses. */
+.hd { display: flex; flex-direction: column; gap: .6rem; flex: 1; min-height: 0; overflow: auto; }
+.hd-connect { flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .55rem; }
+.hd-mark { color: var(--p2); display: flex; }
+.hd-lead { margin: 0; font-size: .95rem; line-height: 1.4; }
+.hd-form { display: flex; flex-direction: column; gap: .45rem; }
+.hd-form .btn--primary { align-self: flex-start; }
+.hd-kinds { display: flex; flex-wrap: wrap; gap: .3rem; }
+.hd-kind {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .28rem .65rem; border: 0; border-radius: 999px;
+  background: var(--desk); color: var(--ink); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+}
+.hd-kind.is-on { background: var(--p4); color: var(--p4-ink); }
+.hd-kind.is-on .hd-shape { color: currentColor !important; }
+.hd-shape { display: inline-block; width: .62em; height: .62em; background: currentColor; flex: none; }
+.hd-shape--circle { border-radius: 50%; }
+.hd-shape--square { border-radius: 2px; }
+.hd-shape--arch { border-radius: .32em .32em 0 0; }
+.hd-row { display: flex; gap: .45rem; align-items: center; }
+.hd-row .input { flex: 1; min-width: 0; }
+.hd-urgent { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; white-space: nowrap; }
+.hd-label { margin: 0 0 .25rem; font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.hd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; }
+.hd-ticket {
+  display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border-radius: var(--r-sm);
+  color: var(--ink); text-decoration: none; font-size: .85rem;
+}
+.hd-ticket:hover { background: var(--desk); }
+.hd-ticket-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hd-status { flex: none; padding: .05rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; background: var(--desk); color: var(--muted); }
+.hd-status--open { background: var(--blue-soft); color: var(--p2); }
+.hd-status--in_progress { background: color-mix(in srgb, var(--p4) 14%, var(--surface)); color: var(--p4); }
+.hd-status--waiting { background: var(--yellow-soft); color: var(--ink); }
+.hd-status--resolved { background: var(--green-soft); color: var(--green); }
+.hd-open { margin-top: auto; }
