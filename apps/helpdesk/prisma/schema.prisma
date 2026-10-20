@@ -38,6 +38,40 @@ model User {
   projectUpdates  ProjectUpdate[]
 }
 
+// A kind of request ("Technology", "Building", "Something else"…). Admins
+// add, rename and reshape them; the request form adapts to the one picked:
+// its own hint, title prompt, whether it asks for a location or a device,
+// and any extra questions. Tickets store `key`, which never changes, so
+// renaming a category relabels its old tickets too.
+model Category {
+  id               String   @id @default(cuid())
+  key              String   @unique // TECHNOLOGY | MAINTENANCE | OTHER for the starters, generated for new ones
+  name             String
+  nameEs           String   @default("") // Spanish name, used when the requester picks Español
+  hint             String   @default("") // one line under the name
+  hintEs           String   @default("")
+  shape            String   @default("arch") // square | circle | arch | triangle
+  color            String   @default("p4") // p1 | p2 | p3 | p4 — a Signify block colour
+  titlePrompt      String   @default("") // placeholder for the summary box
+  askLocation      String   @default("OPTIONAL") // HIDDEN | OPTIONAL | REQUIRED
+  askDevice        String   @default("HIDDEN") // HIDDEN | OPTIONAL | REQUIRED
+  fieldsJson       String   @default("[]") // extra questions, same shape as Form.fieldsJson
+  roles            String   @default("[\"ADMIN\",\"TECH\",\"STAFF\",\"STUDENT\"]") // who sees it on the request form
+  sortOrder        Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// A place at the school, for the Location dropdown on requests.
+model Location {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
 model Form {
   id          String   @id @default(cuid())
   name        String
@@ -119,7 +153,7 @@ model Ticket {
   token          String       @unique @default(cuid())
   title          String
   description    String       @default("")
-  category       String // TECHNOLOGY | MAINTENANCE | OTHER
+  category       String // a Category.key
   priority       String       @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
   status         String       @default("OPEN") // OPEN | IN_PROGRESS | WAITING | RESOLVED | CLOSED
   requesterName  String

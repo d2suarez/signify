@@ -2851,8 +2851,11 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 .hd-shape--circle { border-radius: 50%; }
 .hd-shape--square { border-radius: 2px; }
 .hd-shape--arch { border-radius: .32em .32em 0 0; }
+.hd-shape--triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .hd-row { display: flex; gap: .45rem; align-items: center; }
-.hd-row .input { flex: 1; min-width: 0; }
+.hd-row .input, .hd-row .select { flex: 1; min-width: 0; }
+.hd-extras { display: flex; flex-direction: column; gap: .45rem; }
+.hd-extras:empty { display: none; }
 .hd-urgent { display: inline-flex; align-items: center; gap: .3rem; font-size: .85rem; white-space: nowrap; }
 .hd-label { margin: 0 0 .25rem; font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .hd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .2rem; }

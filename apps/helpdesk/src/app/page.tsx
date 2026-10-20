@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { canUseForm } from "@/lib/forms";
 import { getDict } from "@/lib/lang";
+import { categoriesFor, categoryHint, categoryName, getLocations } from "@/lib/categories";
 import { SiteHeader } from "@/components/site-header";
 import { SubmitForm } from "@/components/submit-form";
 
@@ -14,13 +15,25 @@ export default async function HomePage({
   searchParams: Promise<{ device?: string }>;
 }) {
   const user = await requireUser();
-  const { t } = await getDict();
+  const { t, lang } = await getDict();
   const sp = await searchParams;
   const activeForms = await prisma.form.findMany({
     where: { active: true },
     orderBy: { createdAt: "asc" },
   });
   const forms = activeForms.filter((form) => canUseForm(user, form));
+  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations()]);
+  const kinds = categories.map((c) => ({
+    key: c.key,
+    name: categoryName(c, lang),
+    hint: categoryHint(c, lang),
+    shape: c.shape,
+    color: c.color,
+    titlePrompt: c.titlePrompt,
+    askLocation: c.askLocation,
+    askDevice: c.askDevice,
+    fields: c.fields,
+  }));
 
   const scannedDevice = sp.device
     ? await prisma.device.findUnique({ where: { tag: sp.device.toUpperCase() } })
@@ -79,6 +92,8 @@ export default async function HomePage({
         <div className="card p-5 sm:p-8">
           <SubmitForm
             t={t}
+            kinds={kinds}
+            locations={locations.map((l) => l.name)}
             prefill={
               scannedDevice
                 ? {

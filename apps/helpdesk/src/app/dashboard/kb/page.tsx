@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { deleteArticle } from "@/lib/actions";
 import { parseRoles } from "@/lib/forms";
-import { CATEGORIES, USER_ROLES, timeAgo } from "@/lib/labels";
+import { USER_ROLES, timeAgo } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
 import { SubmitButton } from "@/components/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export default async function ArticlesAdminPage({
   const articles = await prisma.article.findMany({
     orderBy: [{ category: "asc" }, { title: "asc" }],
   });
+  const categoryNames = new Map((await getAllCategories()).map((c) => [c.key, c.name]));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -66,7 +68,7 @@ export default async function ArticlesAdminPage({
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                {CATEGORIES[article.category]?.label ?? article.category} · /kb/{article.slug}
+                {categoryNames.get(article.category) ?? article.category} · /kb/{article.slug}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-3 text-sm">
                 <Link href={`/dashboard/kb/${article.id}`} className="font-medium text-blue-700 hover:underline">

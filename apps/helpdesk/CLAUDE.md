@@ -23,12 +23,19 @@ This is NOT the Next.js in your training data. Read `node_modules/next/dist/docs
 - Adding people: search covers only people who have opened the help desk (same tenant). Anyone else is added by full school address (same domain as the adder unless ADMIN), which creates a placeholder row.
 - Tickets can be linked to a project from the agent ticket page.
 
+## Categories and locations
+- `Category` and `Location` tables, managed by help desk ADMINs at `/dashboard/categories` (`src/lib/categories.ts`, actions at the end of `src/lib/actions.ts`). The three starters (keys TECHNOLOGY / MAINTENANCE / OTHER, shown as Technology / Building / Something else) are created the first time anything reads categories.
+- Tickets, forms, articles and recurring tasks store `Category.key`, which never changes, so renaming relabels old tickets. A category in use can only be hidden, not deleted.
+- Each category shapes the request form: hint, summary example, whether it asks for a location / device (HIDDEN | OPTIONAL | REQUIRED), extra questions (same definitions as custom forms, shared editor `components/fields-editor.tsx`), which roles see it, and a Spanish name/hint. Extra answers are snapshotted onto `Ticket.formData`, like custom forms.
+- Location is a dropdown of `Location` rows plus "Somewhere else…" (free text); with no rows it is a text box. The ticket keeps the place as text.
+
 ## Desk ticket box
+- `/api/desk/me` also returns the person's categories and the locations, and the box asks what the request form asks (location, device, extra questions sent as `answers: { f_<id>: value }`).
 - `src/app/api/desk/me` and `/api/desk/tickets`, called by `apps/desk/public/js/widgets/helpdesk.js` from desk.signify.one with `credentials: 'include'`. Same site, so the help desk's own cookie goes along. CORS for `/api/desk` is in `server.js`, limited to `DESK_ORIGINS`.
 - First use: the widget opens `/desk-connect` in a popup; signing in there sets the cookie, and the page posts `signify-helpdesk-connected` to the opener and closes.
 
 ## Design
-Signify tokens in `src/app/globals.css`: Bricolage Grotesque, IBM Plex Sans/Mono (self-hosted in `public/vendor`), p1–p4 block colours with shapes, warm neutrals, paper shadows, dark mode by `prefers-color-scheme`. Tailwind's slate/blue/red/amber/green scales are remapped onto those tokens, so existing utility classes inherit the look. No emoji; categories carry shapes (Technology blue square, Maintenance red circle, Other teal arch).
+Signify tokens in `src/app/globals.css`: Bricolage Grotesque, IBM Plex Sans/Mono (self-hosted in `public/vendor`), p1–p4 block colours with shapes, warm neutrals, paper shadows, dark mode by `prefers-color-scheme`. Tailwind's slate/blue/red/amber/green scales are remapped onto those tokens, so existing utility classes inherit the look. No emoji; categories carry a shape and a block colour, chosen per category (starters: Technology blue square, Building red circle, Something else teal arch).
 
 ## Email
 Gmail-API sending was removed with the Google OAuth client. Mail is SMTP-only and Railway Hobby blocks SMTP, so in production notifications go by push (VAPID) only.

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireUser, isAgent } from "@/lib/auth";
 import { canReadArticle } from "@/lib/kb";
-import { CATEGORIES } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
 import { SiteHeader } from "@/components/site-header";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +32,12 @@ export default async function HelpCenterPage({
       return terms.every((term) => haystack.includes(term));
     });
 
-  const byCategory = Object.entries(CATEGORIES)
-    .map(([key, meta]) => ({
-      key,
-      meta,
-      articles: articles.filter((a) => a.category === key),
+  const categories = await getAllCategories();
+  const byCategory = categories
+    .map((c) => ({
+      key: c.key,
+      meta: { label: c.name, shape: c.shape, tone: `text-${c.color}` },
+      articles: articles.filter((a) => a.category === c.key),
     }))
     .filter((group) => group.articles.length > 0);
 

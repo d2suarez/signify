@@ -2,17 +2,10 @@
 
 import { useActionState, useState } from "react";
 import { saveForm, type FormState } from "@/lib/actions";
-import { FIELD_TYPES, type FormFieldDef } from "@/lib/forms";
-import { CATEGORIES, USER_ROLES } from "@/lib/labels";
+import type { FormFieldDef } from "@/lib/forms";
+import { FieldsEditor, fromBuilderFields, newField, toBuilderFields, type BuilderField } from "./fields-editor";
+import { USER_ROLES } from "@/lib/labels";
 import { SubmitButton } from "./submit-button";
-
-type BuilderField = {
-  id: string;
-  label: string;
-  type: string;
-  required: boolean;
-  optionsText: string;
-};
 
 type InitialForm = {
   id: string;
@@ -24,24 +17,20 @@ type InitialForm = {
   fields: FormFieldDef[];
 };
 
-function newField(): BuilderField {
-  return { id: crypto.randomUUID(), label: "", type: "TEXT", required: false, optionsText: "" };
-}
-
-export function FormBuilder({ initial }: { initial: InitialForm | null }) {
+export function FormBuilder({
+  initial,
+  categories,
+}: {
+  initial: InitialForm | null;
+  categories: { key: string; name: string }[];
+}) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [category, setCategory] = useState(initial?.category ?? "OTHER");
+  const [category, setCategory] = useState(initial?.category ?? categories[categories.length - 1]?.key ?? "OTHER");
   const [active, setActive] = useState(initial?.active ?? true);
   const [roles, setRoles] = useState<string[]>(initial?.roles ?? ["STAFF", "STUDENT"]);
   const [fields, setFields] = useState<BuilderField[]>(
-    initial?.fields.map((f) => ({
-      id: f.id,
-      label: f.label,
-      type: f.type,
-      required: f.required,
-      optionsText: f.options.join("\n"),
-    })) ?? [newField()]
+    initial ? toBuilderFields(initial.fields) : [newField()]
   );
 
   const action = saveForm.bind(null, initial?.id ?? null);
@@ -53,25 +42,8 @@ export function FormBuilder({ initial }: { initial: InitialForm | null }) {
     category,
     active,
     roles,
-    fields: fields.map(({ optionsText, ...f }) => ({
-      ...f,
-      options: optionsText.split("\n").map((s) => s.trim()).filter(Boolean),
-    })),
+    fields: fromBuilderFields(fields),
   });
-
-  function updateField(id: string, patch: Partial<BuilderField>) {
-    setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
-  }
-
-  function moveField(index: number, delta: number) {
-    setFields((prev) => {
-      const next = [...prev];
-      const target = index + delta;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-  }
 
   function toggleRole(role: string) {
     setRoles((prev) =>
@@ -110,8 +82,8 @@ export function FormBuilder({ initial }: { initial: InitialForm | null }) {
               onChange={(e) => setCategory(e.target.value)}
               className="input"
             >
-              {Object.entries(CATEGORIES).map(([value, c]) => (
-                <option key={value} value={value}>{c.label}</option>
+              {categories.map((c) => (
+                <option key={c.key} value={c.key}>{c.name}</option>
               ))}
             </select>
           </div>
@@ -164,89 +136,7 @@ export function FormBuilder({ initial }: { initial: InitialForm | null }) {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Fields</h2>
-        {fields.map((fieldDef, index) => (
-          <div key={fieldDef.id} className="card space-y-3 p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-48 flex-1">
-                <label className="label">Question / label</label>
-                <input
-                  value={fieldDef.label}
-                  onChange={(e) => updateField(fieldDef.id, { label: e.target.value })}
-                  className="input"
-                  placeholder="e.g. Where is the trip going?"
-                />
-              </div>
-              <div>
-                <label className="label">Type</label>
-                <select
-                  value={fieldDef.type}
-                  onChange={(e) => updateField(fieldDef.id, { type: e.target.value })}
-                  className="input w-auto"
-                >
-                  {Object.entries(FIELD_TYPES).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
-              <label className="mb-2.5 flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={fieldDef.required}
-                  onChange={(e) => updateField(fieldDef.id, { required: e.target.checked })}
-                  className="accent-blue-600"
-                />
-                Required
-              </label>
-              <div className="mb-1 flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => moveField(index, -1)}
-                  disabled={index === 0}
-                  className="btn-secondary px-2.5 py-1.5 disabled:opacity-30"
-                  aria-label="Move up"
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => moveField(index, 1)}
-                  disabled={index === fields.length - 1}
-                  className="btn-secondary px-2.5 py-1.5 disabled:opacity-30"
-                  aria-label="Move down"
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFields((prev) => prev.filter((f) => f.id !== fieldDef.id))}
-                  className="btn-secondary px-2.5 py-1.5 text-red-600"
-                  aria-label="Remove field"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            {fieldDef.type === "SELECT" && (
-              <div>
-                <label className="label">Dropdown options (one per line)</label>
-                <textarea
-                  value={fieldDef.optionsText}
-                  onChange={(e) => updateField(fieldDef.id, { optionsText: e.target.value })}
-                  rows={3}
-                  className="input"
-                  placeholder={"Option A\nOption B"}
-                />
-              </div>
-            )}
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => setFields((prev) => [...prev, newField()])}
-          className="btn-secondary"
-        >
-          + Add field
-        </button>
+        <FieldsEditor fields={fields} setFields={setFields} />
       </section>
 
       <div className="flex items-center gap-3">

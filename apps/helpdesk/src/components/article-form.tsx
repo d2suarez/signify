@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { saveArticle, type FormState } from "@/lib/actions";
-import { CATEGORIES, USER_ROLES } from "@/lib/labels";
+import { USER_ROLES } from "@/lib/labels";
 import { SubmitButton } from "./submit-button";
 
 type InitialArticle = {
@@ -14,7 +14,13 @@ type InitialArticle = {
   roles: string[];
 };
 
-export function ArticleForm({ initial }: { initial: InitialArticle | null }) {
+export function ArticleForm({
+  initial,
+  categories,
+}: {
+  initial: InitialArticle | null;
+  categories: { key: string; name: string }[];
+}) {
   const action = saveArticle.bind(null, initial?.id ?? null);
   const [state, formAction] = useActionState<FormState, FormData>(action, {});
 
@@ -40,9 +46,9 @@ export function ArticleForm({ initial }: { initial: InitialArticle | null }) {
         </div>
         <div>
           <label className="label" htmlFor="category">Category</label>
-          <select id="category" name="category" defaultValue={initial?.category ?? "TECHNOLOGY"} className="input">
-            {Object.entries(CATEGORIES).map(([value, c]) => (
-              <option key={value} value={value}>{c.label}</option>
+          <select id="category" name="category" defaultValue={initial?.category ?? categories[0]?.key} className="input">
+            {categories.map((c) => (
+              <option key={c.key} value={c.key}>{c.name}</option>
             ))}
           </select>
         </div>

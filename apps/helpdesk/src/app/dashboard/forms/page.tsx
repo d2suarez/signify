@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { deleteForm, setFormActive } from "@/lib/actions";
 import { parseFields, parseRoles } from "@/lib/forms";
-import { CATEGORIES, USER_ROLES } from "@/lib/labels";
+import { USER_ROLES } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
 import { SubmitButton } from "@/components/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function FormsPage({
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { tickets: true } } },
   });
+  const categoryNames = new Map((await getAllCategories()).map((c) => [c.key, c.name]));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -70,7 +72,7 @@ export default async function FormsPage({
                   <p className="mt-0.5 text-sm text-slate-500">{form.description}</p>
                 )}
                 <p className="mt-1 text-xs text-slate-400">
-                  {CATEGORIES[form.category]?.label ?? form.category} · {fieldCount}{" "}
+                  {categoryNames.get(form.category) ?? form.category} · {fieldCount}{" "}
                   {fieldCount === 1 ? "field" : "fields"} · {form._count.tickets}{" "}
                   {form._count.tickets === 1 ? "ticket" : "tickets"}
                 </p>

@@ -20,6 +20,7 @@ export async function createTicketFor(
     device?: string;
     deviceId?: string | null;
     source?: string;
+    answers?: { label: string; value: string }[]; // the category's extra questions
   }
 ) {
   const ticket = await prisma.ticket.create({
@@ -36,6 +37,7 @@ export async function createTicketFor(
       location: data.location || null,
       device: data.device || null,
       deviceId: data.deviceId ?? null,
+      formData: data.answers?.length ? JSON.stringify(data.answers) : null,
     },
   });
   await announceTicket(ticket, user.name);

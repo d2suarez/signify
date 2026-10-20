@@ -17,6 +17,41 @@ export function DynamicForm({ formId, fields }: { formId: string; fields: FormFi
         </div>
       )}
 
+      <FieldInputs fields={fields} />
+
+      <div>
+        <label className="label" htmlFor="photos">
+          Photos or files <span className="font-normal text-slate-400">(optional, up to 4)</span>
+        </label>
+        <input
+          id="photos"
+          name="photos"
+          type="file"
+          accept="image/*,.pdf"
+          multiple
+          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
+        />
+      </div>
+
+      <SubmitButton className="btn-primary w-full py-3 text-base" pendingText="Submitting…">
+        Submit
+      </SubmitButton>
+    </form>
+  );
+}
+
+/** The inputs for a list of questions, named f_<id> for readAnswers on the server. */
+export function FieldInputs({
+  fields,
+  optionalText = "(optional)",
+  chooseText = "Choose…",
+}: {
+  fields: FormFieldDef[];
+  optionalText?: string;
+  chooseText?: string;
+}) {
+  return (
+    <>
       {fields.map((field) => {
         const name = `f_${field.id}`;
         const optional = !field.required && field.type !== "CHECKBOX";
@@ -31,14 +66,14 @@ export function DynamicForm({ formId, fields }: { formId: string; fields: FormFi
               <>
                 <label className="label" htmlFor={name}>
                   {field.label}
-                  {optional && <span className="ml-1 font-normal text-slate-400">(optional)</span>}
+                  {optional && <span className="ml-1 font-normal text-slate-400">{optionalText}</span>}
                 </label>
                 {field.type === "TEXTAREA" ? (
                   <textarea id={name} name={name} required={field.required} rows={4} className="input" />
                 ) : field.type === "SELECT" ? (
                   <select id={name} name={name} required={field.required} defaultValue="" className="input">
                     <option value="" disabled={field.required}>
-                      Choose…
+                      {chooseText}
                     </option>
                     {field.options.map((option) => (
                       <option key={option} value={option}>{option}</option>
@@ -59,23 +94,6 @@ export function DynamicForm({ formId, fields }: { formId: string; fields: FormFi
         );
       })}
 
-      <div>
-        <label className="label" htmlFor="photos">
-          Photos or files <span className="font-normal text-slate-400">(optional, up to 4)</span>
-        </label>
-        <input
-          id="photos"
-          name="photos"
-          type="file"
-          accept="image/*,.pdf"
-          multiple
-          className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
-        />
-      </div>
-
-      <SubmitButton className="btn-primary w-full py-3 text-base" pendingText="Submitting…">
-        Submit
-      </SubmitButton>
-    </form>
+    </>
   );
 }

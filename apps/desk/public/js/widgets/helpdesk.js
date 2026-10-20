@@ -12,8 +12,8 @@
 // window, Signify ID signs the teacher in there (usually without a click),
 // and the window closes itself.
 //
-// Nothing about a request is kept on the board. The card holds only the room
-// the teacher last typed, so they are not asked for it every time.
+// Nothing about a request is kept on the board. The card holds only the place
+// the teacher last picked, so they are not asked for it every time.
 // ===================================================================
 
 (function (Desk) {
@@ -21,11 +21,14 @@
 
   const { el, icon, toast } = Desk;
 
+  // The help desk sends its own categories (an admin can add and reshape
+  // them); these are only for a help desk too old to send any.
   const KINDS = [
-    { key: 'TECHNOLOGY', label: 'Technology', shape: 'square', role: 'p2' },
-    { key: 'MAINTENANCE', label: 'Building', shape: 'circle', role: 'p1' },
-    { key: 'OTHER', label: 'Something else', shape: 'arch', role: 'p4' },
+    { key: 'TECHNOLOGY', name: 'Technology', shape: 'square', color: 'p2', askLocation: 'OPTIONAL', askDevice: 'HIDDEN', fields: [] },
+    { key: 'MAINTENANCE', name: 'Building', shape: 'circle', color: 'p1', askLocation: 'OPTIONAL', askDevice: 'HIDDEN', fields: [] },
+    { key: 'OTHER', name: 'Something else', shape: 'arch', color: 'p4', askLocation: 'OPTIONAL', askDevice: 'HIDDEN', fields: [] },
   ];
+  const ELSEWHERE = '__elsewhere';
 
   const base = () => ((Desk.config && Desk.config.helpDeskUrl) || 'https://help.signify.one').replace(/\/+$/, '');
 
@@ -62,7 +65,7 @@
       const root = el('div.hd');
       ctx.root.append(root);
       let alive = true;
-      let kind = 'TECHNOLOGY';
+      let kind = '';
 
       function onMessage(e) {
         if (e.origin !== base()) return;
@@ -100,43 +103,113 @@
 
       function drawForm(me) {
         Desk.clear(root);
+        const kinds = Array.isArray(me.categories) && me.categories.length ? me.categories : KINDS;
+        const places = Array.isArray(me.locations) ? me.locations : [];
+        if (!kinds.some((k) => k.key === kind)) kind = kinds[0].key;
+        const current = () => kinds.find((k) => k.key === kind) || kinds[0];
 
-        const kinds = el('div.hd-kinds', { role: 'radiogroup', 'aria-label': 'What kind of help' });
+        const kindBox = el('div.hd-kinds', { role: 'radiogroup', 'aria-label': 'What kind of help' });
         function drawKinds() {
-          Desk.clear(kinds);
-          for (const k of KINDS) {
-            kinds.append(el('button.hd-kind', {
+          Desk.clear(kindBox);
+          for (const k of kinds) {
+            kindBox.append(el('button.hd-kind', {
               type: 'button', role: 'radio', 'aria-checked': String(kind === k.key),
               class: kind === k.key ? 'is-on' : '',
-              onclick: () => { kind = k.key; drawKinds(); },
-            }, [el(`span.hd-shape.hd-shape--${k.shape}`, { style: { color: `var(--${k.role})` } }), k.label]));
+              onclick: () => { kind = k.key; drawKinds(); drawAsks(); },
+            }, [el(`span.hd-shape.hd-shape--${k.shape}`, { style: { color: `var(--${k.color || 'p4'})` } }), k.name]));
           }
         }
-        drawKinds();
 
         const title = el('input.input', { type: 'text', maxlength: '200', placeholder: 'What do you need help with?', 'aria-label': 'What do you need help with?' });
         const details = el('textarea.textarea', { rows: ctx.expanded ? '5' : '2', maxlength: '10000', placeholder: 'Details (optional)', 'aria-label': 'Details' });
-        const room = el('input.input', { type: 'text', maxlength: '120', placeholder: 'Room', value: s.room, 'aria-label': 'Room' });
         const urgent = el('input', { type: 'checkbox' });
         const send = el('button.btn.btn--primary', { type: 'submit' }, 'Send request');
+
+        // Where: the help desk's list of places when it has one, else a box.
+        const known = places.includes(s.room);
+        const placePick = el('select.select', { 'aria-label': 'Where' }, [
+          el('option', { value: '' }, 'Where?'),
+          ...places.map((p) => el('option', { value: p, selected: p === s.room }, p)),
+          el('option', { value: ELSEWHERE, selected: !!s.room && !known }, 'Somewhere else…'),
+        ]);
+        const room = el('input.input', { type: 'text', maxlength: '120', placeholder: places.length ? 'Where is it?' : 'Room', value: known ? '' : s.room, 'aria-label': 'Room' });
+        placePick.addEventListener('change', () => { room.hidden = placePick.value !== ELSEWHERE; if (!room.hidden) room.focus(); });
+        const device = el('input.input', { type: 'text', maxlength: '200', placeholder: 'Which device?', 'aria-label': 'Which device' });
+        const where = () => (places.length && placePick.value !== ELSEWHERE ? placePick.value : room.value.trim());
+
+        const placeRow = el('div.hd-row');
+        const extras = el('div.hd-extras');
+        let answers = {};
+        function drawAsks() {
+          const k = current();
+          title.placeholder = k.titlePrompt || 'What do you need help with?';
+          Desk.clear(placeRow);
+          if (k.askLocation !== 'HIDDEN') {
+            if (places.length) { placeRow.append(placePick); room.hidden = placePick.value !== ELSEWHERE; }
+            placeRow.append(room);
+          }
+          placeRow.append(el('label.hd-urgent', {}, [urgent, ' Urgent']));
+          device.hidden = k.askDevice === 'HIDDEN';
+          device.placeholder = k.askDevice === 'REQUIRED' ? 'Which device?' : 'Which device? (optional)';
+          // The category's own questions, named as the help desk expects.
+          Desk.clear(extras);
+          answers = {};
+          for (const f of k.fields || []) {
+            const name = `f_${f.id}`;
+            const label = f.label + (f.required || f.type === 'CHECKBOX' ? '' : ' (optional)');
+            let input;
+            if (f.type === 'CHECKBOX') {
+              input = el('input', { type: 'checkbox' });
+              extras.append(el('label.hd-urgent', {}, [input, ' ' + f.label]));
+              answers[name] = () => (input.checked ? 'on' : '');
+              continue;
+            }
+            if (f.type === 'SELECT') {
+              input = el('select.select', { 'aria-label': f.label }, [
+                el('option', { value: '' }, label),
+                ...f.options.map((o) => el('option', { value: o }, o)),
+              ]);
+            } else if (f.type === 'TEXTAREA') {
+              input = el('textarea.textarea', { rows: '2', maxlength: '5000', placeholder: label, 'aria-label': f.label });
+            } else if (f.type === 'DATE') {
+              input = el('input.input', { type: 'date', 'aria-label': f.label, title: f.label });
+              extras.append(el('p.hd-label', { text: label }));
+            } else {
+              input = el('input.input', { type: 'text', maxlength: '500', placeholder: label, 'aria-label': f.label });
+            }
+            extras.append(input);
+            answers[name] = () => input.value.trim();
+          }
+        }
+        drawKinds();
+        drawAsks();
 
         const form = el('form.hd-form', {
           onsubmit: async (e) => {
             e.preventDefault();
+            const k = current();
             if (!title.value.trim()) { toast('Say in a few words what you need.', 'warn'); title.focus(); return; }
+            if (k.askLocation === 'REQUIRED' && !where()) { toast('Say where this is.', 'warn'); return; }
+            if (k.askDevice === 'REQUIRED' && !device.value.trim()) { toast('Say which device this is about.', 'warn'); device.focus(); return; }
+            const sent = {};
+            for (const [name, read] of Object.entries(answers)) sent[name] = read();
             send.disabled = true;
             try {
-              if (room.value.trim() !== s.room) { s.room = room.value.trim().slice(0, 120); ctx.save(); }
+              const place = k.askLocation === 'HIDDEN' ? '' : where();
+              if (place && place !== s.room) { s.room = place.slice(0, 120); ctx.save(); }
               const made = await call('POST', '/api/desk/tickets', {
                 category: kind,
                 title: title.value.trim(),
                 description: details.value.trim(),
-                location: room.value.trim(),
+                location: place,
+                device: k.askDevice === 'HIDDEN' ? '' : device.value.trim(),
+                answers: sent,
                 priority: urgent.checked ? 'URGENT' : 'NORMAL',
               });
               toast(`Sent. Your request is #${made.id}.`, 'info');
               title.value = '';
               details.value = '';
+              device.value = '';
               urgent.checked = false;
               load();
             } catch (err) {
@@ -147,13 +220,12 @@
             }
           },
         }, [
-          kinds,
+          kindBox,
           title,
           details,
-          el('div.hd-row', {}, [
-            room,
-            el('label.hd-urgent', {}, [urgent, ' Urgent']),
-          ]),
+          device,
+          extras,
+          placeRow,
           send,
         ]);
 

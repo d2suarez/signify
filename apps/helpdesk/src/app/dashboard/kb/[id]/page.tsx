@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { getAllCategories } from "@/lib/categories";
 import { requireAgent } from "@/lib/auth";
 import { parseRoles } from "@/lib/forms";
 import { ArticleForm } from "@/components/article-form";
@@ -14,6 +15,7 @@ export default async function EditArticlePage({
   params: Promise<{ id: string }>;
 }) {
   await requireAgent();
+  const categories = (await getAllCategories()).map((c) => ({ key: c.key, name: c.name }));
   const { id } = await params;
   const article = await prisma.article.findUnique({ where: { id } });
   if (!article) notFound();
@@ -26,6 +28,7 @@ export default async function EditArticlePage({
       <h1 className="text-xl font-bold">Edit article</h1>
       <div className="card p-5">
         <ArticleForm
+          categories={categories}
           initial={{
             id: article.id,
             title: article.title,

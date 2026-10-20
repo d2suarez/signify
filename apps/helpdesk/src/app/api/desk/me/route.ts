@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { STATUSES } from "@/lib/labels";
 import { APP_URL } from "@/lib/mail";
+import { categoriesFor, getLocations } from "@/lib/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export async function GET() {
       { status: 401, headers: { "Cache-Control": "no-store" } }
     );
   }
+  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations()]);
   const tickets = await prisma.ticket.findMany({
     where: { requesterId: user.id },
     orderBy: { updatedAt: "desc" },
@@ -29,6 +31,18 @@ export async function GET() {
       signedIn: true,
       name: user.name,
       helpDeskUrl: APP_URL,
+      // What the request form asks, so the box on the Desk asks the same.
+      categories: categories.map((c) => ({
+        key: c.key,
+        name: c.name,
+        shape: c.shape,
+        color: c.color,
+        titlePrompt: c.titlePrompt,
+        askLocation: c.askLocation,
+        askDevice: c.askDevice,
+        fields: c.fields,
+      })),
+      locations: locations.map((l) => l.name),
       tickets: tickets.map((t) => ({
         id: t.id,
         title: t.title,

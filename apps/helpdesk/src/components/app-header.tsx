@@ -43,6 +43,7 @@ export async function AppHeader({ mode = "requester" }: { mode?: "requester" | "
                 <NavLink href="/dashboard/recurring">Recurring</NavLink>
                 {user.role === "ADMIN" && (
                   <>
+                    <NavLink href="/dashboard/categories">Categories</NavLink>
                     <NavLink href="/dashboard/forms">Forms</NavLink>
                     <NavLink href="/dashboard/users">People</NavLink>
                   </>

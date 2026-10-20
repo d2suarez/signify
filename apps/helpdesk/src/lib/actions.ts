@@ -9,6 +9,7 @@ import { saveAttachments } from "./files";
 import { createTicketFor } from "./tickets";
 import { canUseForm, FIELD_TYPE_VALUES, parseFields, type FormFieldDef } from "./forms";
 import { slugify } from "./kb";
+import { ASK_VALUES, COLORS, SHAPES, categoriesFor, categoryByKey, readAnswers } from "./categories";
 import { STATUSES, PRIORITIES } from "./labels";
 import {
   isEmailEnabled,
@@ -23,7 +24,6 @@ import { eventsForRole, type NotifyPrefs } from "./notify-prefs";
 
 export type FormState = { error?: string; message?: string };
 
-const CATEGORY_VALUES = ["TECHNOLOGY", "MAINTENANCE", "OTHER"];
 const PRIORITY_VALUES = ["LOW", "NORMAL", "HIGH", "URGENT"];
 const STATUS_VALUES = ["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"];
 
@@ -49,9 +49,15 @@ export async function submitTicket(_prev: FormState, formData: FormData): Promis
   const device = field(formData, "device");
   const priority = field(formData, "priority") || "NORMAL";
 
-  if (!CATEGORY_VALUES.includes(category)) return { error: "Please pick a category for your request." };
+  const kind = (await categoriesFor(user)).find((c) => c.key === category);
+  if (!kind) return { error: "Please pick a category for your request." };
   if (!title) return { error: "Please add a short summary of what you need." };
   if (!PRIORITY_VALUES.includes(priority)) return { error: "Invalid priority." };
+  if (kind.askLocation === "REQUIRED" && !location) return { error: "Please say where this is." };
+  if (kind.askDevice === "REQUIRED" && !device) return { error: "Please say which device this is about." };
+  // Only the questions of the category picked count; the others were hidden.
+  const answers = readAnswers(kind.fields, (name) => formData.get(name));
+  if ("error" in answers) return answers;
 
   const deviceTag = field(formData, "deviceTag").toUpperCase();
   const linkedDevice = deviceTag
@@ -63,9 +69,10 @@ export async function submitTicket(_prev: FormState, formData: FormData): Promis
     description,
     category,
     priority,
-    location,
-    device,
+    location: kind.askLocation === "HIDDEN" ? "" : location,
+    device: kind.askDevice === "HIDDEN" ? "" : device,
     deviceId: linkedDevice?.id ?? null,
+    answers: answers.values,
   });
 
   const files = formData
@@ -125,20 +132,9 @@ export async function submitCustomTicket(
     return { error: "This form isn't available anymore." };
   }
 
-  const defs = parseFields(form.fieldsJson);
-  const values: { label: string; value: string }[] = [];
-  for (const def of defs) {
-    const raw = formData.get(`f_${def.id}`);
-    let value = typeof raw === "string" ? raw.trim() : "";
-    if (def.type === "CHECKBOX") value = raw === "on" ? "Yes" : "No";
-    if (def.required && def.type !== "CHECKBOX" && !value) {
-      return { error: `Please fill in "${def.label}".` };
-    }
-    if (def.type === "SELECT" && value && !def.options.includes(value)) {
-      return { error: `Invalid choice for "${def.label}".` };
-    }
-    if (value) values.push({ label: def.label, value });
-  }
+  const answers = readAnswers(parseFields(form.fieldsJson), (name) => formData.get(name));
+  if ("error" in answers) return answers;
+  const values = answers.values;
 
   const ticket = await prisma.ticket.create({
     data: {
@@ -174,6 +170,33 @@ export async function submitCustomTicket(
   redirect(`/t/${ticket.token}?new=1`);
 }
 
+/** Checks question definitions sent by the form builder (forms and categories share it). */
+function cleanFields(rawFields: unknown[]): { error: string } | { fields: FormFieldDef[] } {
+  const fields: FormFieldDef[] = [];
+  for (const raw of rawFields as Record<string, unknown>[]) {
+    const label = String(raw.label ?? "").trim();
+    if (!label) return { error: "Every field needs a label." };
+    const type = FIELD_TYPE_VALUES.includes(String(raw.type))
+      ? (String(raw.type) as FormFieldDef["type"])
+      : "TEXT";
+    const options =
+      type === "SELECT" && Array.isArray(raw.options)
+        ? raw.options.map((o) => String(o).trim()).filter(Boolean)
+        : [];
+    if (type === "SELECT" && options.length === 0) {
+      return { error: `The dropdown "${label}" needs at least one option.` };
+    }
+    fields.push({
+      id: String(raw.id ?? "") || crypto.randomUUID(),
+      label,
+      type,
+      required: Boolean(raw.required),
+      options,
+    });
+  }
+  return { fields };
+}
+
 /* ---------- Admin: manage forms ---------- */
 
 export async function saveForm(
@@ -199,35 +222,16 @@ export async function saveForm(
     : [];
 
   if (!name) return { error: "Give the form a name." };
-  if (!CATEGORY_VALUES.includes(category)) return { error: "Pick a category." };
+  if (!(await categoryByKey(category))) return { error: "Pick a category." };
   if (roles.length === 0) return { error: "Choose at least one role that can use this form." };
 
   const rawFields = Array.isArray(payload.fields) ? payload.fields : [];
   if (rawFields.length === 0) return { error: "Add at least one field." };
   if (rawFields.length > 30) return { error: "Forms are limited to 30 fields." };
 
-  const fields: FormFieldDef[] = [];
-  for (const raw of rawFields as Record<string, unknown>[]) {
-    const label = String(raw.label ?? "").trim();
-    if (!label) return { error: "Every field needs a label." };
-    const type = FIELD_TYPE_VALUES.includes(String(raw.type))
-      ? (String(raw.type) as FormFieldDef["type"])
-      : "TEXT";
-    const options =
-      type === "SELECT" && Array.isArray(raw.options)
-        ? raw.options.map((o) => String(o).trim()).filter(Boolean)
-        : [];
-    if (type === "SELECT" && options.length === 0) {
-      return { error: `The dropdown "${label}" needs at least one option.` };
-    }
-    fields.push({
-      id: String(raw.id ?? "") || crypto.randomUUID(),
-      label,
-      type,
-      required: Boolean(raw.required),
-      options,
-    });
-  }
+  const parsed = cleanFields(rawFields);
+  if ("error" in parsed) return parsed;
+  const fields = parsed.fields;
 
   const data = {
     name,
@@ -388,7 +392,7 @@ export async function saveRecurringTask(formData: FormData) {
   const assignedToId = field(formData, "assignedToId") || null;
 
   if (!title) redirect("/dashboard/recurring?err=Give+the+task+a+title.");
-  if (!CATEGORY_VALUES.includes(category)) redirect("/dashboard/recurring?err=Pick+a+category.");
+  if (!(await categoryByKey(category))) redirect("/dashboard/recurring?err=Pick+a+category.");
   if (!Number.isInteger(everyDays) || everyDays < 1 || everyDays > 365) {
     redirect("/dashboard/recurring?err=Repeat+must+be+between+1+and+365+days.");
   }
@@ -458,7 +462,7 @@ export async function saveArticle(
 
   if (!title) return { error: "Give the article a title." };
   if (!body) return { error: "Write something in the article body." };
-  if (!CATEGORY_VALUES.includes(category)) return { error: "Pick a category." };
+  if (!(await categoryByKey(category))) return { error: "Pick a category." };
   if (roles.length === 0) return { error: "Choose at least one role that can read this." };
 
   const data = {
@@ -718,4 +722,195 @@ export async function savePushSubscription(subscriptionJson: string) {
 export async function removePushSubscription(endpoint: string) {
   const user = await requireUser();
   await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: user.id } });
+}
+
+/* ---------- Admin: request categories and locations ---------- */
+
+/** A key for a new category: its name in capitals, kept unique. Never changes after. */
+async function newCategoryKey(name: string) {
+  const base =
+    name.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24) ||
+    "CATEGORY";
+  for (let i = 0; ; i++) {
+    const key = i === 0 ? base : `${base}_${i + 1}`;
+    if (!(await prisma.category.findUnique({ where: { key } }))) return key;
+  }
+}
+
+export async function saveCategory(
+  categoryId: string | null,
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  await requireAdmin();
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(field(formData, "payload"));
+  } catch {
+    return { error: "Something went wrong reading the form — try again." };
+  }
+  const text = (k: string, max: number) => String(payload[k] ?? "").trim().slice(0, max);
+  const pick = <T extends string>(k: string, allowed: readonly T[], fallback: T): T =>
+    (allowed as readonly string[]).includes(String(payload[k])) ? (String(payload[k]) as T) : fallback;
+
+  const name = text("name", 60);
+  if (!name) return { error: "Give the category a name." };
+  const roles = Array.isArray(payload.roles)
+    ? payload.roles.map(String).filter((r) => ["ADMIN", "TECH", "STAFF", "STUDENT"].includes(r))
+    : [];
+  if (roles.length === 0) return { error: "Choose at least one role that can pick this category." };
+
+  const rawFields = Array.isArray(payload.fields) ? payload.fields : [];
+  if (rawFields.length > 20) return { error: "A category can ask up to 20 extra questions." };
+  const parsed = cleanFields(rawFields);
+  if ("error" in parsed) return parsed;
+
+  const data = {
+    name,
+    nameEs: text("nameEs", 60),
+    hint: text("hint", 200),
+    hintEs: text("hintEs", 200),
+    shape: pick("shape", SHAPES, "arch"),
+    color: pick("color", COLORS, "p4"),
+    titlePrompt: text("titlePrompt", 120),
+    askLocation: pick("askLocation", ASK_VALUES, "OPTIONAL"),
+    askDevice: pick("askDevice", ASK_VALUES, "HIDDEN"),
+    fieldsJson: JSON.stringify(parsed.fields),
+    roles: JSON.stringify(roles),
+    active: Boolean(payload.active),
+  };
+
+  if (categoryId) {
+    await prisma.category.update({ where: { id: categoryId }, data });
+  } else {
+    const last = await prisma.category.findFirst({ orderBy: { sortOrder: "desc" } });
+    await prisma.category.create({
+      data: { ...data, key: await newCategoryKey(name), sortOrder: (last?.sortOrder ?? 0) + 1 },
+    });
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/dashboard/categories?msg=" + encodeURIComponent(`Saved "${name}".`));
+}
+
+export async function moveCategory(categoryId: string, delta: number) {
+  await requireAdmin();
+  const all = await prisma.category.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+  const index = all.findIndex((c) => c.id === categoryId);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= all.length) return;
+  [all[index], all[target]] = [all[target], all[index]];
+  await prisma.$transaction(
+    all.map((c, i) => prisma.category.update({ where: { id: c.id }, data: { sortOrder: i } }))
+  );
+  revalidatePath("/", "layout");
+}
+
+export async function setCategoryActive(categoryId: string, active: boolean) {
+  await requireAdmin();
+  if (!active) {
+    const others = await prisma.category.count({ where: { active: true, id: { not: categoryId } } });
+    if (others === 0) redirect("/dashboard/categories?err=" + encodeURIComponent("Keep at least one category showing."));
+  }
+  await prisma.category.update({ where: { id: categoryId }, data: { active } });
+  revalidatePath("/", "layout");
+}
+
+/** Only a category nothing points at can go; anything in use is hidden instead. */
+export async function deleteCategory(categoryId: string) {
+  await requireAdmin();
+  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!category) redirect("/dashboard/categories");
+  const where = { category: category.key };
+  const [tickets, forms, articles, recurring, total] = await Promise.all([
+    prisma.ticket.count({ where }),
+    prisma.form.count({ where }),
+    prisma.article.count({ where }),
+    prisma.recurringTask.count({ where }),
+    prisma.category.count(),
+  ]);
+  if (total <= 1) redirect("/dashboard/categories?err=" + encodeURIComponent("Keep at least one category."));
+  if (tickets + forms + articles + recurring > 0) {
+    redirect(
+      "/dashboard/categories?err=" +
+        encodeURIComponent(`"${category.name}" is in use (tickets, forms, articles or recurring tasks), so hide it instead.`)
+    );
+  }
+  await prisma.category.delete({ where: { id: categoryId } });
+  revalidatePath("/", "layout");
+  redirect("/dashboard/categories?msg=" + encodeURIComponent(`Deleted "${category.name}".`));
+}
+
+/** Adds places to the Location dropdown; one per line, so a whole list can be pasted. */
+export async function addLocations(formData: FormData) {
+  await requireAdmin();
+  const names = field(formData, "names")
+    .split("\n")
+    .map((n) => n.trim().slice(0, 80))
+    .filter(Boolean);
+  if (names.length === 0) redirect("/dashboard/categories?err=" + encodeURIComponent("Type at least one place.") + "#locations");
+  const existing = await prisma.location.findMany();
+  const known = new Map(existing.map((l) => [l.name.toLowerCase(), l]));
+  let next = existing.reduce((max, l) => Math.max(max, l.sortOrder), 0) + 1;
+  let added = 0;
+  const seen = new Set<string>();
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    const same = known.get(lower);
+    if (same) {
+      if (!same.active) await prisma.location.update({ where: { id: same.id }, data: { active: true } });
+      continue;
+    }
+    await prisma.location.create({ data: { name, sortOrder: next++ } });
+    added++;
+  }
+  revalidatePath("/", "layout");
+  redirect(
+    "/dashboard/categories?msg=" +
+      encodeURIComponent(added === 1 ? "Added 1 place." : `Added ${added} places.`) +
+      "#locations"
+  );
+}
+
+export async function renameLocation(locationId: string, formData: FormData) {
+  await requireAdmin();
+  const name = field(formData, "name").slice(0, 80);
+  if (!name) return;
+  const clash = await prisma.location.findFirst({ where: { name, id: { not: locationId } } });
+  if (clash) redirect("/dashboard/categories?err=" + encodeURIComponent(`"${name}" is already on the list.`) + "#locations");
+  await prisma.location.update({ where: { id: locationId }, data: { name } });
+  revalidatePath("/", "layout");
+}
+
+export async function moveLocation(locationId: string, delta: number) {
+  await requireAdmin();
+  const all = await prisma.location.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  const index = all.findIndex((l) => l.id === locationId);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= all.length) return;
+  [all[index], all[target]] = [all[target], all[index]];
+  await prisma.$transaction(
+    all.map((l, i) => prisma.location.update({ where: { id: l.id }, data: { sortOrder: i } }))
+  );
+  revalidatePath("/", "layout");
+}
+
+/** Old tickets keep the place as text, so removing it from the list loses nothing. */
+export async function removeLocation(locationId: string) {
+  await requireAdmin();
+  await prisma.location.delete({ where: { id: locationId } });
+  revalidatePath("/", "layout");
+}
+
+export async function sortLocationsByName() {
+  await requireAdmin();
+  const all = await prisma.location.findMany({ where: { active: true } });
+  all.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  await prisma.$transaction(
+    all.map((l, i) => prisma.location.update({ where: { id: l.id }, data: { sortOrder: i } }))
+  );
+  revalidatePath("/", "layout");
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
 import { deleteRecurringTask, saveRecurringTask, setRecurringActive } from "@/lib/actions";
-import { CATEGORIES } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
 import { CategoryLabel } from "@/components/badges";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -23,6 +23,7 @@ export default async function RecurringPage({
       orderBy: { name: "asc" },
     }),
   ]);
+  const categories = (await getAllCategories()).filter((c) => c.active);
   const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name;
 
   return (
@@ -102,8 +103,8 @@ export default async function RecurringPage({
             <div>
               <label className="label" htmlFor="r-category">Category</label>
               <select id="r-category" name="category" defaultValue="MAINTENANCE" className="input">
-                {Object.entries(CATEGORIES).map(([value, c]) => (
-                  <option key={value} value={value}>{c.label}</option>
+                {categories.map((c) => (
+                  <option key={c.key} value={c.key}>{c.name}</option>
                 ))}
               </select>
             </div>

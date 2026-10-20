@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getCurrentUser, isAgent } from "@/lib/auth";
 import { csvResponse, toCsv } from "@/lib/csv";
-import { CATEGORIES, PRIORITIES, ROLES, STATUSES } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
+import { PRIORITIES, ROLES, STATUSES } from "@/lib/labels";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -11,6 +12,7 @@ export async function GET() {
     include: { assignedTo: { select: { name: true } }, linkedDevice: { select: { tag: true } } },
     orderBy: { id: "asc" },
   });
+  const categoryNames = new Map((await getAllCategories()).map((c) => [c.key, c.name]));
 
   const csv = toCsv(
     [
@@ -23,7 +25,7 @@ export async function GET() {
       t.title,
       STATUSES[t.status]?.label ?? t.status,
       PRIORITIES[t.priority]?.label ?? t.priority,
-      CATEGORIES[t.category]?.label ?? t.category,
+      categoryNames.get(t.category) ?? t.category,
       t.requesterName,
       t.requesterEmail,
       ROLES[t.requesterRole] ?? t.requesterRole,

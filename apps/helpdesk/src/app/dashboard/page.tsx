@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAgent } from "@/lib/auth";
-import { CATEGORIES, PRIORITIES, ROLES, timeAgo } from "@/lib/labels";
+import { getAllCategories } from "@/lib/categories";
+import { PRIORITIES, ROLES, timeAgo } from "@/lib/labels";
 import { STALE_DAYS, staleCutoff } from "@/lib/digest";
 import { CategoryLabel, PriorityBadge, StatusBadge } from "@/components/badges";
 import { AutoSelect } from "@/components/auto-select";
@@ -43,7 +44,8 @@ export default async function DashboardPage({
   };
 
   const where: Prisma.TicketWhereInput = { ...(viewWhere[view] ?? viewWhere.active) };
-  if (sp.cat && CATEGORIES[sp.cat]) where.category = sp.cat;
+  const categories = await getAllCategories();
+  if (sp.cat && categories.some((c) => c.key === sp.cat)) where.category = sp.cat;
   if (sp.assignee) where.assignedToId = sp.assignee === "none" ? null : sp.assignee;
   if (sp.q) {
     where.OR = [
@@ -133,8 +135,8 @@ export default async function DashboardPage({
         />
         <AutoSelect name="cat" defaultValue={sp.cat ?? ""} className="input w-auto">
           <option value="">All categories</option>
-          {Object.entries(CATEGORIES).map(([value, c]) => (
-            <option key={value} value={value}>{c.label}</option>
+          {categories.map((c) => (
+            <option key={c.key} value={c.key}>{c.name}</option>
           ))}
         </AutoSelect>
         <AutoSelect name="assignee" defaultValue={sp.assignee ?? ""} className="input w-auto">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAllCategories } from "@/lib/categories";
 import { requireAdmin } from "@/lib/auth";
 import { FormBuilder } from "@/components/form-builder";
 
@@ -7,6 +8,7 @@ export const metadata = { title: "New form" };
 
 export default async function NewFormPage() {
   await requireAdmin();
+  const categories = (await getAllCategories()).map((c) => ({ key: c.key, name: c.name }));
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -14,7 +16,7 @@ export default async function NewFormPage() {
         ← All forms
       </Link>
       <h1 className="text-xl font-bold">New form</h1>
-      <FormBuilder initial={null} />
+      <FormBuilder initial={null} categories={categories} />
     </div>
   );
 }
