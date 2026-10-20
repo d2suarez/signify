@@ -582,6 +582,16 @@ next thing to get this wrong leaves a way back.
 desk are shuffled, so the empty places are somewhere different every time
 rather than always piling up at the end of the list.
 
+**Nobody sits beside last time's neighbour.** A fair shuffle of thirty
+children puts *some* pair from last time back together most weeks, and that
+is the pair the teacher notices. "Seat at random" reads the last kept
+arrangement (the newest with at least half the class seated) and deals again
+until nobody is next to a previous neighbour. Swapping pupils between chairs
+covers the rare case where tables of four make that hard to find by chance.
+Neighbours means sharing a desk or sitting at desks pushed together side by
+side; the desk in front doesn't count. A toast says when the room made a
+repeat unavoidable.
+
 Some things worth knowing about how it behaves:
 
 - **The plan belongs to the class, not the widget.** One card holds a plan per

@@ -898,6 +898,81 @@ describe('seating a class at random', () => {
     equal(seats[0], 0, 'the single desk stays empty while a table can take them');
     equal(alone(seats.filter((n) => n > 0)), 0);
   });
+
+  // ---- not beside last time's neighbour ----
+
+  const { _seatNeighbours: seatNeighbours, _neighbourPairs: neighbourPairs,
+    _lastArrangement: lastArrangement, _seatAvoiding: seatAvoiding } = seatingDef;
+  const pairs = (p) => [...neighbourPairs(p)].sort();
+
+  it('counts deskmates and desks pushed together as neighbours, not the row in front', () => {
+    const desks = [
+      { id: 'a', shape: 'row', seats: 1, facing: 'up', x: 0, y: 0 },
+      { id: 'b', shape: 'row', seats: 1, facing: 'up', x: 4, y: 0 },   // touching a, side by side
+      { id: 'c', shape: 'row', seats: 1, facing: 'up', x: 0, y: 5 },   // directly behind a
+      { id: 'd', shape: 'row', seats: 2, facing: 'up', x: 20, y: 0 },
+    ];
+    const edges = seatNeighbours(desks).map((e) => e.join(' ')).sort();
+    equal(edges, ['a#0 b#0', 'd#0 d#1']);
+  });
+
+  it('remembers last time as the newest arrangement with most of the class in it', () => {
+    const list = [
+      { plan: { desks: [], seats: {} } },                       // just emptied
+      { plan: { desks: [], seats: { x: 'ava', y: 'leo' } } },   // two placed by hand
+      { plan: fullPlan() },
+    ];
+    equal(lastArrangement(list, 6).plan.seats['d1#0'], 'ava', 'two of six is not last time');
+    equal(lastArrangement([], 4), null);
+  });
+
+  /** n two-seat desks in a line, far enough apart that only deskmates count. */
+  const pairsRoom = (n) => ({
+    desks: Array.from({ length: n }, (_, i) => ({ id: `d${i}`, shape: 'row', seats: 2, facing: 'up', x: i * 10, y: 0 })),
+    seats: {}, objects: [], front: 'top',
+  });
+  const kids = (n) => Array.from({ length: n }, (_, i) => `k${i}`);
+
+  it('never puts last time’s deskmates back together when the room allows it', () => {
+    for (let round = 0; round < 50; round += 1) {
+      const room = pairsRoom(12);
+      const before = seatAvoiding(room, kids(24), new Set());
+      const avoid = neighbourPairs({ ...room, seats: before.seats });
+      equal(avoid.size, 12);
+      const after = seatAvoiding(room, kids(24), avoid);
+      equal(after.repeats, 0);
+      equal(Object.keys(after.seats).length, 24, 'everybody still seated');
+      assert(pairs({ ...room, seats: after.seats }).every((k) => !avoid.has(k)), 'no old pair together');
+    }
+  });
+
+  it('splits tables of four too, where blind shuffling rarely manages it', () => {
+    const room = {
+      desks: Array.from({ length: 7 }, (_, i) => ({ id: `t${i}`, shape: 'table', seats: 4, facing: 'up', x: i * 12, y: 0 })),
+      seats: {}, objects: [], front: 'top',
+    };
+    for (let round = 0; round < 20; round += 1) {
+      const before = seatAvoiding(room, kids(28), new Set());
+      const avoid = neighbourPairs({ ...room, seats: before.seats });
+      equal(avoid.size, 42, 'six pairs at each of seven tables');
+      equal(seatAvoiding(room, kids(28), avoid).repeats, 0);
+    }
+  });
+
+  it('leaves pupils already seated where they are', () => {
+    const room = pairsRoom(3);
+    room.seats = { 'd0#0': 'k0' };
+    const out = seatAvoiding(room, ['k1', 'k2', 'k3', 'k4', 'k5'], new Set(['k0|k1']));
+    equal(out.seats['d0#0'], 'k0');
+    assert(out.seats['d0#1'] !== 'k1', 'k1 does not sit back beside k0');
+    equal(out.placed.length, 5);
+  });
+
+  it('owns up when the room cannot avoid a repeat', () => {
+    // One desk of two, the same two children: they can only sit together.
+    const room = pairsRoom(1);
+    equal(seatAvoiding(room, ['k0', 'k1'], new Set(['k0|k1'])).repeats, 1);
+  });
 });
 
 // ===================================================================

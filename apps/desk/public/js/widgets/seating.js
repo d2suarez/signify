@@ -391,6 +391,145 @@
     return { add, standing: total - seating };
   }
 
+  // ---------------- not beside last time's neighbour ----------------
+  //
+  // A fair shuffle is not quite what a teacher wants. With thirty children
+  // there are hundreds of possible pairs, so SOME pair from last time lands
+  // together again most weeks — and that is the pair the teacher notices.
+  // So "Seat at random" now deals until nobody is next to anyone they sat
+  // beside in the last arrangement, the same best-of-many approach the group
+  // maker uses for keep-apart pairs.
+
+  const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+  /**
+   * Which seats count as next to each other, as [seat, seat] pairs: two seats
+   * at the same desk, or at two desks pushed together side by side. The desk
+   * in front does not count — its surface is two cells deep, so the row ahead
+   * is never within one cell.
+   */
+  function seatNeighbours(desks) {
+    const seats = [];
+    for (const d of desks) {
+      layout(d).seats.forEach((r, i) => seats.push({
+        id: seatId(d.id, i), desk: d.id, x: (d.x || 0) + r.x, y: (d.y || 0) + r.y, w: r.w, h: r.h,
+      }));
+    }
+    const edges = [];
+    for (let i = 0; i < seats.length; i += 1) {
+      for (let j = i + 1; j < seats.length; j += 1) {
+        const a = seats[i];
+        const b = seats[j];
+        if (a.desk === b.desk) { edges.push([a.id, b.id]); continue; }
+        // Gap on each axis; negative means they overlap on that axis.
+        const gx = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w));
+        const gy = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h));
+        if (Math.max(gx, gy) <= 1 && Math.min(gx, gy) < 0) edges.push([a.id, b.id]);
+      }
+    }
+    return edges;
+  }
+
+  /** Every pair of pupils sitting next to each other in a plan. */
+  function neighbourPairs(plan) {
+    const out = new Set();
+    if (!plan || !Array.isArray(plan.desks)) return out;
+    const seats = plan.seats || {};
+    for (const [a, b] of seatNeighbours(plan.desks)) {
+      if (seats[a] && seats[b]) out.add(pairKey(seats[a], seats[b]));
+    }
+    return out;
+  }
+
+  const repeatCount = (edges, seats, avoid) => edges.reduce(
+    (n, [a, b]) => n + (seats[a] && seats[b] && avoid.has(pairKey(seats[a], seats[b])) ? 1 : 0), 0);
+
+  /**
+   * "Last time" is the newest kept arrangement with at least half the class
+   * in it — not merely the newest, which is often the room a moment after
+   * "Empty the seats", or three pupils placed by hand.
+   */
+  function lastArrangement(list, classSize) {
+    const enough = Math.max(2, Math.ceil(classSize / 2));
+    return (list || []).find((snap) => Object.keys((snap.plan && snap.plan.seats) || {}).length >= enough) || null;
+  }
+
+  /**
+   * One random dealing of `waiting` (pupil ids) into the plan's free seats.
+   * Returns the whole seat map, the seats filled in the order they were
+   * filled, and how many were left with nowhere to sit.
+   */
+  function dealSeats(p, waiting) {
+    const pupils = shuffle(waiting);
+    // Shuffling the DESKS is what moves the spare seats around the room.
+    // Filling seats in order always left the same desks short — the empty
+    // places piled up wherever the list happened to end.
+    const desks = shuffle(p.desks.filter((d) => d.seats > 0));
+    const caps = desks.map((d) => d.seats);
+    const already = desks.map((d) => {
+      let n = 0;
+      for (let i = 0; i < d.seats; i += 1) if (p.seats[seatId(d.id, i)]) n += 1;
+      return n;
+    });
+
+    const { add, standing } = shareOut(caps, already, pupils.length);
+
+    const seats = { ...p.seats };
+    const placed = [];
+    desks.forEach((desk, di) => {
+      if (!add[di]) return;
+      // ...and shuffling within the desk decides WHICH chair is the empty
+      // one, so it is not always the last seat that goes spare.
+      const free = shuffle(
+        Array.from({ length: desk.seats }, (_, i) => seatId(desk.id, i))
+          .filter((id) => !p.seats[id]),
+      );
+      for (let k = 0; k < add[di]; k += 1) {
+        seats[free[k]] = pupils[placed.length];
+        placed.push(free[k]);
+      }
+    });
+    return { seats, placed, standing };
+  }
+
+  /**
+   * Deals the class, keeping nobody next to a pair in `avoid` if it can.
+   *
+   * Deals afresh until one has no repeats, so when a clean arrangement exists
+   * the one chosen is still a fair pick among them. Tables of four or more
+   * can make that rare by chance alone; then the best dealing is improved by
+   * swapping pupils just seated, which only moves names between chairs and so
+   * never undoes shareOut's choice of how many sit at each desk.
+   */
+  function seatAvoiding(p, waiting, avoid, tries = 300) {
+    let best = dealSeats(p, waiting);
+    if (!avoid || !avoid.size) return { ...best, repeats: 0 };
+    const edges = seatNeighbours(p.desks);
+    let score = repeatCount(edges, best.seats, avoid);
+    for (let t = 1; t < tries && score; t += 1) {
+      const next = dealSeats(p, waiting);
+      const s = repeatCount(edges, next.seats, avoid);
+      if (s < score) { best = next; score = s; }
+    }
+
+    const spots = best.placed;
+    const seats = best.seats;
+    let better = true;
+    while (better && score) {
+      better = false;
+      for (let i = 0; i < spots.length && score; i += 1) {
+        for (let j = i + 1; j < spots.length && score; j += 1) {
+          const a = spots[i];
+          const b = spots[j];
+          [seats[a], seats[b]] = [seats[b], seats[a]];
+          const s = repeatCount(edges, seats, avoid);
+          if (s < score) { score = s; better = true; } else [seats[a], seats[b]] = [seats[b], seats[a]];
+        }
+      }
+    }
+    return { ...best, repeats: score };
+  }
+
   // How many previous arrangements to keep per class. Enough to cover a
   // half-term of weekly changes, small enough that a board full of classes
   // stays a few tens of kilobytes.
@@ -444,6 +583,10 @@
     // Pure, and the one piece of this widget where getting it wrong seats a
     // child on their own — so it is exported and tested directly.
     _shareOut: shareOut,
+    _seatNeighbours: seatNeighbours,
+    _neighbourPairs: neighbourPairs,
+    _lastArrangement: lastArrangement,
+    _seatAvoiding: seatAvoiding,
     _prunePlan: prunePlan,
     _keepHistory: keepHistory,
     _KEEP_HISTORY: KEEP_HISTORY,
@@ -1398,47 +1541,33 @@
 
       function fillAtRandom() {
         const p = plan();
-        keep('before seating at random');
-        const waiting = shuffle(unseated());
+        const waiting = unseated();
         if (!waiting.length) { toast('Everyone already has a seat.', 'warn'); return; }
         if (!allSeats().some((id) => !p.seats[id])) {
           toast('There are no empty seats. Add a desk first.', 'warn');
           return;
         }
 
-        // Shuffling the DESKS is what moves the spare seats around the room.
-        // Filling seats in order always left the same desks short — the empty
-        // places piled up wherever the list happened to end.
-        const desks = shuffle(p.desks.filter((d) => d.seats > 0));
-        const caps = desks.map((d) => d.seats);
-        const already = desks.map((d) => {
-          let n = 0;
-          for (let i = 0; i < d.seats; i += 1) if (p.seats[seatId(d.id, i)]) n += 1;
-          return n;
-        });
+        // Read last time BEFORE keep(), or the newest snapshot is this room.
+        const last = lastArrangement(s.history[s.classKey], students.length);
+        const avoid = neighbourPairs(last && last.plan);
+        keep('before seating at random');
 
-        const { add, standing } = shareOut(caps, already, waiting.length);
-
-        let next = 0;
-        desks.forEach((desk, di) => {
-          if (!add[di]) return;
-          // ...and shuffling within the desk decides WHICH chair is the empty
-          // one, so it is not always the last seat that goes spare.
-          const free = shuffle(
-            Array.from({ length: desk.seats }, (_, i) => seatId(desk.id, i))
-              .filter((id) => !p.seats[id]),
-          );
-          for (let k = 0; k < add[di]; k += 1) p.seats[free[k]] = waiting[next++].id;
-        });
+        const { seats, placed, standing, repeats } = seatAvoiding(p, waiting.map((x) => x.id), avoid);
+        p.seats = seats;
 
         // The pupils just seated arrive one after another, in the order they
         // were dealt out, so a class watching sees names land rather than a
         // full room appear.
-        arriving = new Map(waiting.slice(0, next).map((st, i) => [st.id, i]));
+        arriving = new Map(placed.map((id, i) => [seats[id], i]));
         ctx.save(); draw();
         arriving = null;
         if (standing) {
           toast(`${standing} pupil${standing === 1 ? ' has' : 's have'} nowhere to sit.`, 'warn');
+        } else if (repeats) {
+          toast(`${repeats} pair${repeats === 1 ? ' is' : 's are'} together again from last time. There was no way to split them all.`, 'warn');
+        } else if (avoid.size) {
+          toast('Nobody is next to anyone they sat beside last time.');
         }
       }
 
