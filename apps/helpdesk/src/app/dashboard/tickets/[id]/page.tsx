@@ -97,6 +97,25 @@ export default async function TicketDetailPage({
             from Teacher&apos;s Desk
           </span>
         )}
+        {/* The status list in Manage sits below the conversation on narrow
+            screens, so the everyday move gets a button up here. */}
+        <form action={update} className="ml-auto">
+          {["RESOLVED", "CLOSED"].includes(ticket.status) ? (
+            <>
+              <input type="hidden" name="status" value="OPEN" />
+              <SubmitButton className="btn-secondary px-3 py-1.5 text-sm" pendingText="Reopening…">
+                Reopen
+              </SubmitButton>
+            </>
+          ) : (
+            <>
+              <input type="hidden" name="status" value="RESOLVED" />
+              <SubmitButton className="btn-primary px-3 py-1.5 text-sm" pendingText="Resolving…">
+                Mark resolved
+              </SubmitButton>
+            </>
+          )}
+        </form>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
