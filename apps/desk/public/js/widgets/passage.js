@@ -440,6 +440,50 @@
     return { hidden, looks, ids };
   }
 
+  const INVISIBLE_NAMES = {
+    '­': 'soft hyphen', '​': 'zero-width space', '‌': 'zero-width non-joiner',
+    '‍': 'zero-width joiner', '‎': 'left-to-right mark', '‏': 'right-to-left mark',
+    '⁠': 'word joiner', '﻿': 'byte-order mark',
+  };
+  const TYPED_NAMES = { I: 'a capital I', i: 'a small i', l: 'a small l', L: 'a capital L', 1: 'the digit 1', o: 'a small o', O: 'a capital O', 0: 'the digit 0' };
+  const codeOf = (ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+  function nameOf(ch) {
+    if (isInvisible(ch)) return `an invisible ${INVISIBLE_NAMES[ch] || 'formatting mark'} (${codeOf(ch)})`;
+    const cp = ch.codePointAt(0);
+    return `a ${cp >= 0x370 && cp < 0x400 ? 'Greek' : 'Cyrillic'} “${ch}” passing for “${FOLD[ch]}” (${codeOf(ch)})`;
+  }
+
+  /**
+   * Each odd character `inspect` counts, spelled out for the teacher: the
+   * word it sits in, split around it (`before`, `ch`, `after`, the rest of
+   * the word as it reads), and `say`, what it is.
+   */
+  function hiddenList(answer, result) {
+    const out = [];
+    for (const m of String(answer || '').normalize('NFC').matchAll(/\S+/g)) {
+      const chars = [...m[0]];
+      chars.forEach((ch, i) => {
+        if (!isInvisible(ch) && !FOLD[ch]) return;
+        out.push({
+          before: deconfuse(chars.slice(0, i).join('')), ch, after: deconfuse(chars.slice(i + 1).join('')),
+          invisible: isInvisible(ch), say: nameOf(ch),
+        });
+      });
+    }
+    for (const step of result ? result.steps : []) {
+      if (step.is !== 'lookalike') continue;
+      const got = [...step.got.text];
+      const want = [...step.want.text];
+      const i = got.findIndex((c, j) => c.toLocaleLowerCase() !== (want[j] || '').toLocaleLowerCase());
+      if (i < 0) continue;
+      out.push({
+        before: got.slice(0, i).join(''), ch: got[i], after: got.slice(i + 1).join(''), invisible: false,
+        say: `${TYPED_NAMES[got[i]] || `“${got[i]}”`} where the passage has ${TYPED_NAMES[want[i]] || `“${want[i]}”`}`,
+      });
+    }
+    return out;
+  }
+
   /** The copies a set of planted characters came from, best first: [{ index, hits }]. */
   function tracedTo(ids, versions) {
     if (!ids.size) return [];
@@ -731,12 +775,28 @@
         if (c) {
           if (c.passage !== s.passage) copiesBox.append(el('p.hint.pg-rule-hint', { text: 'These were made from the passage as it was before you changed it. They still trace answers back; make new ones to hand out the new passage.' }));
           const list = el('ul.pg-copy-list');
-          c.seeds.forEach((_, i) => list.append(el('li.pg-copy', {}, [
-            el('span.pg-copy-name', { text: copyLabel(i) }),
-            el('button.btn.btn--small', { svg: icon('copy', 14), 'aria-label': `Copy ${copyLabel(i)}`, onclick: async () => {
-              toast(await copyText(versionOf(i).text) ? `${copyLabel(i)} copied — paste it where you hand it out.` : 'Could not copy. Try again from a click.');
-            } }, ' Copy'),
-          ])));
+          c.seeds.forEach((_, i) => {
+            const shown = el('div.pg-copy-hidden', { hidden: true });
+            const show = el('button.btn.btn--small.btn--ghost', { 'aria-expanded': 'false', onclick: () => {
+              if (!shown.firstChild) {
+                const text = versionOf(i).text;
+                shown.append(hiddenItems(hiddenList(text, grade(c.passage, text, rules()))));
+              }
+              shown.hidden = !shown.hidden;
+              show.setAttribute('aria-expanded', String(!shown.hidden));
+              show.textContent = shown.hidden ? 'What’s hidden' : 'Hide';
+            } }, 'What’s hidden');
+            list.append(el('li.pg-copy', {}, [
+              el('div.pg-copy-row', {}, [
+                el('span.pg-copy-name', { text: copyLabel(i) }),
+                show,
+                el('button.btn.btn--small', { svg: icon('copy', 14), 'aria-label': `Copy ${copyLabel(i)}`, onclick: async () => {
+                  toast(await copyText(versionOf(i).text) ? `${copyLabel(i)} copied — paste it where you hand it out.` : 'Could not copy. Try again from a click.');
+                } }, ' Copy'),
+              ]),
+              shown,
+            ]));
+          });
           copiesBox.append(list, el('div.pg-row', {}, [
             el('button.btn.btn--small.btn--ghost', { svg: icon('copy', 14), onclick: async () => {
               const all = c.seeds.map((_, i) => `${copyLabel(i)}\n${versionOf(i).text}`).join('\n\n');
@@ -745,6 +805,22 @@
           ]));
         }
         copiesBox.open = open;
+      }
+
+      // Whether the teacher has the hidden characters showing, so marking
+      // again as they look does not fold the list away.
+      let showHidden = false;
+
+      /** One line per odd character: its word with the character picked out, and what it is. */
+      function hiddenItems(list) {
+        return el('ul.pg-hidden-list', {}, list.map((h) => el('li', {}, [
+          el('span.pg-hidden-word', {}, [
+            h.before,
+            el(`mark${h.invisible ? '.is-ghost' : ''}`, { text: h.invisible ? '' : h.ch, title: h.say, 'aria-label': h.say }),
+            h.after,
+          ]),
+          el('span.pg-hidden-say', { text: h.say }),
+        ])));
       }
 
       /** What is odd about an answer, in words: null when it reads as typed. */
@@ -956,9 +1032,14 @@
       function hiddenFlag(result, answer, name) {
         const rep = hiddenReport(answer, result, name);
         if (!rep) return null;
+        const list = hiddenList(answer, result);
         return el(`div.pg-alert${rep.likely ? '' : '.is-soft'}`, { role: 'status' }, [
           el('strong', { text: rep.likely ? 'This answer looks pasted, not typed.' : 'One look-alike letter — pasted, or a typo?' }),
           el('span', { text: ` It has ${rep.bits}.${rep.trace ? ` ${rep.trace}` : ''}` }),
+          list.length ? el('details.pg-hidden', { open: showHidden || null, ontoggle: (e) => { showHidden = e.target.open; } }, [
+            el('summary', { text: `Show ${list.length === 1 ? 'it' : `all ${list.length}`}` }),
+            hiddenItems(list),
+          ]) : null,
         ]);
       }
 
@@ -1139,6 +1220,7 @@
     _tokenize: tokenize,
     _makeCopy: makeCopy,
     _inspect: inspect,
+    _hiddenList: hiddenList,
     _tracedTo: tracedTo,
     _kinship: kinship,
     _wordCount: wordCount,

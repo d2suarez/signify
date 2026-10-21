@@ -1501,6 +1501,13 @@ describe('the passage grader', () => {
     equal(swapped.score, 9, 'an l for the I is the right word');
     equal(swapped.tally.lookalike, 1, 'and is reported');
     equal(w._inspect('x', swapped).looks, 1);
+    const told = w._hiddenList(lord, r);
+    equal(told.length, 2, 'each hidden character is listed');
+    equal(`${told[0].before}[${told[0].ch}]${told[0].after}`, 'L[\u043E]rd', 'with the word it sits in');
+    assert(/Cyrillic/.test(told[0].say) && /U\+043E/.test(told[0].say), 'and what it is');
+    assert(told[1].invisible && told[1].before === 'sh' && /zero-width space/.test(told[1].say), 'an invisible one says where it is');
+    const swap = w._hiddenList('x', swapped);
+    assert(swap.length === 1 && /small l where the passage has a capital I/.test(swap[0].say), 'a swapped letter is named');
   });
 
   it('makes versions that read the same, differ in characters, and trace back', () => {
