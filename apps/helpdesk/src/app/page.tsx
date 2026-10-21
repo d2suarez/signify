@@ -22,7 +22,7 @@ export default async function HomePage({
     orderBy: { createdAt: "asc" },
   });
   const forms = activeForms.filter((form) => canUseForm(user, form));
-  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations()]);
+  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations(user.tenantId)]);
   const kinds = categories.map((c) => ({
     key: c.key,
     name: categoryName(c, lang),
@@ -93,7 +93,7 @@ export default async function HomePage({
           <SubmitForm
             t={t}
             kinds={kinds}
-            locations={locations.map((l) => l.name)}
+            locations={locations}
             prefill={
               scannedDevice
                 ? {

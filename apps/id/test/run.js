@@ -2527,6 +2527,65 @@ function section(title) { console.log(`\n${title}`); }
     srv.close();
   }
 
+  section('Rooms and places');
+  {
+    const placesApp = express();
+    placesApp.use(express.json());
+    placesApp.use(authMod.attachActor);
+    placesApp.use('/api/admin', require('../src/admin'));
+    const placesSrv = await new Promise((r) => { const x = placesApp.listen(0, '127.0.0.1', () => r(x)); });
+    const pBase = `http://127.0.0.1:${placesSrv.address().port}/api/admin`;
+    const pCall = (cookie, path, method = 'GET', body) => fetch(pBase + path, {
+      method, headers: { cookie, 'x-csrf-token': 't0k3n', 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const placesPerson = async (email, roleKey) => {
+      const p = await identity.resolveUser({ provider: 'google', subject: 'sub-' + email, email, name: email, hostedDomain: 'school.edu' });
+      await identity.ensureMembership(p.user.id, email, 'school.edu');
+      const role = await db.one('SELECT id FROM roles WHERE key = $1 AND tenant_id IS NULL', [roleKey]);
+      await db.query("UPDATE memberships SET role_id = $1, status = 'active' WHERE user_id = $2", [role.id, p.user.id]);
+      const sess = await sessions.create(p.user.id, { ip: '10.0.0.30', userAgent: 'test', isStaff: true });
+      return `${sessions.COOKIE}=${encodeURIComponent(sess.raw)}; csrf=t0k3n`;
+    };
+    const placesAdmin = await placesPerson('places-admin@school.edu', 'local_admin');
+    const placesTeacher = await placesPerson('places-teacher@school.edu', 'teacher');
+
+    const saved = await pCall(placesAdmin, '/places', 'PUT',
+      { tenant_id: tenant.id, locations: ['Room 12', '  Gym ', 'gym', '', 'Front   office', 'Room 3'] });
+    eq('a local admin saves the school’s places', saved.status, 200);
+    eq('blanks and repeats are dropped, spacing tidied, order kept',
+      (await saved.json()).locations.join('|'), 'Room 12|Gym|Front office|Room 3');
+    eq('a teacher cannot change them',
+      (await pCall(placesTeacher, '/places', 'PUT', { locations: ['Nope'] })).status, 403);
+    eq('the console reads them back', (await (await pCall(placesAdmin, '/places')).json()).locations.length, 4);
+    const elsewhere = await db.one("SELECT id FROM tenants WHERE id <> $1 AND kind = 'school' LIMIT 1", [tenant.id]);
+    ok('saving places is in the audit log',
+      !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'tenant.locations_updated' LIMIT 1")));
+
+    const viaApp = await fetch(`${base}/api/v1/tenants/${tenant.id}/locations`, { headers: { authorization: basic } });
+    eq('an app turned on for the school reads them with its own credentials', viaApp.status, 200);
+    eq('in the school’s order', (await viaApp.json()).locations.join('|'), 'Room 12|Gym|Front office|Room 3');
+    eq('a wrong secret is refused',
+      (await fetch(`${base}/api/v1/tenants/${tenant.id}/locations`, {
+        headers: { authorization: 'Basic ' + Buffer.from('atlas:not-the-secret').toString('base64') },
+      })).status, 401);
+    eq('no credentials at all is refused',
+      (await fetch(`${base}/api/v1/tenants/${tenant.id}/locations`)).status, 401);
+    if (elsewhere) {
+      eq('a school the app is not turned on for is not found',
+        (await fetch(`${base}/api/v1/tenants/${elsewhere.id}/locations`, { headers: { authorization: basic } })).status, 404);
+    }
+    eq('nor is a made-up school',
+      (await fetch(`${base}/api/v1/tenants/not-a-uuid/locations`, { headers: { authorization: basic } })).status, 404);
+    if (elsewhere) {
+      await pCall(placesAdmin, '/places', 'PUT', { tenant_id: elsewhere.id, locations: ['Nope'] });
+      const theirs = await db.one('SELECT settings FROM tenants WHERE id = $1', [elsewhere.id]);
+      ok('a local admin naming another school only ever changes their own',
+        !(theirs.settings.locations || []).includes('Nope'));
+    }
+    placesSrv.close();
+  }
+
   section('Audit trail');
   const disclosures = await db.many('SELECT action FROM audit_log WHERE is_disclosure');
   ok('disclosure events are flagged for FERPA', disclosures.length > 0);

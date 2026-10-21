@@ -18,6 +18,7 @@ Central identity, roles and roster service for every Signify app. A real OAuth2/
 - Privacy policy "what we collect" is generated from `src/data-inventory.js`; tests fail if a personal column is unclassified or missing from a disclosure line. Policy purposes must stand alone as bullets (no pronouns; say "email address", never bare "address"). No parental-approval wording, no named school.
 - Self-hosted fonts only in `public/vendor/` (no CDN: it would send pupil IPs to a third party).
 - Apps declare their own permissions via `/api/v1/declare`, namespace-locked.
+- A school's rooms and places live in `tenants.settings.locations` (console page Places, permission `core:manage_places`, local admins by default). Apps read them with their client credentials at `GET /api/v1/tenants/:id/locations`, only for schools they are enabled for: room names, nothing personal.
 - People with no school live in the one `tenants.kind = 'independent'` tenant (migration 012). Their grants are capped at `own` in `identity.accessFor`, so members are strangers to each other. No domains, classes, roster imports, admin or substitute roles; only super admins add them. Tokens carry `tenant_kind` so apps can hide "share with my school".
 
 ## Traps

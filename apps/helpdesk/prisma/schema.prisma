@@ -63,7 +63,9 @@ model Category {
   updatedAt        DateTime @updatedAt
 }
 
-// A place at the school, for the Location dropdown on requests.
+// No longer used: places now come from the school's list in Signify ID
+// (src/lib/categories.ts, getLocations). Kept so `prisma db push` at start-up
+// never has to drop a table that might hold rows.
 model Location {
   id        String   @id @default(cuid())
   name      String   @unique

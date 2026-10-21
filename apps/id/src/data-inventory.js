@@ -196,7 +196,7 @@ const INVENTORY = {
     year_start_month: N('Which month the school year begins, for rollover.'),
     minors_default: N('Whether pupils here are treated as under 13 by default.'),
     retention_days: N('How long this school keeps inactive records.'),
-    settings: N('School preferences, such as the year groups it uses.'),
+    settings: N('School preferences, such as the year groups it uses and its list of rooms and places.'),
     created_at: N('When the school was added.'), updated_at: N('When its settings last changed.'),
   },
   tenant_domains: {

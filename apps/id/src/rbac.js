@@ -42,6 +42,7 @@ const CATALOG = [
       { key: 'core:manage_backups',      label: 'Download a backup of the school', admin: true },
       { key: 'core:undo_import',         label: 'Undo a roster import',            admin: true },
       { key: 'core:triage_reports',      label: 'Read and close problem reports',  admin: true },
+      { key: 'core:manage_places',       label: 'Edit the school’s rooms and places', admin: true },
     ],
   },
   {
@@ -184,6 +185,7 @@ const BUILTIN_ROLES = [
       { permission: 'core:manage_backups',        scope: 'tenant' },
       { permission: 'core:undo_import',           scope: 'tenant' },
       { permission: 'core:triage_reports',        scope: 'tenant' },
+      { permission: 'core:manage_places',         scope: 'tenant' },
       { permission: 'whiteboard:teach',           scope: 'tenant' },
       { permission: 'whiteboard:manage_boards',   scope: 'tenant' },
       { permission: 'whiteboard:view_sessions',   scope: 'tenant' },

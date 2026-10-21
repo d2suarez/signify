@@ -263,4 +263,30 @@ router.post('/declare', express.json({ limit: '64kb' }), async (req, res) => {
   });
 });
 
+/**
+ * A school's rooms and places, for an app's own pickers (the Help Desk's
+ * "Where is it?"). Asked with the app's client credentials rather than a
+ * person's token, because it is a list of rooms, not anything about a person,
+ * and an app needs it when nobody is signed in to ask for it. An app sees only
+ * schools it is turned on for.
+ */
+router.get('/tenants/:id/locations', async (req, res) => {
+  req.body = req.body || {};
+  const app = await oidc.authenticateClient(req);
+  if (!app) {
+    res.set('WWW-Authenticate', 'Basic realm="signify-id"');
+    return res.status(401).json({ error: 'invalid_client' });
+  }
+  const row = await db.one(
+    `SELECT t.settings FROM tenants t
+       JOIN app_tenants at ON at.tenant_id = t.id AND at.app_id = $2 AND at.enabled = true
+      WHERE t.id = $1 AND t.kind <> 'independent'`,
+    [req.params.id, app.id]
+  ).catch(() => null);
+  if (!row) return res.status(404).json({ error: 'No such school for this app.' });
+  const list = row.settings && Array.isArray(row.settings.locations) ? row.settings.locations : [];
+  res.set('Cache-Control', 'no-store');
+  res.json({ locations: list.filter((v) => typeof v === 'string') });
+});
+
 module.exports = router;

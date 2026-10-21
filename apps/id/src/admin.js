@@ -917,6 +917,58 @@ router.delete('/tenants/:id/domains/:domain', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- places ----------
+
+// A school's rooms and places ("Room 12", "Gym", "Front office"), kept once
+// here so every app offers the same list: the Help Desk asks where something
+// is, and others may later. Names only, in the school's own order. Nothing
+// about a person, so apps read it with their own credentials (api.js).
+function cleanLocations(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(/\r?\n/);
+  const out = [];
+  const seen = new Set();
+  for (const v of list) {
+    const t = String(v).replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!t || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+    if (out.length >= 500) break;
+  }
+  return out;
+}
+
+router.get('/places', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_places', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const t = await db.one('SELECT id, name, kind, settings FROM tenants WHERE id = $1', [tenantId]).catch(() => null);
+  if (!t) return fail(res, 404, 'No such school.');
+  res.json({
+    tenant: { id: t.id, name: t.name, kind: t.kind },
+    locations: t.settings && Array.isArray(t.settings.locations) ? t.settings.locations : [],
+  });
+});
+
+router.put('/places', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_places', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  if (await isIndependent(tenantId).catch(() => false)) return fail(res, 400, 'Places belong to a school.');
+
+  const locations = cleanLocations(b.locations);
+  const t = await db.one(
+    `UPDATE tenants SET settings = jsonb_set(settings, '{locations}', $2::jsonb), updated_at = now()
+      WHERE id = $1 RETURNING id`,
+    [tenantId, JSON.stringify(locations)]
+  ).catch(() => null);
+  if (!t) return fail(res, 404, 'No such school.');
+  await audit.from(req, { tenantId, action: 'tenant.locations_updated', targetType: 'tenant', targetId: tenantId, detail: { count: locations.length } });
+  res.json({ ok: true, locations });
+});
+
 // ---------- apps (OAuth clients) ----------
 
 router.get('/apps', async (req, res) => {

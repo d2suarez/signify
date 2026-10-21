@@ -139,14 +139,47 @@ export function categoryHint(c: Pick<CategoryView, "hint" | "hintEs">, lang: str
   return lang === "es" && c.hintEs ? c.hintEs : c.hint;
 }
 
-/** Active places for the Location dropdown, in the admin's order. */
-export const getLocations = cache(async () =>
-  prisma.location.findMany({
-    where: { active: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true },
-  })
-);
+/* ---------- Places, from Signify ID ----------
+   A school keeps its rooms and places once, in Signify ID (console → Places),
+   and every app offers the same list. Asked with this app's own client
+   credentials: it is a list of rooms, nothing about a person. Kept for a
+   minute so a busy morning is not a request per page, and the last good list
+   is used if Signify ID cannot be reached. */
+
+const ISSUER = (process.env.SIGNIFY_ISSUER || "").replace(/\/+$/, "");
+const CLIENT_ID = process.env.SIGNIFY_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.SIGNIFY_CLIENT_SECRET || "";
+const PLACES_TTL_MS = 60_000;
+const placesCache = new Map<string, { at: number; list: string[] }>();
+
+/** Where the school edits its places. */
+export const PLACES_ADMIN_URL = ISSUER ? `${ISSUER}/admin` : "";
+
+/** The school's places, in its own order. Empty when there is no school or no list yet. */
+export async function getLocations(tenantId?: string | null): Promise<string[]> {
+  const tenant = tenantId || process.env.HELPDESK_TENANT_ID || "";
+  if (!tenant || !ISSUER || !CLIENT_ID || !CLIENT_SECRET) return [];
+  const cached = placesCache.get(tenant);
+  if (cached && Date.now() - cached.at < PLACES_TTL_MS) return cached.list;
+  try {
+    const res = await fetch(`${ISSUER}/api/v1/tenants/${encodeURIComponent(tenant)}/locations`, {
+      headers: {
+        authorization:
+          "Basic " + Buffer.from(`${encodeURIComponent(CLIENT_ID)}:${encodeURIComponent(CLIENT_SECRET)}`).toString("base64"),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) throw new Error(`Signify ID answered ${res.status}`);
+    const body = (await res.json()) as { locations?: unknown };
+    const list = Array.isArray(body.locations) ? body.locations.filter((v): v is string => typeof v === "string") : [];
+    placesCache.set(tenant, { at: Date.now(), list });
+    return list;
+  } catch (error) {
+    console.error("Reading places from Signify ID failed:", error);
+    return cached?.list ?? [];
+  }
+}
 
 /**
  * Checks the extra questions of a category (or form) against what was sent,

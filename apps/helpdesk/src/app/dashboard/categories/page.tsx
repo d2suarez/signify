@@ -1,17 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { getAllCategories } from "@/lib/categories";
-import {
-  addLocations,
-  deleteCategory,
-  moveCategory,
-  moveLocation,
-  removeLocation,
-  renameLocation,
-  setCategoryActive,
-  sortLocationsByName,
-} from "@/lib/actions";
+import { PLACES_ADMIN_URL, getAllCategories, getLocations } from "@/lib/categories";
+import { deleteCategory, moveCategory, setCategoryActive } from "@/lib/actions";
 import { USER_ROLES } from "@/lib/labels";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -25,11 +16,11 @@ export default async function CategoriesPage({
 }: {
   searchParams: Promise<{ msg?: string; err?: string }>;
 }) {
-  await requireAdmin();
+  const user = await requireAdmin();
   const sp = await searchParams;
   const [categories, locations, counts] = await Promise.all([
     getAllCategories(),
-    prisma.location.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    getLocations(user.tenantId),
     prisma.ticket.groupBy({ by: ["category"], _count: true }),
   ]);
   const ticketCount = new Map(counts.map((c) => [c.category, c._count]));
@@ -119,46 +110,29 @@ export default async function CategoriesPage({
         <div>
           <h2 className="text-xl font-bold">Locations</h2>
           <p className="text-sm text-slate-500">
-            The places in the Location dropdown: rooms, the gym, the playground, the front office.
-            People can still type a place that isn&apos;t listed. Removing one keeps it on old tickets.
+            The places in the Location dropdown come from your school&apos;s list in Signify ID, so every app
+            offers the same rooms. People can still type a place that isn&apos;t listed.
           </p>
         </div>
-
-        <form action={addLocations} className="card space-y-3 p-4">
-          <label className="label" htmlFor="loc-names">Add places <span className="font-normal text-slate-400">(one per line, or paste a list)</span></label>
-          <textarea id="loc-names" name="names" rows={3} className="input" placeholder={"Room 12\nGym\nPlayground\nFront office"} />
-          <SubmitButton pendingText="Adding…">Add</SubmitButton>
-        </form>
-
+        {PLACES_ADMIN_URL && (
+          <a href={PLACES_ADMIN_URL} target="_blank" rel="noreferrer" className="btn-secondary">
+            Edit places in Signify ID ↗
+          </a>
+        )}
         {locations.length === 0 ? (
           <div className="card px-6 py-8 text-center text-sm text-slate-500">
-            No places yet. Until you add some, people type where they are.
+            No places yet. Until some are added in Signify ID (console → Places), people type where they are.
           </div>
         ) : (
-          <div className="card divide-y divide-slate-100">
-            <div className="flex items-center justify-between px-4 py-2 text-xs text-slate-400">
-              <span>{locations.length} {locations.length === 1 ? "place" : "places"}, in dropdown order</span>
-              <form action={sortLocationsByName}>
-                <button className="cursor-pointer font-medium text-blue-700 hover:underline">Sort A–Z</button>
-              </form>
+          <div className="card p-4">
+            <p className="mb-2 text-xs text-slate-400">
+              {locations.length} {locations.length === 1 ? "place" : "places"}, in dropdown order. Changes in Signify ID show here within a minute.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {locations.map((name) => (
+                <span key={name} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm text-slate-700">{name}</span>
+              ))}
             </div>
-            {locations.map((loc, index) => (
-              <div key={loc.id} className="flex flex-wrap items-center gap-2 px-4 py-2">
-                <form action={renameLocation.bind(null, loc.id)} className="flex min-w-0 flex-1 items-center gap-2">
-                  <input name="name" defaultValue={loc.name} maxLength={80} aria-label="Place name" className="input min-w-0 flex-1 py-1.5" />
-                  <button className="btn-secondary px-2.5 py-1.5 text-xs">Rename</button>
-                </form>
-                <form action={moveLocation.bind(null, loc.id, -1)}>
-                  <button disabled={index === 0} className="btn-secondary px-2.5 py-1.5 disabled:opacity-30" aria-label={`Move ${loc.name} up`}>↑</button>
-                </form>
-                <form action={moveLocation.bind(null, loc.id, 1)}>
-                  <button disabled={index === locations.length - 1} className="btn-secondary px-2.5 py-1.5 disabled:opacity-30" aria-label={`Move ${loc.name} down`}>↓</button>
-                </form>
-                <form action={removeLocation.bind(null, loc.id)}>
-                  <button className="btn-secondary px-2.5 py-1.5 text-red-600" aria-label={`Remove ${loc.name}`}>✕</button>
-                </form>
-              </div>
-            ))}
           </div>
         )}
       </section>

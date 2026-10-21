@@ -947,6 +947,51 @@ function roleDialog(role, allRoles) {
   });
 }
 
+// ---------- places ----------
+// The school's rooms and places, offered wherever an app asks where
+// something is (a Help Desk request, for one). Just names, in order.
+
+pages.places = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Places', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/places?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    if (d.tenant.kind === 'independent') {
+      document.getElementById('main').innerHTML = head('Places', 'Places belong to a school.');
+      return;
+    }
+    document.getElementById('main').innerHTML =
+      head('Places', 'Rooms and places at ' + esc(d.tenant.name) + ', offered wherever an app asks where something is, such as a Help Desk request.') +
+      '<div class="card"><div class="card-body">' +
+      '<div class="field"><label for="placesList">One per line, in the order apps should list them</label>' +
+      '<textarea id="placesList" rows="16" placeholder="Room 1&#10;Room 2&#10;Gym&#10;Library&#10;Front office&#10;Playground">' +
+      esc(d.locations.join('\n')) + '</textarea>' +
+      '<div class="hint">Paste a whole list if you have one. Repeats and blank lines are dropped. ' +
+      'Renaming or removing a place does not change anything already filed under the old name.</div></div>' +
+      '<div class="toolbar" style="margin:0">' +
+      '<button class="btn btn-primary btn-sm" id="placesSave">Save</button>' +
+      '<button class="btn btn-sm" id="placesSort">Sort A–Z</button>' +
+      '<span class="muted small" id="placesCount">' + d.locations.length + (d.locations.length === 1 ? ' place' : ' places') + '</span>' +
+      '</div></div></div>';
+
+    var list = document.getElementById('placesList');
+    document.getElementById('placesSort').onclick = function () {
+      list.value = list.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean)
+        .sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); }).join('\n');
+    };
+    document.getElementById('placesSave').onclick = function () {
+      api('/places', { method: 'PUT', body: { tenant_id: state.tenantId, locations: list.value.split('\n') } })
+        .then(function (r) {
+          list.value = r.locations.join('\n');
+          document.getElementById('placesCount').textContent = r.locations.length + (r.locations.length === 1 ? ' place' : ' places');
+          toast('Saved ' + r.locations.length + (r.locations.length === 1 ? ' place.' : ' places.'));
+        })
+        .catch(function (e) { toast(e.message, true); });
+    };
+  });
+};
+
 // ---------- substitutes ----------
 // A substitute keeps one account all year and can sign in only on the days
 // they are covering. On those days every app treats them as a teacher of the

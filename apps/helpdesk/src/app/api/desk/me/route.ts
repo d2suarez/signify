@@ -19,7 +19,7 @@ export async function GET() {
       { status: 401, headers: { "Cache-Control": "no-store" } }
     );
   }
-  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations()]);
+  const [categories, locations] = await Promise.all([categoriesFor(user), getLocations(user.tenantId)]);
   const tickets = await prisma.ticket.findMany({
     where: { requesterId: user.id },
     orderBy: { updatedAt: "desc" },
@@ -42,7 +42,7 @@ export async function GET() {
         askDevice: c.askDevice,
         fields: c.fields,
       })),
-      locations: locations.map((l) => l.name),
+      locations,
       tickets: tickets.map((t) => ({
         id: t.id,
         title: t.title,
