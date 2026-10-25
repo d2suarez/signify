@@ -64,9 +64,9 @@ export default async function SettingsPage() {
           <section className="card p-5">
             <h2 className="mb-1 text-base font-semibold">Backups (admin)</h2>
             <p className="mb-4 text-sm text-slate-500">
-              A database snapshot is taken automatically every day (last 14 kept on the server
-              {emailEnabled ? ", plus a copy emailed to the help desk inbox" : ""}). You can also
-              grab one right now — store it somewhere safe off this server.
+              Every day the database and attachments are encrypted and copied off this server,
+              and kept for 28 days. You can also download the database right now. That copy is
+              not encrypted and holds every request, so keep it somewhere private.
             </p>
             <a href="/api/backup" className="btn-secondary">
               Download backup now

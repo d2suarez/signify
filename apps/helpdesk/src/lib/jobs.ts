@@ -1,20 +1,14 @@
-import { runDailyBackup } from "./backup";
 import { runDigestIfDue } from "./digest";
 import { runRecurringTasks } from "./recurring";
 
 let started = false;
 
-/** Hourly housekeeping: daily backup, weekly digest, recurring tickets. */
+/** Hourly housekeeping: weekly digest, recurring tickets. (Backups: offsite-backup.js.) */
 export function startJobs() {
   if (started) return;
   started = true;
 
   const tick = async () => {
-    try {
-      await runDailyBackup();
-    } catch (error) {
-      console.error("Backup job failed:", error instanceof Error ? error.message : error);
-    }
     try {
       await runDigestIfDue();
     } catch (error) {

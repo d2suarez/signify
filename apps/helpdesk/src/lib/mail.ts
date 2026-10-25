@@ -70,16 +70,6 @@ export async function sendMail(
 
 const send = sendMail;
 
-export async function sendMailWithAttachment(
-  to: string | undefined,
-  subject: string,
-  text: string,
-  filename: string,
-  content: Buffer
-): Promise<{ ok: boolean; error?: string }> {
-  return deliver(to, subject, text, { filename, content });
-}
-
 export async function notifyNewTicket(ticket: TicketInfo) {
   await send(
     NOTIFY_EMAIL,
