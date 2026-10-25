@@ -163,6 +163,7 @@ async function main() {
 
   app.listen(PORT, () => {
     console.log(`help desk listening on :${PORT}${DEV ? ' (next dev)' : ''}`);
+    if (PRODUCTION) require('./offsite-backup').start();
   });
 }
 
