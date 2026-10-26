@@ -8,7 +8,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen">
-      <AppHeader mode="agent" />
+      <AppHeader />
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
     </div>
   );
