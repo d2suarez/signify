@@ -23,6 +23,8 @@ const video = require('./server/video');
 const inventory = require('./server/inventory');
 const weather = require('./server/weather');
 const visitors = require('./server/visitors');
+const tools = require('./server/tools');
+const policy = require('./server/policy');
 const createBackups = require('./server/backup');
 
 const PORT = process.env.PORT || 8770;
@@ -109,6 +111,9 @@ signify.mount(app, {
   postLogoutUri: CANONICAL_HOST ? `https://${CANONICAL_HOST}/` : undefined,
 });
 app.use(signify.middleware);
+// The tools, so a school can choose which roles get which (Signify ID, Tools
+// by role). Students get only the ones marked `students: true`.
+policy.declare().catch(() => {});
 
 /**
  * Carries a just-renewed ID token forward within the same request.
@@ -130,6 +135,11 @@ app.use((req, res, next) => {
 });
 
 app.use(auth.devMiddleware);
+
+// Which tools this person may have (server/policy.js): their school's Tools
+// by role setting in Signify ID, or its defaults. Every /api route after this
+// can read req.deskTools.
+app.use('/api', policy.attach({ canBehaviour: (req) => auth.can(req, 'desk:behaviour', 'class') }));
 
 const ok = (res, data) => res.json(data);
 
@@ -192,9 +202,15 @@ app.get('/api/me', (req, res) => {
       name: u.name, email: u.email, picture: u.picture,
       role: u.roleLabel || u.role, school: u.tenantName, isSuper: u.isSuper,
       can: {
-        desk: auth.can(req, 'desk:use', 'own'),
+        desk: auth.canOpen(req),
         behaviour: auth.can(req, 'desk:behaviour', 'class'),
+        // Any tool that reads class lists, so the bar's Class lists button
+        // is not offered to somebody with none.
+        classLists: tools.ROSTER_TOOLS.some((t) => req.deskTools && req.deskTools.has(t)),
       },
+      // The tool types this person may have; the catalogue and board show no
+      // others.
+      tools: [...(req.deskTools || [])],
     },
   });
 });
@@ -203,19 +219,19 @@ app.get('/api/me', (req, res) => {
 
 app.get('/api/board', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
-  ok(res, board.boardFor(u));
+  ok(res, board.visibleTo(board.boardFor(u, req.deskTools), req.deskTools));
 });
 
 app.put('/api/board', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
-  const result = board.saveBoard(u, req.body || {});
+  const result = board.saveBoard(u, req.body || {}, req.deskTools);
   if (result.tooBig) return bad(res, 413, 'This desk is holding too much to save. Try shortening a note.');
   if (result.conflict) {
     // Logged because a conflict makes the browser reload, and a reload throws
     // away whatever had not been saved. Two tabs quietly fighting looks
     // exactly like work disappearing on its own, and nothing recorded it.
     console.warn(`desk: board ${u.uid} save refused — sent rev ${req.body && req.body.rev}, current ${result.board.rev}`);
-    return res.status(409).json({ error: 'This desk was changed somewhere else.', board: result.board });
+    return res.status(409).json({ error: 'This desk was changed somewhere else.', board: board.visibleTo(result.board, req.deskTools) });
   }
   ok(res, result);
 });
@@ -234,13 +250,13 @@ app.post('/api/board/history/:rev/restore', (req, res) => {
 
 app.post('/api/board/reset', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
-  ok(res, board.resetBoard(u));
+  ok(res, board.visibleTo(board.resetBoard(u, req.deskTools), req.deskTools));
 });
 
 // ---------------- class lists ----------------
 
 app.get('/api/classes', wrap(async (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, tools.ROSTER_TOOLS); if (!u) return;
   // Carries signifyOk, so the browser can say "could not load your classes"
   // rather than "you have none" when the lookup was refused.
   const result = await roster.classesFor(req, u);
@@ -249,7 +265,7 @@ app.get('/api/classes', wrap(async (req, res) => {
 }));
 
 app.get('/api/classes/:key/members', wrap(async (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, tools.ROSTER_TOOLS); if (!u) return;
   const result = await roster.membersOf(req, u, req.params.key);
   if (endStaleSession(req, res)) return;
   if (!result) return bad(res, 404, 'That class list is not available.');
@@ -257,20 +273,20 @@ app.get('/api/classes/:key/members', wrap(async (req, res) => {
 }));
 
 app.post('/api/lists', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, tools.ROSTER_TOOLS); if (!u) return;
   try { ok(res, roster.createList(u, req.body && req.body.name, req.body && req.body.students)); }
   catch (e) { bad(res, 400, e.message); }
 });
 
 app.put('/api/lists/:id', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, tools.ROSTER_TOOLS); if (!u) return;
   const list = roster.updateList(u, req.params.id, req.body || {});
   if (!list) return bad(res, 404, 'That list is not yours.');
   ok(res, list);
 });
 
 app.delete('/api/lists/:id', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, tools.ROSTER_TOOLS); if (!u) return;
   if (!roster.deleteList(u, req.params.id)) return bad(res, 404, 'That list is not yours.');
   ok(res, { deleted: true });
 });
@@ -311,18 +327,18 @@ app.delete('/api/behaviour/:id', (req, res) => {
 // ---------------- saved groupings ----------------
 
 app.get('/api/groupings', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, ['groups', 'scoreboard']); if (!u) return;
   ok(res, { groupings: groups.listFor(u, req.query.classKey ? String(req.query.classKey) : '') });
 });
 
 app.post('/api/groupings', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'groups'); if (!u) return;
   try { ok(res, groups.create(u, req.body || {})); }
   catch (e) { bad(res, 400, e.message); }
 });
 
 app.delete('/api/groupings/:id', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'groups'); if (!u) return;
   if (!groups.remove(u, req.params.id)) return bad(res, 404, 'That grouping is not yours.');
   ok(res, { deleted: true });
 });
@@ -332,25 +348,25 @@ app.delete('/api/groupings/:id', (req, res) => {
 // every class in it.
 
 app.get('/api/templates', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'seating'); if (!u) return;
   ok(res, { templates: templates.listFor(u) });
 });
 
 app.post('/api/templates', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'seating'); if (!u) return;
   try { ok(res, templates.create(u, req.body || {})); }
   catch (e) { bad(res, 400, e.message); }
 });
 
 app.put('/api/templates/:id', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'seating'); if (!u) return;
   const row = templates.rename(u, req.params.id, req.body && req.body.name);
   if (!row) return bad(res, 404, 'That room is not yours.');
   ok(res, row);
 });
 
 app.delete('/api/templates/:id', (req, res) => {
-  const u = auth.requireDesk(req, res); if (!u) return;
+  const u = auth.requireTool(req, res, 'seating'); if (!u) return;
   if (!templates.remove(u, req.params.id)) return bad(res, 404, 'That room is not yours.');
   ok(res, { deleted: true });
 });

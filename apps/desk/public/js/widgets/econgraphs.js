@@ -2398,6 +2398,7 @@
     blurb: 'AP Microeconomics graphs you can move: shift curves, see surplus and profit change, and quiz the class.',
     icon: 'econ',
     category: 'board',
+    students: true,
     guest: true,                  // holds nothing about pupils and calls no API
     fills: true,
     tone: 'card',

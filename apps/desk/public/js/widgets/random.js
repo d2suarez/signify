@@ -55,6 +55,7 @@
     blurb: 'A number in any range, a roll of dice, or a coin — with an option not to repeat itself.',
     icon: 'dice',
     category: 'other',
+    students: true,
     role: 'p2',
     guest: true,
     tone: 'block',

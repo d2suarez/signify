@@ -33,6 +33,15 @@ const DEV_USER = (() => {
   if (PRODUCTION) {
     throw new Error('DESK_DEV_USER is set in a hosted environment. Refusing to start.');
   }
+  // DESK_DEV_ROLE=student tries the desk as a student sees it.
+  if (process.env.DESK_DEV_ROLE === 'student') {
+    console.warn('\n  ⚠  DESK_DEV_USER is on: every request is signed in as a made-up student.\n');
+    return {
+      id: 'dev-student-0000', email: 'dev.student@example.school', name: 'Dev Student', picture: '',
+      role: 'student', roleLabel: 'Student', isSuper: false, isMinor: false,
+      tenantId: 'dev-school', tenantName: 'Development School', perms: {}, sessionId: 'dev-session',
+    };
+  }
   console.warn('\n  ⚠  DESK_DEV_USER is on: every request is signed in as a made-up teacher.\n');
   return {
     id: 'dev-teacher-0000',
@@ -99,12 +108,40 @@ function requireUser(req, res) {
   return u;
 }
 
-// The desk itself. Anyone who can use it at all holds this.
+/**
+ * May this person open the desk at all? Staff need desk:use. Students hold no
+ * permissions by design in Signify ID (and putting one on the Student role
+ * would stop a local admin assigning it), so a student gets their own desk
+ * whenever their school leaves them at least one tool. Turning every tool off
+ * for students in Tools by role closes the desk to them.
+ */
+function canOpen(req) {
+  if (signify.has(req.user, 'desk:use', 'own')) return true;
+  return !!req.user && req.user.role === 'student' && !!req.deskTools && req.deskTools.size > 0;
+}
+
+// The desk itself.
 function requireDesk(req, res) {
   const u = requireUser(req, res);
   if (!u) return null;
-  if (!signify.has(req.user, 'desk:use', 'own')) {
+  if (!canOpen(req)) {
     res.status(403).json({ error: 'Your role does not include the teacher’s desk.' });
+    return null;
+  }
+  return u;
+}
+
+/**
+ * The desk, and at least one of these tools. What the routes behind a tool
+ * use, so a tool a school has turned off is refused here and not only hidden
+ * in the browser.
+ */
+function requireTool(req, res, types) {
+  const u = requireDesk(req, res);
+  if (!u) return null;
+  const have = req.deskTools;
+  if (!have || ![].concat(types).some((t) => have.has(t))) {
+    res.status(403).json({ error: 'Your school has not given your role this tool.' });
     return null;
   }
   return u;
@@ -118,7 +155,7 @@ function requireBehaviour(req, res) {
     res.status(403).json({ error: 'Your role does not include behaviour notes.' });
     return null;
   }
-  return u;
+  return requireTool(req, res, 'behaviour');
 }
 
 const can = (req, perm, scope = 'own') => signify.has(req.user, perm, scope);
@@ -128,5 +165,5 @@ module.exports = {
   ENABLED: signify.ENABLED,
   DEV: !!DEV_USER,
   devMiddleware,
-  userFromReq, requireUser, requireDesk, requireBehaviour, can,
+  userFromReq, requireUser, requireDesk, requireTool, requireBehaviour, can, canOpen,
 };

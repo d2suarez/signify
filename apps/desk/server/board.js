@@ -12,6 +12,7 @@
 // ===================================================================
 
 const store = require('./store');
+const tools = require('./tools');
 
 const COLUMNS = 12;
 const MAX_ROWS = 400;
@@ -132,14 +133,32 @@ function cleanPrefs(input) {
   };
 }
 
-function boardFor(user) {
+/**
+ * Is this card one the person may not see? Only a tool the desk knows about
+ * can be withheld; an unknown type (one retired since) is left to the browser.
+ * `allowed` is the person's set of tool types, or null for no restriction.
+ */
+const withheld = (item, allowed) => !!allowed && tools.BY_TYPE.has(item.type) && !allowed.has(item.type);
+
+/** The starter desk, minus any tool this person does not get. */
+const starterFor = (allowed) => STARTER
+  .filter((s) => !withheld(s, allowed))
+  .map((s) => ({ id: store.id('w'), state: {}, ...s }));
+
+/** The board as this person should see it: a copy, without withheld cards. */
+function visibleTo(board, allowed) {
+  if (!allowed) return board;
+  return { ...board, items: board.items.filter((i) => !withheld(i, allowed)) };
+}
+
+function boardFor(user, allowed = null) {
   const db = store.load();
   let board = db.boards[user.uid];
   if (!board) {
     board = {
       uid: user.uid,
       rev: 1,
-      items: STARTER.map((s) => ({ id: store.id('w'), state: {}, ...s })),
+      items: starterFor(allowed),
       prefs: { ...DEFAULT_PREFS },
       updatedAt: Date.now(),
     };
@@ -154,9 +173,9 @@ function boardFor(user) {
  * Replaces the board, if the caller was looking at the current one.
  * Returns { ok } or { conflict, board }.
  */
-function saveBoard(user, incoming) {
+function saveBoard(user, incoming, allowed = null) {
   const db = store.load();
-  const current = boardFor(user);
+  const current = boardFor(user, allowed);
 
   if (Number(incoming.rev) !== current.rev) return { conflict: true, board: current };
 
@@ -166,6 +185,8 @@ function saveBoard(user, incoming) {
     if (items.length >= MAX_ITEMS) break;
     const type = String(raw && raw.type || '').slice(0, 40);
     if (!type) continue;
+    // A tool this person's school has turned off cannot be added from here.
+    if (withheld({ type }, allowed)) continue;
     const id = String(raw.id || '').slice(0, 40) || store.id('w');
     if (seen.has(id)) continue;
     seen.add(id);
@@ -179,6 +200,16 @@ function saveBoard(user, incoming) {
       h: int(raw.h, 1, 40, 4),
       state: (raw.state && typeof raw.state === 'object' && !Array.isArray(raw.state)) ? raw.state : {},
     });
+  }
+
+  // Cards this person cannot see were never sent, so they are carried over
+  // untouched rather than read as deleted. A tool a school turns off for a
+  // while comes back as it was when it is turned on again.
+  for (const kept of current.items) {
+    if (withheld(kept, allowed) && !seen.has(kept.id) && items.length < MAX_ITEMS) {
+      seen.add(kept.id);
+      items.push(kept);
+    }
   }
 
   const body = JSON.stringify(items);
@@ -209,10 +240,10 @@ function saveBoard(user, incoming) {
   return { ok: true, rev: current.rev, updatedAt: current.updatedAt };
 }
 
-function resetBoard(user) {
+function resetBoard(user, allowed = null) {
   const db = store.load();
-  const current = boardFor(user);
-  current.items = STARTER.map((s) => ({ id: store.id('w'), state: {}, ...s }));
+  const current = boardFor(user, allowed);
+  current.items = starterFor(allowed);
   // Colours are not "tools on the desk" — resetting the board should not
   // repaint the room the teacher set up.
   current.rev += 1;
@@ -255,7 +286,7 @@ function restoreHistory(user, rev) {
 }
 
 module.exports = {
-  boardFor, saveBoard, resetBoard, cleanPrefs, listHistory, restoreHistory,
+  boardFor, visibleTo, saveBoard, resetBoard, cleanPrefs, listHistory, restoreHistory,
   COLUMNS, MAX_ITEMS, STARTER, DEFAULT_PREFS, PALETTES, ACCENT_TO_PALETTE,
   _seatCounts: seatCounts, _seatsLost: seatsLost,
 };

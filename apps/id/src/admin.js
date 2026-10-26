@@ -23,6 +23,7 @@ const reports = require('./reports');
 const survey = require('./access-survey');
 const appAdmin = require('./app-admin');
 const coverage = require('./coverage');
+const features = require('./features');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -967,6 +968,70 @@ router.put('/places', async (req, res) => {
   if (!t) return fail(res, 404, 'No such school.');
   await audit.from(req, { tenantId, action: 'tenant.locations_updated', targetType: 'tenant', targetId: tenantId, detail: { count: locations.length } });
   res.json({ ok: true, locations });
+});
+
+// ---------- app features by role ----------
+
+// Which roles get which parts of each app (Teacher's Desk's tools, for one).
+// The apps say what their features are and which students get by default;
+// this is where a school departs from that. Deciding what a role may do is
+// role management, so it needs core:manage_roles, as editing a role does.
+async function featureApps(tenantId) {
+  return db.many(
+    `SELECT a.* FROM apps a
+       JOIN app_tenants at ON at.app_id = a.id AND at.tenant_id = $1 AND at.enabled
+      WHERE a.status = 'active' AND jsonb_array_length(a.features) > 0
+      ORDER BY a.name`, [tenantId]);
+}
+
+router.get('/app-features', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_roles', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const t = await db.one('SELECT id, name, kind FROM tenants WHERE id = $1', [tenantId]).catch(() => null);
+  if (!t) return fail(res, 404, 'No such school.');
+  const roles = await features.rolesFor(tenantId);
+  const apps = [];
+  for (const a of await featureApps(tenantId)) {
+    const overrides = await features.overridesFor(tenantId, a.client_id);
+    apps.push({
+      client_id: a.client_id,
+      name: a.name,
+      features: a.features,
+      allowed: features.resolve(a.features, roles.map((r) => r.key), overrides),
+      // So the page can mark which choices are the school's own.
+      overrides,
+    });
+  }
+  res.json({
+    tenant: t,
+    roles: roles.map((r) => ({ key: r.key, label: r.label, builtin: r.builtin })),
+    student_role: features.STUDENT_ROLE,
+    apps,
+  });
+});
+
+router.put('/app-features', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_roles', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const app = (await featureApps(tenantId)).find((a) => a.client_id === String(b.app || ''));
+  if (!app) return fail(res, 404, 'That app is not turned on for this school, or has nothing to set.');
+  const roleKey = String(b.role || '');
+  const role = (await features.rolesFor(tenantId)).find((r) => r.key === roleKey);
+  if (!role) return fail(res, 404, 'No such role at this school.');
+  // `reset` puts the role back on the app's defaults.
+  const allowed = b.reset ? {} : (b.allowed && typeof b.allowed === 'object' ? b.allowed : {});
+  const stored = await features.save(tenantId, app, roleKey, allowed);
+  await audit.from(req, {
+    tenantId, action: 'tenant.app_features_updated', targetType: 'app', targetId: app.client_id,
+    detail: { role: roleKey, overrides: stored },
+  });
+  const overrides = await features.overridesFor(tenantId, app.client_id);
+  res.json({ ok: true, allowed: features.resolve(app.features, [roleKey], overrides)[roleKey], overrides: overrides[roleKey] || {} });
 });
 
 // ---------- apps (OAuth clients) ----------

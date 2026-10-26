@@ -2583,6 +2583,61 @@ function section(title) { console.log(`\n${title}`); }
       ok('a local admin naming another school only ever changes their own',
         !(theirs.settings.locations || []).includes('Nope'));
     }
+
+    section('Tools by role');
+    {
+      const features = require('../src/features');
+      const decl = (body, auth = basic) => fetch(`${base}/api/v1/declare-features`, {
+        method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      eq('an app declares its tools with its own credentials', (await decl({ features: [
+        { key: 'timer', label: 'Timer', group: 'Time', students: true },
+        { key: 'seating', label: 'Seating plan', group: 'Your class' },
+        { key: 'behaviour', label: 'Behaviour tracker', group: 'Your class', students: false },
+      ] })).status, 200);
+      eq('without them it is refused', (await decl({ features: [] }, 'Basic ' + Buffer.from('atlas:wrong').toString('base64'))).status, 401);
+      eq('a bad key rejects the whole list', (await decl({ features: [{ key: 'Bad Key!', label: 'x' }] })).status, 400);
+      eq('so does a repeat', (await decl({ features: [{ key: 'a', label: 'Aa' }, { key: 'a', label: 'Aa' }] })).status, 400);
+      ok('a feature not marked for students is off for them',
+        features.clean([{ key: 'new-tool', label: 'New tool' }]).features[0].students === false);
+      ok('only a literal true counts', features.clean([{ key: 'x', label: 'Xx', students: 'yes' }]).features[0].students === false);
+
+      const read = async () => (await fetch(`${base}/api/v1/tenants/${tenant.id}/features`, { headers: { authorization: basic } })).json();
+      let got = await read();
+      eq('students get only what the app offers them', JSON.stringify(got.roles.student), JSON.stringify({ timer: true, seating: false, behaviour: false }));
+      eq('teachers get everything', JSON.stringify(got.roles.teacher), JSON.stringify({ timer: true, seating: true, behaviour: true }));
+      eq('the app can read the defaults too', got.defaults['*'].seating, true);
+      eq('an app reads only schools it is on for',
+        (await fetch(`${base}/api/v1/tenants/not-a-uuid/features`, { headers: { authorization: basic } })).status, 404);
+
+      const page = await (await pCall(placesAdmin, `/app-features?tenant_id=${tenant.id}`)).json();
+      const atlasRow = page.apps.find((a) => a.client_id === 'atlas');
+      ok('the console lists the app and the school’s roles', !!atlasRow && page.roles.some((r) => r.key === 'student'));
+      eq('a teacher cannot open the page', (await pCall(placesTeacher, '/app-features')).status, 403);
+      eq('nor change it', (await pCall(placesTeacher, '/app-features', 'PUT', { app: 'atlas', role: 'student', allowed: { seating: true } })).status, 403);
+
+      const put = await pCall(placesAdmin, '/app-features', 'PUT',
+        { tenant_id: tenant.id, app: 'atlas', role: 'student', allowed: { timer: true, seating: true, behaviour: false, invented: true } });
+      eq('a local admin turns the seating plan on for students', put.status, 200);
+      const stored = (await db.one('SELECT settings FROM tenants WHERE id = $1', [tenant.id])).settings.app_features.atlas.student;
+      eq('only the difference from the default is stored, and nothing the app did not declare', JSON.stringify(stored), JSON.stringify({ seating: true }));
+      got = await read();
+      eq('the app sees it', got.roles.student.seating, true);
+      await pCall(placesAdmin, '/app-features', 'PUT', { tenant_id: tenant.id, app: 'atlas', role: 'teacher', allowed: { timer: true, seating: true, behaviour: false } });
+      got = await read();
+      ok('a staff role can lose a tool, without touching students',
+        got.roles.teacher.behaviour === false && got.roles.student.seating === true);
+      await pCall(placesAdmin, '/app-features', 'PUT', { tenant_id: tenant.id, app: 'atlas', role: 'student', reset: true });
+      eq('back to defaults', (await read()).roles.student.seating, false);
+      eq('an unknown role is refused',
+        (await pCall(placesAdmin, '/app-features', 'PUT', { tenant_id: tenant.id, app: 'atlas', role: 'nobody', allowed: {} })).status, 404);
+      ok('the change is in the audit log',
+        !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'tenant.app_features_updated' LIMIT 1")));
+      eq('a later tool the app adds is off for students without anyone touching the page', (await (async () => {
+        await decl({ features: [{ key: 'timer', label: 'Timer', students: true }, { key: 'later', label: 'Later tool' }] });
+        return (await read()).roles.student.later;
+      })()), false);
+    }
     placesSrv.close();
   }
 

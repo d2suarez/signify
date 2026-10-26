@@ -2706,4 +2706,92 @@ describe('the economics graphs', () => {
 // ===================================================================
 store.flushSync();
 fs.rmSync(TMP, { recursive: true, force: true });
+// ===================================================================
+describe('tools by role', () => {
+  const tools = require('../server/tools');
+  const policy = require('../server/policy');
+  const Desk = loadRegistry();
+
+  it('the server reads the same tools the catalogue offers', () => {
+    equal(tools.TOOLS.map((t) => t.type).sort(), Desk.widgets.all().map((d) => d.type).filter((t) => !t.startsWith('test-')).sort());
+    for (const t of tools.TOOLS) equal(t.students, Desk.widgets.get(t.type).students === true, `${t.type} agrees on students`);
+  });
+
+  it('groups tools under the catalogue’s own drawer names', () => {
+    for (const c of Desk.widgets.CATEGORIES) equal(tools.GROUPS[c.key], c.name, c.key);
+  });
+
+  // Deliberately a written-out list. A new widget is off for students until
+  // somebody decides otherwise (and asks Desmond), which means editing this.
+  it('students get exactly these tools by default', () => {
+    equal(tools.TOOLS.filter((t) => t.students).map((t) => t.type).sort(), [
+      'alarms', 'atlas', 'breathing', 'calculator', 'calendar', 'clock', 'convert', 'countdown', 'econgraphs',
+      'emoji', 'helpdesk', 'links', 'message', 'music', 'noise', 'notes', 'picture', 'qr', 'random',
+      'scoreboard', 'slides', 'soundboard', 'stopwatch', 'timer', 'video', 'weather', 'whiteboard', 'wordcount',
+    ]);
+  });
+
+  it('and never these, unless the school turns them on', () => {
+    const mine = policy.resolve('student', null, { behaviour: true });
+    for (const t of ['behaviour', 'passage', 'randomiser', 'groups', 'seating', 'jobs']) assert(!mine.has(t), t);
+    assert(mine.has('timer'), 'but the timer, yes');
+  });
+
+  it('a widget that says nothing is off for students', () => {
+    Desk.widget({ type: 'test-unmarked', name: 'Unmarked' });
+    equal(Desk.widgets.get('test-unmarked').students, false);
+  });
+
+  it('staff get everything their permissions allow', () => {
+    const teacher = policy.resolve('teacher', null, { behaviour: true });
+    equal(teacher.size, tools.TOOLS.length);
+    assert(!policy.resolve('teacher', null, { behaviour: false }).has('behaviour'), 'behaviour still needs desk:behaviour');
+  });
+
+  it('follows the school where it has decided', () => {
+    const got = policy.resolve('student', { seating: true, timer: false });
+    assert(got.has('seating') && !got.has('timer'), 'seating on, timer off');
+    assert(got.has('clock') && !got.has('groups'), 'the rest stay on their defaults');
+    assert(!policy.resolve('student', { behaviour: true }, { behaviour: false }).has('behaviour'),
+      'a school cannot give behaviour notes to a role without desk:behaviour');
+  });
+
+  it('the class-list routes cover every tool that reads a class list', () => {
+    for (const t of ['randomiser', 'groups', 'seating', 'jobs', 'behaviour', 'passage']) assert(tools.ROSTER_TOOLS.includes(t), t);
+    assert(!tools.ROSTER_TOOLS.includes('timer'), 'and nothing else');
+  });
+
+  it('the catalogue and board leave out what the school has not allowed', () => {
+    const me = { can: { behaviour: true }, tools: ['timer', 'clock'] };
+    equal(Desk.widgets.available(me).map((d) => d.type).sort(), ['clock', 'timer']);
+    assert(Desk.widgets.available({ can: {} }).length > 2, 'a visitor, with no list, is not narrowed');
+  });
+
+  const pupil = { uid: 'u-pupil-tools', email: 'pupil@school.test', tenantId: 't1' };
+  const forPupil = policy.resolve('student', null);
+
+  it('a student’s first desk holds only tools they get', () => {
+    const b = board.boardFor(pupil, forPupil);
+    assert(b.items.length > 0, 'not empty');
+    assert(b.items.every((i) => forPupil.has(i.type)), b.items.map((i) => i.type).join());
+  });
+
+  it('a card the person cannot see survives their saves, unseen, and cannot be added', () => {
+    const t = { uid: 'u-tools-teacher', email: 't@school.test', tenantId: 't1' };
+    let b = board.boardFor(t);
+    board.saveBoard(t, { rev: b.rev, items: [
+      { id: 's1', type: 'seating', x: 0, y: 0, w: 6, h: 6, state: { keep: 1 } },
+      { id: 'k1', type: 'clock', x: 6, y: 0, w: 4, h: 4 },
+    ] });
+    const noSeating = new Set(['clock', 'timer']);
+    b = board.boardFor(t, noSeating);
+    const seen = board.visibleTo(b, noSeating);
+    equal(seen.items.map((i) => i.type), ['clock'], 'seating is not sent');
+    board.saveBoard(t, { rev: b.rev, items: [...seen.items, { id: 'g1', type: 'groups', x: 0, y: 8, w: 4, h: 4 }] }, noSeating);
+    const after = board.boardFor(t);
+    equal(after.items.map((i) => i.type).sort(), ['clock', 'seating'], 'seating kept, groups refused');
+    equal(after.items.find((i) => i.id === 's1').state.keep, 1, 'with its state');
+  });
+});
+
 report();

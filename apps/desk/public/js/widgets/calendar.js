@@ -45,6 +45,7 @@
     blurb: 'Your own Google calendar, embedded. No sign-in beyond the one your browser already has.',
     icon: 'calendar',
     category: 'other',
+    students: true,
     role: 'p2',
     tone: 'card',
     guest: true,

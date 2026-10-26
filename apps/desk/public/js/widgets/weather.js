@@ -87,6 +87,7 @@
     blurb: 'What it is doing now, and what it will be doing at the times you take them outside.',
     icon: 'cloud',
     category: 'other',
+    students: true,
     role: 'p3',
     tone: 'block',
     guest: true,

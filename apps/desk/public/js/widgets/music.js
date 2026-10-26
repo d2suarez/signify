@@ -136,6 +136,7 @@
     blurb: 'Tidy-up music or a playlist for reading — Spotify, Apple Music, SoundCloud or YouTube.',
     icon: 'speaker',
     category: 'calm',
+    students: true,
     tone: 'card',
     guest: true,
     fills: true,

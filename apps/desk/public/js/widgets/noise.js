@@ -115,6 +115,7 @@
     _noiseColour: noiseColour,
     icon: 'sound',
     category: 'calm',
+    students: true,
     guest: true,
     tone: 'block',
     role: 'p3',

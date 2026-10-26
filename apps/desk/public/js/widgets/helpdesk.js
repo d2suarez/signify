@@ -51,6 +51,7 @@
     blurb: 'Ask for help with technology or the building, and see where your requests stand.',
     icon: 'lifebuoy',
     category: 'other',
+    students: true,
     role: 'p2',
     size: { w: 4, h: 7 },
     min: { w: 3, h: 5 },

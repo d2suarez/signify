@@ -992,6 +992,95 @@ pages.places = function () {
   });
 };
 
+// ---------- tools by role ----------
+// Which parts of each app every role gets (Teacher's Desk's tools, for one).
+// The app says what its tools are and which students get by default; staff
+// get everything until the school says otherwise. One role at a time, as a
+// ticked list, so it reads the same on a phone.
+
+pages.features = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Tools by role', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/app-features?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    var main = document.getElementById('main');
+    if (!d.apps.length) {
+      main.innerHTML = head('Tools by role', 'None of the apps turned on for ' + d.tenant.name + ' has tools to set by role yet.');
+      return;
+    }
+    var pick = state.featurePick || {};
+    var app = d.apps.filter(function (a) { return a.client_id === pick.app; })[0] || d.apps[0];
+    var role = d.roles.filter(function (r) { return r.key === pick.role; })[0]
+      || d.roles.filter(function (r) { return r.key === d.student_role; })[0] || d.roles[0];
+    state.featurePick = { app: app.client_id, role: role.key };
+
+    var isStudent = role.key === d.student_role;
+    var allowed = app.allowed[role.key] || {};
+    var mine = app.overrides[role.key] || {};
+    var groups = [];
+    var byGroup = {};
+    app.features.forEach(function (f) {
+      var g = f.group || 'Other';
+      if (!byGroup[g]) { byGroup[g] = []; groups.push(g); }
+      byGroup[g].push(f);
+    });
+    var lists = groups.map(function (g) {
+      var rows = byGroup[g].map(function (f) {
+        var changed = Object.prototype.hasOwnProperty.call(mine, f.key);
+        return '<label class="perm-row" style="cursor:pointer;margin:0">' +
+          '<input type="checkbox" data-feature="' + esc(f.key) + '"' + (allowed[f.key] ? ' checked' : '') + '>' +
+          '<span class="label">' + esc(f.label) +
+          (f.description ? '<br><span class="muted small">' + esc(f.description) + '</span>' : '') + '</span>' +
+          (changed ? '<span class="chip chip-blue">Changed here</span>' : '') +
+          '</label>';
+      }).join('');
+      return '<div class="perm-group"><h3>' + esc(g) + '</h3>' + rows + '</div>';
+    }).join('');
+    var changedCount = Object.keys(mine).length;
+
+    main.innerHTML =
+      head('Tools by role', 'Which tools each role gets in the apps at ' + d.tenant.name + '. ' +
+        'Students get only the tools an app offers them until you turn more on; every other role gets everything until you turn something off. ' +
+        'A new tool is never given to students without someone deciding to.') +
+      '<div class="card"><div class="card-body">' +
+      '<div class="toolbar" style="margin:0 0 1rem;flex-wrap:wrap">' +
+      (d.apps.length > 1
+        ? '<div class="field" style="margin:0"><label for="ftApp">App</label><select id="ftApp">' +
+          d.apps.map(function (a) { return '<option value="' + esc(a.client_id) + '"' + (a === app ? ' selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
+          '</select></div>'
+        : '<div class="field" style="margin:0"><label>App</label><div>' + esc(app.name) + '</div></div>') +
+      '<div class="field" style="margin:0"><label for="ftRole">Role</label><select id="ftRole">' +
+      d.roles.map(function (r) { return '<option value="' + esc(r.key) + '"' + (r === role ? ' selected' : '') + '>' + esc(r.label) + '</option>'; }).join('') +
+      '</select></div></div>' +
+      '<p class="muted small" style="margin-top:0">' + (isStudent
+        ? 'Unticked tools do not appear for students at all, and any already on a student’s desk are hidden.'
+        : 'This role only reaches these tools if it can use ' + esc(app.name) + ' at all; that is set on the Roles page.') + '</p>' +
+      lists +
+      '<div class="toolbar" style="margin:0">' +
+      '<button class="btn btn-primary btn-sm" id="ftSave">Save</button>' +
+      '<button class="btn btn-sm" id="ftReset"' + (changedCount ? '' : ' disabled') + '>Back to the app’s defaults</button>' +
+      '<span class="muted small">' + (changedCount ? changedCount + (changedCount === 1 ? ' tool differs' : ' tools differ') + ' from the default' : 'Following the app’s defaults') + '</span>' +
+      '</div></div></div>';
+
+    var appSel = document.getElementById('ftApp');
+    if (appSel) appSel.onchange = function () { state.featurePick.app = this.value; setPage('features'); };
+    document.getElementById('ftRole').onchange = function () { state.featurePick.role = this.value; setPage('features'); };
+
+    function send(body) {
+      return api('/app-features', { method: 'PUT', body: Object.assign({ tenant_id: state.tenantId, app: app.client_id, role: role.key }, body) })
+        .then(function () { toast('Saved.'); setPage('features'); })
+        .catch(function (e) { toast(e.message, true); });
+    }
+    document.getElementById('ftSave').onclick = function () {
+      var picked = {};
+      Array.prototype.forEach.call(main.querySelectorAll('input[data-feature]'), function (el) { picked[el.dataset.feature] = el.checked; });
+      send({ allowed: picked });
+    };
+    document.getElementById('ftReset').onclick = function () { send({ reset: true }); };
+  });
+};
+
 // ---------- substitutes ----------
 // A substitute keeps one account all year and can sign in only on the days
 // they are covering. On those days every app treats them as a teacher of the

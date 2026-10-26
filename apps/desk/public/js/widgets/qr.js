@@ -66,6 +66,7 @@
     blurb: 'Put a link on the board for thirty devices to point at, instead of reading a URL out loud.',
     icon: 'qr',
     category: 'board',
+    students: true,
     tone: 'block',
     guest: true,
     size: { w: 3, h: 4 },

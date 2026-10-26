@@ -554,6 +554,7 @@
     blurb: 'Change picture formats (iPhone HEIC too), join and split PDFs, save PDF pages or their pictures, and turn a PDF into a Word document. Files never leave this computer.',
     icon: 'convert',
     category: 'other',
+    students: true,
     role: 'p4',
     guest: true,                   // holds no files and calls no API — everything runs in this browser
     fills: true,

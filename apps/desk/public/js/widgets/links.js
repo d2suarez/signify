@@ -66,6 +66,7 @@
     blurb: 'The pages you open every lesson, one tap away. Each opens in a new tab.',
     icon: 'external',
     category: 'board',
+    students: true,
     tone: 'block',
     guest: true,
     size: { w: 4, h: 5 },

@@ -473,8 +473,9 @@
       island,
       el('div.topbar-tools', {}, [
         // A visitor's class lists live in this browser, and the button is the
-        // same one — so is the dialog behind it.
-        listsBtn,
+        // same one — so is the dialog behind it. Not offered to somebody whose
+        // school leaves them no tool that uses a class list.
+        me.can.classLists === false ? null : listsBtn,
         // Always in view for a visitor: a quiet, honest note that nothing
         // here is saved to an account, which opens the whole story.
         guest ? el('button.btn.guest-pill', {

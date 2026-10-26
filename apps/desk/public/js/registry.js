@@ -17,6 +17,7 @@
 //     min:   { w: 3, h: 4 },
 //     needsRoster: false,        // shown in the "needs a class list" group
 //     permission: 'behaviour',   // optional: hide unless me.can[permission]
+//     students: true,            // optional: students get it unless their school says not (default: they do not)
 //     added: '2026-10-07',       // optional: the day it went live — announces it
 //     news:  'One line for the "New on the desk" note.',
 //     (the note's picture is /img/new/<type>.png — see README, "Announcing a tool")
@@ -102,6 +103,11 @@ window.Desk = window.Desk || {};
       // about individual children that should not sit in an open browser on a
       // shared computer (the behaviour tracker).
       guest: false,
+      // Given to students unless their school turns it off in Signify ID
+      // (Tools by role). Off unless a widget says so: a new tool reaches
+      // students only once somebody has decided it should. Ask before adding
+      // `students: true` to a new widget.
+      students: false,
       init() {},
       mount() { return {}; },
     }, def));
@@ -113,7 +119,18 @@ window.Desk = window.Desk || {};
 
   /** The catalogue for the "Add a tool" panel, minus anything this role cannot have. */
   function available(me) {
-    return all().filter((d) => !d.permission || (me && me.can && me.can[d.permission]));
+    return all().filter((d) => allowed(me, d));
+  }
+
+  /**
+   * May this person have this tool? Two gates: a permission the widget names
+   * (behaviour), and `me.tools`, the list the school's Tools by role setting
+   * leaves this person (sent by the server; absent for visitors).
+   */
+  function allowed(me, d) {
+    if (d.permission && !(me && me.can && me.can[d.permission])) return false;
+    if (me && Array.isArray(me.tools) && !me.tools.includes(d.type)) return false;
+    return true;
   }
 
   /**
@@ -176,5 +193,5 @@ window.Desk = window.Desk || {};
     });
   }
 
-  Object.assign(Desk, { widget, widgets: { get, all, available, byCategory, isNew, announce, category, marker, CATEGORIES } });
+  Object.assign(Desk, { widget, widgets: { get, all, available, allowed, byCategory, isNew, announce, category, marker, CATEGORIES } });
 }(window.Desk));

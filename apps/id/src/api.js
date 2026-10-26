@@ -16,6 +16,7 @@ const audit = require('./audit');
 const catalog = require('./catalog');
 const rbac = require('./rbac');
 const reports = require('./reports');
+const features = require('./features');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -287,6 +288,59 @@ router.get('/tenants/:id/locations', async (req, res) => {
   const list = row.settings && Array.isArray(row.settings.locations) ? row.settings.locations : [];
   res.set('Cache-Control', 'no-store');
   res.json({ locations: list.filter((v) => typeof v === 'string') });
+});
+
+/**
+ * An app declares its features: the parts of it a school may turn on or off
+ * by role (Teacher's Desk's tools). Client credentials, at boot, like
+ * /declare. Each feature says whether students get it by default; anything
+ * not marked stays away from students until a school turns it on.
+ */
+router.post('/declare-features', express.json({ limit: '64kb' }), async (req, res) => {
+  const app = await oidc.authenticateClient(req);
+  if (!app) {
+    res.set('WWW-Authenticate', 'Basic realm="signify-id"');
+    return res.status(401).json({ error: 'invalid_client' });
+  }
+  const before = (Array.isArray(app.features) ? app.features : []).map((f) => f.key).sort().join();
+  const result = await features.declare(app, (req.body || {}).features);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  // Only audited when the list changed, or every boot of every app would be
+  // an entry.
+  if (result.declared.slice().sort().join() !== before) {
+    await audit.record({
+      appId: app.id,
+      action: 'app.features_declared',
+      targetType: 'app', targetId: app.client_id,
+      detail: { declared: result.declared },
+      ip: req.ip,
+    });
+  }
+  res.json({ ok: true, declared: result.declared });
+});
+
+/**
+ * Which of an app's features each role gets at one school. Client
+ * credentials, like the school's places: it is a school's settings, nothing
+ * about a person, and the app resolves it against the `role` in a person's
+ * token itself. Only for schools the app is turned on for.
+ */
+router.get('/tenants/:id/features', async (req, res) => {
+  req.body = req.body || {};
+  const app = await oidc.authenticateClient(req);
+  if (!app) {
+    res.set('WWW-Authenticate', 'Basic realm="signify-id"');
+    return res.status(401).json({ error: 'invalid_client' });
+  }
+  const row = await db.one(
+    `SELECT t.id FROM tenants t
+       JOIN app_tenants at ON at.tenant_id = t.id AND at.app_id = $2 AND at.enabled = true
+      WHERE t.id = $1`,
+    [req.params.id, app.id]
+  ).catch(() => null);
+  if (!row) return res.status(404).json({ error: 'No such school for this app.' });
+  res.set('Cache-Control', 'no-store');
+  res.json(await features.forTenant(row.id, app));
 });
 
 module.exports = router;

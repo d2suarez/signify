@@ -32,6 +32,7 @@
     blurb: 'Points for teams, houses or tables. Groups rather than named children, on purpose.',
     icon: 'trophy',
     category: 'class',
+    students: true,
     tone: 'card',
     guest: true,
     size: { w: 4, h: 4 },

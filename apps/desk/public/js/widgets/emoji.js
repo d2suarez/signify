@@ -60,6 +60,7 @@
     blurb: 'Roll one and it is on your clipboard, ready to paste onto a piece of work.',
     icon: 'smile',
     category: 'other',
+    students: true,
     role: 'p3',
     tone: 'block',
     guest: true,

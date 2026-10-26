@@ -196,7 +196,7 @@ const INVENTORY = {
     year_start_month: N('Which month the school year begins, for rollover.'),
     minors_default: N('Whether pupils here are treated as under 13 by default.'),
     retention_days: N('How long this school keeps inactive records.'),
-    settings: N('School preferences, such as the year groups it uses and its list of rooms and places.'),
+    settings: N('School preferences, such as the year groups it uses, its list of rooms and places, and which roles get which parts of each app.'),
     created_at: N('When the school was added.'), updated_at: N('When its settings last changed.'),
   },
   tenant_domains: {
@@ -234,6 +234,7 @@ const INVENTORY = {
     session_ttl_hours: N('How long a sign-in to it lasts.'),
     launch_url: N('Where the app lives, so the switcher can offer it. An app without one simply does not appear.'),
     short_name: N('The name shown under the app\u2019s tile in the switcher.'),
+    features: N('The parts of the app, such as its tools, that a school can turn on or off for each role, and which of them students get unless the school decides otherwise.'),
     tile_initials: N('The one or two letters drawn on the tile.'),
     tile_color: N('Which of the palette colours the tile uses.'),
     sort_order: N('Where the app sits in the switcher grid.'),

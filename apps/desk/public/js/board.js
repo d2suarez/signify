@@ -881,8 +881,10 @@ window.Desk = window.Desk || {};
     board.rev = data.rev;
     board.prefs = data.prefs || null;
     board.items = (data.items || []).map((i) => ({ ...i, state: i.state || {} }))
-      // Anything this role may not have (behaviour, say) simply is not drawn.
-      .filter((i) => { const d = Desk.widgets.get(i.type); return !d || !d.permission || (me.can && me.can[d.permission]); });
+      // Anything this person may not have (behaviour, or a tool their school
+      // has turned off for their role) simply is not drawn. The server keeps
+      // such cards on the desk unseen, so they come back if it is turned on.
+      .filter((i) => { const d = Desk.widgets.get(i.type); return !d || Desk.widgets.allowed(me, d); });
     render();
     startClocks();
 

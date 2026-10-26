@@ -49,6 +49,7 @@
     blurb: 'Paste or type to count words, characters, sentences and reading time, with an optional word goal.',
     icon: 'notes',
     category: 'class',
+    students: true,
     guest: true,                   // holds nothing (text is never saved) and calls no API
     tone: 'card',
     size: { w: 4, h: 4 },

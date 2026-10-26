@@ -68,6 +68,7 @@
     blurb: 'Sleeps until the trip, the holidays or the concert — the thing they ask about every morning.',
     icon: 'calendar',
     category: 'time',
+    students: true,
     guest: true,
     tone: 'block',
     size: { w: 3, h: 4 },
