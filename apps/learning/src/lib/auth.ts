@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { classesFor, type IdClass } from "./roster";
+import { classesFor, childrenFor, type IdClass, type IdChild } from "./roster";
 
 /**
  * Who is signed in comes from Signify ID, through server.js: signify-auth
@@ -67,4 +67,11 @@ export const myClasses = cache(async (): Promise<{ ok: boolean; classes: IdClass
   const me = await readMe();
   if (!me) return { ok: false, classes: [] };
   return classesFor({ id: me.id, role: me.role, dev: me.dev }, await token());
+});
+
+/** The signed-in parent's verified children, live from Signify ID. */
+export const myChildren = cache(async (): Promise<{ ok: boolean; children: IdChild[] }> => {
+  const me = await readMe();
+  if (!me) return { ok: false, children: [] };
+  return childrenFor({ id: me.id, role: me.role, dev: me.dev }, await token());
 });

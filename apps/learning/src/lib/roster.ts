@@ -70,7 +70,7 @@ async function cached<T>(key: string, produce: () => Promise<T | null>): Promise
 export type Who = { id: string; role?: string | null; dev?: boolean };
 
 export async function classesFor(who: Who, token: string): Promise<{ ok: boolean; classes: IdClass[] }> {
-  if (who.dev) return { ok: true, classes: DEV_CLASSES[who.role === "student" ? "student" : "teacher"] };
+  if (who.dev) return { ok: true, classes: who.role === "guardian" ? [] : DEV_CLASSES[who.role === "student" ? "student" : "teacher"] };
   const body = await cached(`classes:${who.id}`, () => ask<{ classes: IdClass[] }>(token, "/api/v1/classes"));
   return body ? { ok: true, classes: body.classes || [] } : { ok: false, classes: [] };
 }
@@ -80,4 +80,33 @@ export async function membersOf(who: Who, token: string, classId: string): Promi
   const body = await cached(`members:${who.id}:${classId}`,
     () => ask<{ members: IdMember[] }>(token, `/api/v1/classes/${encodeURIComponent(classId)}/members`));
   return body ? { ok: true, members: body.members || [] } : { ok: false, members: [] };
+}
+
+/** A parent's child, as Signify ID tells it: only links the school verified. */
+export type IdChild = {
+  id: string;
+  display_name: string;
+  relationship: string;
+  picture_url?: string | null;
+  classes: IdClass[];
+};
+
+/** Local development: the made-up parent's child is the made-up student. */
+export const DEV_CHILDREN: IdChild[] = [
+  { id: "dev-student-0000", display_name: "Dev Student", relationship: "parent", classes: DEV_CLASSES.student },
+];
+
+/**
+ * The signed-in person's children at their school, from Signify ID with their
+ * own token. ID counts only links the school has verified; this never asks
+ * about anyone else, and nothing it returns is stored.
+ */
+export async function childrenFor(who: Who, token: string): Promise<{ ok: boolean; children: IdChild[] }> {
+  if (who.dev) return { ok: true, children: who.role === "guardian" ? DEV_CHILDREN : [] };
+  const body = await cached(`children:${who.id}`, () => ask<{ children: IdChild[] }>(token, "/api/v1/my-children"));
+  if (!body) return { ok: false, children: [] };
+  const children = (body.children || []).map((c) => ({
+    ...c, classes: (c.classes || []).map((k) => ({ ...k, role: "student" })),
+  }));
+  return { ok: true, children };
 }
