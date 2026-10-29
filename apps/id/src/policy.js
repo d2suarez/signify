@@ -37,8 +37,11 @@
 // version and telling the school first.
 // 2026-09-29: substitute cover is recorded — who covered which classes, and
 // on which days — and what is collected is listed accordingly.
-const VERSION = '2026-09-29';
-const EFFECTIVE = '29 September 2026';
+// 2026-10-29: once a school confirms a parent's link to a student, the apps
+// that parent signs in to are told which children and classes, so the parent
+// can see that child's work.
+const VERSION = '2026-10-29';
+const EFFECTIVE = '29 October 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

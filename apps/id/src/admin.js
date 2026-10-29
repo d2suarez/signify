@@ -24,6 +24,7 @@ const survey = require('./access-survey');
 const appAdmin = require('./app-admin');
 const coverage = require('./coverage');
 const features = require('./features');
+const guardians = require('./guardians');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -968,6 +969,72 @@ router.put('/places', async (req, res) => {
   if (!t) return fail(res, 404, 'No such school.');
   await audit.from(req, { tenantId, action: 'tenant.locations_updated', targetType: 'tenant', targetId: tenantId, detail: { count: locations.length } });
   res.json({ ok: true, locations });
+});
+
+// ---------- parents and guardians ----------
+// The school says which adult is which student's parent. Only verified links
+// grant anything, and only the school verifies: see src/guardians.js.
+
+router.get('/guardians', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_guardians', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  if (await isIndependent(tenantId).catch(() => false)) return fail(res, 400, 'Parents are linked at a school.');
+  res.json(await guardians.overview(tenantId));
+});
+
+router.post('/guardians', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_guardians', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  if (await isIndependent(tenantId).catch(() => false)) return fail(res, 400, 'Parents are linked at a school.');
+  const result = await guardians.link({
+    tenantId, guardianId: b.guardian_id, studentId: b.student_id,
+    relationship: b.relationship, verify: b.verify !== false, actorId: actor.userId,
+  });
+  if (!result.ok) return fail(res, 400, result.error);
+  await audit.from(req, {
+    tenantId, action: 'guardian.linked', targetType: 'user', targetId: b.student_id,
+    detail: { linkId: result.id, guardianId: b.guardian_id, relationship: b.relationship || 'parent', verified: result.verified },
+  });
+  if (result.verified) {
+    await audit.from(req, {
+      tenantId, action: 'guardian.verified', targetType: 'user', targetId: b.student_id,
+      detail: { linkId: result.id, guardianId: b.guardian_id },
+    });
+  }
+  res.status(201).json({ ok: true, id: result.id, verified: result.verified });
+});
+
+router.post('/guardians/:id/verify', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_guardians', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, (req.body || {}).tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await guardians.verify(req.params.id, tenantId, actor.userId);
+  if (!result.ok) return fail(res, 404, result.error);
+  await audit.from(req, {
+    tenantId, action: 'guardian.verified', targetType: 'user', targetId: result.student_id,
+    detail: { linkId: result.id, guardianId: result.guardian_id },
+  });
+  res.json({ ok: true });
+});
+
+router.delete('/guardians/:id', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_guardians', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id || (req.body || {}).tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await guardians.remove(req.params.id, tenantId);
+  if (!result.ok) return fail(res, 404, result.error);
+  await audit.from(req, {
+    tenantId, action: 'guardian.removed', targetType: 'user', targetId: result.student_id,
+    detail: { linkId: result.id, guardianId: result.guardian_id },
+  });
+  res.json({ ok: true });
 });
 
 // ---------- app features by role ----------

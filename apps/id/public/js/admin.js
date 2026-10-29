@@ -947,6 +947,106 @@ function roleDialog(role, allRoles) {
   });
 }
 
+// ---------- parents and guardians ----------
+// The school links a parent's account to their child. Only a verified link
+// lets an app (Signify Learning's parent view) show that parent anything.
+
+var RELATIONSHIP_LABELS = { parent: 'Parent', mother: 'Mother', father: 'Father', guardian: 'Guardian',
+  grandparent: 'Grandparent', carer: 'Carer', other: 'Other' };
+
+pages.guardians = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Parents', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/guardians?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    var rows = d.links.map(function (l) {
+      var status = l.verified_at
+        ? '<span class="chip chip-green">Verified</span>' +
+          (l.verified_by_name ? '<div class="small muted" style="margin-top:.2rem">by ' + esc(l.verified_by_name) + '</div>' : '')
+        : '<span class="chip chip-yellow">Not verified</span><div class="small muted" style="margin-top:.2rem">Grants nothing yet</div>';
+      return '<tr>' +
+        '<td><div style="font-weight:550">' + esc(l.student_name) + '</div><div class="small muted">' + esc(l.student_email) + '</div></td>' +
+        '<td><div style="font-weight:550">' + esc(l.guardian_name) + '</div><div class="small muted">' + esc(l.guardian_email) + '</div></td>' +
+        '<td>' + esc(RELATIONSHIP_LABELS[l.relationship] || l.relationship) + '</td>' +
+        '<td>' + status + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          (l.verified_at ? '' : '<button class="btn btn-sm btn-primary" data-verify="' + esc(l.id) + '">Verify</button> ') +
+          '<button class="btn btn-sm btn-danger" data-unlink="' + esc(l.id) + '" aria-label="Remove the link between ' +
+            esc(l.guardian_name) + ' and ' + esc(l.student_name) + '">Remove</button>' +
+        '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">No parents linked yet.</td></tr>';
+
+    var noParents = !d.guardians.some(function (g) { return g.role_key === 'guardian'; });
+    document.getElementById('main').innerHTML =
+      head('Parents', 'Link a parent’s account to their child. Once a link is verified, a parent signing in to Signify Learning sees that child’s ' +
+        'assignments and the grades their teachers have released, and nothing about any other student.') +
+      (noParents ? '<div class="notice notice-info"><strong>Add the parent first</strong>' +
+        'A parent needs an account at this school before they can be linked. Add them on the People page with the role Parent or guardian, using the Google account they will sign in with.' +
+        '<div style="margin-top:.5rem"><button class="btn btn-sm" data-go="users">Open People</button></div></div>' : '') +
+      '<div class="card"><div class="card-head"><h2>Links</h2><div class="spacer"></div>' +
+        '<button class="btn btn-sm btn-primary" id="newGuardian">Link a parent</button></div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Student</th><th>Parent or guardian</th><th>Relationship</th><th>Status</th><th></th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>' +
+      '<p class="small muted" style="margin:.6rem .9rem">Check who a parent is before verifying them, for example against the enrolment form. ' +
+      'Every link, verification and removal is in the audit log.</p></div>';
+
+    bindGo();
+    document.getElementById('newGuardian').onclick = function () { guardianDialog(d); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-verify]'), function (b) {
+      b.onclick = function () {
+        if (!window.confirm('Verify this link? The parent will be able to see this child’s work and released grades.')) return;
+        api('/guardians/' + encodeURIComponent(b.dataset.verify) + '/verify', { method: 'POST', body: { tenant_id: state.tenantId } })
+          .then(function () { toast('Link verified.'); setPage('guardians'); })
+          .catch(function (e) { toast(e.message, true); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-unlink]'), function (b) {
+      b.onclick = function () {
+        if (!window.confirm('Remove this link? The parent stops seeing this child’s work straight away.')) return;
+        api('/guardians/' + encodeURIComponent(b.dataset.unlink) + '?tenant_id=' + encodeURIComponent(state.tenantId), { method: 'DELETE' })
+          .then(function () { toast('Link removed.'); setPage('guardians'); })
+          .catch(function (e) { toast(e.message, true); });
+      };
+    });
+  });
+};
+
+function guardianDialog(d) {
+  var person = function (p) {
+    return '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.email) + ')' +
+      (p.role_key && p.role_key !== 'guardian' ? ' · ' + esc(p.role_label) : '') + '</option>';
+  };
+  var rels = d.relationships.map(function (r) {
+    return '<option value="' + esc(r) + '">' + esc(RELATIONSHIP_LABELS[r] || r) + '</option>';
+  }).join('');
+  modal({
+    title: 'Link a parent',
+    confirm: 'Link',
+    body:
+      '<div class="field"><label for="gl_student">Student</label><select id="gl_student">' +
+        (d.students.map(person).join('') || '<option value="">No students at this school</option>') + '</select></div>' +
+      '<div class="field"><label for="gl_guardian">Parent or guardian</label><select id="gl_guardian">' +
+        (d.guardians.map(person).join('') || '<option value="">Nobody to choose</option>') + '</select>' +
+        '<div class="hint">Not listed? Add them on the People page first, with the role Parent or guardian.</div></div>' +
+      '<div class="field"><label for="gl_rel">Relationship</label><select id="gl_rel">' + rels + '</select></div>' +
+      '<label class="perm-row" style="cursor:pointer;margin:0"><input type="checkbox" id="gl_verify" checked>' +
+        '<span class="label">I have checked who this parent is, so verify the link now</span></label>',
+    onConfirm: function (m) {
+      return api('/guardians', { method: 'POST', body: {
+        tenant_id: state.tenantId,
+        student_id: m.querySelector('#gl_student').value,
+        guardian_id: m.querySelector('#gl_guardian').value,
+        relationship: m.querySelector('#gl_rel').value,
+        verify: m.querySelector('#gl_verify').checked,
+      } }).then(function (r) {
+        toast(r.verified ? 'Parent linked and verified.' : 'Parent linked. Verify the link to let them see anything.');
+        setPage('guardians');
+      });
+    },
+  });
+}
+
 // ---------- places ----------
 // The school's rooms and places, offered wherever an app asks where
 // something is (a Help Desk request, for one). Just names, in order.

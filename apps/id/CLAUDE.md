@@ -3,7 +3,7 @@
 Central identity, roles and roster service for every Signify app. A real OAuth2/OIDC provider (auth code + PKCE, RS256, JWKS) with Postgres, live at https://id.signify.one. Google OAuth is the only sign-in. Apps are relying parties via `client/signify-auth.js`. Full history is in the `signify-id-identity-service` and `signify-id-idle-window` memory files.
 
 ## Run / test / deploy
-- `npm test` (about 556 assertions, in-process PGlite; no server needed).
+- `npm test` (about 655 assertions, in-process PGlite; no server needed).
 - `node test/dev-server.js` (port 3010, throwaway DB, seeded demo school, `ALLOW_DEV_LOGIN=1`). `node test/dev-app.js` runs a demo app on :3011.
 - Deploy: Railway project `signify-id`, not app-sleeping (every sign-in goes through it). Config is in `.railway/railway.ts`; `railway config plan` first.
 - Production DB access: `railway ssh --service signify-id`, query through `/app/src/db.js`. `railway run` cannot reach the DB. Avoid `$$` and `$1` in remote commands (the shell expands them); inline literals instead. `audit_log` time column is `ts`.
@@ -20,6 +20,7 @@ Central identity, roles and roster service for every Signify app. A real OAuth2/
 - Apps declare their own permissions via `/api/v1/declare`, namespace-locked.
 - Apps can also declare **features** (`/api/v1/declare-features`, stored in `apps.features`, migration 013): parts a school turns on or off per role on the console's Tools by role page (`core:manage_roles`). Default: the built-in `student` role gets only features marked `students: true`, every other role gets everything. Only differences are stored, in `tenants.settings.app_features[client_id][role_key]`. Apps read `GET /api/v1/tenants/:id/features` with client credentials. Teacher's Desk uses it for its tools. Do not give the Student role a permission to make an app open for it: the escalation guard then stops local admins who lack that permission from assigning Student.
 - A school's rooms and places live in `tenants.settings.locations` (console page Places, permission `core:manage_places`, local admins by default). Apps read them with their client credentials at `GET /api/v1/tenants/:id/locations`, only for schools they are enabled for: room names, nothing personal.
+- Parents: the school links a parent's account to a student on the console's **Parents** page (`src/guardians.js`, `core:manage_guardians`, local admins by default), and verifies it; every link, verify and removal is audited (`guardian.*`). Only verified links at the token's school count. Apps ask `GET /api/v1/my-children` with the parent's own token (children, relationship, each child's classes; no emails). The parent is added first on People with the role Parent or guardian, using the Google account they sign in with. Signify Learning's parent view reads it.
 - People with no school live in the one `tenants.kind = 'independent'` tenant (migration 012). Their grants are capped at `own` in `identity.accessFor`, so members are strangers to each other. No domains, classes, roster imports, admin or substitute roles; only super admins add them. Tokens carry `tenant_kind` so apps can hide "share with my school".
 
 ## Traps

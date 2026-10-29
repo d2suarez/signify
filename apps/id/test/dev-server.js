@@ -32,6 +32,7 @@ const { PglitePool } = require('./pglite-pool');
     const student = await db.one("SELECT id FROM roles WHERE key='student' AND tenant_id IS NULL");
     const teacher = await db.one("SELECT id FROM roles WHERE key='teacher' AND tenant_id IS NULL");
     const substitute = await db.one("SELECT id FROM roles WHERE key='substitute' AND tenant_id IS NULL");
+    const guardian = await db.one("SELECT id FROM roles WHERE key='guardian' AND tenant_id IS NULL");
     const names = [
       ['ada@demo.edu', 'Ada Fielding', student, 'active', '3'],
       ['ben@demo.edu', 'Ben Okafor', student, 'active', '3'],
@@ -42,6 +43,8 @@ const { PglitePool } = require('./pglite-pool');
       ['mr.stone@demo.edu', 'Alex Stone', teacher, 'active', null],
       // Signs in only on days the school has arranged cover (Substitutes page).
       ['sam.reed@demo.edu', 'Sam Reed', substitute, 'active', null],
+      // Ben's parent, not yet linked to him (Parents page).
+      ['pat.okafor@gmail.com', 'Pat Okafor', guardian, 'active', null],
     ];
     for (const [email, name, role, status, grade] of names) {
       const u = await db.one(

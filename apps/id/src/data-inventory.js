@@ -65,10 +65,10 @@ const INVENTORY = {
 
   guardian_links: {
     id:           N('Internal reference for one guardian relationship.'),
-    guardian_id:  { personal: true, category: 'identity', purpose: 'Which adult is recorded as a student\u2019s parent or guardian.', exposed: 'admin' },
-    student_id:   { personal: true, category: 'identity', purpose: 'The child. Establishes the parent’s right to inspect that child’s records.', exposed: 'admin' },
+    guardian_id:  { personal: true, category: 'identity', purpose: 'Which adult is recorded as a student\u2019s parent or guardian.', exposed: 'apps' },
+    student_id:   { personal: true, category: 'identity', purpose: 'The child. Establishes the parent’s right to inspect that child’s records.', exposed: 'apps' },
     tenant_id:    { personal: true, category: 'school', purpose: 'Which school a parent-and-student relationship applies at.', exposed: 'admin' },
-    relationship: { personal: true, category: 'identity', purpose: 'How that adult is related to the student, as the school records it.', exposed: 'admin' },
+    relationship: { personal: true, category: 'identity', purpose: 'How that adult is related to the student, as the school records it.', exposed: 'apps' },
     verified_at:  { personal: true, category: 'technical', purpose: 'The date the school confirmed a parent-and-student relationship. Unconfirmed ones grant nothing.', exposed: 'admin' },
     verified_by:  { personal: true, category: 'technical', purpose: 'Which member of staff confirmed that relationship.', exposed: 'admin' },
     created_at:   { personal: true, category: 'technical', purpose: 'The date a parent-and-student relationship was first recorded.', exposed: 'admin' },
@@ -399,7 +399,7 @@ const DISCLOSURES = [
   },
   {
     category: 'identity',
-    text: 'If a parent or guardian has been linked to a student: who they are and how they are related.',
+    text: 'If a parent or guardian has been linked to a student: who they are and how they are related. Once the school has confirmed the link, an app that parent signs in to is told which of their children are at the school and which classes each child is in, so the parent can see that child\u2019s work and released grades. Nothing is told to an app about a link the school has not confirmed.',
     covers: ['guardian_links.guardian_id', 'guardian_links.student_id', 'guardian_links.relationship'],
   },
   {

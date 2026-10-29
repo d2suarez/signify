@@ -2638,6 +2638,94 @@ function section(title) { console.log(`\n${title}`); }
         return (await read()).roles.student.later;
       })()), false);
     }
+
+    section('Parents and guardians');
+    {
+      const guardianRole = await db.one("SELECT id FROM roles WHERE key = 'guardian' AND tenant_id IS NULL");
+      // The school adds the parent with the Google account they will use,
+      // which is usually not a school address.
+      const added = await pCall(placesAdmin, '/users', 'POST',
+        { tenant_id: tenant.id, email: 'pat.parent@gmail.com', name: 'Pat Parent', role_id: guardianRole.id });
+      eq('a local admin adds a parent account', added.status, 200);
+      const patId = (await added.json()).id;
+      const pat = await identity.resolveUser({ provider: 'google', subject: 'google-sub-pat', email: 'pat.parent@gmail.com', name: 'Pat Parent' });
+      eq('the parent signs in to the account the school made', pat.user && pat.user.id, patId);
+      const kid = bobUser.id;   // a student in klass
+
+      eq('a teacher cannot open the Parents page', (await pCall(placesTeacher, '/guardians')).status, 403);
+      eq('nor link anybody', (await pCall(placesTeacher, '/guardians', 'POST',
+        { guardian_id: patId, student_id: kid })).status, 403);
+      const page = await (await pCall(placesAdmin, `/guardians?tenant_id=${tenant.id}`)).json();
+      ok('the page offers the parent', page.guardians.some((g) => g.id === patId && g.role_key === 'guardian'));
+      ok('and the student, but no student as a parent',
+        page.students.some((x) => x.id === kid) && !page.guardians.some((g) => g.id === kid));
+
+      eq('a student cannot be linked as a parent',
+        (await pCall(placesAdmin, '/guardians', 'POST', { tenant_id: tenant.id, guardian_id: kid, student_id: patId })).status, 400);
+      eq('nor can anyone be linked to a non-student',
+        (await pCall(placesAdmin, '/guardians', 'POST', { tenant_id: tenant.id, guardian_id: patId, student_id: claimed.user.id })).status, 400);
+      eq('nor with a made-up relationship',
+        (await pCall(placesAdmin, '/guardians', 'POST', { tenant_id: tenant.id, guardian_id: patId, student_id: kid, relationship: 'neighbour' })).status, 400);
+
+      const linked = await pCall(placesAdmin, '/guardians', 'POST',
+        { tenant_id: tenant.id, guardian_id: patId, student_id: kid, relationship: 'mother', verify: false });
+      eq('a local admin links a parent to a student', linked.status, 201);
+      const link = await linked.json();
+      eq('left unverified when asked', link.verified, false);
+      eq('the same pair cannot be linked twice',
+        (await pCall(placesAdmin, '/guardians', 'POST', { tenant_id: tenant.id, guardian_id: patId, student_id: kid })).status, 400);
+
+      // The parent's token for an app, through the real sign-in.
+      const patSession = await sessions.create(patId, { ip: '10.0.0.40', userAgent: 'test', isStaff: false });
+      const vP = crypto.randomBytes(32).toString('base64url');
+      const cP = crypto.createHash('sha256').update(vP).digest('base64url');
+      const aP = await fetch(`${base}/authorize?response_type=code&client_id=atlas` +
+        `&redirect_uri=${encodeURIComponent('http://localhost:4000/auth/callback')}` +
+        `&scope=openid+profile+email+roles&state=pat&code_challenge=${cP}&code_challenge_method=S256`,
+        { headers: { cookie: `${sessions.COOKIE}=${encodeURIComponent(patSession.raw)}` }, redirect: 'manual' });
+      const codeP = new URL(aP.headers.get('location')).searchParams.get('code');
+      const tP = await (await fetch(`${base}/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+        body: form({ grant_type: 'authorization_code', code: codeP, redirect_uri: 'http://localhost:4000/auth/callback', code_verifier: vP }),
+      })).json();
+      ok('a parent gets tokens for an app', !!tP.access_token);
+      const kids = async (tok = tP.access_token) => fetch(`${base}/api/v1/my-children`, bearer(tok));
+
+      eq('an unverified link grants nothing', (await (await kids()).json()).children.length, 0);
+      eq('a teacher cannot verify it', (await pCall(placesTeacher, `/guardians/${link.id}/verify`, 'POST', {})).status, 403);
+      eq('a local admin verifies it', (await pCall(placesAdmin, `/guardians/${link.id}/verify`, 'POST', { tenant_id: tenant.id })).status, 200);
+      eq('only once', (await pCall(placesAdmin, `/guardians/${link.id}/verify`, 'POST', { tenant_id: tenant.id })).status, 404);
+
+      const got = await (await kids()).json();
+      eq('the parent’s app is told their verified child', got.children.map((c) => c.id), [kid]);
+      eq('with the relationship', got.children[0].relationship, 'mother');
+      ok('and the child’s classes', got.children[0].classes.some((c) => c.id === klass.id));
+      ok('but not the child’s email address', !('email' in got.children[0]));
+      eq('signed out, nothing', (await fetch(`${base}/api/v1/my-children`)).status, 401);
+      eq('a teacher has no children here', (await (await kids(t3.access_token)).json()).children.length, 0);
+
+      // A link at another school is no use here, even if verified.
+      const theirs = await db.one(
+        `INSERT INTO guardian_links (guardian_id, student_id, tenant_id, relationship, verified_at)
+         VALUES ($1,$2,$3,'parent', now()) RETURNING id`, [patId, claimed.user.id, other.id]);
+      eq('a link at another school grants nothing at this one', (await (await kids()).json()).children.length, 1);
+      eq('and a local admin cannot remove it, even naming that school',
+        (await pCall(placesAdmin, `/guardians/${theirs.id}?tenant_id=${other.id}`, 'DELETE')).status, 404);
+      await db.query('DELETE FROM guardian_links WHERE id = $1', [theirs.id]);
+      const listed = await (await pCall(placesAdmin, `/guardians?tenant_id=${tenant.id}`)).json();
+      ok('the page lists the link as verified, by whom',
+        listed.links.some((l) => l.guardian_id === patId && l.verified_at && l.verified_by_name));
+      ok('and never the other school’s', !listed.links.some((l) => l.student_id === claimed.user.id));
+      const now = listed.links.find((l) => l.guardian_id === patId);
+      eq('a teacher cannot remove it', (await pCall(placesTeacher, `/guardians/${now.id}`, 'DELETE')).status, 403);
+      eq('a local admin removes it', (await pCall(placesAdmin, `/guardians/${now.id}?tenant_id=${tenant.id}`, 'DELETE')).status, 200);
+      eq('and the parent sees nothing at once', (await (await kids()).json()).children.length, 0);
+      for (const action of ['guardian.linked', 'guardian.verified', 'guardian.removed']) {
+        ok(`${action} is in the audit log`,
+          !!(await db.one('SELECT 1 FROM audit_log WHERE action = $1 AND tenant_id = $2 LIMIT 1', [action, tenant.id])));
+      }
+    }
     placesSrv.close();
   }
 

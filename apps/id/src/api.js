@@ -17,6 +17,7 @@ const catalog = require('./catalog');
 const rbac = require('./rbac');
 const reports = require('./reports');
 const features = require('./features');
+const guardians = require('./guardians');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -203,6 +204,22 @@ router.get('/classes/:id/members', async (req, res) => {
     });
   }
   res.json({ members: rows });
+});
+
+/**
+ * The signed-in parent's children at this school, with each child's classes.
+ *
+ * Only links the school has verified count, and only at the school the token
+ * is for, so a parent with children at two schools sees one school's at a
+ * time. An app may ask only about the person signed in: there is no way to
+ * name somebody else, so an app cannot use this to map a family.
+ */
+router.get('/my-children', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const children = await guardians.childrenOf(c.userId, c.tenantId);
+  res.set('Cache-Control', 'no-store');
+  res.json({ children });
 });
 
 /**
