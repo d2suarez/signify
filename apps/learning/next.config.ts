@@ -25,10 +25,17 @@ const nextConfig: NextConfig = {
   // Kept out of the bundle: PGlite ships WebAssembly and data files it loads
   // from its own folder, and pg has optional native bits.
   serverExternalPackages: ["@electric-sql/pglite", "pg"],
+  // Our LTI public keys, where platforms look for them.
+  async rewrites() {
+    return [{ source: "/.well-known/jwks.json", destination: "/lti/jwks" }];
+  },
   async headers() {
     return [
       {
-        source: "/:path*",
+        // Everything but /lti/: those responses set their own headers, because a
+        // launch may be framed by the registered platform's origins (and only
+        // those), which this static list can't know (src/app/lti/respond.ts).
+        source: "/:path((?!lti/).*)",
         headers: [
           { key: "Content-Security-Policy", value: CSP },
           { key: "X-Content-Type-Options", value: "nosniff" },
