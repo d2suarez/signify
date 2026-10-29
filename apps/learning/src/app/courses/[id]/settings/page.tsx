@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireMe } from "@/lib/auth";
 import { courseAccess, ctx, lang } from "@/lib/access";
-import { addCategory, deleteCategory, isWeighted, listCategories, setWeighted, updateCategory } from "@/lib/grades";
+import { addCategory, deleteCategory, isWeighted, listCategories, setWeighted, updateCategory, MAX_DROP } from "@/lib/grades";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
@@ -17,8 +17,8 @@ async function act(formData: FormData) {
   const c = ctx(access.me), courseId = access.course.id;
   const op = String(formData.get("op") || "");
   if (op === "method") await setWeighted(c, courseId, formData.get("method") === "weighted");
-  if (op === "add") await addCategory(c, courseId, formData.get("name"), formData.get("weight"));
-  if (op === "update") await updateCategory(c, courseId, String(formData.get("categoryId")), formData.get("name"), formData.get("weight"));
+  if (op === "add") await addCategory(c, courseId, formData.get("name"), formData.get("weight"), formData.get("drop"));
+  if (op === "update") await updateCategory(c, courseId, String(formData.get("categoryId")), formData.get("name"), formData.get("weight"), formData.get("drop"));
   if (op === "delete") await deleteCategory(c, courseId, String(formData.get("categoryId")));
   revalidatePath(`/courses/${courseId}/settings`);
 }
@@ -62,6 +62,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
                   <input type="hidden" name="categoryId" value={c.id} />
                   <input name="name" className="field" style={{ flex: "1 1 200px", width: "auto" }} defaultValue={c.name} maxLength={60} aria-label={d.name} required />
                   <input name="weight" type="number" min={0} max={1000} step="any" className="field" style={{ width: 110 }} defaultValue={c.weight} aria-label={d.weight} />
+                  <label className="row" style={{ gap: 6, fontSize: 14 }}>{d.dropLowest}
+                    <input name="drop" type="number" min={0} max={MAX_DROP} step={1} className="field" style={{ width: 76 }} defaultValue={c.dropLowest} />
+                  </label>
                   <button className="btn btn-sm" name="op" value="update">{d.save}</button>
                   <button className="btn btn-sm" name="op" value="delete">{d.delete}</button>
                 </form>
@@ -72,6 +75,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
                 <input type="hidden" name="courseId" value={course.id} />
                 <input name="name" className="field" style={{ flex: "1 1 200px", width: "auto" }} placeholder={d.name} maxLength={60} aria-label={d.name} required />
                 <input name="weight" type="number" min={0} max={1000} step="any" className="field" style={{ width: 110 }} placeholder={d.weight} aria-label={d.weight} />
+                <label className="row" style={{ gap: 6, fontSize: 14 }}>{d.dropLowest}
+                  <input name="drop" type="number" min={0} max={MAX_DROP} step={1} className="field" style={{ width: 76 }} defaultValue={0} />
+                </label>
                 <button className="btn btn-primary btn-sm" name="op" value="add">{d.addCategory}</button>
               </form>
             </li>
@@ -79,6 +85,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
           {weighted && categories.length > 0 && (
             <p className="muted" style={{ fontSize: 13 }}>{d.weightsTotal} {total}%. {total !== 100 ? d.weightsScaled : ""}</p>
           )}
+          <p className="muted" style={{ fontSize: 13 }}>{d.dropLowestHint}</p>
           <p className="muted" style={{ fontSize: 13 }}>{d.scaleNote}</p>
         </section>
 

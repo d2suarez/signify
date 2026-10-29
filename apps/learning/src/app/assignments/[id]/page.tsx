@@ -11,6 +11,7 @@ import { When } from "@/components/When";
 import AssignmentEditor from "@/components/AssignmentEditor";
 import SubmissionEditor from "@/components/SubmissionEditor";
 import ReadAloud from "@/components/ReadAloud";
+import RubricView from "@/components/RubricView";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,13 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             <p className="label">{d.instructions}</p>
             <ReadAloud text={`${a.title}.\n${a.instructions}`} d={d} />
             <div className="body-text" style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.6 }}>{a.instructions}</div>
+          </section>
+        )}
+
+        {a.rubric && (
+          <section className="card stack" style={{ gap: 8 }} aria-labelledby="rubric-title">
+            <p className="label" id="rubric-title">{shown?.rubric ? d.rubricYours : d.rubricHowGraded}</p>
+            <RubricView rubric={a.rubric} selection={shown?.rubric ?? null} d={d} />
           </section>
         )}
 

@@ -339,7 +339,7 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
                       </span>
                     </div>
                     <StudentStatus a={a} handedIn={!!s?.submittedAt} started={!!s} late={isLate(a, s) || cell?.flag === "late"}
-                      overdue={isOverdue(a, s)} cell={cell} d={d} />
+                      overdue={isOverdue(a, s)} cell={cell} dropped={row.grade.dropped.includes(a.id)} d={d} />
                   </li>
                 );
               })}
@@ -351,14 +351,14 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
   );
 }
 
-function StudentStatus({ a, handedIn, started, late, overdue, cell, d }: {
-  a: Assignment; handedIn: boolean; started: boolean; late: boolean; overdue: boolean;
+function StudentStatus({ a, handedIn, started, late, overdue, cell, dropped, d }: {
+  a: Assignment; handedIn: boolean; started: boolean; late: boolean; overdue: boolean; dropped: boolean;
   cell: { score: number | null; flag: string | null } | undefined; d: Dict;
 }) {
   // Only released grades reach here (cell is undefined otherwise).
   if (cell && cell.flag === "exempt") return <span className="chip chip-exempt">{d.exempt}</span>;
-  if (cell && cell.score !== null) return <span className="chip chip-done">{cell.score} / {a.points}{late ? ` · ${d.late}` : ""}</span>;
-  if (cell && cell.flag === "missing") return <span className="chip chip-missing">{d.missing}</span>;
+  if (cell && cell.score !== null) return <span className="chip chip-done">{cell.score} / {a.points}{late ? ` · ${d.late}` : ""}{dropped ? ` · ${d.droppedGrade}` : ""}</span>;
+  if (cell && cell.flag === "missing") return <span className="chip chip-missing">{d.missing}{dropped ? ` · ${d.droppedGrade}` : ""}</span>;
   if (a.kind === "offline") return null;
   if (handedIn) return <span className="chip chip-done">{d.handedIn}{late ? ` · ${d.late}` : ""}</span>;
   if (overdue) return <span className="chip chip-missing">{d.overdue}</span>;

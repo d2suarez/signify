@@ -261,6 +261,8 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .gb-cell.is-missing { background: #fde2dc; color: #9c1f08; font-weight: 700; }
 .gb-cell.is-late { background: #fdf3c4; color: #5c4a00; }
 .gb-cell.is-exempt { background: var(--desk); color: var(--muted); }
+/* Left out by "drop lowest": struck through (never colour alone), the word is in its label and tooltip. */
+.gb-cell.is-dropped { text-decoration: line-through; color: var(--muted); }
 .gb-cell.is-error { border-color: var(--bad); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 30%, transparent); }
 .gb-cell.is-saving { opacity: .6; }
 @media (prefers-color-scheme: dark) {
@@ -389,3 +391,25 @@ html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due { 
 .projector .stage .body { font-size: clamp(18px, 2.6vw, 52px); }
 .projector .stage-choice { font-size: clamp(18px, 2.2vw, 44px); }
 .projector .timer-face { font-size: clamp(80px, 18vw, 360px); }
+
+/* Rubrics: criteria down, levels across; scrolls sideways on a phone. */
+.rubric { overflow-x: auto; }
+.rubric table { border-collapse: separate; border-spacing: 6px; width: 100%; min-width: 520px; margin: -6px; }
+.rubric th { text-align: left; vertical-align: top; width: 26%; font-weight: 400; padding: 6px 4px; }
+.rubric th b, .rubric td b { display: block; }
+.rubric td { vertical-align: top; border: 1px solid var(--line); border-radius: var(--r-md); padding: 0; }
+.rubric td { padding: 8px 10px; }
+.rubric-pick fieldset { border: 0; padding: 0; margin: 0 0 10px; }
+.rubric-pick legend { padding: 0; margin-bottom: 4px; font-size: 14px; }
+.rubric-pick-levels { display: flex; flex-wrap: wrap; gap: 6px; }
+.rubric-pick-levels button { min-height: 44px; min-width: 44px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: inherit; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.rubric-pick-levels button .rubric-pts { font-size: 16px; }
+.rubric-pick-levels button[aria-pressed="true"] { border: 3px solid currentColor; background: color-mix(in srgb, var(--p3) 22%, var(--surface)); }
+.rubric td.is-on { border: 3px solid currentColor; background: color-mix(in srgb, var(--p3) 22%, var(--surface)); }
+.rubric-pts { font-family: var(--display); font-weight: 800; font-size: 18px; display: block; }
+.rubric-desc { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; white-space: pre-wrap; }
+.rubric-chosen { display: block; font-size: 13px; font-weight: 700; margin-top: 4px; }
+.rubric-edit { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; margin: 0; }
+.rubric-levels { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.rubric-level { display: grid; grid-template-columns: 80px minmax(0, 1fr) minmax(0, 2fr) auto; gap: 6px; align-items: start; }
+@media (max-width: 640px) { .rubric-level { grid-template-columns: 70px minmax(0, 1fr) auto; } .rubric-level textarea { grid-column: 1 / -1; grid-row: 2; } }

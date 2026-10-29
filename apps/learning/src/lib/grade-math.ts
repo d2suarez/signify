@@ -29,7 +29,30 @@ export type CourseGrade = {
   /** Category id → that category's percent, for the weighted method. */
   byCategory: Record<string, number | null>;
   counted: number;
+  /** Assignments left out by a category's "drop lowest". */
+  dropped: string[];
 };
+
+export type CalcCategory = { id: string; weight: number; dropLowest?: number };
+
+/** Most a category may drop; the setting is refused past this. */
+export const MAX_DROP = 10;
+
+type Counted = { id: string; earned: number; possible: number };
+
+/**
+ * Which of a category's counted grades its "drop lowest n" leaves out: the
+ * n lowest by percent (a missing zero first; on a tie, the one worth more
+ * points, which helps the student most). At least one grade always stays,
+ * and extra-credit-only work (worth 0) is never dropped.
+ */
+export function droppedIds(list: Counted[], n: number): Set<string> {
+  const can = list.filter((c) => c.possible > 0);
+  const k = Math.min(Math.max(0, Math.floor(n)), can.length - 1, list.length - 1);
+  if (k <= 0) return new Set();
+  const order = [...can].sort((a, b) => a.earned / a.possible - b.earned / b.possible || b.possible - a.possible || a.id.localeCompare(b.id));
+  return new Set(order.slice(0, k).map((c) => c.id));
+}
 
 /** What one grade adds: [earned, possible], or null when it doesn't count. */
 function contribution(a: CalcAssignment, g: CalcGrade | undefined): [number, number] | null {
@@ -50,34 +73,48 @@ function contribution(a: CalcAssignment, g: CalcGrade | undefined): [number, num
 export function computeGrade(
   assignments: CalcAssignment[],
   grades: Map<string, CalcGrade>,
-  opts: { weighted: boolean; categories: { id: string; weight: number }[] },
+  opts: { weighted: boolean; categories: CalcCategory[] },
 ): CourseGrade {
-  let counted = 0;
+  // What counts, per category ("" = uncategorized), with each category's drops taken out.
+  const byCat = new Map<string, Counted[]>();
+  for (const a of assignments) {
+    const c = contribution(a, grades.get(a.id));
+    if (!c) continue;
+    const key = a.categoryId ?? "";
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key)!.push({ id: a.id, earned: c[0], possible: c[1] });
+  }
+  const dropped: string[] = [];
+  for (const cat of opts.categories) {
+    const list = byCat.get(cat.id);
+    if (!list || !cat.dropLowest) continue;
+    const out = droppedIds(list, cat.dropLowest);
+    if (!out.size) continue;
+    dropped.push(...out);
+    byCat.set(cat.id, list.filter((c) => !out.has(c.id)));
+  }
+  const sum = (list: Counted[] = []) => list.reduce((t, c) => [t[0] + c.earned, t[1] + c.possible], [0, 0]);
+
   if (!opts.weighted) {
-    let earned = 0, possible = 0;
-    for (const a of assignments) {
-      const c = contribution(a, grades.get(a.id));
-      if (!c) continue;
-      counted++; earned += c[0]; possible += c[1];
+    let earned = 0, possible = 0, counted = 0;
+    for (const list of byCat.values()) {
+      const [e, p] = sum(list);
+      earned += e; possible += p; counted += list.length;
     }
-    return { percent: possible > 0 ? (earned / possible) * 100 : null, byCategory: {}, counted };
+    return { percent: possible > 0 ? (earned / possible) * 100 : null, byCategory: {}, counted, dropped };
   }
 
   const byCategory: Record<string, number | null> = {};
-  let total = 0, weights = 0;
+  let total = 0, weights = 0, counted = 0;
   for (const cat of opts.categories) {
-    let earned = 0, possible = 0;
-    for (const a of assignments) {
-      if (a.categoryId !== cat.id) continue;
-      const c = contribution(a, grades.get(a.id));
-      if (!c) continue;
-      counted++; earned += c[0]; possible += c[1];
-    }
+    const list = byCat.get(cat.id) ?? [];
+    const [earned, possible] = sum(list);
+    counted += list.length;
     const pct = possible > 0 ? (earned / possible) * 100 : null;
     byCategory[cat.id] = pct;
     if (pct !== null && cat.weight > 0) { total += pct * cat.weight; weights += cat.weight; }
   }
-  return { percent: weights > 0 ? total / weights : null, byCategory, counted };
+  return { percent: weights > 0 ? total / weights : null, byCategory, counted, dropped };
 }
 
 /** The whole-number percent that is shown and exported (half rounds up). */

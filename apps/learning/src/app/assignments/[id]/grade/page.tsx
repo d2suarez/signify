@@ -34,7 +34,7 @@ export default async function GradePage({ params, searchParams }: {
       body: sub?.body ?? null,
       submittedAt: sub?.submittedAt ?? null,
       late: isLate(a, sub),
-      score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "",
+      score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null,
     };
   });
 
@@ -50,7 +50,7 @@ export default async function GradePage({ params, searchParams }: {
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}
         {ok && desk.length === 0 && <p className="empty">{d.noStudents}</p>}
         {ok && desk.length > 0 && (
-          <GradeDesk assignment={{ id: a.id, points: a.points, kind: a.kind, gradesReleased: a.gradesReleased }}
+          <GradeDesk assignment={{ id: a.id, points: a.points, kind: a.kind, gradesReleased: a.gradesReleased, rubric: a.rubric }}
             students={desk} startWith={student} d={d} />
         )}
       </main>

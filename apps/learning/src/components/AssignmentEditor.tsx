@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import type { Assignment } from "@/lib/assignments";
 import type { Dict } from "@/lib/i18n";
 import { onSabbath } from "@/lib/calendar";
+import { rubricMax } from "@/lib/rubric";
+import RubricEditor from "./RubricEditor";
 
 type Option = { id: string; name: string };
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
@@ -49,7 +51,7 @@ export default function AssignmentEditor({ initial, units, categories, d }: {
         body: JSON.stringify({
           baseVersion: a.version, title: next.title, instructions: next.instructions, kind: next.kind,
           points: next.points, dueOn: next.dueOn, dueAt, unitId: next.unitId || null, categoryId: next.categoryId || null,
-          published: next.published, gradesReleased: next.gradesReleased,
+          published: next.published, gradesReleased: next.gradesReleased, rubric: next.rubric,
         }),
       });
       if (res.status === 409) { setStatus("conflict"); return; }
@@ -104,6 +106,7 @@ export default function AssignmentEditor({ initial, units, categories, d }: {
               </select>
             </div>
           </div>
+          <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} d={d} />
         </div>
 
         <aside className="editor-side">
@@ -138,7 +141,9 @@ export default function AssignmentEditor({ initial, units, categories, d }: {
             <div className="fieldset">
               <label htmlFor="a-points">{d.points}</label>
               <input id="a-points" type="number" min={0} max={10000} step="any" className="field" value={a.points}
+                disabled={!!a.rubric} aria-describedby={a.rubric ? "a-points-rubric" : undefined}
                 onChange={(e) => set({ points: Number(e.target.value) })} />
+              {a.rubric && <p id="a-points-rubric" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.pointsFromRubric}</p>}
             </div>
             <div className="fieldset">
               <label htmlFor="a-cat">{d.category}</label>

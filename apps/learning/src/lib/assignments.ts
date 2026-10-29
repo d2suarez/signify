@@ -1,6 +1,7 @@
 import { getDb, type Queryable } from "./db";
 import { cleanPastes, record } from "./writing";
 import { cleanTitle, unitInCourse } from "./units";
+import { normalizeRubric, rubricMax, type Rubric } from "./rubric";
 
 /**
  * Assignments and the work students hand in for them.
@@ -30,6 +31,8 @@ export type Assignment = {
   dueAt: string | null;
   published: boolean;
   gradesReleased: boolean;
+  /** Criteria with levels; when set, its total is the points. */
+  rubric: Rubric | null;
   version: number;
   updatedAt: string;
 };
@@ -68,6 +71,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     dueAt: iso(r.due_at),
     published: !!r.published,
     gradesReleased: !!r.grades_released,
+    rubric: r.rubric ? normalizeRubric(typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) : null,
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
@@ -149,6 +153,8 @@ export type AssignmentInput = {
   categoryId?: unknown;
   published?: unknown;
   gradesReleased?: unknown;
+  /** A rubric, or null to remove it. */
+  rubric?: unknown;
 };
 
 export type AssignmentSave =
@@ -184,11 +190,15 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
       categoryId: input.categoryId === undefined ? cur.categoryId : await categoryInCourse(ctx, cur.courseId, input.categoryId, t),
       published: input.published === undefined ? cur.published : input.published === true,
       gradesReleased: input.gradesReleased === undefined ? cur.gradesReleased : input.gradesReleased === true,
+      rubric: input.rubric === undefined ? cur.rubric : normalizeRubric(input.rubric),
     };
-    const changed = SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
+    // With a rubric, the points are what it can give at most.
+    if (next.rubric) next.points = Math.min(LIMITS.maxPoints, rubricMax(next.rubric));
+    const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);
+    const changed = rubricChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
     if (!changed) return { ok: true, assignment: cur, changed: false } as const;
 
-    const snapshot = Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]]));
+    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric };
     await t.query(
       `INSERT INTO assignment_versions (tenant_id, assignment_id, version, snapshot, saved_by, saved_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6) ON CONFLICT (assignment_id, version) DO NOTHING`,
@@ -201,11 +211,12 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     );
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
-              unit_id = $9, category_id = $10, published = $11, grades_released = $12,
+              unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb,
               version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
-        next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId],
+        next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
+        next.rubric ? JSON.stringify(next.rubric) : null],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });

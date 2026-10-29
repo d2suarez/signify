@@ -30,7 +30,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     baseVersion: Number(body.baseVersion),
     title: body.title, instructions: body.instructions, kind: body.kind, points: body.points,
     dueOn: body.dueOn, dueAt: body.dueAt, unitId: body.unitId, categoryId: body.categoryId,
-    published: body.published, gradesReleased: body.gradesReleased,
+    published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric,
   });
   if (r.ok) return NextResponse.json({ assignment: r.assignment, changed: r.changed });
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", assignment: r.assignment }, { status: 409 });

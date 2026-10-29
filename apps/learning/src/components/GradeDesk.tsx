@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Dict } from "@/lib/i18n";
 import type { Flag } from "@/lib/grades";
 import WritingReplay from "./WritingReplay";
+import RubricView from "./RubricView";
+import { rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
 
 export type DeskStudent = {
   id: string; name: string;
   body: string | null; submittedAt: string | null; late: boolean;
-  score: number | null; flag: Flag | null; comment: string;
+  score: number | null; flag: Flag | null; comment: string; rubric: RubricSelection | null;
 };
 
 type History = { score: number | null; flag: Flag | null; comment: string; changedAt: string }[];
@@ -18,7 +20,7 @@ type History = { score: number | null; flag: Flag | null; comment: string; chang
  * score, mark and comment on the right. Save moves to the next student.
  */
 export default function GradeDesk({ assignment, students: initial, startWith, d }: {
-  assignment: { id: string; points: number; kind: "online" | "offline"; gradesReleased: boolean };
+  assignment: { id: string; points: number; kind: "online" | "offline"; gradesReleased: boolean; rubric: Rubric | null };
   students: DeskStudent[]; startWith?: string; d: Dict;
 }) {
   const [students, setStudents] = useState(initial);
@@ -27,6 +29,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
   const [score, setScore] = useState(s.score === null ? "" : String(s.score));
   const [flag, setFlag] = useState<Flag | "">(s.flag || "");
   const [comment, setComment] = useState(s.comment);
+  const [sel, setSel] = useState<RubricSelection | null>(s.rubric);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<History | null>(null);
@@ -39,6 +42,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
     setScore(cur.score === null ? "" : String(cur.score));
     setFlag(cur.flag || "");
     setComment(cur.comment);
+    setSel(cur.rubric);
     setError("");
     setHistory(null);
     setShowWriting(false);
@@ -47,7 +51,19 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i]);
 
-  const dirty = (score === "" ? null : Number(score)) !== s.score || (flag || null) !== s.flag || comment.trim() !== s.comment;
+  const dirty = (score === "" ? null : Number(score)) !== s.score || (flag || null) !== s.flag || comment.trim() !== s.comment
+    || JSON.stringify(sel ?? null) !== JSON.stringify(s.rubric ?? null);
+
+  // Choosing a level fills in the score from the rubric (the teacher can still change it).
+  const pick = (criterionId: string, levelId: string | null) => {
+    if (!assignment.rubric) return;
+    const next = { ...(sel ?? {}) };
+    if (levelId) next[criterionId] = levelId; else delete next[criterionId];
+    const clean = Object.keys(next).length ? next : null;
+    setSel(clean);
+    const { score: total } = rubricScore(assignment.rubric, clean);
+    setScore(total === null ? "" : String(total));
+  };
 
   const save = async (thenNext: boolean) => {
     setSaving(true);
@@ -55,7 +71,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
     try {
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, score, flag: flag || null, comment }),
+        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}) }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -64,7 +80,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
       }
       const g = out.grade;
       setStudents((all) => all.map((x, j) => j === i
-        ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "" }
+        ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null }
         : x));
       if (thenNext && i < students.length - 1) setI(i + 1);
     } catch {
@@ -120,7 +136,13 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
       </section>
 
       <form className="card desk-form" onSubmit={(e) => { e.preventDefault(); save(true); }}>
-        <div className="fieldset" style={{ marginTop: 0 }}>
+        {assignment.rubric && (
+          <div className="fieldset" style={{ marginTop: 0 }}>
+            <p className="flabel" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>{d.rubric}</p>
+            <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />
+          </div>
+        )}
+        <div className="fieldset" style={assignment.rubric ? undefined : { marginTop: 0 }}>
           <label htmlFor="g-score">{d.score} <span className="muted" style={{ fontWeight: 400 }}>{d.outOf} {assignment.points}</span></label>
           <input id="g-score" ref={scoreRef} className="field score-input" inputMode="decimal" value={score}
             onChange={(e) => setScore(e.target.value)} aria-invalid={error === d.badScore} autoComplete="off" />

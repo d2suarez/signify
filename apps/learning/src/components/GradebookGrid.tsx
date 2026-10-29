@@ -8,7 +8,7 @@ import { cellText, computeGrade, letterFor, parseCell, wholePercent, type CalcGr
 type Cell = { score: number | null; flag: Flag | null; comment: string; late: boolean; handedIn: boolean };
 type A = { id: string; title: string; points: number; categoryId: string | null; dueOn: string | null; published: boolean };
 type R = { id: string; name: string; factsName: string; cells: Record<string, Cell> };
-type Cat = { id: string; name: string; weight: number };
+type Cat = { id: string; name: string; weight: number; dropLowest?: number };
 
 const key = (r: string, a: string) => `${r}:${a}`;
 
@@ -45,7 +45,7 @@ export default function GradebookGrid(props: {
   const totals = useMemo(() => rows.map((r) => {
     const g = new Map<string, CalcGrade>(Object.entries(r.cells).map(([id, c]) => [id, { score: c.score, flag: c.flag }]));
     const res = computeGrade(assignments, g, { weighted, categories });
-    return { id: r.id, percent: res.percent, whole: res.percent === null ? null : wholePercent(res.percent), letter: letterFor(res.percent) };
+    return { id: r.id, percent: res.percent, whole: res.percent === null ? null : wholePercent(res.percent), letter: letterFor(res.percent), dropped: new Set(res.dropped) };
   }), [rows, assignments, weighted, categories]);
   const totalBy = new Map(totals.map((t) => [t.id, t]));
   const graded = totals.filter((t) => t.percent !== null);
@@ -129,12 +129,12 @@ export default function GradebookGrid(props: {
           <span className="muted" style={{ fontSize: 13 }}>{d.classAverage} {average === null ? "—" : `${wholePercent(average)}%`}</span>
           {weighted && (
             <span className="row" style={{ gap: 6 }}>
-              {categories.map((c) => <span key={c.id} className="chip">{c.name} {c.weight}%</span>)}
+              {categories.map((c) => <span key={c.id} className="chip">{c.name} {c.weight}%{c.dropLowest ? ` · ${d.dropLowestShort} ${c.dropLowest}` : ""}</span>)}
               {weightsTotal !== 100 && <span className="muted" style={{ fontSize: 12 }}>{d.weightsScaled}</span>}
             </span>
           )}
           <span className="spacer" style={{ flex: 1 }} />
-          <span className="muted" style={{ fontSize: 12 }}>M = {d.missing} · EX = {d.exempt} · 18 L = {d.late}</span>
+          <span className="muted" style={{ fontSize: 12 }}>M = {d.missing} · EX = {d.exempt} · 18 L = {d.late}{categories.some((c) => c.dropLowest) ? <> · <s>18</s> = {d.droppedGrade}</> : null}</span>
         </div>
         <div className="gb-scroll">
           <table ref={grid} className="gb-table">
@@ -163,16 +163,18 @@ export default function GradebookGrid(props: {
                       const c = r.cells[a.id];
                       const k = key(r.id, a.id);
                       const shown = draft[k] ?? cellText({ score: c.score, flag: c.flag });
+                      const dropped = t.dropped.has(a.id);
                       const cls = ["gb-cell",
                         c.flag === "missing" && c.score === null ? "is-missing" : "",
                         c.flag === "exempt" ? "is-exempt" : "",
                         (c.flag === "late" || c.late) ? "is-late" : "",
+                        dropped ? "is-dropped" : "",
                         state[k] === "error" ? "is-error" : "", state[k] === "saving" ? "is-saving" : ""].join(" ");
                       return (
                         <td key={a.id}>
                           <input className={cls} value={shown} data-r={ri} data-a={ai} inputMode="decimal" autoComplete="off"
-                            aria-label={`${r.name}, ${a.title}`} aria-invalid={state[k] === "error" || undefined}
-                            title={state[k] === "error" ? d.badScore : c.comment || undefined}
+                            aria-label={`${r.name}, ${a.title}${dropped ? `, ${d.droppedGrade}` : ""}`} aria-invalid={state[k] === "error" || undefined}
+                            title={state[k] === "error" ? d.badScore : [dropped ? d.droppedGrade : "", c.comment].filter(Boolean).join(" · ") || undefined}
                             onFocus={(e) => e.currentTarget.select()}
                             onChange={(e) => setDraft((x) => ({ ...x, [k]: e.target.value }))}
                             onBlur={() => commit(ri, ai)}
