@@ -291,6 +291,10 @@ const en = {
   calendarEmptyTeacher: "No lessons planned or work due this month. Give a lesson a date or an assignment a due date to see it here.",
   sabbath: "Sabbath",
   sabbathCount: "due on the Sabbath this month. Many schools don't set work due from Friday sunset to Saturday sunset.",
+  // projector
+  projectorOpen: "Projector view",
+  projectorWaiting: "The lesson will show here when your teacher starts it.",
+  fullScreen: "Full screen",
   // pacing
   pacing: "Pacing",
   paceTeacher: "Follow me",
@@ -334,6 +338,9 @@ const en = {
 export type Key = keyof typeof en;
 
 const es: Partial<Record<Key, string>> = {
+  projectorOpen: "Vista para proyector",
+  projectorWaiting: "La lección aparecerá aquí cuando tu maestro la empiece.",
+  fullScreen: "Pantalla completa",
   pacing: "Ritmo",
   paceTeacher: "Síganme",
   paceReview: "Mirar atrás",

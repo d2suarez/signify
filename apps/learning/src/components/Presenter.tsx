@@ -118,6 +118,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
           <div className="chip"><b>{blocks.length ? index + 1 : 0}</b><span>{d.of} {blocks.length}</span></div>
           {block?.type === "poll" && <div className="chip"><b>{answered}</b><span>{d.answered}</span></div>}
         </div>
+        <a className="btn" href={`/lessons/${lesson.id}/project`} target="_blank" rel="noopener">{d.projectorOpen}</a>
         <Link className="btn btn-dark" href={`/courses/${courseId}`} onClick={() => emit("live:end")}>{d.endLesson}</Link>
       </div>
 

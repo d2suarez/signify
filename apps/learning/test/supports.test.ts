@@ -69,7 +69,7 @@ test("i18n: every new string has Spanish", () => {
   const keys = ["supports", "readAloud", "pause", "resume", "stop", "fontDyslexia", "textSize", "lineSpacing", "contrastHigh",
     "readMyWriting", "blockPicker", "blockNoise", "blockBoard", "pickYou", "pickSomeone", "micOn", "micOff", "noiseOver", "openBoard", "boardHint",
     "planner", "moveTo", "notScheduled", "pushBack", "planUnit", "plannerConflict", "cancel",
-    "pacing", "paceTeacher", "paceReview", "paceSelf", "paceSelfNote", "goToTeacher", "slide"] as const;
+    "pacing", "paceTeacher", "paceReview", "paceSelf", "paceSelfNote", "goToTeacher", "slide", "projectorOpen", "projectorWaiting", "fullScreen"] as const;
   for (const k of keys) assert.notEqual(es[k], en[k], `${k} has no Spanish`);
 });
 
