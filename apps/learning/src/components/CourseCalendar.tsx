@@ -16,7 +16,7 @@ export type CalendarItem = {
   draft?: boolean;
 };
 
-function localTime(iso: string | null | undefined): string {
+export function localTime(iso: string | null | undefined): string {
   if (!iso) return "23:59";
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;

@@ -67,7 +67,8 @@ test("i18n: every new string has Spanish", () => {
   const en = dict("en");
   const es = dict("es");
   const keys = ["supports", "readAloud", "pause", "resume", "stop", "fontDyslexia", "textSize", "lineSpacing", "contrastHigh",
-    "readMyWriting", "blockPicker", "blockNoise", "blockBoard", "pickYou", "pickSomeone", "micOn", "micOff", "noiseOver", "openBoard", "boardHint"] as const;
+    "readMyWriting", "blockPicker", "blockNoise", "blockBoard", "pickYou", "pickSomeone", "micOn", "micOff", "noiseOver", "openBoard", "boardHint",
+    "planner", "moveTo", "notScheduled", "pushBack", "planUnit", "plannerConflict", "cancel"] as const;
   for (const k of keys) assert.notEqual(es[k], en[k], `${k} has no Spanish`);
 });
 

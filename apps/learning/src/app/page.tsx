@@ -22,6 +22,7 @@ export default async function Home() {
       <main className="page stack">
         <div className="row">
           <h1 style={{ fontSize: 34 }} className="grow">{t("myCourses", L)}</h1>
+          {teaching.length > 0 && <Link className="btn" href="/planner">{t("planner", L)}</Link>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/periods">{t("periods", L)}</a>}
         </div>
         {!ok && (
