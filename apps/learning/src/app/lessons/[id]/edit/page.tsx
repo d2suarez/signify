@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
-import { lessonAccess, lang } from "@/lib/access";
+import { lessonAccess, lang, ctx } from "@/lib/access";
+import { listUnits } from "@/lib/units";
 import { dict, t } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import LessonEditor from "@/components/LessonEditor";
@@ -15,11 +16,12 @@ export default async function EditLesson({ params }: { params: Promise<{ id: str
   const access = await lessonAccess(id);
   if (!access || access.course.role !== "teacher") notFound();
   const { course, lesson } = access;
+  const units = await listUnits(ctx(access.me), course.id);
   return (
     <>
       <TopBar crumbs={<><Link href="/">{t("myCourses", L)}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
       <main className="page">
-        <LessonEditor initial={lesson} courseId={course.id} d={dict(L)} />
+        <LessonEditor initial={lesson} courseId={course.id} units={units.map((u) => ({ id: u.id, title: u.title }))} d={dict(L)} />
       </main>
     </>
   );

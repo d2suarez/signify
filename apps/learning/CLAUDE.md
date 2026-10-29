@@ -8,8 +8,8 @@ This is NOT the Next.js in your training data: params are Promises, etc. Read `n
 
 ## Run / test
 - `export PATH=$HOME/.local/node/bin:$PATH`; install with `npm ci --no-workspaces`.
-- `npm run build` then `npm run local` (port 3120, made-up teacher, refuses to start on Railway). Switch person with `/dev/as/teacher` or `/dev/as/student` (a cookie, so it switches every tab in that browser; an already-connected live socket keeps its ticket). Launch config `signify-learning` in the Drive folder's `.claude/launch.json`. Local data lives in `data/pglite` (gitignored); delete it to start fresh.
-- `npm test` (tsx + node:test): blocks, courses, lessons (versions, conflicts, school isolation) on in-memory PGlite, plus real socket.io round trips for live lessons. 20 tests.
+- `npm run build` then `npm run local` (port 3120, made-up teacher, refuses to start on Railway). Switch person with `/dev/as/teacher`, `/dev/as/admin` (school admin: grading periods) or `/dev/as/student` (a cookie, so it switches every tab in that browser; an already-connected live socket keeps its ticket). Launch configs `signify-learning` (3120) and `signify-learning-3121` (own database in `data/pglite-3121`, for when another session holds 3120) in the Drive folder's `.claude/launch.json`. Local data lives in `data/pglite*` (gitignored); delete it to start fresh. Note `npm run build` rewrites `.next` under any server already running from this folder. The dev cookie is per host, so it switches localhost:3120 and :3121 together.
+- `npm test` (tsx + node:test): blocks, courses, lessons (versions, conflicts, school isolation), units, assignments, submissions, grades, grade maths, FACTS order and file on in-memory PGlite, plus real socket.io round trips for live lessons. 39 tests.
 - Type-check: `./node_modules/.bin/tsc --noEmit`.
 
 ## Shape
@@ -22,12 +22,19 @@ This is NOT the Next.js in your training data: params are Promises, etc. Read `n
 - `src/lib/lessons.ts`: every save names `baseVersion`; a stale save is refused (409), never written over. Each change first copies the previous state into `lesson_versions` (newest 50 kept). Restore is a new save, so it can be undone.
 - `src/lib/blocks.ts`: block types `text`, `poll`, `timer`; `normalizeBlocks` is the only way in (drops unknown types, caps sizes, fixes ids). `forStudent` strips poll answer keys.
 - `src/lib/i18n.ts`: every UI string, English + Spanish (falls back to English).
+- `src/lib/units.ts`: a course's units, in order. A unit only groups: deleting one sends its lessons and assignments to "no unit". Which unit a lesson is in is filing, not content (no new lesson version).
+- `src/lib/assignments.ts`: assignments (`online` = written and handed in here, `offline` = paper/in class, graded only) and submissions. Assignments save like lessons (baseVersion, 409 on stale, previous state kept in `assignment_versions`, newest 50; no restore screen yet). Archive, never delete. Students see an assignment only when `published`, and their grade only when `grades_released`. A submission is one row per student, autosaved with its own version (0 = never saved), handed in by `submitted_at`; taking it back is refused once graded. Due = `due_on` (the teacher's calendar day: decides the quarter) + `due_at` (the exact moment: decides late); the browser sends both.
+- `src/lib/grades.ts`: grades (score and/or flag `missing` | `late` | `exempt`, plus comment), every change appended to `grade_history` first; categories and the course's points-vs-weighted switch; the school's grading periods (admins only). `setGrade` takes the class's live Signify ID students and refuses anyone else; `/api/grades` refuses to write when ID can't be asked.
+- `src/lib/grade-math.ts`: the arithmetic, no database, shared by server and the gradebook grid. Missing = 0, exempt and ungraded left out; weighted = category percents averaged by weight over categories with graded work (uncategorized left out, with a warning); letters from the percent rounded half-up (A 93 … D− 60); grid cell grammar (`18`, `M`, `EX`, `18 L`).
+- `src/lib/gradebook.ts`: builds one course+period view used by the grid, the student's own grade (`releasedOnly`) and the FACTS CSV, so they can't disagree. FACTS order = last word of the ID display name (skipping Jr./III), then first; CSV cells that could run as formulas get a leading `'`.
+- Pages: `/courses/[id]` (teacher: units with lessons and assignments; student: published assignments, status, released course grade), `/courses/[id]/gradebook?period=<id>|year` (grid + FACTS list with tick-offs in localStorage + checks), `/courses/[id]/settings` (method, categories), `/assignments/[id]` (teacher form; student writing + grade), `/assignments/[id]/grade?student=` (one student at a time, Save · Next), `/school/periods`. FACTS file: `/api/courses/[id]/facts?period=`.
 
 ## Rules
 - Every table has `tenant_id`, from the signed-in person's claims, never from a request body; every query filters on it.
 - People are never stored here: Signify ID is the authority, asked live.
 - New block types: add to `blocks.ts` (type, `newBlock`, `normalizeBlocks`, `forStudent` if it holds anything secret), the editor's `BlockFields`, and `Stage` in `Presenter.tsx`; add tests.
-- Design: Signify tokens in `src/app/globals.css` (Bricolage Grotesque + IBM Plex, self-hosted; four block colours each with one shape). Block kinds: content = teal arch, poll/question = yellow triangle, timer = red circle.
+- Design: Signify tokens in `src/app/globals.css` (Bricolage Grotesque + IBM Plex, self-hosted; four block colours each with one shape). Block kinds: content = teal arch, poll/question = yellow triangle, timer = red circle. Lists: lesson = teal arch, assignment = yellow triangle, unit = blue square. Grade states always carry a word (Missing, Late, Exempt), never colour alone.
+- A grade is only ever written for someone Signify ID says is a student in that class now. A student's own view counts only released grades.
 
 ## Not built yet (see PLAN.md)
-Courses' units, assignments, gradebook, FACTS export, LTI, UDL supports beyond text size, Desk tools as blocks, Boards block, Railway deploy, Redis for several processes.
+Late penalties, drop lowest, standards-based grading, rubrics, a school-set letter scale, assignment version restore screen, recording the writing process, file uploads, assignments as lesson blocks, LTI, UDL supports beyond text size, Desk tools as blocks, Boards block, Railway deploy, Redis for several processes.

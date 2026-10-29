@@ -19,7 +19,7 @@ Not in this repo, on purpose: classroom-atlas, bible-app (Lectern), times-tables
 ## Install, run, test
 Node lives at `~/.local/node/bin` (no system Node). `export PATH=$HOME/.local/node/bin:$PATH`.
 - Install each app on its own: `cd apps/<app> && npm ci --no-workspaces`. (Apps deploy self-contained and have their own lockfiles; there is no root lockfile.)
-- Test one app: `cd apps/<app> && npm test`. Expected: id 556 passed; desk 302 checks + 22 backup checks; boards 17 + 10; learning 20.
+- Test one app: `cd apps/<app> && npm test`. Expected: id 556 passed; desk 302 checks + 22 backup checks; boards 17 + 10; learning 39.
 - Run: see each app's CLAUDE.md (`npm run dev` for desk, `node test/dev-server.js` for id, launch configs for boards, `npm run build && npm run local` for learning).
 - `npm test` at the root runs every workspace's tests (needs each app installed first).
 

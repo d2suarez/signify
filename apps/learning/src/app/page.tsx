@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireMe, myClasses } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
-import { lang } from "@/lib/access";
+import { lang, isSchoolAdmin } from "@/lib/access";
 import { t } from "@/lib/i18n";
 import { liveLessonId } from "@/lib/live-ticket";
 import { TopBar } from "@/components/TopBar";
@@ -20,7 +20,10 @@ export default async function Home() {
     <>
       <TopBar crumbs={<span>{me.tenantName || me.name}</span>} right={<span className="muted" style={{ fontSize: 14 }}>{me.name}</span>} />
       <main className="page stack">
-        <h1 style={{ fontSize: 34 }}>{t("myCourses", L)}</h1>
+        <div className="row">
+          <h1 style={{ fontSize: 34 }} className="grow">{t("myCourses", L)}</h1>
+          {isSchoolAdmin(me) && <a className="btn" href="/school/periods">{t("periods", L)}</a>}
+        </div>
         {!ok && (
           <div className="notice notice-bad" role="alert">
             {t("classesFailed", L)} <a href="/">{t("tryAgain", L)}</a>

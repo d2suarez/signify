@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { type Block, normalizeBlocks } from "./blocks";
+import { unitInCourse } from "./units";
 
 /**
  * Lessons. Every save names the version it started from; a save based on an
@@ -12,6 +13,7 @@ import { type Block, normalizeBlocks } from "./blocks";
 export type Lesson = {
   id: string;
   courseId: string;
+  unitId: string | null;
   title: string;
   plannedFor: string | null;
   durationMin: number;
@@ -20,7 +22,7 @@ export type Lesson = {
   updatedAt: string;
 };
 
-export type LessonSummary = Pick<Lesson, "id" | "title" | "plannedFor" | "durationMin" | "version" | "updatedAt"> & {
+export type LessonSummary = Pick<Lesson, "id" | "unitId" | "title" | "plannedFor" | "durationMin" | "version" | "updatedAt"> & {
   blockCount: number;
 };
 
@@ -43,6 +45,7 @@ function toLesson(r: Record<string, unknown>): Lesson {
   return {
     id: String(r.id),
     courseId: String(r.course_id),
+    unitId: r.unit_id ? String(r.unit_id) : null,
     title: String(r.title),
     plannedFor: day(r.planned_for),
     durationMin: Number(r.duration_min),
@@ -55,13 +58,14 @@ function toLesson(r: Record<string, unknown>): Lesson {
 export async function listLessons(ctx: Ctx, courseId: string): Promise<LessonSummary[]> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT id, title, planned_for, duration_min, version, updated_at, jsonb_array_length(blocks) AS n
+    `SELECT id, unit_id, title, planned_for, duration_min, version, updated_at, jsonb_array_length(blocks) AS n
        FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
       ORDER BY planned_for NULLS LAST, created_at`,
     [ctx.tenantId, courseId],
   );
   return rows.map((r) => ({
     id: String(r.id),
+    unitId: r.unit_id ? String(r.unit_id) : null,
     title: String(r.title),
     plannedFor: day(r.planned_for),
     durationMin: Number(r.duration_min),
@@ -71,13 +75,16 @@ export async function listLessons(ctx: Ctx, courseId: string): Promise<LessonSum
   }));
 }
 
-export async function createLesson(ctx: Ctx, courseId: string, title: string, blocks: Block[] = []): Promise<Lesson> {
+export async function createLesson(
+  ctx: Ctx, courseId: string, title: string, blocks: Block[] = [], unitId: unknown = null,
+): Promise<Lesson> {
   const db = await getDb();
   const clean = title.replace(/\s+/g, " ").trim().slice(0, 200) || "Untitled lesson";
+  const unit = await unitInCourse(ctx, courseId, unitId);
   const rows = await db.query(
-    `INSERT INTO lessons (tenant_id, course_id, title, blocks, created_by, updated_by)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $5) RETURNING *`,
-    [ctx.tenantId, courseId, clean, JSON.stringify(normalizeBlocks(blocks)), ctx.userId],
+    `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6) RETURNING *`,
+    [ctx.tenantId, courseId, clean, JSON.stringify(normalizeBlocks(blocks)), unit, ctx.userId],
   );
   return toLesson(rows[0]);
 }
@@ -98,6 +105,8 @@ export type SaveInput = {
   blocks?: unknown;
   plannedFor?: unknown;
   durationMin?: unknown;
+  /** A unit of the same course, or null for none. Not kept in versions. */
+  unitId?: unknown;
 };
 
 export type SaveResult =
@@ -131,6 +140,15 @@ export async function saveLesson(ctx: Ctx, id: string, input: SaveInput): Promis
         ? current.durationMin
         : Math.min(600, Math.max(5, Math.round(Number(input.durationMin)) || current.durationMin)),
     };
+
+    const unitId = input.unitId === undefined
+      ? current.unitId
+      : await unitInCourse(ctx, current.courseId, input.unitId, t);
+    if (unitId !== current.unitId) {
+      // Which unit a lesson sits in is filing, not content: no new version.
+      await t.query("UPDATE lessons SET unit_id = $3 WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, id, unitId]);
+      current.unitId = unitId;
+    }
 
     const changed = next.title !== current.title
       || JSON.stringify(next.blocks) !== JSON.stringify(current.blocks)

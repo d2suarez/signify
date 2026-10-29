@@ -1,6 +1,9 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
-import { readMe, myClasses, type Me } from "./auth";
+import { readMe, myClasses, token, type Me } from "./auth";
+import { membersOf } from "./roster";
+import { getAssignment, type Assignment } from "./assignments";
+import { toStudents, type Student } from "./gradebook";
 import { courseFor, type Course, type CourseRole } from "./courses";
 import { getLesson, type Lesson } from "./lessons";
 import { pickLang, type Lang } from "./i18n";
@@ -29,6 +32,38 @@ export async function lessonAccess(lessonId: string): Promise<LessonAccess | nul
   if (!lesson) return null;
   const access = await courseAccess(lesson.courseId);
   return access ? { ...access, lesson } : null;
+}
+
+export type AssignmentAccess = CourseAccess & { assignment: Assignment };
+
+/**
+ * A student may open an assignment only once it is published; a teacher
+ * always may.
+ */
+export async function assignmentAccess(assignmentId: string): Promise<AssignmentAccess | null> {
+  const me = await readMe();
+  if (!me) return null;
+  const assignment = await getAssignment(ctx(me), assignmentId);
+  if (!assignment) return null;
+  const access = await courseAccess(assignment.courseId);
+  if (!access) return null;
+  if (access.course.role === "student" && !assignment.published) return null;
+  return { ...access, assignment };
+}
+
+/**
+ * The course's students, live from Signify ID, in FACTS order. ok is false
+ * when ID couldn't be asked: callers must say so, never show an empty class.
+ */
+export async function studentsOf(access: CourseAccess): Promise<{ ok: boolean; students: Student[] }> {
+  const { me, course } = access;
+  const { ok, members } = await membersOf({ id: me.id, role: me.role, dev: me.dev }, await token(), course.idClassId);
+  return { ok, students: toStudents(members) };
+}
+
+/** Sets the school's grading periods: its admins. */
+export function isSchoolAdmin(me: Me): boolean {
+  return me.role === "admin" || me.role === "super_admin";
 }
 
 export function ctx(me: Me) {

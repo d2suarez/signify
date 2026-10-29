@@ -46,13 +46,14 @@ const PERMISSIONS = [];
 // hosted environment.
 const DEV_PEOPLE = {
   teacher: { id: 'dev-teacher-0000', email: 'dev.teacher@example.school', name: 'Dev Teacher', role: 'teacher', roleLabel: 'Teacher' },
+  admin: { id: 'dev-admin-0000', email: 'dev.admin@example.school', name: 'Dev Admin', role: 'admin', roleLabel: 'Admin' },
   student: { id: 'dev-student-0000', email: 'dev.student@example.school', name: 'Dev Student', role: 'student', roleLabel: 'Student' },
 };
 const DEV_DEFAULT = process.env.LEARNING_DEV_USER || '';
 if (DEV_DEFAULT && PRODUCTION) {
   throw new Error('LEARNING_DEV_USER is set in a hosted environment. Refusing to start.');
 }
-if (DEV_DEFAULT) console.warn(`\n  ⚠  LEARNING_DEV_USER is on: every request is signed in as a made-up ${DEV_DEFAULT}. Switch with /dev/as/<teacher|student>.\n`);
+if (DEV_DEFAULT) console.warn(`\n  ⚠  LEARNING_DEV_USER is on: every request is signed in as a made-up ${DEV_DEFAULT}. Switch with /dev/as/<teacher|admin|student>.\n`);
 
 function devUser(cookieHeader) {
   const m = /(?:^|;\s*)sl_dev_as=(\w+)/.exec(cookieHeader || '');

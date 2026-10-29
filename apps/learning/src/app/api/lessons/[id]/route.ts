@@ -5,7 +5,7 @@ import { BlockError } from "@/lib/blocks";
 
 export const dynamic = "force-dynamic";
 
-/** Save a lesson. Body: { baseVersion, title?, blocks?, plannedFor?, durationMin? }. */
+/** Save a lesson. Body: { baseVersion, title?, blocks?, plannedFor?, durationMin?, unitId? }. */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const access = await lessonAccess(id);
@@ -24,7 +24,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const r = await saveLesson(ctx(access.me), id, {
       baseVersion: Number(body.baseVersion),
-      title: body.title, blocks: body.blocks, plannedFor: body.plannedFor, durationMin: body.durationMin,
+      title: body.title, blocks: body.blocks, plannedFor: body.plannedFor, durationMin: body.durationMin, unitId: body.unitId,
     });
     if (r.ok) return NextResponse.json({ lesson: r.lesson, changed: r.changed });
     if (r.reason === "conflict") return NextResponse.json({ error: "conflict", lesson: r.lesson }, { status: 409 });

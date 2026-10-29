@@ -13,18 +13,21 @@ const SAVE_DELAY = 800;
 
 const SHAPE: Record<BlockType, string> = { text: "s-arch", poll: "s-tri", timer: "s-circle" };
 
-export default function LessonEditor({ initial, courseId, d }: { initial: Lesson; courseId: string; d: Dict }) {
+export default function LessonEditor({ initial, courseId, units = [], d }: {
+  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; d: Dict;
+}) {
   const [title, setTitle] = useState(initial.title);
   const [blocks, setBlocks] = useState<Block[]>(initial.blocks);
   const [plannedFor, setPlannedFor] = useState(initial.plannedFor || "");
   const [durationMin, setDurationMin] = useState(initial.durationMin);
+  const [unitId, setUnitId] = useState(initial.unitId || "");
   const [version, setVersion] = useState(initial.version);
   const [status, setStatus] = useState<Status>("saved");
   const [versions, setVersions] = useState<Version[] | null>(null);
 
   // What the next save sends, read at save time so a slow save never sends stale text.
-  const latest = useRef({ title, blocks, plannedFor, durationMin, version });
-  latest.current = { title, blocks, plannedFor, durationMin, version };
+  const latest = useRef({ title, blocks, plannedFor, durationMin, unitId, version });
+  latest.current = { title, blocks, plannedFor, durationMin, unitId, version };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
   const again = useRef(false);
@@ -40,7 +43,7 @@ export default function LessonEditor({ initial, courseId, d }: { initial: Lesson
       const res = await fetch(`/api/lessons/${initial.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ baseVersion: s.version, title: s.title, blocks: s.blocks, plannedFor: s.plannedFor || null, durationMin: s.durationMin }),
+        body: JSON.stringify({ baseVersion: s.version, title: s.title, blocks: s.blocks, plannedFor: s.plannedFor || null, durationMin: s.durationMin, unitId: s.unitId || null }),
       });
       if (res.status === 409) {
         stopped.current = true;
@@ -181,7 +184,16 @@ export default function LessonEditor({ initial, courseId, d }: { initial: Lesson
 
         <aside className="editor-side">
           <div className="card">
-            <div className="fieldset" style={{ marginTop: 0 }}>
+            {units.length > 0 && (
+              <div className="fieldset" style={{ marginTop: 0 }}>
+                <label htmlFor="unit">{d.unit}</label>
+                <select id="unit" className="field" value={unitId} onChange={(e) => { setUnitId(e.target.value); touch(); }}>
+                  <option value="">{d.noUnit}</option>
+                  {units.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="fieldset" style={{ marginTop: units.length > 0 ? 10 : 0 }}>
               <label htmlFor="planned">{d.plannedFor}</label>
               <input id="planned" type="date" className="field" value={plannedFor} onChange={(e) => { setPlannedFor(e.target.value); touch(); }} />
             </div>
