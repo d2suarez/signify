@@ -1,0 +1,37 @@
+{
+  "name": "signify-learning",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Signify Learning: lessons that are the plan, the presentation and the student view at once",
+  "main": "server.js",
+  "scripts": {
+    "build": "next build",
+    "start": "node server.js",
+    "local": "LEARNING_DEV_USER=teacher PORT=3120 node server.js",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "compression": "^1.8.2",
+    "express": "^4.22.3",
+    "next": "^16.2.10",
+    "pg": "^8.23.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "server-only": "^0.0.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
