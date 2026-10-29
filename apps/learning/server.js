@@ -64,6 +64,20 @@ function devUser(cookieHeader) {
   };
 }
 
+// ---------- who may use it, while it is being tried out ----------
+// LEARNING_ONLY is a comma-separated list of email addresses. When it is set,
+// only those people get past sign-in; everyone else sees a "not open yet"
+// page. Signify ID can only switch an app on for a whole school, so this is
+// how a deployment stays with its testers until the school is ready.
+const ONLY = new Set(String(process.env.LEARNING_ONLY || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+function mayUse(user) {
+  return !ONLY.size || (!!user && ONLY.has(String(user.email || '').toLowerCase()));
+}
+const NOT_OPEN = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signify Learning</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f3f2f2;color:#201e1d;font:16px/1.5 system-ui,sans-serif}main{max-width:30rem;padding:24px}h1{font-size:28px;margin:0 0 8px}a{color:#1f4fd1}@media(prefers-color-scheme:dark){body{background:#161514;color:#f3f2f2}a{color:#8fb0ff}}</style></head>
+<body><main><h1>Not open yet</h1><p>Signify Learning is still being tried out and isn't open to your account. <a href="/auth/logout">Sign out</a></p></main></body></html>`;
+
 // ---------- the app ----------
 
 async function main() {
@@ -127,6 +141,11 @@ async function main() {
     app.use((req, res, nextFn) => { if (!req.user) req.user = devUser(req.headers.cookie); nextFn(); });
   }
 
+  app.use((req, res, nextFn) => {
+    if (req.user && !mayUse(req.user)) return res.status(403).type('html').send(NOT_OPEN);
+    nextFn();
+  });
+
   // Hand whoever this is to Next, then let Next render.
   app.use((req, res, nextFn) => {
     if (req.user) {
@@ -146,7 +165,7 @@ async function main() {
     // handshake cookie, or the made-up person in local development.
     async whoIs(cookieHeader) {
       const user = await signify.verifyCookieSession(cookieHeader);
-      if (user) return user;
+      if (user) return mayUse(user) ? user : null;
       return DEV_DEFAULT ? devUser(cookieHeader) : null;
     },
   });
