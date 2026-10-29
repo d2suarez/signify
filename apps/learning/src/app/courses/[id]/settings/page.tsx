@@ -81,6 +81,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
           )}
           <p className="muted" style={{ fontSize: 13 }}>{d.scaleNote}</p>
         </section>
+
+        <section className="card stack" style={{ gap: 6 }} aria-labelledby="import-title">
+          <h2 className="label" id="import-title">{d.importCourse}</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importCourseHint}</p>
+          <Link className="btn" style={{ alignSelf: "flex-start" }} href={`/courses/${course.id}/import`}>{d.importChoose}</Link>
+        </section>
       </main>
     </>
   );

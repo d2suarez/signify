@@ -43,11 +43,13 @@ export type PickerBlock = {
 export type NoiseBlock = { id: string; type: "noise"; label: string; limit: number };
 /** A Signify Board: shown live inside the lesson when shared to the web, otherwise a link to open it. */
 export type BoardBlock = { id: string; type: "board"; title: string; url: string };
+/** A link to a web page, opened in its own tab (never framed). Imported weblinks land here. */
+export type LinkBlock = { id: string; type: "link"; title: string; url: string };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock;
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
 
 export const LIMITS = {
   blocks: 200,
@@ -62,6 +64,7 @@ export const LIMITS = {
   label: 120,
   minNoise: 10,
   maxNoise: 95,
+  url: 2_000,
 };
 
 export class BlockError extends Error {}
@@ -88,6 +91,19 @@ function uniqueId(raw: unknown, used: Set<string>): string {
   return id;
 }
 
+/** An http(s) link, or "" for anything else (javascript:, data:, relative paths). */
+export function webLink(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const raw = v.trim();
+  if (!raw || raw.length > LIMITS.url) return "";
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : "";
+  } catch {
+    return "";
+  }
+}
+
 export function newBlock(type: BlockType): Block {
   switch (type) {
     case "text":
@@ -107,6 +123,7 @@ export function newBlock(type: BlockType): Block {
     case "noise":
       return { id: newId(), type, label: "", limit: 55 };
     case "board":
+    case "link":
       return { id: newId(), type, title: "", url: "" };
   }
 }
@@ -164,6 +181,10 @@ export function normalizeBlocks(input: unknown): Block[] {
         // A link that isn't Boards' own is dropped (kept as no link), never framed.
         out.push({ id: uniqueId(b.id, used), type: "board", title: line(b.title, LIMITS.title), url: boardLink(b.url)?.url ?? "" });
         break;
+      case "link":
+        // Kept as typed while being written; only a real http(s) link is ever opened (see webLink).
+        out.push({ id: uniqueId(b.id, used), type: "link", title: line(b.title, LIMITS.title), url: line(b.url, LIMITS.url) });
+        break;
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -189,7 +210,7 @@ export function blockSummary(b: Block): string {
     case "poll": return b.question.split("\n")[0].slice(0, 60);
     case "timer": return b.label || formatSeconds(b.seconds);
     case "picker": case "noise": return b.label;
-    case "board": return b.title;
+    case "board": case "link": return b.title;
   }
 }
 
@@ -199,7 +220,7 @@ export function blockSpeech(b: Block): string {
     case "text": return [b.title, b.body].filter(Boolean).join(".\n");
     case "poll": return [b.question, ...b.choices.map((c, i) => `${String.fromCharCode(65 + i)}. ${c.text}`)].join("\n");
     case "timer": case "picker": case "noise": return b.label;
-    case "board": return b.title;
+    case "board": case "link": return b.title;
   }
 }
 

@@ -141,6 +141,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <input id="new-unit" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.unitTitle} maxLength={200} required />
             <button className="btn" type="submit">{d.create}</button>
           </form>
+          <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
         </div>
 
         <section className="card stack" aria-labelledby="ann-title" style={{ gap: 10 }}>

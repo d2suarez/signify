@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { type Block, blockSummary, formatSeconds } from "@/lib/blocks";
+import { type Block, blockSummary, formatSeconds, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import type { Dict } from "@/lib/i18n";
 import { noiseColour, noiseWord } from "@/lib/noise";
@@ -21,7 +21,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -287,6 +287,20 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
           <i style={{ width: `${on ? noise : 0}%` }} />
           <b style={{ left: `${block.limit}%` }} title={d.noiseLimit} />
         </div>
+      </div>
+    );
+  }
+  if (block.type === "link") {
+    const url = webLink(block.url);
+    return (
+      <div className="stage" style={{ background: "var(--p4)" }}>
+        <h1>{block.title || d.blockLink}</h1>
+        {url ? (
+          <>
+            <p className="body" style={{ overflowWrap: "anywhere" }}>{new URL(url).host}</p>
+            <p><a className="btn" href={url} target="_blank" rel="noopener noreferrer">{d.openLink} ↗</a></p>
+          </>
+        ) : <p className="body">{d.linkEmpty}</p>}
       </div>
     );
   }

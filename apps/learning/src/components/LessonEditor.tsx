@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Block, type BlockType, newBlock, newId, LIMITS } from "@/lib/blocks";
+import { type Block, type BlockType, newBlock, newId, webLink, LIMITS } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
 import type { Dict } from "@/lib/i18n";
@@ -13,13 +13,13 @@ type Version = { version: number; title: string; blockCount: number; savedAt: st
 const SAVE_DELAY = 800;
 
 const SHAPE: Record<BlockType, string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch",
 };
-const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard"> = {
-  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard",
+const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard" | "blockLink"> = {
+  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard", link: "blockLink",
 };
-/** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards. */
-const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board"];
+/** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
+const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
 
 export default function LessonEditor({ initial, courseId, units = [], d }: {
   initial: Lesson; courseId: string; units?: { id: string; title: string }[]; d: Dict;
@@ -345,6 +345,23 @@ function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict;
           <input id={`${idBase}-u`} className="field" type="url" inputMode="url" placeholder="https://draw.signify.one/embed/…" value={b.url} maxLength={600}
             aria-invalid={bad} aria-describedby={`${idBase}-uh`} onChange={(e) => onChange({ url: e.target.value } as Partial<Block>)} />
           <p id={`${idBase}-uh`} className={bad ? "notice notice-bad" : "muted"} style={{ margin: 0, fontSize: 13 }}>{bad ? d.boardBad : d.boardHint}</p>
+        </div>
+      </>
+    );
+  }
+  if (b.type === "link") {
+    const bad = b.url.trim() !== "" && !webLink(b.url);
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-t`}>{d.title}</label>
+          <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+        </div>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-u`}>{d.linkUrl}</label>
+          <input id={`${idBase}-u`} className="field" type="url" inputMode="url" placeholder="https://…" value={b.url} maxLength={LIMITS.url}
+            aria-invalid={bad} aria-describedby={`${idBase}-uh`} onChange={(e) => onChange({ url: e.target.value } as Partial<Block>)} />
+          <p id={`${idBase}-uh`} className={bad ? "notice notice-bad" : "muted"} style={{ margin: 0, fontSize: 13 }}>{bad ? d.linkBad : d.linkHint}</p>
         </div>
       </>
     );
