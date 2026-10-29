@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Block, type BlockType, newBlock, newId, LIMITS } from "@/lib/blocks";
+import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
 import type { Dict } from "@/lib/i18n";
 
@@ -11,7 +12,14 @@ type Version = { version: number; title: string; blockCount: number; savedAt: st
 
 const SAVE_DELAY = 800;
 
-const SHAPE: Record<BlockType, string> = { text: "s-arch", poll: "s-tri", timer: "s-circle" };
+const SHAPE: Record<BlockType, string> = {
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch",
+};
+const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard"> = {
+  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard",
+};
+/** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards. */
+const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board"];
 
 export default function LessonEditor({ initial, courseId, units = [], d }: {
   initial: Lesson; courseId: string; units?: { id: string; title: string }[]; d: Dict;
@@ -156,7 +164,7 @@ export default function LessonEditor({ initial, courseId, units = [], d }: {
             <section key={b.id} className="card block-card" aria-label={`${i + 1}`}>
               <div className="block-head">
                 <span className={`shape ${SHAPE[b.type]}`} />
-                <span className="label">{i + 1} · {b.type === "text" ? d.blockText : b.type === "poll" ? d.blockPoll : d.blockTimer}</span>
+                <span className="label">{i + 1} · {d[NAME[b.type]]}</span>
                 <span className="spacer" />
                 <button type="button" className="icon-btn" aria-label={d.moveUp} disabled={i === 0} onClick={() => move(i, -1)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
@@ -175,9 +183,9 @@ export default function LessonEditor({ initial, courseId, units = [], d }: {
           <div className="card" style={{ padding: "14px 16px" }}>
             <p className="label">{d.addBlock}</p>
             <div className="row" style={{ marginTop: 10 }}>
-              <button type="button" className="btn" onClick={() => add("text")}><span className="shape s-arch" />{d.blockText}</button>
-              <button type="button" className="btn" onClick={() => add("poll")}><span className="shape s-tri" />{d.blockPoll}</button>
-              <button type="button" className="btn" onClick={() => add("timer")}><span className="shape s-circle" />{d.blockTimer}</button>
+              {ADD.map((type) => (
+                <button key={type} type="button" className="btn" onClick={() => add(type)}><span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}</button>
+              ))}
             </div>
           </div>
         </div>
@@ -281,6 +289,62 @@ function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict;
             <option value="on-reveal">{d.whenIChoose}</option>
             <option value="never">{d.never}</option>
           </select>
+        </div>
+      </>
+    );
+  }
+  if (b.type === "picker") {
+    return (
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div className="fieldset" style={{ flex: "2 1 200px" }}>
+          <label htmlFor={`${idBase}-l`}>{d.label}</label>
+          <input id={`${idBase}-l`} className="field" value={b.label} maxLength={LIMITS.label} onChange={(e) => onChange({ label: e.target.value } as Partial<Block>)} />
+        </div>
+        <div className="fieldset" style={{ flex: "1 1 200px" }}>
+          <label htmlFor={`${idBase}-f`}>{d.pickFrom}</label>
+          <select id={`${idBase}-f`} className="field" value={b.from} onChange={(e) => onChange({ from: e.target.value } as Partial<Block>)}>
+            <option value="here">{d.pickHere}</option>
+            <option value="class">{d.pickClass}</option>
+          </select>
+        </div>
+        <div className="fieldset" style={{ flex: "1 1 200px" }}>
+          <label htmlFor={`${idBase}-r`}>{d.pickRepeat}</label>
+          <select id={`${idBase}-r`} className="field" value={b.repeat} onChange={(e) => onChange({ repeat: e.target.value } as Partial<Block>)}>
+            <option value="turns">{d.pickTurns}</option>
+            <option value="any">{d.pickAny}</option>
+          </select>
+        </div>
+      </div>
+    );
+  }
+  if (b.type === "noise") {
+    return (
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div className="fieldset" style={{ flex: "2 1 200px" }}>
+          <label htmlFor={`${idBase}-l`}>{d.label}</label>
+          <input id={`${idBase}-l`} className="field" value={b.label} maxLength={LIMITS.label} onChange={(e) => onChange({ label: e.target.value } as Partial<Block>)} />
+        </div>
+        <div className="fieldset" style={{ flex: "1 1 200px" }}>
+          <label htmlFor={`${idBase}-n`}>{d.noiseLimit}: {b.limit}</label>
+          <input id={`${idBase}-n`} type="range" min={LIMITS.minNoise} max={LIMITS.maxNoise} value={b.limit} style={{ minHeight: 44 }}
+            onChange={(e) => onChange({ limit: Number(e.target.value) } as Partial<Block>)} />
+        </div>
+      </div>
+    );
+  }
+  if (b.type === "board") {
+    const bad = b.url.trim() !== "" && !boardLink(b.url);
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-t`}>{d.title}</label>
+          <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+        </div>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-u`}>{d.boardLink}</label>
+          <input id={`${idBase}-u`} className="field" type="url" inputMode="url" placeholder="https://draw.signify.one/embed/…" value={b.url} maxLength={600}
+            aria-invalid={bad} aria-describedby={`${idBase}-uh`} onChange={(e) => onChange({ url: e.target.value } as Partial<Block>)} />
+          <p id={`${idBase}-uh`} className={bad ? "notice notice-bad" : "muted"} style={{ margin: 0, fontSize: 13 }}>{bad ? d.boardBad : d.boardHint}</p>
         </div>
       </>
     );

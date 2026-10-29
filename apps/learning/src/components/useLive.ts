@@ -15,6 +15,10 @@ export type LiveState = {
   revealed?: boolean;
   tally?: Tally | null;
   timer?: TimerState;
+  /** A name was picked on this block (never whose). */
+  pick?: { blockId: string; at: number } | null;
+  /** The room's loudness 0-100 from the teacher's noise meter, or null when it's off. */
+  noise?: number | null;
   serverNow?: number;
 };
 
@@ -22,6 +26,9 @@ export type TeacherState = LiveState & {
   students: { id: string; name: string }[];
   answers: Record<string, string>;
   tallyAll: Tally | null;
+  /** Who has had a turn on the picker block on screen. */
+  picked: string[];
+  lastPick: { blockId: string; studentId: string; at: number } | null;
 };
 
 /**
@@ -36,6 +43,8 @@ export function useLive(ticket: string) {
   const [connected, setConnected] = useState(false);
   const [refused, setRefused] = useState(false);
   const [clockSkew, setClockSkew] = useState(0);
+  // Sent to this student alone when the teacher's picker lands on them.
+  const [pickedMe, setPickedMe] = useState<{ blockId: string; at: number } | null>(null);
   const socket = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -49,11 +58,14 @@ export function useLive(ticket: string) {
       setState(st);
     });
     s.on("live:teacher", (st: TeacherState) => setTeacher(st));
+    s.on("live:picked", (m: { blockId: string; at: number }) => setPickedMe(m));
+    // The noise level comes on its own small event, several times a second.
+    s.on("live:noise", (m: { level: number | null }) => setState((st) => ({ ...st, noise: m.level })));
     return () => { s.disconnect(); socket.current = null; };
   }, [ticket]);
 
   const emit = (event: string, msg?: unknown) => socket.current?.emit(event, msg);
-  return { state, teacher, connected, refused, clockSkew, emit };
+  return { state, teacher, connected, refused, clockSkew, pickedMe, emit };
 }
 
 /** Seconds left on a live timer, ticking. */

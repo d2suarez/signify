@@ -1,10 +1,12 @@
 import type { NextConfig } from "next";
+import { BOARD_ORIGINS } from "./src/lib/boards";
 
 // Sent with every response. Students' work and names pass through this app,
 // so no external origin is allowed for scripts, styles, fonts or connections:
 // an injected <script src> has nowhere to load from and an injected fetch has
 // nowhere to send to. 'unsafe-inline' stays for scripts because the app
-// router inlines its hydration payload.
+// router inlines its hydration payload. Frames: only Signify Boards' own
+// origins, for Board blocks (src/lib/boards.ts holds the list).
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -12,7 +14,7 @@ const CSP = [
   "img-src 'self' data: blob: https://lh3.googleusercontent.com",
   "font-src 'self'",
   "connect-src 'self'",
-  "frame-src 'self'",
+  `frame-src 'self' ${BOARD_ORIGINS.join(" ")}`,
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
@@ -31,7 +33,9 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: CSP },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=(), payment=()" },
+          // The microphone only for this app's own pages: the teacher's noise meter
+          // (Presenter.tsx), which keeps nothing but a loudness number.
+          { key: "Permissions-Policy", value: "geolocation=(), microphone=(self), camera=(), payment=()" },
         ],
       },
     ];

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Submission } from "@/lib/assignments";
 import type { Dict } from "@/lib/i18n";
+import ReadAloud from "./ReadAloud";
 
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
 const SAVE_DELAY = 1000;
@@ -115,6 +116,8 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
       )}
       <textarea id="work" className="field writing" rows={16} value={body} maxLength={100000}
         readOnly={handedIn || locked} onChange={(e) => onType(e.target.value)} spellCheck />
+      {/* Hearing your own writing back is how many students catch what they meant to write. */}
+      <ReadAloud text={body} d={d} label={d.readMyWriting} />
       {note && <p className="notice" role="alert">{note}</p>}
       {!locked && (
         <div className="row">

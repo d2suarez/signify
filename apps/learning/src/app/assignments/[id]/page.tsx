@@ -10,6 +10,7 @@ import { TopBar } from "@/components/TopBar";
 import { When } from "@/components/When";
 import AssignmentEditor from "@/components/AssignmentEditor";
 import SubmissionEditor from "@/components/SubmissionEditor";
+import ReadAloud from "@/components/ReadAloud";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           </p>
           <h1 style={{ fontSize: 34 }}>{a.title}</h1>
         </div>
+        {!a.instructions && <ReadAloud text={a.title} d={d} />}
 
         {shown && (shown.score !== null || shown.flag || shown.comment) && (
           <section className="card" aria-labelledby="your-grade">
@@ -74,9 +76,10 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         )}
 
         {a.instructions && (
-          <section className="card">
+          <section className="card stack" style={{ gap: 8 }}>
             <p className="label">{d.instructions}</p>
-            <div style={{ whiteSpace: "pre-wrap", marginTop: 8, fontSize: 17, lineHeight: 1.6 }}>{a.instructions}</div>
+            <ReadAloud text={`${a.title}.\n${a.instructions}`} d={d} />
+            <div className="body-text" style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.6 }}>{a.instructions}</div>
           </section>
         )}
 

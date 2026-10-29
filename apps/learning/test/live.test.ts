@@ -109,3 +109,59 @@ test("live: answers to a block that is not on screen are ignored", async () => {
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(live.sessions.get("course-3").answers.size, 0);
 });
+
+test("picker: the class learns a name was picked, never whose; only that student is told", async () => {
+  const teacher = await join("t4", ticket("t4", "teacher", "course-4", "lesson-4"));
+  const picked = await join("s4", ticket("s4", "student", "course-4"));
+  const other = await join("s5", ticket("s5", "student", "course-4"));
+  const started = next(teacher, "live:teacher", (m: { live: boolean }) => m.live);
+  teacher.emit("live:start", { count: 2, blockId: "pick" });
+  await started;
+
+  const toPicked = next<{ blockId: string; at: number }>(picked, "live:picked");
+  let otherTold = false;
+  other.on("live:picked", () => { otherTold = true; });
+  const otherState = next<Record<string, unknown>>(other, "live:state", (m) => !!m.pick);
+  const teacherSees = next<{ picked: string[]; lastPick: { studentId: string } | null }>(teacher, "live:teacher", (m) => m.picked?.length === 1);
+  teacher.emit("live:pick", { blockId: "pick", studentId: "s4" });
+
+  const you = await toPicked;
+  const st = await otherState;
+  assert.equal(you.blockId, "pick");
+  assert.deepEqual(Object.keys(st.pick as object).sort(), ["at", "blockId"]);
+  assert.equal(JSON.stringify(st).includes("s4"), false, "no student id in what the class receives");
+  const t = await teacherSees;
+  assert.deepEqual(t.picked, ["s4"]);
+  assert.equal(t.lastPick?.studentId, "s4");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(otherTold, false);
+
+  // A student can't pick, and turns can be started again by the teacher only.
+  other.emit("live:pick", { blockId: "pick", studentId: "s5" });
+  other.emit("live:pick-reset", { blockId: "pick" });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual([...live.sessions.get("course-4").picks.get("pick")], ["s4"]);
+  const cleared = next<{ picked: string[] }>(teacher, "live:teacher", (m) => m.picked?.length === 0);
+  teacher.emit("live:pick-reset", { blockId: "pick" });
+  await cleared;
+});
+
+test("noise: the teacher's level reaches students as a number 0-100, nothing else; students can't send one", async () => {
+  const teacher = await join("t6", ticket("t6", "teacher", "course-6", "lesson-6"));
+  const student = await join("s6", ticket("s6", "student", "course-6"));
+  const started = next(teacher, "live:teacher", (m: { live: boolean }) => m.live);
+  teacher.emit("live:start", { count: 1, blockId: "noise" });
+  await started;
+
+  const heard = next<{ level: number | null }>(student, "live:noise");
+  teacher.emit("live:noise", { level: 250.7, audio: "secret" });
+  assert.deepEqual(await heard, { level: 100 });
+
+  student.emit("live:noise", { level: 3 });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(live.sessions.get("course-6").noise, 100);
+
+  const off = next<{ level: number | null }>(student, "live:noise", (m) => m.level === null);
+  teacher.emit("live:noise", { level: null });
+  await off;
+});

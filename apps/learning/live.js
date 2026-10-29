@@ -6,6 +6,12 @@
 // results are on screen, and when a timer runs. Every student's screen
 // follows. Students send poll answers; only the teacher sees who said what.
 //
+// Desk tools as blocks: the name picker's teacher screen picks a student
+// (from its own list: who's connected, or the class from Signify ID); the
+// class learns only that a name was picked, and the picked student alone is
+// told "it's you". The noise meter's teacher screen sends a loudness number
+// (0-100) a few times a second; that number is all that ever leaves it.
+//
 // Nobody joins on their word alone. Next decides who may teach or follow a
 // course (it can see the database and Signify ID) and signs a short ticket
 // saying so (src/lib/live-ticket.ts); this file only checks the signature,
@@ -57,6 +63,8 @@ function publicState(s) {
     revealed: s.revealed,
     tally: s.revealed && block ? tally(s, block) : null,
     timer: s.timer,
+    pick: s.pick && s.pick.blockId === block ? s.pick : null,
+    noise: s.noise,
     serverNow: Date.now(),
   };
 }
@@ -80,7 +88,9 @@ function teacherState(s, io, courseId) {
   }
   const block = s && s.currentBlockId;
   const answers = s && block ? Object.fromEntries(s.answers.get(block) || []) : {};
-  return { ...publicState(s), students: [...students.values()], answers, tallyAll: s && block ? tally(s, block) : null };
+  const picked = s && block ? [...(s.picks.get(block) || [])] : [];
+  const lastPick = s && s.lastPick && s.lastPick.blockId === block ? s.lastPick : null;
+  return { ...publicState(s), students: [...students.values()], answers, tallyAll: s && block ? tally(s, block) : null, picked, lastPick };
 }
 
 function attach(server, { secret, whoIs }) {
@@ -117,6 +127,11 @@ function attach(server, { secret, whoIs }) {
 
     socket.emit('live:state', publicState(sessions.get(courseId)));
     pushTeacher(courseId);
+    // A picked student whose Chromebook reconnects still learns it was them.
+    const now = sessions.get(courseId);
+    if (now && now.lastPick && now.lastPick.studentId === t.sub && now.lastPick.blockId === now.currentBlockId) {
+      socket.emit('live:picked', { blockId: now.lastPick.blockId, at: now.lastPick.at });
+    }
 
     socket.on('disconnect', () => pushTeacher(courseId));
 
@@ -137,6 +152,13 @@ function attach(server, { secret, whoIs }) {
           revealed: false,
           timer: null,
           answers: same ? prev.answers : new Map(),
+          // Who has had a turn on each picker block: kept with the answers, so
+          // "everyone once" survives the teacher's laptop reconnecting.
+          picks: same ? prev.picks : new Map(),
+          pick: null,
+          lastPick: null,
+          noise: null,
+          noiseAt: 0,
           startedBy: t.sub,
         });
         pushAll(courseId);
@@ -151,6 +173,8 @@ function attach(server, { secret, whoIs }) {
         s.currentBlockId = msg && typeof msg.blockId === 'string' ? msg.blockId.slice(0, 40) : null;
         s.revealed = false;
         s.timer = null;
+        s.pick = null;
+        s.noise = null;
         pushAll(courseId);
       });
 
@@ -170,6 +194,50 @@ function attach(server, { secret, whoIs }) {
         else if (msg.action === 'run') s.timer = { endsAt: Date.now() + Math.max(0, Math.min(3600, Number(msg.remaining) || 0)) * 1000, remaining: null };
         else if (msg.action === 'pause') s.timer = { endsAt: null, remaining: Math.max(0, Math.min(3600, Number(msg.remaining) || 0)) };
         pushAll(courseId);
+      });
+
+      // The teacher's screen chose a student (it holds the list it picks
+      // from). Kept per block for "everyone once"; the name never goes out.
+      socket.on('live:pick', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson || !msg || msg.blockId !== s.currentBlockId) return;
+        const studentId = typeof msg.studentId === 'string' ? msg.studentId.slice(0, 80) : '';
+        if (!studentId) return;
+        if (!s.picks.has(s.currentBlockId)) s.picks.set(s.currentBlockId, new Set());
+        s.picks.get(s.currentBlockId).add(studentId);
+        const at = Date.now();
+        s.pick = { blockId: s.currentBlockId, at };
+        s.lastPick = { blockId: s.currentBlockId, studentId, at };
+        for (const id of io.sockets.adapter.rooms.get(room(courseId)) || []) {
+          const sock = io.sockets.sockets.get(id);
+          if (sock && sock.data.ticket.role === 'student' && sock.data.ticket.sub === studentId) {
+            sock.emit('live:picked', { blockId: s.currentBlockId, at });
+          }
+        }
+        pushAll(courseId);
+      });
+
+      socket.on('live:pick-reset', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson || !msg || msg.blockId !== s.currentBlockId) return;
+        s.picks.delete(s.currentBlockId);
+        s.pick = null;
+        s.lastPick = null;
+        pushAll(courseId);
+      });
+
+      // Loudness only: a whole number 0-100, or null when the microphone is off.
+      // Sent on its own small event, a few times a second at most.
+      socket.on('live:noise', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson || !msg) return;
+        const n = Math.round(Number(msg.level));
+        const level = msg.level === null || !Number.isFinite(n) ? null : Math.max(0, Math.min(100, n));
+        const now = Date.now();
+        if (level !== null && s.noise !== null && now - s.noiseAt < 150) return;
+        s.noise = level;
+        s.noiseAt = now;
+        io.to(room(courseId)).emit('live:noise', { level });
       });
 
       socket.on('live:end', () => {

@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
-import { lang } from "@/lib/access";
+import { lang, myPrefs } from "@/lib/access";
+import { prefsAttrs } from "@/lib/prefs";
 
 export const metadata: Metadata = {
   title: { default: "Signify Learning", template: "%s · Signify Learning" },
@@ -17,7 +18,8 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang={await lang()}>
+    // The person's reading supports, on the first paint (globals.css reads them).
+    <html lang={await lang()} {...prefsAttrs(await myPrefs())}>
       <body>
         {children}
         {/* The Signify app switcher and "Report a problem", shared by every app. */}

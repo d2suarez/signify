@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { readMe, myClasses, token, type Me } from "./auth";
 import { membersOf } from "./roster";
@@ -7,6 +8,8 @@ import { toStudents, type Student } from "./gradebook";
 import { courseFor, type Course, type CourseRole } from "./courses";
 import { getLesson, type Lesson } from "./lessons";
 import { pickLang, type Lang } from "./i18n";
+import { DEFAULT_PREFS, type Prefs } from "./prefs";
+import { getPrefs } from "./prefs-store";
 
 /**
  * The questions every page and route asks: who is this, may they open this
@@ -74,3 +77,14 @@ export async function lang(): Promise<Lang> {
   const [h, c] = await Promise.all([headers(), cookies()]);
   return pickLang(h.get("accept-language"), c.get("sl_lang")?.value);
 }
+
+/**
+ * The signed-in person's reading supports, once per request (the layout and
+ * the top bar both ask). A database hiccup gives the defaults rather than
+ * breaking every page.
+ */
+export const myPrefs = cache(async (): Promise<Prefs> => {
+  const me = await readMe();
+  if (!me) return DEFAULT_PREFS;
+  try { return await getPrefs(ctx(me)); } catch { return DEFAULT_PREFS; }
+});

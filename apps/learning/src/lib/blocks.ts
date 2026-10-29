@@ -9,6 +9,8 @@
  * trimmed and capped, ids are made safe and unique.
  */
 
+import { boardLink } from "./boards";
+
 export type TextBlock = { id: string; type: "text"; title: string; body: string };
 export type PollChoice = { id: string; text: string; correct: boolean };
 export type PollBlock = {
@@ -21,10 +23,31 @@ export type PollBlock = {
 };
 export type TimerBlock = { id: string; type: "timer"; label: string; seconds: number };
 
-export type Block = TextBlock | PollBlock | TimerBlock;
+/*
+ * Desk tools as blocks. Teacher's Desk's widgets, rebuilt here to run live:
+ * the teacher's screen works the tool and every student's screen follows.
+ * Self-contained in Learning until packages/tools exists (PLAN.md, phase 1).
+ */
+
+/** Picks a student. Names stay on the teacher's (projected) screen; students only learn whether it was them. */
+export type PickerBlock = {
+  id: string;
+  type: "picker";
+  label: string;
+  /** Who can be picked: students connected to the live lesson, or the whole class from Signify ID. */
+  from: "here" | "class";
+  /** "turns" = everyone once before anyone twice. */
+  repeat: "turns" | "any";
+};
+/** How loud the room is, from the teacher's microphone. Nothing is recorded; students see the level. */
+export type NoiseBlock = { id: string; type: "noise"; label: string; limit: number };
+/** A Signify Board: shown live inside the lesson when shared to the web, otherwise a link to open it. */
+export type BoardBlock = { id: string; type: "board"; title: string; url: string };
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board"];
 
 export const LIMITS = {
   blocks: 200,
@@ -37,6 +60,8 @@ export const LIMITS = {
   minSeconds: 10,
   maxSeconds: 3_600,
   label: 120,
+  minNoise: 10,
+  maxNoise: 95,
 };
 
 export class BlockError extends Error {}
@@ -77,6 +102,12 @@ export function newBlock(type: BlockType): Block {
       };
     case "timer":
       return { id: newId(), type, label: "", seconds: 180 };
+    case "picker":
+      return { id: newId(), type, label: "", from: "here", repeat: "turns" };
+    case "noise":
+      return { id: newId(), type, label: "", limit: 55 };
+    case "board":
+      return { id: newId(), type, title: "", url: "" };
   }
 }
 
@@ -116,6 +147,23 @@ export function normalizeBlocks(input: unknown): Block[] {
         out.push({ id: uniqueId(b.id, used), type: "timer", label: line(b.label, LIMITS.label), seconds });
         break;
       }
+      case "picker":
+        out.push({
+          id: uniqueId(b.id, used), type: "picker", label: line(b.label, LIMITS.label),
+          from: b.from === "class" ? "class" : "here",
+          repeat: b.repeat === "any" ? "any" : "turns",
+        });
+        break;
+      case "noise": {
+        const n = Math.round(Number(b.limit));
+        const limit = Number.isFinite(n) ? Math.min(LIMITS.maxNoise, Math.max(LIMITS.minNoise, n)) : 55;
+        out.push({ id: uniqueId(b.id, used), type: "noise", label: line(b.label, LIMITS.label), limit });
+        break;
+      }
+      case "board":
+        // A link that isn't Boards' own is dropped (kept as no link), never framed.
+        out.push({ id: uniqueId(b.id, used), type: "board", title: line(b.title, LIMITS.title), url: boardLink(b.url)?.url ?? "" });
+        break;
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -140,6 +188,18 @@ export function blockSummary(b: Block): string {
     case "text": return b.title || b.body.split("\n")[0].slice(0, 60);
     case "poll": return b.question.split("\n")[0].slice(0, 60);
     case "timer": return b.label || formatSeconds(b.seconds);
+    case "picker": case "noise": return b.label;
+    case "board": return b.title;
+  }
+}
+
+/** What read-aloud says for a block: its words, choices lettered as on screen. */
+export function blockSpeech(b: Block): string {
+  switch (b.type) {
+    case "text": return [b.title, b.body].filter(Boolean).join(".\n");
+    case "poll": return [b.question, ...b.choices.map((c, i) => `${String.fromCharCode(65 + i)}. ${c.text}`)].join("\n");
+    case "timer": case "picker": case "noise": return b.label;
+    case "board": return b.title;
   }
 }
 
