@@ -7,6 +7,8 @@ import type { Dict } from "@/lib/i18n";
 import { onSabbath } from "@/lib/calendar";
 import { rubricMax } from "@/lib/rubric";
 import RubricEditor from "./RubricEditor";
+import QuizEditor from "./QuizEditor";
+import { DEFAULT_SETTINGS, quizPoints } from "@/lib/quiz";
 
 type Option = { id: string; name: string };
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
@@ -22,14 +24,17 @@ function localTime(iso: string | null): string {
  * The teacher's form for one assignment. Saved with an explicit Save (it is
  * a form, not a document), version-checked like lessons.
  */
-export default function AssignmentEditor({ initial, units, categories, standards, d }: {
+export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, d }: {
   initial: Assignment; units: Option[]; categories: Option[];
   /** The course's standards, in a standards course only. */
-  standards?: (Option & { description: string })[]; d: Dict;
+  standards?: (Option & { description: string })[];
+  /** A quiz: how many students have handed in an attempt. */
+  attempted?: number; d: Dict;
 }) {
   const [a, setA] = useState(initial);
   const [time, setTime] = useState("23:59");
   const [status, setStatus] = useState<Status>("saved");
+  const [regraded, setRegraded] = useState("");
 
   useEffect(() => { setTime(localTime(initial.dueAt)); }, [initial.dueAt]);
 
@@ -53,7 +58,8 @@ export default function AssignmentEditor({ initial, units, categories, standards
         body: JSON.stringify({
           baseVersion: a.version, title: next.title, instructions: next.instructions, kind: next.kind,
           points: next.points, dueOn: next.dueOn, dueAt, unitId: next.unitId || null, categoryId: next.categoryId || null,
-          published: next.published, gradesReleased: next.gradesReleased, rubric: next.rubric,
+          published: next.published, gradesReleased: next.gradesReleased, rubric: next.kind === "quiz" ? null : next.rubric,
+          ...(next.kind === "quiz" ? { quiz: next.quiz ?? { settings: DEFAULT_SETTINGS, items: [] } } : {}),
           ...(standards ? { standards: next.standards ?? [] } : {}),
         }),
       });
@@ -62,6 +68,8 @@ export default function AssignmentEditor({ initial, units, categories, standards
       const body = await res.json();
       setA(body.assignment);
       setStatus("saved");
+      const r = body.regraded;
+      setRegraded(r ? (r.roster ? d.quizRegraded : d.quizRegradedNoRoster).replace("{a}", String(r.attempts)).replace("{g}", String(r.grades)) : "");
     } catch {
       setStatus("error");
     }
@@ -82,8 +90,10 @@ export default function AssignmentEditor({ initial, units, categories, standards
         <span className="spacer" style={{ flex: 1 }} />
         <span className="save-state" role="status" aria-live="polite">{stateText}</span>
         <button className="btn btn-primary" type="submit" disabled={status === "saving" || status === "conflict"}>{d.save}</button>
+        {a.kind === "quiz" && <Link className="btn" href={`/assignments/${a.id}/results`}>{d.quizResults}</Link>}
         <Link className="btn" href={`/assignments/${a.id}/grade`}>{d.openGrading}</Link>
       </div>
+      {regraded && <p className="notice" role="status">{regraded}</p>}
 
       {status === "conflict" && (
         <div className="notice notice-bad" role="alert">
@@ -103,9 +113,15 @@ export default function AssignmentEditor({ initial, units, categories, standards
             </div>
             <div className="fieldset">
               <label htmlFor="a-kind">{d.kind}</label>
-              <select id="a-kind" className="field" value={a.kind} onChange={(e) => set({ kind: e.target.value as Assignment["kind"] })}>
+              <select id="a-kind" className="field" value={a.kind} disabled={initial.kind === "quiz" && attempted > 0}
+                onChange={(e) => {
+                  const kind = e.target.value as Assignment["kind"];
+                  const quiz = kind === "quiz" ? a.quiz ?? { settings: DEFAULT_SETTINGS, items: [] } : a.quiz;
+                  set({ kind, quiz, ...(kind === "quiz" ? { points: quizPoints(quiz), rubric: null } : {}) });
+                }}>
                 <option value="online">{d.kindOnline}</option>
                 <option value="offline">{d.kindOffline}</option>
+                <option value="quiz">{d.kindQuiz}</option>
               </select>
             </div>
           </div>
@@ -128,7 +144,10 @@ export default function AssignmentEditor({ initial, units, categories, standards
                 ))}
             </fieldset>
           )}
-          <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} standards={standards} d={d} />
+          {a.kind === "quiz"
+            ? <QuizEditor quiz={a.quiz ?? { settings: DEFAULT_SETTINGS, items: [] }} attempted={attempted} standards={standards} d={d}
+                onChange={(quiz) => set({ quiz, points: quizPoints(quiz) })} />
+            : <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} standards={standards} d={d} />}
         </div>
 
         <aside className="editor-side">
@@ -163,9 +182,10 @@ export default function AssignmentEditor({ initial, units, categories, standards
             <div className="fieldset">
               <label htmlFor="a-points">{d.points}</label>
               <input id="a-points" type="number" min={0} max={10000} step="any" className="field" value={a.points}
-                disabled={!!a.rubric} aria-describedby={a.rubric ? "a-points-rubric" : undefined}
+                disabled={!!a.rubric || a.kind === "quiz"} aria-describedby={a.rubric ? "a-points-rubric" : a.kind === "quiz" ? "a-points-quiz" : undefined}
                 onChange={(e) => set({ points: Number(e.target.value) })} />
               {a.rubric && <p id="a-points-rubric" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.pointsFromRubric}</p>}
+              {a.kind === "quiz" && <p id="a-points-quiz" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.quizPointsFromQuestions}</p>}
             </div>
             <div className="fieldset">
               <label htmlFor="a-cat">{d.category}</label>

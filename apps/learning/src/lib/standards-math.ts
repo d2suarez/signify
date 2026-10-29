@@ -107,13 +107,14 @@ export function roundLevel(n: number): number {
 
 // ---------- alignment ----------
 
-type Aligned = { standards: string[] | null; rubric: Rubric | null };
+type Aligned = { standards: string[] | null; rubric: Rubric | null; quiz?: { items: { standardId: string | null }[] } | null };
 
-/** The standards an assignment measures: its own list and its rubric rows', once each. */
+/** The standards an assignment measures: its own list, its rubric rows' and its quiz questions', once each. */
 export function alignedStandards(a: Aligned): string[] {
   const out: string[] = [];
   for (const id of a.standards ?? []) if (!out.includes(id)) out.push(id);
   for (const c of a.rubric?.criteria ?? []) if (c.standardId && !out.includes(c.standardId)) out.push(c.standardId);
+  for (const i of a.quiz?.items ?? []) if (i.standardId && !out.includes(i.standardId)) out.push(i.standardId);
   return out;
 }
 

@@ -9,7 +9,11 @@ import type { WritingEvent, WritingSummary } from "@/lib/writing";
  * the snapshots and every paste. Evidence to talk about with the student,
  * never a verdict — there is deliberately no score here.
  */
-export default function WritingReplay({ assignmentId, studentId, d }: { assignmentId: string; studentId: string; d: Dict }) {
+export default function WritingReplay({ assignmentId, studentId, src, d }: {
+  assignmentId: string; studentId: string;
+  /** Where the events come from, when not the assignment's writing box (a quiz's essay answer). */
+  src?: string; d: Dict;
+}) {
   const [data, setData] = useState<{ events: WritingEvent[]; summary: WritingSummary } | null>(null);
   const [failed, setFailed] = useState(false);
   const [at, setAt] = useState(0);
@@ -18,12 +22,12 @@ export default function WritingReplay({ assignmentId, studentId, d }: { assignme
   useEffect(() => {
     let gone = false;
     setData(null); setFailed(false); setAt(0); setPlaying(false);
-    fetch(`/api/assignments/${assignmentId}/writing?student=${encodeURIComponent(studentId)}`, { cache: "no-store" })
+    fetch(src ?? `/api/assignments/${assignmentId}/writing?student=${encodeURIComponent(studentId)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((body) => { if (!gone) { setData(body); setAt(Math.max(0, body.events.filter((e: WritingEvent) => e.kind === "snapshot").length - 1)); } })
       .catch(() => { if (!gone) setFailed(true); });
     return () => { gone = true; };
-  }, [assignmentId, studentId]);
+  }, [assignmentId, studentId, src]);
 
   const snaps = data?.events.filter((e) => e.kind === "snapshot") ?? [];
   const pastes = data?.events.filter((e) => e.kind === "paste") ?? [];

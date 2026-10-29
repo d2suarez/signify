@@ -3,6 +3,7 @@ import { cleanPastes, record } from "./writing";
 import { cleanTitle, unitInCourse } from "./units";
 import { normalizeRubric, rubricMax, type Rubric } from "./rubric";
 import { standardsInCourse } from "./standards";
+import { DEFAULT_SETTINGS, normalizeQuiz, quizPoints, type Quiz } from "./quiz";
 
 /**
  * Assignments and the work students hand in for them.
@@ -17,7 +18,7 @@ import { standardsInCourse } from "./standards";
  * in by setting submitted_at. Handing in late is allowed and marked late.
  */
 
-export type AssignmentKind = "online" | "offline";
+export type AssignmentKind = "online" | "offline" | "quiz";
 
 export type Assignment = {
   id: string;
@@ -36,6 +37,8 @@ export type Assignment = {
   rubric: Rubric | null;
   /** The standards it measures (a standards course); its rubric rows may name more. */
   standards: string[] | null;
+  /** A quiz's questions and settings (kind "quiz"); its points are the questions' total. */
+  quiz: Quiz | null;
   version: number;
   updatedAt: string;
 };
@@ -68,7 +71,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     categoryId: r.category_id ? String(r.category_id) : null,
     title: String(r.title),
     instructions: String(r.instructions ?? ""),
-    kind: r.kind === "offline" ? "offline" : "online",
+    kind: r.kind === "offline" ? "offline" : r.kind === "quiz" ? "quiz" : "online",
     points: Number(r.points),
     dueOn: day(r.due_on),
     dueAt: iso(r.due_at),
@@ -76,6 +79,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     gradesReleased: !!r.grades_released,
     rubric: r.rubric ? normalizeRubric(typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) : null,
     standards: cleanIdList(typeof r.standards === "string" ? JSON.parse(r.standards) : r.standards),
+    quiz: r.kind === "quiz" ? normalizeQuiz(typeof r.quiz === "string" ? JSON.parse(r.quiz) : r.quiz) : null,
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
@@ -87,9 +91,14 @@ function cleanIdList(v: unknown): string[] | null {
   return out.length ? out : null;
 }
 
+/** Never the quiz's answer key: a student's quiz comes from quiz-store.ts, arranged and without it. */
 export function forStudent(a: Assignment): StudentAssignment {
   const { version: _v, updatedAt: _u, published: _p, ...rest } = a;
-  return rest;
+  return { ...rest, quiz: null };
+}
+
+function cleanKind(v: unknown): AssignmentKind {
+  return v === "offline" ? "offline" : v === "quiz" ? "quiz" : "online";
 }
 
 export async function listAssignments(ctx: Ctx, courseId: string, opts: { publishedOnly?: boolean } = {}): Promise<Assignment[]> {
@@ -142,11 +151,12 @@ export async function createAssignment(
 ): Promise<Assignment> {
   const db = await getDb();
   const unit = await unitInCourse(ctx, courseId, input.unitId);
+  const kind = cleanKind(input.kind);
   const rows = await db.query(
-    `INSERT INTO assignments (tenant_id, course_id, unit_id, title, kind, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING *`,
-    [ctx.tenantId, courseId, unit, cleanTitle(input.title, "Untitled assignment"),
-      input.kind === "offline" ? "offline" : "online", ctx.userId],
+    `INSERT INTO assignments (tenant_id, course_id, unit_id, title, kind, quiz, points, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $7::jsonb, $8, $6, $6) RETURNING *`,
+    [ctx.tenantId, courseId, unit, cleanTitle(input.title, kind === "quiz" ? "Untitled quiz" : "Untitled assignment"),
+      kind, ctx.userId, kind === "quiz" ? JSON.stringify({ settings: DEFAULT_SETTINGS, items: [] }) : null, kind === "quiz" ? 0 : 10],
   );
   return toAssignment(rows[0]);
 }
@@ -167,6 +177,8 @@ export type AssignmentInput = {
   rubric?: unknown;
   /** Standard ids it measures, or null for none. */
   standards?: unknown;
+  /** A quiz's questions and settings (kind "quiz"). */
+  quiz?: unknown;
 };
 
 export type AssignmentSave =
@@ -195,7 +207,7 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
       ...cur,
       title: input.title === undefined ? cur.title : cleanTitle(input.title, "Untitled assignment"),
       instructions: input.instructions === undefined ? cur.instructions : String(input.instructions).slice(0, LIMITS.instructions),
-      kind: input.kind === undefined ? cur.kind : input.kind === "offline" ? "offline" : "online",
+      kind: input.kind === undefined ? cur.kind : cleanKind(input.kind),
       points: input.points === undefined ? cur.points : cleanPoints(input.points, cur.points),
       ...due,
       unitId: input.unitId === undefined ? cur.unitId : await unitInCourse(ctx, cur.courseId, input.unitId, t),
@@ -204,13 +216,28 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
       gradesReleased: input.gradesReleased === undefined ? cur.gradesReleased : input.gradesReleased === true,
       rubric: input.rubric === undefined ? cur.rubric : normalizeRubric(input.rubric),
     };
+    // A quiz that students have started stays a quiz: their attempts belong to it.
+    if (cur.kind === "quiz" && next.kind !== "quiz") {
+      const tried = await t.query("SELECT 1 FROM quiz_attempts WHERE tenant_id = $1 AND assignment_id = $2 LIMIT 1", [ctx.tenantId, id]);
+      if (tried[0]) next.kind = "quiz";
+    }
+    if (next.kind === "quiz") {
+      next.quiz = input.quiz === undefined ? cur.quiz ?? normalizeQuiz({ settings: DEFAULT_SETTINGS }) : normalizeQuiz(input.quiz);
+      // A quiz is scored by its questions, not a rubric.
+      next.rubric = null;
+      next.points = Math.min(LIMITS.maxPoints, quizPoints(next.quiz));
+    } else {
+      next.quiz = null;
+    }
     // With a rubric, the points are what it can give at most.
     if (next.rubric) next.points = Math.min(LIMITS.maxPoints, rubricMax(next.rubric));
     // Alignment: only this course's own standards (not archived) are kept.
-    if (input.standards !== undefined || input.rubric !== undefined) {
+    if (input.standards !== undefined || input.rubric !== undefined || input.quiz !== undefined) {
       const wanted = input.standards === undefined ? cur.standards ?? [] : cleanIdList(input.standards) ?? [];
       const rows = next.rubric?.criteria.map((c) => c.standardId).filter((x): x is string => !!x) ?? [];
-      const ok = await standardsInCourse(ctx, cur.courseId, [...wanted, ...rows], t);
+      const items = next.quiz?.items.map((i) => i.standardId).filter((x): x is string => !!x) ?? [];
+      const ok = await standardsInCourse(ctx, cur.courseId, [...wanted, ...rows, ...items], t);
+      if (next.quiz) next.quiz = { ...next.quiz, items: next.quiz.items.map((i) => (i.standardId && !ok.has(i.standardId) ? { ...i, standardId: null } : i)) };
       const list = wanted.filter((id) => ok.has(id));
       next.standards = list.length ? list : null;
       if (next.rubric) {
@@ -219,10 +246,11 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     }
     const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);
     const standardsChanged = JSON.stringify(next.standards) !== JSON.stringify(cur.standards);
-    const changed = rubricChanged || standardsChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
+    const quizChanged = JSON.stringify(next.quiz) !== JSON.stringify(cur.quiz);
+    const changed = rubricChanged || standardsChanged || quizChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
     if (!changed) return { ok: true, assignment: cur, changed: false } as const;
 
-    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric, standards: cur.standards };
+    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric, standards: cur.standards, quiz: cur.quiz };
     await t.query(
       `INSERT INTO assignment_versions (tenant_id, assignment_id, version, snapshot, saved_by, saved_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6) ON CONFLICT (assignment_id, version) DO NOTHING`,
@@ -236,11 +264,12 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
               unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb, standards = $15::jsonb,
-              version = version + 1, updated_by = $13, updated_at = now()
+              quiz = $16::jsonb, version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
         next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
-        next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null],
+        next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null,
+        next.quiz ? JSON.stringify(next.quiz) : null],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });

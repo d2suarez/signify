@@ -133,6 +133,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <select name="kind" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.kind} defaultValue="online">
               <option value="online">{d.kindOnline}</option>
               <option value="offline">{d.kindOffline}</option>
+              <option value="quiz">{d.kindQuiz}</option>
             </select>
             <button className="btn btn-primary" type="submit">{d.create}</button>
           </form>
@@ -265,7 +266,7 @@ function AssignmentRow({ a, d, L }: { a: Assignment; d: Dict; L: Lang }) {
         <h3>{a.title}</h3>
         <span className="muted" style={{ fontSize: 13 }}>
           {a.dueAt ? <>{d.due} <When iso={a.dueAt} lang={L} /> · </> : `${d.noDue} · `}{a.points} {d.pts}
-          {a.kind === "offline" ? ` · ${d.kindOffline}` : ""}
+          {a.kind === "offline" ? ` · ${d.kindOffline}` : a.kind === "quiz" ? ` · ${d.kindQuiz}` : ""}
         </span>
         {!a.published && <span className="pill pill-draft" style={{ marginLeft: 6 }}>{d.draft}</span>}
       </div>

@@ -18,6 +18,10 @@ import { placements } from "@/lib/lti-dl";
 import { StandardsList } from "@/components/Work";
 import type { StandardsView } from "@/lib/gradebook";
 import { alignedStandards } from "@/lib/standards-math";
+import QuizTaker from "@/components/QuizTaker";
+import { attemptsOf, closeExpired, QUIZ_GRADER, studentQuiz, syncGrade } from "@/lib/quiz-store";
+import { closeQuizForTeacher } from "@/lib/quiz-sync";
+import { passBack } from "@/lib/lti-passback";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +37,10 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const crumbs = <><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>;
 
   if (course.role === "teacher") {
-    const [units, categories, placed, grading, standards] = await Promise.all([
+    await closeQuizForTeacher(access);
+    const [units, categories, placed, grading, standards, attempts] = await Promise.all([
       listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
-      courseGrading(c, course.id), listStandards(c, course.id),
+      courseGrading(c, course.id), listStandards(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
     ]);
     return (
       <>
@@ -44,7 +49,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           <AssignmentEditor initial={a} d={d}
             units={units.map((u) => ({ id: u.id, name: u.title }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
-            standards={grading.mode === "standards" ? standards.map((s) => ({ id: s.id, name: s.code, description: s.description })) : undefined} />
+            standards={grading.mode === "standards" ? standards.map((s) => ({ id: s.id, name: s.code, description: s.description })) : undefined}
+            attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size} />
           {placed.length > 0 && <div style={{ marginTop: 24 }}><SchoologyScores assignmentId={a.id} d={d} /></div>}
         </main>
       </>
@@ -52,6 +58,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   }
 
   // A student: their own work, and their grade once it's released.
+  // A quiz attempt left open past its time is handed in now, with what was saved.
+  if (a.kind === "quiz" && (await closeExpired(c, a, me.id)).length) {
+    if (await syncGrade({ tenantId: me.tenantId, userId: QUIZ_GRADER }, a, me.id, new Set([me.id]))) await passBack(access, me.id);
+  }
+  const quizView = a.kind === "quiz" ? await studentQuiz(c, a) : null;
   const [submission, grades, grading, allStandards] = await Promise.all([
     getSubmission(c, a.id, me.id), gradesFor(c, a.id), courseGrading(c, course.id), listStandards(c, course.id),
   ]);
@@ -112,7 +123,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           </section>
         )}
 
-        {a.kind === "online"
+        {quizView
+          ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} />
+          : a.kind === "online"
           ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} /></section>
           : <p className="notice">{d.paperAssignment}</p>}
       </main>

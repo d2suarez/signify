@@ -6,6 +6,8 @@ import type { Flag } from "@/lib/grades";
 import WritingReplay from "./WritingReplay";
 import RubricView from "./RubricView";
 import SchoologyScores from "./SchoologyScores";
+import QuizReview from "./QuizReview";
+import type { Grade } from "@/lib/grades";
 import { rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
 import { levelsFromRubric } from "@/lib/standards-math";
 
@@ -26,7 +28,7 @@ type History = { score: number | null; flag: Flag | null; comment: string; chang
  * score, mark and comment on the right. Save moves to the next student.
  */
 export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, standards, d }: {
-  assignment: { id: string; points: number; kind: "online" | "offline"; gradesReleased: boolean; rubric: Rubric | null };
+  assignment: { id: string; points: number; kind: "online" | "offline" | "quiz"; gradesReleased: boolean; rubric: Rubric | null };
   students: DeskStudent[]; startWith?: string; schoology?: boolean; standards?: DeskStandards; d: Dict;
 }) {
   const [saves, setSaves] = useState(0);
@@ -122,6 +124,16 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     if (res.ok) setHistory((await res.json()).history);
   };
 
+  // A quiz question scored on the left: the grade the quiz wrote comes back here.
+  const quizGrade = (g: Grade | null) => {
+    if (!g) return;
+    setStudents((all) => all.map((x, j) => j === i ? { ...x, score: g.score, flag: g.flag, comment: g.comment, levels: g.levels } : x));
+    setScore(g.score === null ? "" : String(g.score));
+    setFlag(g.flag || "");
+    setLevels(g.levels);
+    setSaves((n) => n + 1);
+  };
+
   const flagLabel = (f: Flag | null) => (f === "missing" ? d.missing : f === "late" ? d.late : f === "exempt" ? d.exempt : "");
 
   return (
@@ -135,7 +147,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
                 {x.score !== null
                   ? <b>{x.score}</b>
                   : x.flag ? <span className={`chip chip-${x.flag}`}>{flagLabel(x.flag)}</span>
-                  : assignment.kind === "online" && x.submittedAt ? <span className="chip chip-done">{d.handedIn}</span>
+                  : assignment.kind !== "offline" && x.submittedAt ? <span className="chip chip-done">{d.handedIn}</span>
                   : null}
               </button>
             </li>
@@ -146,11 +158,13 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
       <section className="card desk-work" aria-labelledby="desk-name">
         <div className="row">
           <h2 id="desk-name" className="grow" style={{ fontSize: 22 }}>{s.name}</h2>
-          {assignment.kind === "online" && (s.submittedAt
+          {assignment.kind !== "offline" && (s.submittedAt
             ? <span className={`chip ${s.late ? "chip-late" : "chip-done"}`}>{d.handedIn} · <time suppressHydrationWarning>{new Date(s.submittedAt).toLocaleString()}</time>{s.late ? ` · ${d.late}` : ""}</span>
             : <span className="chip">{s.body ? d.workingOn : d.notHandedIn}</span>)}
         </div>
-        {assignment.kind === "online"
+        {assignment.kind === "quiz"
+          ? <QuizReview key={s.id} assignmentId={assignment.id} studentId={s.id} points={assignment.points} onGrade={quizGrade} d={d} />
+          : assignment.kind === "online"
           ? (s.body ? <div className="work-text">{s.body}</div> : <p className="empty">{d.noWork}</p>)
           : <p className="muted">{d.kindOffline}</p>}
         {assignment.kind === "online" && s.body !== null && (

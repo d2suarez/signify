@@ -10,6 +10,7 @@ import { alignedStandards, levelLabel, levelWords, topLevel } from "@/lib/standa
 import { TopBar } from "@/components/TopBar";
 import GradeDesk, { type DeskStandards, type DeskStudent } from "@/components/GradeDesk";
 import { placements } from "@/lib/lti-dl";
+import { closeQuizForTeacher } from "@/lib/quiz-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function GradePage({ params, searchParams }: {
   const d = dict(L);
   const access = await assignmentAccess(id);
   if (!access || access.course.role !== "teacher") notFound();
+  await closeQuizForTeacher(access);
   const { me, course, assignment: a } = access;
   const c = ctx(me);
   const [{ ok, students }, subs, grades, placed, grading, allStandards] = await Promise.all([
@@ -60,6 +62,7 @@ export default async function GradePage({ params, searchParams }: {
         <div className="row">
           <h1 style={{ fontSize: 30 }} className="grow">{a.title}</h1>
           <span className="muted">{a.points} {d.pts}</span>
+          {a.kind === "quiz" && <Link className="btn" href={`/assignments/${a.id}/results`}>{d.quizResults}</Link>}
           <Link className="btn" href={`/courses/${course.id}/gradebook`}>{d.gradebook}</Link>
         </div>
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}
