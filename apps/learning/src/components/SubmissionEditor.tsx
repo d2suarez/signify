@@ -21,6 +21,8 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
   const [status, setStatus] = useState<Status>("saved");
   const [note, setNote] = useState("");
 
+  // Pastes since the last save, sent with it (writing-process evidence, src/lib/writing.ts).
+  const pastes = useRef<{ at: number; chars: number; text: string }[]>([]);
   const latest = useRef({ body, version });
   latest.current = { body, version };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,14 +36,17 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
     const run = (async () => {
       setStatus("saving");
       const s = latest.current;
+      const sending = pastes.current;
       try {
+        const now = Date.now();
         const res = await fetch(`/api/assignments/${assignmentId}/submission`, {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ baseVersion: s.version, body: s.body }),
+          body: JSON.stringify({ baseVersion: s.version, body: s.body, pastes: sending.map((p) => ({ ago: now - p.at, chars: p.chars, text: p.text })) }),
         });
         if (res.status === 409) { stopped.current = true; setStatus("conflict"); return false; }
         if (!res.ok) throw new Error(String(res.status));
         const { submission } = await res.json();
+        pastes.current = pastes.current.filter((p) => !sending.includes(p));
         latest.current.version = submission.version;
         setVersion(submission.version);
         setStatus(again.current ? "dirty" : "saved");
@@ -115,7 +120,12 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
         </div>
       )}
       <textarea id="work" className="field writing" rows={16} value={body} maxLength={100000}
-        readOnly={handedIn || locked} onChange={(e) => onType(e.target.value)} spellCheck />
+        readOnly={handedIn || locked} onChange={(e) => onType(e.target.value)} spellCheck aria-describedby="work-note"
+        onPaste={(e) => {
+          const text = e.clipboardData.getData("text/plain");
+          if (text && !handedIn && !locked) pastes.current.push({ at: Date.now(), chars: text.length, text: text.slice(0, 5000) });
+        }} />
+      <p id="work-note" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.writingStudentNote}</p>
       {/* Hearing your own writing back is how many students catch what they meant to write. */}
       <ReadAloud text={body} d={d} label={d.readMyWriting} />
       {note && <p className="notice" role="alert">{note}</p>}

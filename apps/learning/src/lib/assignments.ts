@@ -1,4 +1,5 @@
 import { getDb, type Queryable } from "./db";
+import { cleanPastes, record } from "./writing";
 import { cleanTitle, unitInCourse } from "./units";
 
 /**
@@ -309,9 +310,10 @@ export type SubmissionSave =
  * into someone else's submission. Work already handed in can't be changed
  * without taking it back first (unsubmit).
  */
-export async function saveDraft(ctx: Ctx, a: Assignment, input: { baseVersion: number; body: unknown }): Promise<SubmissionSave> {
+export async function saveDraft(ctx: Ctx, a: Assignment, input: { baseVersion: number; body: unknown; pastes?: unknown }): Promise<SubmissionSave> {
   if (a.kind !== "online" || !a.published) return { ok: false, reason: "missing" };
   const body = String(input.body ?? "").slice(0, LIMITS.body);
+  const pastes = cleanPastes(input.pastes);
   const db = await getDb();
   return db.tx(async (t) => {
     const rows = await t.query(
@@ -330,17 +332,22 @@ export async function saveDraft(ctx: Ctx, a: Assignment, input: { baseVersion: n
         const now = await t.query("SELECT * FROM submissions WHERE assignment_id = $1 AND student_id = $2", [a.id, ctx.userId]);
         return { ok: false, reason: "conflict", submission: toSubmission(now[0]) } as const;
       }
+      await record(t, ctx.tenantId, String(made[0].id), body, pastes);
       return { ok: true, submission: toSubmission(made[0]) } as const;
     }
     const cur = toSubmission(rows[0]);
     if (Number(input.baseVersion) !== cur.version) return { ok: false, reason: "conflict", submission: cur } as const;
     if (cur.submittedAt) return { ok: false, reason: "handed-in" } as const;
-    if (body === cur.body) return { ok: true, submission: cur } as const;
+    if (body === cur.body) {
+      if (pastes.length) await record(t, ctx.tenantId, String(rows[0].id), body, pastes);
+      return { ok: true, submission: cur } as const;
+    }
     const saved = await t.query(
       `UPDATE submissions SET body = $4, version = version + 1, updated_at = now()
         WHERE tenant_id = $1 AND assignment_id = $2 AND student_id = $3 RETURNING *`,
       [ctx.tenantId, a.id, ctx.userId, body],
     );
+    await record(t, ctx.tenantId, String(saved[0].id), body, pastes);
     return { ok: true, submission: toSubmission(saved[0]) } as const;
   });
 }
@@ -373,6 +380,8 @@ export async function setHandedIn(ctx: Ctx, a: Assignment, handIn: boolean, base
         WHERE tenant_id = $1 AND assignment_id = $2 AND student_id = $3 RETURNING *`,
       [ctx.tenantId, a.id, ctx.userId],
     );
+    // What was handed in is always the last thing the replay shows.
+    if (handIn) await record(t, ctx.tenantId, String(saved[0].id), String(saved[0].body ?? ""), [], true);
     return { ok: true, submission: toSubmission(saved[0]) } as const;
   });
 }

@@ -195,6 +195,13 @@ textarea.field { resize: vertical; }
 /* ---------- writing ---------- */
 .writing { font-size: 17px; line-height: 1.65; min-height: 320px; }
 .work-text { white-space: pre-wrap; font-size: 16px; line-height: 1.65; margin-top: 12px; max-height: 70vh; overflow: auto; }
+.writing-process { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.writing-process > summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.replay-text { max-height: 50vh; padding: 12px 14px; border-radius: var(--r-md); background: var(--desk); margin-top: 0; }
+.facts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+.facts-grid div { background: var(--desk); border-radius: var(--r-md); padding: 10px 12px; }
+.facts-grid dt { font-size: 12px; font-weight: 700; color: var(--muted); }
+.facts-grid dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* ---------- grading one assignment ---------- */
 .desk { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(280px, 340px); gap: 16px; align-items: start; }

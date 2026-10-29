@@ -259,6 +259,22 @@ const en = {
   openBoard: "Open in Signify Boards",
   boardOpenOnly: "This board opens in its own tab, where you sign in to draw on it.",
   boardEmpty: "No board linked yet.",
+  // writing-process evidence
+  writingProcess: "How this was written",
+  writingEvidenceNote: "Evidence of how the work came together, to talk over with the student. It is not a verdict: pasting can be fine (their own notes, a quotation), and nothing here measures honesty.",
+  writingNone: "Nothing recorded for this work yet. Recording started with this version of Learning, so older work has none.",
+  writingFailed: "The writing record couldn't be loaded. Try again in a minute.",
+  writingSpan: "Written",
+  writingSessions: "Sittings",
+  writingActive: "Time writing",
+  writingPastes: "Pastes",
+  writingPlay: "Play",
+  writingSnapshot: "Snapshot",
+  writingPastesSoFar: "Pastes so far",
+  writingPasteList: "Everything pasted",
+  writingStudentNote: "Your teacher can see how this was written: saved versions over time and anything pasted in.",
+  chars: "characters",
+  loading: "Loading…",
 };
 
 export type Key = keyof typeof en;
@@ -389,6 +405,21 @@ const es: Partial<Record<Key, string>> = {
   openBoard: "Abrir en Signify Boards",
   boardOpenOnly: "Esta pizarra se abre en su propia pestaña, donde inicias sesión para dibujar.",
   boardEmpty: "Todavía no hay una pizarra enlazada.",
+  writingProcess: "Cómo se escribió",
+  writingEvidenceNote: "Evidencia de cómo se fue armando el trabajo, para conversarlo con el estudiante. No es un veredicto: pegar texto puede estar bien (sus propias notas, una cita), y nada aquí mide la honestidad.",
+  writingNone: "Todavía no hay nada registrado para este trabajo. El registro empezó con esta versión de Learning, así que los trabajos anteriores no lo tienen.",
+  writingFailed: "No se pudo cargar el registro de escritura. Inténtalo de nuevo en un minuto.",
+  writingSpan: "Escrito",
+  writingSessions: "Sesiones",
+  writingActive: "Tiempo escribiendo",
+  writingPastes: "Textos pegados",
+  writingPlay: "Reproducir",
+  writingSnapshot: "Versión",
+  writingPastesSoFar: "Pegados hasta aquí",
+  writingPasteList: "Todo lo pegado",
+  writingStudentNote: "Tu maestro puede ver cómo se escribió esto: las versiones guardadas con el tiempo y todo lo que pegues.",
+  chars: "caracteres",
+  loading: "Cargando…",
 };
 
 const dicts = { en, es } as const;

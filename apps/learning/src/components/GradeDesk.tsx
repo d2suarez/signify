@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dict } from "@/lib/i18n";
 import type { Flag } from "@/lib/grades";
+import WritingReplay from "./WritingReplay";
 
 export type DeskStudent = {
   id: string; name: string;
@@ -29,6 +30,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<History | null>(null);
+  const [showWriting, setShowWriting] = useState(false);
   const scoreRef = useRef<HTMLInputElement>(null);
 
   // Load the chosen student's grade into the form.
@@ -39,6 +41,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
     setComment(cur.comment);
     setError("");
     setHistory(null);
+    setShowWriting(false);
     scoreRef.current?.focus();
     // Only when moving to another student, not after each save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,6 +110,13 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
         {assignment.kind === "online"
           ? (s.body ? <div className="work-text">{s.body}</div> : <p className="empty">{d.noWork}</p>)
           : <p className="muted">{d.kindOffline}</p>}
+        {assignment.kind === "online" && s.body !== null && (
+          // Loaded on request, for one student at a time.
+          <details className="writing-process" key={s.id} onToggle={(e) => setShowWriting(e.currentTarget.open)}>
+            <summary>{d.writingProcess}</summary>
+            {showWriting && <WritingReplay assignmentId={assignment.id} studentId={s.id} d={d} />}
+          </details>
+        )}
       </section>
 
       <form className="card desk-form" onSubmit={(e) => { e.preventDefault(); save(true); }}>

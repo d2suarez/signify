@@ -25,14 +25,14 @@ async function json(req: Request): Promise<Record<string, unknown> | null> {
   }
 }
 
-/** Save the draft. Body: { baseVersion (0 for the first save), body }. */
+/** Save the draft. Body: { baseVersion (0 for the first save), body, pastes? } (pastes: see src/lib/writing.ts). */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { access, error } = await student(id);
   if (error) return error;
   const body = await json(req);
   if (!body) return NextResponse.json({ error: "That work is too long to save." }, { status: 413 });
-  const r = await saveDraft(ctx(access.me), access.assignment, { baseVersion: Number(body.baseVersion), body: body.body });
+  const r = await saveDraft(ctx(access.me), access.assignment, { baseVersion: Number(body.baseVersion), body: body.body, pastes: body.pastes });
   if (r.ok) return NextResponse.json({ submission: r.submission });
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", submission: r.submission }, { status: 409 });
   if (r.reason === "handed-in") return NextResponse.json({ error: "handed-in" }, { status: 409 });
