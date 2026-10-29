@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Assignment } from "@/lib/assignments";
 import type { Dict } from "@/lib/i18n";
+import { onSabbath } from "@/lib/calendar";
 
 type Option = { id: string; name: string };
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
@@ -13,13 +14,6 @@ function localTime(iso: string | null): string {
   if (!iso) return "23:59";
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** Friday from 6 pm through Saturday: roughly sunset to sunset. */
-export function onSabbath(day: string, time: string): boolean {
-  if (!day) return false;
-  const dow = new Date(`${day}T12:00`).getDay();
-  return dow === 6 || (dow === 5 && time >= "18:00");
 }
 
 /**

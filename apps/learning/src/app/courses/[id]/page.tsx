@@ -8,6 +8,7 @@ import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit } from "@/lib/u
 import { listAssignments, createAssignment, courseSubmissions, isLate, isOverdue, type Assignment } from "@/lib/assignments";
 import { buildGradebook } from "@/lib/gradebook";
 import { liveLessonId } from "@/lib/live-ticket";
+import { listAnnouncements, postAnnouncement, archiveAnnouncement, ANNOUNCEMENT_LIMITS, type Announcement } from "@/lib/announcements";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
@@ -58,6 +59,16 @@ async function unitAction(formData: FormData) {
   revalidatePath(`/courses/${courseId}`);
 }
 
+async function announce(formData: FormData) {
+  "use server";
+  const access = await teacherAccess(formData);
+  if (!access) return;
+  const c = ctx(access.me), courseId = access.course.id;
+  if (formData.get("op") === "archive") await archiveAnnouncement(c, courseId, String(formData.get("announcementId") || ""));
+  else await postAnnouncement(c, courseId, { title: formData.get("title"), body: formData.get("body") });
+  revalidatePath(`/courses/${courseId}`);
+}
+
 type Item = { kind: "lesson"; lesson: LessonSummary } | { kind: "assignment"; assignment: Assignment };
 
 function itemDate(i: Item): string {
@@ -76,8 +87,8 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   const d = dict(L);
   const c = ctx(me);
   const live = liveLessonId(course.id);
-  const [units, lessons, assignments] = await Promise.all([
-    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id),
+  const [units, lessons, assignments, announcements] = await Promise.all([
+    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), listAnnouncements(c, course.id),
   ]);
 
   const groups = [...units.map((u) => ({ unit: u, items: [] as Item[] })), { unit: null, items: [] as Item[] }];
@@ -131,6 +142,19 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <button className="btn" type="submit">{d.create}</button>
           </form>
         </div>
+
+        <section className="card stack" aria-labelledby="ann-title" style={{ gap: 10 }}>
+          <h2 id="ann-title" className="label">{d.announcements}</h2>
+          <form action={announce} className="stack" style={{ gap: 8 }}>
+            <input type="hidden" name="courseId" value={course.id} />
+            <label htmlFor="ann-new-title" className="sr-only">{d.title}</label>
+            <input id="ann-new-title" name="title" className="field" placeholder={`${d.title} (${d.optional})`} maxLength={ANNOUNCEMENT_LIMITS.title} />
+            <label htmlFor="ann-new-body" className="sr-only">{d.announcementText}</label>
+            <textarea id="ann-new-body" name="body" className="field" rows={2} placeholder={d.announcementText} maxLength={ANNOUNCEMENT_LIMITS.body} required />
+            <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-start" }}>{d.postAnnouncement}</button>
+          </form>
+          <Announcements list={announcements} L={L} d={d} courseId={course.id} teacher />
+        </section>
 
         {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
 
@@ -189,6 +213,31 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   );
 }
 
+function Announcements({ list, L, d, courseId, teacher }: { list: Announcement[]; L: Lang; d: Dict; courseId: string; teacher?: boolean }) {
+  if (!list.length) return teacher ? <p className="empty" style={{ margin: 0 }}>{d.noAnnouncements}</p> : null;
+  return (
+    <ul className="list announcements">
+      {list.map((a) => (
+        <li key={a.id} style={{ alignItems: "flex-start" }}>
+          <span className="shape s-square" aria-hidden="true" style={{ marginTop: 6 }} />
+          <div className="grow">
+            {a.title && <h3>{a.title}</h3>}
+            <p style={{ whiteSpace: "pre-wrap", margin: a.title ? "4px 0 0" : 0 }}>{a.body}</p>
+            <span className="muted" style={{ fontSize: 13 }}><When iso={a.createdAt} lang={L} /></span>
+          </div>
+          {teacher && (
+            <form action={announce}>
+              <input type="hidden" name="courseId" value={courseId} />
+              <input type="hidden" name="announcementId" value={a.id} />
+              <button className="btn btn-sm" name="op" value="archive" aria-label={`${d.takeDown}: ${a.title || a.body.slice(0, 40)}`}>{d.takeDown}</button>
+            </form>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function LessonRow({ l, live, d }: { l: LessonSummary; live: boolean; d: Dict }) {
   return (
     <li>
@@ -231,10 +280,11 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
   const d = dict(L);
   const c = ctx(me);
   const live = liveLessonId(course.id);
-  const [units, assignments, subs] = await Promise.all([
+  const [units, assignments, subs, announcements] = await Promise.all([
     listUnits(c, course.id),
     listAssignments(c, course.id, { publishedOnly: true }),
     courseSubmissions(c, course.id, me.id),
+    listAnnouncements(c, course.id),
   ]);
   const self = { id: me.id, name: me.name, sortKey: "", factsName: me.name };
   const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
@@ -258,7 +308,17 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
             {row.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{row.whole}% · {row.letter}</b>}
           </div>
         </div>
-        {live && <Link className="btn btn-primary" style={{ alignSelf: "flex-start" }} href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
+        <div className="row">
+          {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
+          <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
+        </div>
+
+        {announcements.length > 0 && (
+          <section className="card" aria-labelledby="ann-title">
+            <h2 id="ann-title" className="label" style={{ marginBottom: 6 }}>{d.announcements}</h2>
+            <Announcements list={announcements} L={L} d={d} courseId={course.id} />
+          </section>
+        )}
 
         {assignments.length === 0 && <p className="empty">{d.noAssignmentsStudent}</p>}
         {groups.filter((g) => g.items.length > 0).map((g) => (

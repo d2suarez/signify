@@ -275,6 +275,22 @@ const en = {
   writingStudentNote: "Your teacher can see how this was written: saved versions over time and anything pasted in.",
   chars: "characters",
   loading: "Loading…",
+  // announcements and calendar
+  announcements: "Announcements",
+  announcementText: "Write an announcement for the class",
+  postAnnouncement: "Post",
+  noAnnouncements: "No announcements yet. What you post here shows on your students' course page.",
+  takeDown: "Take down",
+  optional: "optional",
+  calendar: "Calendar",
+  previousMonth: "Previous",
+  nextMonth: "Next",
+  today: "Today",
+  thisMonth: "This month",
+  calendarEmpty: "Nothing due this month.",
+  calendarEmptyTeacher: "No lessons planned or work due this month. Give a lesson a date or an assignment a due date to see it here.",
+  sabbath: "Sabbath",
+  sabbathCount: "due on the Sabbath this month. Many schools don't set work due from Friday sunset to Saturday sunset.",
 };
 
 export type Key = keyof typeof en;
@@ -420,6 +436,24 @@ const es: Partial<Record<Key, string>> = {
   writingStudentNote: "Tu maestro puede ver cómo se escribió esto: las versiones guardadas con el tiempo y todo lo que pegues.",
   chars: "caracteres",
   loading: "Cargando…",
+  announcements: "Anuncios",
+  announcementText: "Escribe un anuncio para la clase",
+  postAnnouncement: "Publicar",
+  noAnnouncements: "Todavía no hay anuncios. Lo que publiques aquí aparece en la página del curso de tus estudiantes.",
+  takeDown: "Quitar",
+  optional: "opcional",
+  calendar: "Calendario",
+  previousMonth: "Anterior",
+  nextMonth: "Siguiente",
+  today: "Hoy",
+  thisMonth: "Este mes",
+  calendarEmpty: "No hay nada que entregar este mes.",
+  calendarEmptyTeacher: "No hay lecciones planeadas ni entregas este mes. Ponle fecha a una lección o a una tarea para verla aquí.",
+  sabbath: "Sábado",
+  sabbathCount: "con entrega en sábado este mes. Muchas escuelas no ponen entregas desde la puesta del sol del viernes hasta la del sábado.",
+  sabbathWarning: "Eso cae en sábado. Muchas escuelas no ponen entregas desde la puesta del sol del viernes hasta la del sábado.",
+  title: "Título",
+  draft: "Borrador",
 };
 
 const dicts = { en, es } as const;
