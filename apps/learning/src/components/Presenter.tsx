@@ -7,7 +7,7 @@ import { boardLink } from "@/lib/boards";
 import type { Dict } from "@/lib/i18n";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
-import { useLive, useTimerLeft } from "./useLive";
+import { useLive, useTimerLeft, type Pace } from "./useLive";
 import { useNoiseMeter } from "./useNoiseMeter";
 
 type Props = {
@@ -38,7 +38,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
     if (!connected) { started.current = false; return; }
     if (started.current) return;
     started.current = true;
-    emit("live:start", { count: blocks.length, version: lesson.version, blockId: blocks[0]?.id ?? null });
+    emit("live:start", { count: blocks.length, version: lesson.version, blockId: blocks[0]?.id ?? null, blockIds: blocks.map((b) => b.id) });
   }, [connected, blocks, lesson.version, emit]);
 
   const ours = state.live && state.lessonId === lesson.id;
@@ -64,6 +64,9 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
 
   const timerLeft = useTimerLeft(ours ? state.timer : null, clockSkew);
   const students = teacher?.students ?? [];
+  const pace: Pace = (ours && state.pace) || "teacher";
+  const positions = pace === "teacher" ? {} : teacher?.positions ?? {};
+  const onBlock = (i: number) => Object.values(positions).filter((p) => p === i).length;
   const tally = teacher?.tallyAll && block && teacher.tallyAll.blockId === block.id ? teacher.tallyAll : null;
   const answered = tally?.answered ?? 0;
 
@@ -161,6 +164,20 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
               </button>
             )}
           </div>
+          <fieldset className="choice pace" disabled={!ours}>
+            <legend>{d.pacing}</legend>
+            <div className="choice-opts">
+              {([["teacher", d.paceTeacher], ["review", d.paceReview], ["self", d.paceSelf]] as const).map(([v, text]) => (
+                <label key={v}>
+                  <input type="radio" name="pace" value={v} checked={pace === v} onChange={() => emit("live:pace", { pace: v })} />
+                  <span>{text}</span>
+                </label>
+              ))}
+            </div>
+            <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
+              {pace === "teacher" ? d.paceTeacherHint : pace === "review" ? d.paceReviewHint : d.paceSelfHint}
+            </p>
+          </fieldset>
           {block?.type === "picker" && classFailed && <p className="notice" role="status" style={{ margin: 0 }}>{d.rosterFallback}</p>}
           {block?.type === "picker" && !pool.length && <p className="muted" style={{ margin: 0 }}>{d.pickNobody}</p>}
           {block?.type === "noise" && (
@@ -175,6 +192,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
                 <button key={b.id} type="button" aria-current={i === index} onClick={() => go(i)}>
                   <small><span className={`shape ${KIND[b.type]}`} style={{ width: 8, height: 8, marginRight: 4 }} />{i + 1}</small>
                   <b>{blockSummary(b) || "—"}</b>
+                  {pace !== "teacher" && onBlock(i) > 0 && <span className="strip-count" aria-label={`${onBlock(i)} ${d.studentsHere}`}>{onBlock(i)}</span>}
                 </button>
               ))}
             </nav>
@@ -191,6 +209,9 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
                 return (
                   <li key={s.id} style={{ padding: "8px 0" }}>
                     <span className="grow" style={{ minWidth: 0 }}>{s.name}</span>
+                    {pace !== "teacher" && positions[s.id] !== undefined && (
+                      <span className="pill" title={d.slide}>{d.slide} {positions[s.id] + 1}</span>
+                    )}
                     {letter >= 0 && <span className="pill">{String.fromCharCode(65 + letter)}</span>}
                   </li>
                 );

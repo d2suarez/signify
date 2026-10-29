@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
 export type Tally = { blockId: string; counts: Record<string, number>; answered: number };
+export type Pace = "teacher" | "review" | "self";
 export type TimerState = { endsAt: number | null; remaining: number | null } | null;
 
 export type LiveState = {
@@ -19,6 +20,8 @@ export type LiveState = {
   pick?: { blockId: string; at: number } | null;
   /** The room's loudness 0-100 from the teacher's noise meter, or null when it's off. */
   noise?: number | null;
+  /** teacher: everyone on the teacher's block; review: may look back; self: own pace. */
+  pace?: Pace;
   serverNow?: number;
 };
 
@@ -29,6 +32,8 @@ export type TeacherState = LiveState & {
   /** Who has had a turn on the picker block on screen. */
   picked: string[];
   lastPick: { blockId: string; studentId: string; at: number } | null;
+  /** studentId -> block index, when they move on their own (empty when following). */
+  positions: Record<string, number>;
 };
 
 /**

@@ -15,6 +15,8 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d 
   const { state, connected, clockSkew, pickedMe, emit } = useLive(ticket);
   const [lesson, setLesson] = useState<LiveLesson | null>(null);
   const [mine, setMine] = useState<Record<string, string>>({});
+  // The block this student is looking at, when the teacher lets them move.
+  const [own, setOwn] = useState(0);
 
   // Fetch the lesson whenever a different one (or a newer save of it) goes live.
   useEffect(() => {
@@ -27,10 +29,25 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d 
     return () => { gone = true; };
   }, [state.live, state.lessonId, state.lessonVersion, courseId, lesson]);
 
+  const pace = state.pace ?? "teacher";
+  const teacherIndex = state.index ?? 0;
+  // Following or looking back, a move by the teacher brings everyone along.
+  useEffect(() => { if (pace !== "self") setOwn(teacherIndex); }, [teacherIndex, pace]);
+  const count = lesson?.blocks.length ?? 0;
+  const index = pace === "teacher" ? teacherIndex
+    : Math.max(0, Math.min(own, count - 1, pace === "review" ? teacherIndex : Infinity));
+  // Tell the teacher where this screen is (again after a reconnect).
+  useEffect(() => {
+    if (connected && state.live && pace !== "teacher") emit("live:at", { index });
+  }, [connected, state.live, pace, index]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const timerLeft = useTimerLeft(state.timer, clockSkew);
-  const block = lesson && state.live && lesson.id === state.lessonId ? lesson.blocks[state.index ?? 0] : null;
-  const tally = state.revealed && state.tally && block && state.tally.blockId === block.id ? state.tally : null;
-  const pickState = !block || block.type !== "picker" || !state.pick ? "none"
+  const live = lesson && state.live && lesson.id === state.lessonId;
+  const block = live ? lesson.blocks[index] ?? null : null;
+  // Timers, results, picks and the noise level belong to the teacher's block.
+  const withTeacher = !!block && index === teacherIndex;
+  const tally = withTeacher && state.revealed && state.tally && block && state.tally.blockId === block.id ? state.tally : null;
+  const pickState = !withTeacher || !block || block.type !== "picker" || !state.pick ? "none"
     : pickedMe && pickedMe.blockId === block.id && pickedMe.at === state.pick.at ? "you" : "someone";
 
   const answer = (choiceId: string) => {
@@ -51,22 +68,32 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d 
         {state.live && (
           <span className="island" style={{ padding: "8px 14px", alignItems: "center", gap: 10 }}>
             <span className="live-dot" />
-            <b style={{ fontSize: 14, fontFamily: "var(--body)" }}>{d.followingTeacher}{teacherName ? ` · ${teacherName}` : ""}</b>
-            {state.count ? <span className="muted" style={{ fontSize: 14 }}>{(state.index ?? 0) + 1} {d.of} {state.count}</span> : null}
+            <b style={{ fontSize: 14, fontFamily: "var(--body)" }}>{pace === "self" ? d.paceSelfStudent : d.followingTeacher}{teacherName ? ` · ${teacherName}` : ""}</b>
+            {state.count ? <span className="muted" style={{ fontSize: 14 }}>{index + 1} {d.of} {state.count}</span> : null}
           </span>
         )}
       </div>
 
       {!connected && <div className="notice" role="status">{d.connectionLost}</div>}
 
-      {block && <ReadAloud text={speech(block, d, pickState, block.type === "noise" ? state.noise ?? null : null)} d={d} />}
+      {block && pace !== "teacher" && (
+        <nav className="row" aria-label={d.pacing}>
+          <button type="button" className="btn" onClick={() => setOwn(index - 1)} disabled={index <= 0}>← {d.back}</button>
+          <button type="button" className="btn btn-primary" onClick={() => setOwn(index + 1)}
+            disabled={index >= count - 1 || (pace === "review" && index >= teacherIndex)}>{d.next} →</button>
+          {index !== teacherIndex && <button type="button" className="btn" onClick={() => setOwn(teacherIndex)}>{d.goToTeacher}</button>}
+          <span className="muted" style={{ fontSize: 14 }}>{pace === "review" ? d.paceReviewNote : d.paceSelfNote}</span>
+        </nav>
+      )}
+
+      {block && <ReadAloud text={speech(block, d, pickState, withTeacher && block.type === "noise" ? state.noise ?? null : null)} d={d} />}
 
       <section className="card" aria-live="polite" style={{ padding: block?.type === "poll" ? "28px 30px" : 12 }}>
         {!state.live || !block ? (
           <p className="empty" style={{ fontSize: "1.2em", padding: "40px 12px", textAlign: "center" }}>{d.waitingForTeacher}</p>
         ) : (
-          <Stage block={block} tally={tally} timerLeft={timerLeft} mine={mine[block.id] ?? null} onAnswer={block.type === "poll" ? answer : undefined} d={d}
-            pickState={pickState} noise={block.type === "noise" ? state.noise ?? null : null} />
+          <Stage block={block} tally={tally} timerLeft={withTeacher ? timerLeft : null} mine={mine[block.id] ?? null} onAnswer={block.type === "poll" ? answer : undefined} d={d}
+            pickState={pickState} noise={withTeacher && block.type === "noise" ? state.noise ?? null : null} />
         )}
       </section>
     </div>

@@ -165,3 +165,52 @@ test("noise: the teacher's level reaches students as a number 0-100, nothing els
   teacher.emit("live:noise", { level: null });
   await off;
 });
+
+test("pacing: students look back only in review, move freely in self; answers only for blocks they may see", async () => {
+  const C = "course-pace";
+  const teacher = await join("tp", ticket("tp", "teacher", C, "lesson-p"));
+  const student = await join("sp", ticket("sp", "student", C));
+  const started = next<{ live: boolean; pace: string }>(student, "live:state", (m) => m.live);
+  teacher.emit("live:start", { count: 4, version: 1, blockId: "p0", blockIds: ["p0", "p1", "p2", "p3"] });
+  assert.equal((await started).pace, "teacher");
+  teacher.emit("live:goto", { index: 1, blockId: "p1" });
+  await next(student, "live:state", (m: { index: number }) => m.index === 1);
+
+  // Follow me: no positions, an answer to an earlier poll is ignored.
+  student.emit("live:at", { index: 0 });
+  student.emit("live:answer", { blockId: "p0", choiceId: "A" });
+  student.emit("live:answer", { blockId: "p1", choiceId: "B" });
+  type TS = { index: number; pace: string; answers: Record<string, string>; positions: Record<string, number> };
+  let ts = await next<TS>(teacher, "live:teacher", (m) => !!m.answers?.sp);
+  assert.deepEqual(ts.positions, {});
+
+  // Review: back is fine, ahead is held at the teacher's block.
+  teacher.emit("live:pace", { pace: "review" });
+  await next(student, "live:state", (m: { pace: string }) => m.pace === "review");
+  student.emit("live:at", { index: 3 });
+  ts = await next<TS>(teacher, "live:teacher", (m: { positions: Record<string, number> }) => m.positions?.sp === 1);
+  student.emit("live:at", { index: 0 });
+  await next(teacher, "live:teacher", (m: { positions: Record<string, number> }) => m.positions?.sp === 0);
+  student.emit("live:answer", { blockId: "p3", choiceId: "X" }); // ahead: ignored
+  student.emit("live:answer", { blockId: "p0", choiceId: "A" }); // behind: kept
+  teacher.emit("live:goto", { index: 0, blockId: "p0" });
+  ts = await next<TS>(teacher, "live:teacher", (m: { index: number; answers: Record<string, string> }) => m.index === 0);
+  assert.equal(ts.answers.sp, "A");
+
+  // Own pace: anywhere in the lesson.
+  teacher.emit("live:pace", { pace: "self" });
+  student.emit("live:at", { index: 3 });
+  await next(teacher, "live:teacher", (m: { positions: Record<string, number> }) => m.positions?.sp === 3);
+  student.emit("live:answer", { blockId: "p3", choiceId: "C" });
+  teacher.emit("live:goto", { index: 3, blockId: "p3" });
+  ts = await next<TS>(teacher, "live:teacher", (m: { index: number; answers: Record<string, string> }) => m.index === 3 && !!m.answers.sp);
+  assert.equal(ts.answers.sp, "C");
+
+  // Students can't change the pace; an unknown pace is ignored.
+  student.emit("live:pace", { pace: "teacher" });
+  teacher.emit("live:pace", { pace: "chaos" });
+  teacher.emit("live:pace", { pace: "teacher" });
+  ts = await next<TS>(teacher, "live:teacher", (m: { pace: string }) => m.pace === "teacher");
+  assert.deepEqual(ts.positions, {});
+  teacher.emit("live:end");
+});

@@ -6,6 +6,13 @@
 // results are on screen, and when a timer runs. Every student's screen
 // follows. Students send poll answers; only the teacher sees who said what.
 //
+// Pacing: "teacher" (everyone sees the teacher's block), "review" (students
+// may look back at earlier blocks, never ahead of the teacher) or "self"
+// (students move through the whole lesson on their own). Outside "teacher",
+// each student's screen says which block it is on (live:at), so the teacher
+// sees where everyone is, and poll answers are taken for any block the
+// student may see.
+//
 // Desk tools as blocks: the name picker's teacher screen picks a student
 // (from its own list: who's connected, or the class from Signify ID); the
 // class learns only that a name was picked, and the picked student alone is
@@ -65,6 +72,7 @@ function publicState(s) {
     timer: s.timer,
     pick: s.pick && s.pick.blockId === block ? s.pick : null,
     noise: s.noise,
+    pace: s.pace,
     serverNow: Date.now(),
   };
 }
@@ -90,7 +98,22 @@ function teacherState(s, io, courseId) {
   const answers = s && block ? Object.fromEntries(s.answers.get(block) || []) : {};
   const picked = s && block ? [...(s.picks.get(block) || [])] : [];
   const lastPick = s && s.lastPick && s.lastPick.blockId === block ? s.lastPick : null;
-  return { ...publicState(s), students: [...students.values()], answers, tallyAll: s && block ? tally(s, block) : null, picked, lastPick };
+  // Which block each connected student is on, when they move on their own.
+  const positions = {};
+  if (s && s.pace !== 'teacher') {
+    for (const st of students.values()) positions[st.id] = s.at.has(st.id) ? s.at.get(st.id) : s.index;
+  }
+  return { ...publicState(s), students: [...students.values()], answers, tallyAll: s && block ? tally(s, block) : null, picked, lastPick, positions };
+}
+
+const PACES = new Set(['teacher', 'review', 'self']);
+
+/** May this student see (and answer) this block right now? */
+function canSee(s, blockId) {
+  if (!blockId) return false;
+  if (s.pace === 'teacher' || !s.blockIds.length) return blockId === s.currentBlockId;
+  const i = s.blockIds.indexOf(blockId);
+  return i >= 0 && (s.pace === 'self' || i <= s.index);
 }
 
 function attach(server, { secret, whoIs }) {
@@ -143,6 +166,8 @@ function attach(server, { secret, whoIs }) {
         const count = Math.max(0, Math.min(500, Number(msg && msg.count) || 0));
         const prev = sessions.get(courseId);
         const same = prev && prev.lessonId === t.lesson;
+        const blockIds = Array.isArray(msg && msg.blockIds)
+          ? msg.blockIds.slice(0, count).map((b) => String(b).slice(0, 40)) : [];
         sessions.set(courseId, {
           lessonId: t.lesson,
           lessonVersion: Number(msg && msg.version) || 0,
@@ -159,6 +184,10 @@ function attach(server, { secret, whoIs }) {
           lastPick: null,
           noise: null,
           noiseAt: 0,
+          blockIds,
+          pace: same ? prev.pace : 'teacher',
+          // studentId -> block index, when students move on their own.
+          at: same ? prev.at : new Map(),
           startedBy: t.sub,
         });
         pushAll(courseId);
@@ -175,6 +204,14 @@ function attach(server, { secret, whoIs }) {
         s.timer = null;
         s.pick = null;
         s.noise = null;
+        pushAll(courseId);
+      });
+
+      socket.on('live:pace', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson || !msg || !PACES.has(msg.pace)) return;
+        s.pace = msg.pace;
+        if (s.pace === 'teacher') s.at.clear();
         pushAll(courseId);
       });
 
@@ -251,12 +288,23 @@ function attach(server, { secret, whoIs }) {
     if (t.role === 'student') {
       socket.on('live:answer', (msg) => {
         const s = sessions.get(courseId);
-        if (!s || !s.currentBlockId || !msg || msg.blockId !== s.currentBlockId) return;
+        if (!s || !msg || !canSee(s, msg.blockId)) return;
         const choice = typeof msg.choiceId === 'string' ? msg.choiceId.slice(0, 40) : '';
         if (!choice) return;
-        if (!s.answers.has(s.currentBlockId)) s.answers.set(s.currentBlockId, new Map());
-        s.answers.get(s.currentBlockId).set(t.sub, choice);
-        if (s.revealed) pushAll(courseId); else pushTeacher(courseId);
+        if (!s.answers.has(msg.blockId)) s.answers.set(msg.blockId, new Map());
+        s.answers.get(msg.blockId).set(t.sub, choice);
+        if (s.revealed && msg.blockId === s.currentBlockId) pushAll(courseId); else pushTeacher(courseId);
+      });
+
+      // Where this student is, when the teacher lets them move. Never ahead
+      // of the teacher in "review".
+      socket.on('live:at', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.pace === 'teacher' || !msg) return;
+        const i = Math.round(Number(msg.index));
+        if (!Number.isFinite(i) || i < 0 || i >= s.count) return;
+        s.at.set(t.sub, s.pace === 'review' ? Math.min(i, s.index) : i);
+        pushTeacher(courseId);
       });
     }
   });
