@@ -11,7 +11,9 @@
 //     anyone speak to Schoology as Signify Learning. After a restore each
 //     school's key is made again on first use (lti.ts toolKey) and Schoology
 //     picks up the new public key from our JWKS by its new kid.
-//   * lti_states, lti_nonces, lti_launches — minutes-long sign-in leftovers.
+//   * lti_states, lti_nonces, lti_launches, lti_tool_logins, lti_tool_nonces,
+//     lti_tool_picks — minutes-long sign-in leftovers; lti_tool_tokens — tools'
+//     access tokens (hashed, an hour long; tools just ask again).
 //   * schema_migrations — a restore rebuilds it by running the migrations.
 //
 // People are never stored here (Signify ID is the authority), so there are
@@ -32,7 +34,8 @@ const zlib = require('zlib');
 const offsite = require('./offsite').configure({ prefix: 'learning/' });
 
 const FORMAT = 'signify-learning-db/1';
-const EXCLUDED = ['schema_migrations', 'lti_keys', 'lti_states', 'lti_nonces', 'lti_launches'];
+const EXCLUDED = ['schema_migrations', 'lti_keys', 'lti_states', 'lti_nonces', 'lti_launches',
+  'lti_tool_logins', 'lti_tool_nonces', 'lti_tool_picks', 'lti_tool_tokens'];
 // Deleted records must leave backups within 30 days (privacy policy); the
 // bucket's lifecycle rule says the same even if this service is down.
 const KEEP_DAYS = 28;

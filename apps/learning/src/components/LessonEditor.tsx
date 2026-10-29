@@ -6,6 +6,7 @@ import { type Block, type BlockType, newBlock, newId, webLink, LIMITS } from "@/
 import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
 import type { Dict } from "@/lib/i18n";
+import ToolPicker, { type PlacedItem, type ToolChoice } from "./ToolPicker";
 
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
 type Version = { version: number; title: string; blockCount: number; savedAt: string };
@@ -13,16 +14,16 @@ type Version = { version: number; title: string; blockCount: number; savedAt: st
 const SAVE_DELAY = 800;
 
 const SHAPE: Record<BlockType, string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square",
 };
-const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard" | "blockLink"> = {
-  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard", link: "blockLink",
+const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard" | "blockLink" | "blockTool"> = {
+  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard", link: "blockLink", tool: "blockTool",
 };
 /** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
 const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
 
-export default function LessonEditor({ initial, courseId, units = [], d }: {
-  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; d: Dict;
+export default function LessonEditor({ initial, courseId, units = [], tools = [], d }: {
+  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; d: Dict;
 }) {
   const [title, setTitle] = useState(initial.title);
   const [blocks, setBlocks] = useState<Block[]>(initial.blocks);
@@ -111,6 +112,14 @@ export default function LessonEditor({ initial, courseId, units = [], d }: {
     touch();
   };
 
+  // Outside tools come back from the tool's picker (or as its own page) as tool blocks.
+  const addTools = (items: PlacedItem[]) => {
+    if (!items.length) return;
+    setBlocks((bs) => [...bs, ...items.map((it) => ({ id: newId(), type: "tool" as const, title: it.title, linkId: it.linkId, display: it.display }))]
+      .slice(0, LIMITS.blocks));
+    touch();
+  };
+
   const loadVersions = async () => {
     const res = await fetch(`/api/lessons/${initial.id}/versions`, { cache: "no-store" });
     if (res.ok) setVersions((await res.json()).versions);
@@ -187,6 +196,12 @@ export default function LessonEditor({ initial, courseId, units = [], d }: {
                 <button key={type} type="button" className="btn" onClick={() => add(type)}><span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}</button>
               ))}
             </div>
+            {tools.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <p className="label">{d.toolAddLesson}</p>
+                <ToolPicker tools={tools} courseId={courseId} lessonId={initial.id} onPlaced={addTools} d={d} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -346,6 +361,27 @@ function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict;
             aria-invalid={bad} aria-describedby={`${idBase}-uh`} onChange={(e) => onChange({ url: e.target.value } as Partial<Block>)} />
           <p id={`${idBase}-uh`} className={bad ? "notice notice-bad" : "muted"} style={{ margin: 0, fontSize: 13 }}>{bad ? d.boardBad : d.boardHint}</p>
         </div>
+      </>
+    );
+  }
+  if (b.type === "tool") {
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-t`}>{d.title}</label>
+          <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+        </div>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div className="fieldset" style={{ flex: "1 1 200px" }}>
+            <label htmlFor={`${idBase}-d`}>{d.toolDisplay}</label>
+            <select id={`${idBase}-d`} className="field" value={b.display} onChange={(e) => onChange({ display: e.target.value === "frame" ? "frame" : "tab" } as Partial<Block>)}>
+              <option value="tab">{d.toolDisplayTab}</option>
+              <option value="frame">{d.toolDisplayFrame}</option>
+            </select>
+          </div>
+          {b.linkId && <a className="btn" href={`/lti/tool/launch?link=${b.linkId}`} target="_blank" rel="noopener">{d.toolTry} ↗</a>}
+        </div>
+        {!b.linkId && <p className="notice" style={{ margin: 0 }}>{d.toolNoLink}</p>}
       </>
     );
   }

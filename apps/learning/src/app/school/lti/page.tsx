@@ -50,6 +50,7 @@ export default async function LtiPage({ searchParams }: { searchParams: Promise<
       <main className="page stack" style={{ maxWidth: 820 }}>
         <h1 style={{ fontSize: 34 }}>{d.ltiTitle}</h1>
         <p className="muted" style={{ margin: 0 }}>{d.ltiHint}</p>
+        <p style={{ margin: 0 }}><Link href="/school/tools">{d.toolsTitle}</Link> <span className="muted">{d.toolsLinkHint}</span></p>
         {!admin && <p className="notice">{d.ltiOnlyAdmins}</p>}
         {admin && (
           <>

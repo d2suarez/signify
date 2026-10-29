@@ -22,6 +22,9 @@ import QuizTaker from "@/components/QuizTaker";
 import { attemptsOf, closeExpired, QUIZ_GRADER, studentQuiz, syncGrade } from "@/lib/quiz-store";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
 import { passBack } from "@/lib/lti-passback";
+import { syncMyToolScore, syncToolScores } from "@/lib/lti-tool-sync";
+import { linkForAssignment, getTool } from "@/lib/lti-platform";
+import { toolScores } from "@/lib/lti-platform-ags";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +41,10 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
   if (course.role === "teacher") {
     await closeQuizForTeacher(access);
+    await syncToolScores(access, [a]);
+    const toolLink = await linkForAssignment(me.tenantId, a.id);
+    const tool = toolLink ? await getTool(me.tenantId, toolLink.toolId) : null;
+    const sent = toolLink ? await toolScores(me.tenantId, a.id) : [];
     const [units, categories, placed, grading, standards, attempts] = await Promise.all([
       listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
       courseGrading(c, course.id), listStandards(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
@@ -51,6 +58,17 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
             standards={grading.mode === "standards" ? standards.map((s) => ({ id: s.id, name: s.code, description: s.description })) : undefined}
             attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size} />
+          {toolLink && (
+            <section className="card stack" style={{ marginTop: 24, gap: 8 }} aria-labelledby="tool-title">
+              <h2 id="tool-title" className="label"><span className="shape s-square" style={{ marginRight: 8 }} />{d.toolFrom}: {tool?.name ?? d.toolRemovedShort}</h2>
+              <p className="muted" style={{ margin: 0 }}>{d.toolAssignmentHint}</p>
+              <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+                {d.toolScoresWritten}: {sent.filter((s) => s.status === "written").length} · {d.toolScoresWaiting}: {sent.filter((s) => s.status === "waiting").length}
+                {sent.some((s) => s.status === "refused") && <> · {d.toolScoresRefused}: {sent.filter((s) => s.status === "refused").length}</>}
+              </p>
+              {tool && <div><a className="btn" href={`/lti/tool/launch?link=${toolLink.id}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a></div>}
+            </section>
+          )}
           {placed.length > 0 && <div style={{ marginTop: 24 }}><SchoologyScores assignmentId={a.id} d={d} /></div>}
         </main>
       </>
@@ -62,6 +80,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   if (a.kind === "quiz" && (await closeExpired(c, a, me.id)).length) {
     if (await syncGrade({ tenantId: me.tenantId, userId: QUIZ_GRADER }, a, me.id, new Set([me.id]))) await passBack(access, me.id);
   }
+  await syncMyToolScore(access, a);
+  const toolLink = await linkForAssignment(me.tenantId, a.id);
   const quizView = a.kind === "quiz" ? await studentQuiz(c, a) : null;
   const [submission, grades, grading, allStandards] = await Promise.all([
     getSubmission(c, a.id, me.id), gradesFor(c, a.id), courseGrading(c, course.id), listStandards(c, course.id),
@@ -127,6 +147,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} />
           : a.kind === "online"
           ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} /></section>
+          : toolLink
+          ? <section className="card stack" style={{ gap: 8 }}><p style={{ margin: 0 }}>{d.toolStudentHint}</p>
+              <div><a className="btn btn-primary" href={`/lti/tool/launch?link=${toolLink.id}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a></div></section>
           : <p className="notice">{d.paperAssignment}</p>}
       </main>
     </>

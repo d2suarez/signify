@@ -6,6 +6,7 @@ import { listUnits } from "@/lib/units";
 import { dict, t } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import LessonEditor from "@/components/LessonEditor";
+import { toolChoices } from "@/lib/lti-platform";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,12 @@ export default async function EditLesson({ params }: { params: Promise<{ id: str
   const access = await lessonAccess(id);
   if (!access || access.course.role !== "teacher") notFound();
   const { course, lesson } = access;
-  const units = await listUnits(ctx(access.me), course.id);
+  const [units, tools] = await Promise.all([listUnits(ctx(access.me), course.id), toolChoices(access.me.tenantId)]);
   return (
     <>
       <TopBar crumbs={<><Link href="/">{t("myCourses", L)}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
       <main className="page">
-        <LessonEditor initial={lesson} courseId={course.id} units={units.map((u) => ({ id: u.id, title: u.title }))} d={dict(L)} />
+        <LessonEditor initial={lesson} courseId={course.id} units={units.map((u) => ({ id: u.id, title: u.title }))} tools={tools} d={dict(L)} />
       </main>
     </>
   );

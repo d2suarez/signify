@@ -4,6 +4,8 @@ import { requireMe } from "@/lib/auth";
 import { courseAccess, ctx, isSchoolAdmin, lang, studentsOf } from "@/lib/access";
 import { buildGradebook, periodOn } from "@/lib/gradebook";
 import { listPeriods } from "@/lib/grades";
+import { listAssignments } from "@/lib/assignments";
+import { syncToolScores } from "@/lib/lti-tool-sync";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
@@ -34,6 +36,7 @@ export default async function GradebookPage({ params, searchParams }: {
   // The period asked for; else the one today is in; else the whole year.
   const period = sp.period === "year" ? null
     : periods.find((p) => p.id === sp.period) ?? periodOn(periods, new Date().toISOString().slice(0, 10));
+  await syncToolScores(access, await listAssignments(ctx(me), course.id));
   const { ok, students } = await studentsOf(access);
   const gb = await buildGradebook(ctx(me), course.id, students, period);
 

@@ -193,7 +193,8 @@ export function setJwksFetcher(f: JwksFetcher | null) {
   jwksCache.clear();
 }
 
-async function platformKey(url: string, kid: string | undefined): Promise<crypto.KeyObject | null> {
+/** A key from a JWKS (a platform's, or in platform mode a tool's): cached, refetched once for an unknown kid. */
+export async function jwksKey(url: string, kid: string | undefined): Promise<crypto.KeyObject | null> {
   for (const fresh of [false, true]) {
     let hit = jwksCache.get(url);
     if (fresh || !hit || Date.now() - hit.at > 10 * 60_000) {
@@ -278,7 +279,7 @@ export function parseItem(v: unknown): { kind: "lesson" | "assignment"; id: stri
 
 export type LaunchResult = { ok: true; launch: Launch; platform: Platform } | { ok: false; error: string; platform?: Platform };
 
-function b64json(part: string): Record<string, unknown> | null {
+export function b64json(part: string): Record<string, unknown> | null {
   try {
     const v = JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
     return v && typeof v === "object" && !Array.isArray(v) ? v : null;
@@ -315,7 +316,7 @@ export async function checkLaunch(
 
   // The signature, before believing anything else in the token.
   let key: crypto.KeyObject | null = null;
-  try { key = await platformKey(platform.jwksUrl, typeof header.kid === "string" ? header.kid : undefined); } catch { return fail("ltiKeysUnavailable"); }
+  try { key = await jwksKey(platform.jwksUrl, typeof header.kid === "string" ? header.kid : undefined); } catch { return fail("ltiKeysUnavailable"); }
   if (!key) return fail("ltiBadSignature");
   const signed = crypto.verify("RSA-SHA256", Buffer.from(`${parts[0]}.${parts[1]}`), key, Buffer.from(parts[2], "base64url"));
   if (!signed) return fail("ltiBadSignature");

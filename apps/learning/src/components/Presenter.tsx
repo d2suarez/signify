@@ -21,7 +21,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -301,6 +301,29 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
             <p><a className="btn" href={url} target="_blank" rel="noopener noreferrer">{d.openLink} ↗</a></p>
           </>
         ) : <p className="body">{d.linkEmpty}</p>}
+      </div>
+    );
+  }
+  if (block.type === "tool") {
+    const title = block.title || d.blockTool;
+    if (!block.linkId) return <div className="stage" style={{ background: "var(--p4)" }}><h1>{title}</h1><p className="body">{d.toolNoLink}</p></div>;
+    const open = <a className="btn btn-sm" href={`/lti/tool/launch?link=${block.linkId}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a>;
+    if (block.display === "frame") {
+      return (
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="stage stage-board">
+            {/* Our own wrapper page holds the tool's sandboxed frame (src/app/lti/tool/frame). */}
+            <iframe src={`/lti/tool/frame/${block.linkId}`} title={title} loading="lazy" allow="fullscreen" />
+          </div>
+          <div className="row"><b style={{ minWidth: 0 }}>{title}</b><span style={{ flex: 1 }} />{open}</div>
+        </div>
+      );
+    }
+    return (
+      <div className="stage" style={{ background: "var(--p4)" }}>
+        <h1>{title}</h1>
+        <p className="body">{d.toolOpensTab}</p>
+        <p>{open}</p>
       </div>
     );
   }

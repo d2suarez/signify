@@ -14,6 +14,8 @@ import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
 import { When } from "@/components/When";
 import { StandardsList } from "@/components/Work";
+import ToolPicker from "@/components/ToolPicker";
+import { toolChoices } from "@/lib/lti-platform";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +101,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   for (const assignment of assignments) (byId.get(assignment.unitId || "") || loose).items.push({ kind: "assignment", assignment });
   for (const g of groups) g.items.sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
 
+  const tools = await toolChoices(me.tenantId);
   const unitSelect = (idFor: string) => (
     // Keyed by the newest unit so a unit just made becomes the choice.
     <select key={units.at(-1)?.id || "none"} id={idFor} name="unitId" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.unit} defaultValue={units.at(-1)?.id || ""}>
@@ -143,6 +146,12 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <input id="new-unit" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.unitTitle} maxLength={200} required />
             <button className="btn" type="submit">{d.create}</button>
           </form>
+          {tools.length > 0 && (
+            <div>
+              <p className="label"><span className="shape s-tri" style={{ marginRight: 8 }} />{d.toolAddAssignment}</p>
+              <ToolPicker tools={tools} courseId={course.id} d={d} />
+            </div>
+          )}
           <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
         </div>
 

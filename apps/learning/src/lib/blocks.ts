@@ -46,10 +46,18 @@ export type BoardBlock = { id: string; type: "board"; title: string; url: string
 /** A link to a web page, opened in its own tab (never framed). Imported weblinks land here. */
 export type LinkBlock = { id: string; type: "link"; title: string; url: string };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock;
+/**
+ * An outside tool (LTI 1.3), placed by a teacher through the tool's picker or
+ * as the tool's own page. `linkId` names the placement (lti_tool_links); what
+ * the tool learns about each person is the school's setting for that tool.
+ * Opened in its own tab, or in a sandboxed frame inside the lesson.
+ */
+export type ToolBlock = { id: string; type: "tool"; title: string; linkId: string; display: "tab" | "frame" };
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool"];
 
 export const LIMITS = {
   blocks: 200,
@@ -125,6 +133,8 @@ export function newBlock(type: BlockType): Block {
     case "board":
     case "link":
       return { id: newId(), type, title: "", url: "" };
+    case "tool":
+      return { id: newId(), type, title: "", linkId: "", display: "tab" };
   }
 }
 
@@ -185,6 +195,12 @@ export function normalizeBlocks(input: unknown): Block[] {
         // Kept as typed while being written; only a real http(s) link is ever opened (see webLink).
         out.push({ id: uniqueId(b.id, used), type: "link", title: line(b.title, LIMITS.title), url: line(b.url, LIMITS.url) });
         break;
+      case "tool": {
+        const linkId = typeof b.linkId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.linkId)
+          ? b.linkId.toLowerCase() : "";
+        out.push({ id: uniqueId(b.id, used), type: "tool", title: line(b.title, LIMITS.title), linkId, display: b.display === "frame" ? "frame" : "tab" });
+        break;
+      }
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -210,7 +226,7 @@ export function blockSummary(b: Block): string {
     case "poll": return b.question.split("\n")[0].slice(0, 60);
     case "timer": return b.label || formatSeconds(b.seconds);
     case "picker": case "noise": return b.label;
-    case "board": case "link": return b.title;
+    case "board": case "link": case "tool": return b.title;
   }
 }
 
@@ -220,7 +236,7 @@ export function blockSpeech(b: Block): string {
     case "text": return [b.title, b.body].filter(Boolean).join(".\n");
     case "poll": return [b.question, ...b.choices.map((c, i) => `${String.fromCharCode(65 + i)}. ${c.text}`)].join("\n");
     case "timer": case "picker": case "noise": return b.label;
-    case "board": case "link": return b.title;
+    case "board": case "link": case "tool": return b.title;
   }
 }
 
