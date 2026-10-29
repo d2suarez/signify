@@ -24,7 +24,12 @@ import type { IdClass } from "./roster";
  */
 
 export const LTI_VERSION = "1.3.0";
-const CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
+export const CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
+export const DL_CLAIM = "https://purl.imsglobal.org/spec/lti-dl/claim/";
+const AGS_CLAIM = "https://purl.imsglobal.org/spec/lti-ags/claim/endpoint";
+const NRPS_CLAIM = "https://purl.imsglobal.org/spec/lti-nrps/claim/namesroleservice";
+/** Our custom parameter on a placed link: "lesson:<uuid>" or "assignment:<uuid>". */
+export const ITEM_PARAM = "signify_item";
 const STATE_TTL_MS = 10 * 60_000;
 const LAUNCH_TTL_MS = 30 * 60_000;
 const SKEW_S = 60;
@@ -133,7 +138,7 @@ export async function removePlatform(tenantId: string, platformId: string): Prom
 }
 
 /** The platform a launch names. Issuer + client id say which school, so no tenant is asked for. */
-async function platformFor(issuer: string, clientId: string | null): Promise<Platform | null> {
+export async function platformFor(issuer: string, clientId: string | null): Promise<Platform | null> {
   const db = await getDb();
   const rows = clientId
     ? await db.query("SELECT * FROM lti_platforms WHERE issuer = $1 AND client_id = $2", [issuer, clientId])
@@ -249,10 +254,27 @@ function deploymentOk(p: Platform, id: string): boolean {
 
 // ---------- step 2: the launch ----------
 
+export type MessageType = "LtiResourceLinkRequest" | "LtiDeepLinkingRequest";
+
+/** What the platform said about where to send a deep-linking answer. */
+export type DeepLinkSettings = {
+  returnUrl: string; acceptTypes: string[]; acceptMultiple: boolean; data?: string;
+};
+
 export type Launch = {
   id: string; tenantId: string; platformId: string; email: string;
   contextId: string; contextTitle: string; resourceLinkId: string;
+  messageType: MessageType; deploymentId: string; sub: string;
+  /** The placed item this link opens ("assignment:<uuid>"), or "". */
+  item: string;
+  deepLink: DeepLinkSettings | null;
 };
+
+/** "lesson:<uuid>" / "assignment:<uuid>", or null. */
+export function parseItem(v: unknown): { kind: "lesson" | "assignment"; id: string } | null {
+  const m = /^(lesson|assignment):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(String(v ?? ""));
+  return m ? { kind: m[1].toLowerCase() as "lesson" | "assignment", id: m[2].toLowerCase() } : null;
+}
 
 export type LaunchResult = { ok: true; launch: Launch; platform: Platform } | { ok: false; error: string; platform?: Platform };
 
@@ -319,16 +341,30 @@ export async function checkLaunch(
 
   if (claims[`${CLAIM}version`] !== LTI_VERSION) return fail("ltiBadVersion");
   const type = claims[`${CLAIM}message_type`];
-  if (type === "LtiDeepLinkingRequest") return fail("ltiNoDeepLinking");
-  if (type !== "LtiResourceLinkRequest") return fail("ltiBadMessage");
+  if (type !== "LtiResourceLinkRequest" && type !== "LtiDeepLinkingRequest") return fail("ltiBadMessage");
   const deployment = claims[`${CLAIM}deployment_id`];
   if (typeof deployment !== "string" || !deploymentOk(platform, deployment)) return fail("ltiBadDeployment");
   const target = claims[`${CLAIM}target_link_uri`];
   if (typeof target !== "string" || !sameOrigin(target, origin)) return fail("ltiBadTarget");
   const link = claims[`${CLAIM}resource_link`] as { id?: unknown } | undefined;
   const context = claims[`${CLAIM}context`] as { id?: unknown; title?: unknown } | undefined;
-  if (typeof claims.sub !== "string" || !link || typeof link.id !== "string") return fail("ltiBadMessage");
+  if (typeof claims.sub !== "string") return fail("ltiBadMessage");
+  let deepLink: DeepLinkSettings | null = null;
+  if (type === "LtiDeepLinkingRequest") {
+    const s = claims[`${DL_CLAIM}deep_linking_settings`] as Record<string, unknown> | undefined;
+    const returnUrl = httpsUrl(s?.deep_link_return_url);
+    if (!s || !returnUrl) return fail("ltiBadMessage");
+    const acceptTypes = Array.isArray(s.accept_types) ? s.accept_types.map(String) : [];
+    if (!acceptTypes.includes("ltiResourceLink")) return fail("ltiDlNoLinks");
+    deepLink = {
+      returnUrl, acceptTypes, acceptMultiple: s.accept_multiple !== false && s.accept_multiple !== "false",
+      ...(typeof s.data === "string" ? { data: s.data.slice(0, 4000) } : {}),
+    };
+  } else if (!link || typeof link.id !== "string") return fail("ltiBadMessage");
   if (!context || typeof context.id !== "string" || !context.id) return fail("ltiNoContext");
+  const custom = claims[`${CLAIM}custom`] as Record<string, unknown> | undefined;
+  let item = parseItem(custom?.[ITEM_PARAM]);
+  if (!item) { try { item = parseItem(new URL(target).searchParams.get("item")); } catch { /* checked above */ } }
 
   const launch: Launch = {
     id: crypto.randomBytes(18).toString("base64url"),
@@ -337,16 +373,54 @@ export async function checkLaunch(
     email: typeof claims.email === "string" ? claims.email.trim().toLowerCase().slice(0, 320) : "",
     contextId: context.id.slice(0, 255),
     contextTitle: String(context.title ?? "").slice(0, 200),
-    resourceLinkId: link.id.slice(0, 255),
+    resourceLinkId: typeof link?.id === "string" ? link.id.slice(0, 255) : "",
+    messageType: type, deploymentId: deployment.slice(0, 200), sub: claims.sub.slice(0, 255),
+    item: item && type === "LtiResourceLinkRequest" ? `${item.kind}:${item.id}` : "",
+    deepLink,
   };
   await db.query("DELETE FROM lti_launches WHERE expires_at < now()");
   await db.query(
-    `INSERT INTO lti_launches (id, tenant_id, platform_id, email, context_id, context_title, resource_link_id, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    `INSERT INTO lti_launches (id, tenant_id, platform_id, email, context_id, context_title, resource_link_id, expires_at,
+       message_type, deployment_id, sub, item, dl_settings)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
     [launch.id, launch.tenantId, launch.platformId, launch.email, launch.contextId, launch.contextTitle, launch.resourceLinkId,
-      new Date(now + LAUNCH_TTL_MS)],
+      new Date(now + LAUNCH_TTL_MS), launch.messageType, launch.deploymentId, launch.sub, launch.item,
+      deepLink ? JSON.stringify(deepLink) : null],
   );
+  await keepServices(platform, launch, claims);
   return { ok: true, launch, platform };
+}
+
+/**
+ * The platform's grade and roster service addresses for this course, kept
+ * from every launch (only https ones on the platform's word), and a placed
+ * assignment's line item address when its link is launched.
+ */
+async function keepServices(platform: Platform, launch: Launch, claims: Record<string, unknown>): Promise<void> {
+  const ags = claims[AGS_CLAIM] as { scope?: unknown; lineitems?: unknown; lineitem?: unknown } | undefined;
+  const nrps = claims[NRPS_CLAIM] as { context_memberships_url?: unknown } | undefined;
+  const lineitems = httpsUrl(ags?.lineitems, false) || "";
+  const scopes = Array.isArray(ags?.scope) ? ags.scope.map(String).slice(0, 10) : [];
+  const members = httpsUrl(nrps?.context_memberships_url, false) || "";
+  const db = await getDb();
+  if (lineitems || members) {
+    await db.query(
+      `INSERT INTO lti_context_services (tenant_id, platform_id, context_id, deployment_id, lineitems_url, ags_scopes, nrps_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (platform_id, context_id) DO UPDATE SET deployment_id = EXCLUDED.deployment_id,
+         lineitems_url = COALESCE(NULLIF(EXCLUDED.lineitems_url, ''), lti_context_services.lineitems_url),
+         ags_scopes = CASE WHEN EXCLUDED.lineitems_url <> '' THEN EXCLUDED.ags_scopes ELSE lti_context_services.ags_scopes END,
+         nrps_url = COALESCE(NULLIF(EXCLUDED.nrps_url, ''), lti_context_services.nrps_url), updated_at = now()`,
+      [platform.tenantId, platform.id, launch.contextId, launch.deploymentId, lineitems, scopes, members]);
+  }
+  const item = parseItem(launch.item);
+  const lineitem = httpsUrl(ags?.lineitem, false);
+  if (item?.kind === "assignment" && lineitem) {
+    await db.query(
+      `UPDATE lti_items SET lineitem_url = $5 WHERE tenant_id = $1 AND platform_id = $2 AND context_id = $3
+         AND kind = 'assignment' AND item_id = $4`,
+      [platform.tenantId, platform.id, launch.contextId, item.id, lineitem]);
+  }
 }
 
 // ---------- step 3: who, and which course ----------
@@ -355,23 +429,28 @@ export type Person = { id: string; email: string; tenantId: string };
 
 export type Resolved =
   | { kind: "course"; courseId: string }
+  | { kind: "open"; href: string }
+  | { kind: "deepLink"; launch: Launch; courseId: string }
   | { kind: "pick"; launch: Launch; courses: { id: string; name: string }[] }
   | { kind: "notLinked"; launch: Launch }
   | { kind: "error"; error: string };
 
-async function getLaunch(id: string, now: number): Promise<Launch | null> {
+export async function getLaunch(id: string, now = Date.now()): Promise<Launch | null> {
   if (!/^[A-Za-z0-9_-]{20,40}$/.test(id)) return null;
   const db = await getDb();
   const [r] = await db.query("SELECT * FROM lti_launches WHERE id = $1", [id]);
   if (!r || new Date(String(r.expires_at)).getTime() < now) return null;
+  const dl = r.dl_settings ? (typeof r.dl_settings === "string" ? JSON.parse(r.dl_settings) : r.dl_settings) as DeepLinkSettings : null;
   return {
     id: String(r.id), tenantId: String(r.tenant_id), platformId: String(r.platform_id), email: String(r.email),
     contextId: String(r.context_id), contextTitle: String(r.context_title), resourceLinkId: String(r.resource_link_id),
+    messageType: String(r.message_type) as MessageType, deploymentId: String(r.deployment_id), sub: String(r.sub),
+    item: String(r.item), deepLink: dl,
   };
 }
 
 /** The launch, if it belongs to this signed-in person: same school, same email. */
-async function launchFor(id: string, me: Person, now: number): Promise<Launch | { error: string }> {
+export async function launchFor(id: string, me: Person, now: number): Promise<Launch | { error: string }> {
   const launch = await getLaunch(id, now);
   if (!launch) return { error: "ltiLaunchGone" };
   if (launch.tenantId !== me.tenantId) return { error: "ltiOtherSchool" };
@@ -395,14 +474,46 @@ export async function resolveLaunch(id: string, me: Person, classes: IdClass[], 
     [launch.tenantId, launch.platformId, launch.contextId]);
   if (link) {
     const cls = classes.find((c) => c.id === link.id_class_id);
-    if (cls && roleInClass(cls)) return { kind: "course", courseId: String(link.id) };
-    return { kind: "error", error: "ltiNotInClass" };
+    const role = cls ? roleInClass(cls) : null;
+    if (!role) return { kind: "error", error: "ltiNotInClass" };
+    const courseId = String(link.id);
+    await rememberUser(launch, me);
+    if (launch.messageType === "LtiDeepLinkingRequest") {
+      return role === "teacher" ? { kind: "deepLink", launch, courseId } : { kind: "error", error: "ltiDlTeachersOnly" };
+    }
+    const href = await itemHref(launch, courseId, role);
+    return href ? { kind: "open", href } : { kind: "course", courseId };
   }
   const taught = await teacherCourses(me.tenantId, classes);
   return taught.length ? { kind: "pick", launch, courses: taught } : { kind: "notLinked", launch };
 }
 
-async function teacherCourses(tenantId: string, classes: IdClass[]): Promise<{ id: string; name: string; idClassId: string }[]> {
+/**
+ * Which platform user this person is, for sending their grades: the launch's
+ * `sub`, now that their own sign-in matched its email. Ids only.
+ */
+async function rememberUser(launch: Launch, me: Person): Promise<void> {
+  if (!launch.sub) return;
+  const db = await getDb();
+  await db.query(
+    `INSERT INTO lti_users (tenant_id, platform_id, user_id, sub) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (platform_id, user_id) DO UPDATE SET sub = EXCLUDED.sub, updated_at = now()`,
+    [launch.tenantId, launch.platformId, me.id, launch.sub]);
+}
+
+/** Where a placed link opens, if its item is in this course; the page itself still checks access. */
+async function itemHref(launch: Launch, courseId: string, role: string): Promise<string | null> {
+  const item = parseItem(launch.item);
+  if (!item) return null;
+  const db = await getDb();
+  const table = item.kind === "lesson" ? "lessons" : "assignments";
+  const [row] = await db.query(`SELECT course_id FROM ${table} WHERE tenant_id = $1 AND id = $2`, [launch.tenantId, item.id]);
+  if (!row || String(row.course_id) !== courseId) return null;
+  if (item.kind === "assignment") return `/assignments/${item.id}`;
+  return role === "teacher" ? `/lessons/${item.id}/edit` : `/courses/${courseId}`;
+}
+
+export async function teacherCourses(tenantId: string, classes: IdClass[]): Promise<{ id: string; name: string; idClassId: string }[]> {
   const ids = classes.filter((c) => roleInClass(c) === "teacher").map((c) => c.id);
   if (!ids.length) return [];
   const db = await getDb();
@@ -444,11 +555,30 @@ export async function unlinkContext(tenantId: string, platformId: string, contex
 
 // ---------- framing ----------
 
-/** The Content-Security-Policy for a launch page: framed only by the platform's own origins. */
-export function launchCsp(platform: Platform | undefined): string {
+/**
+ * The Content-Security-Policy for a launch page: framed only by the platform's
+ * own origins. A deep-linking page may also ask us whether the teacher has
+ * chosen (`connect`) and post the answer to the platform (`postTo`).
+ */
+export function launchCsp(platform: Platform | undefined, o: { connect?: boolean; postTo?: string } = {}): string {
   const ancestors = platform?.frameOrigins.length ? platform.frameOrigins.join(" ") : "'none'";
+  let post = "";
+  try { if (o.postTo) post = ` ${new URL(o.postTo).origin}`; } catch { /* left out */ }
   return [
     "default-src 'none'", "style-src 'unsafe-inline'", "script-src 'unsafe-inline'", "img-src 'self'",
-    "base-uri 'none'", "form-action 'self'", `frame-ancestors ${ancestors}`,
+    ...(o.connect ? ["connect-src 'self'"] : []),
+    "base-uri 'none'", `form-action 'self'${post}`, `frame-ancestors ${ancestors}`,
   ].join("; ");
+}
+
+// ---------- signing as the tool ----------
+
+/** A JWT signed with this school's tool key (RS256, our kid). */
+export async function signAsTool(tenantId: string, claims: Record<string, unknown>): Promise<string> {
+  const key = await toolKey(tenantId);
+  const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const head = enc({ alg: "RS256", typ: "JWT", kid: key.kid });
+  const body = enc(claims);
+  const sig = crypto.sign("RSA-SHA256", Buffer.from(`${head}.${body}`), crypto.createPrivateKey(key.privatePem)).toString("base64url");
+  return `${head}.${body}.${sig}`;
 }

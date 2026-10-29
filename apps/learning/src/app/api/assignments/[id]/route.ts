@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assignmentAccess, ctx } from "@/lib/access";
 import { archiveAssignment, saveAssignment } from "@/lib/assignments";
+import { passBack } from "@/lib/lti-passback";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     dueOn: body.dueOn, dueAt: body.dueAt, unitId: body.unitId, categoryId: body.categoryId,
     published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric,
   });
-  if (r.ok) return NextResponse.json({ assignment: r.assignment, changed: r.changed });
+  if (r.ok) {
+    // Releasing grades (or new points) changes what Schoology should hold.
+    if (r.changed && (r.assignment.gradesReleased || access.assignment.gradesReleased)) {
+      await passBack({ ...access, assignment: r.assignment });
+    }
+    return NextResponse.json({ assignment: r.assignment, changed: r.changed });
+  }
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", assignment: r.assignment }, { status: 409 });
   return NextResponse.json({ error: "Not found." }, { status: 404 });
 }

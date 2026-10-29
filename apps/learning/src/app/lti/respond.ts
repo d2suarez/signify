@@ -3,9 +3,9 @@ import { framePage } from "@/lib/lti-html";
 import { dict, pickLang, type Key } from "@/lib/i18n";
 
 /** Every LTI response sets its own security headers (next.config leaves /lti/ alone). */
-export function ltiHeaders(platform: Platform | undefined, extra: Record<string, string> = {}): Headers {
+export function ltiHeaders(platform: Platform | undefined, extra: Record<string, string> = {}, csp: Parameters<typeof launchCsp>[1] = {}): Headers {
   const h = new Headers({
-    "content-security-policy": launchCsp(platform),
+    "content-security-policy": launchCsp(platform, csp),
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
     "cache-control": "no-store",

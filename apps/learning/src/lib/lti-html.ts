@@ -20,3 +20,35 @@ export function framePage(o: { lang: string; title: string; body: string; button
   return `<!doctype html><html lang="${escapeHtml(o.lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Signify Learning</title><style>${STYLE}</style></head><body><main><h1>${escapeHtml(o.title)}</h1><p>${escapeHtml(o.body)}</p>${btn}${o.note ? `<small>${escapeHtml(o.note)}</small>` : ""}</main>${go}</body></html>`;
 }
+
+/**
+ * The deep-linking page in the platform's frame: it offers the picker in a
+ * new tab, then asks every few seconds whether the teacher has chosen and
+ * posts the signed answer to the platform from inside the frame, where the
+ * platform expects it. Not in a frame, the same window goes to the picker.
+ */
+export function deepLinkFramePage(o: {
+  lang: string; title: string; body: string; button: { href: string; label: string };
+  poll: string; waiting: string; sending: string; gone: string;
+}): string {
+  const page = framePage({ lang: o.lang, title: o.title, body: o.body, button: o.button });
+  const script = `<p id="dl-status" role="status" aria-live="polite"><small>${escapeHtml(o.waiting)}</small></p><script>(function(){
+var href=${JSON.stringify(o.button.href)},poll=${JSON.stringify(o.poll)},sending=${JSON.stringify(o.sending)},gone=${JSON.stringify(o.gone)};
+if(window.top===window){location.replace(href+"?w=1");return;}
+var el=document.getElementById("dl-status"),tries=0;
+function say(t){el.textContent=t;}
+function post(r){say(sending);var f=document.createElement("form");f.method="post";f.action=r.returnUrl;
+var i=document.createElement("input");i.type="hidden";i.name="JWT";i.value=r.jwt;f.appendChild(i);document.body.appendChild(f);f.submit();}
+function ask(){if(++tries>900)return;fetch(poll,{cache:"no-store",credentials:"omit"}).then(function(r){return r.json();}).then(function(r){
+if(r.state==="ready")post(r);else if(r.state==="gone")say(gone);else setTimeout(ask,2000);}).catch(function(){setTimeout(ask,4000);});}
+setTimeout(ask,2000);})();</script>`;
+  return page.replace("</main>", `${script}</main>`);
+}
+
+/** A page that posts the signed deep-linking answer to the platform at once (we were opened in a window). */
+export function deepLinkPostPage(o: { lang: string; returnUrl: string; jwt: string; label: string }): string {
+  return `<!doctype html><html lang="${escapeHtml(o.lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signify Learning</title><style>${STYLE}</style></head><body><main><form id="dl" method="post" action="${escapeHtml(o.returnUrl)}">
+<input type="hidden" name="JWT" value="${escapeHtml(o.jwt)}"><button class="btn" type="submit">${escapeHtml(o.label)}</button></form></main>
+<script>document.getElementById("dl").submit();</script></body></html>`;
+}

@@ -61,7 +61,9 @@ export default async function LtiPage({ searchParams }: { searchParams: Promise<
               <Copy label={d.ltiRedirectUrl} value={`${origin}/lti/launch`} />
               <Copy label={d.ltiTargetUrl} value={`${origin}/lti/launch`} />
               <Copy label={d.ltiJwksUrl} value={`${origin}/.well-known/jwks.json`} />
+              <Copy label={d.ltiDeepLinkUrl} value={`${origin}/lti/launch`} />
               <p className="muted" style={{ margin: 0 }}>{d.ltiPrivacyHint}</p>
+              <p className="muted" style={{ margin: 0 }}>{d.ltiServicesHint}</p>
             </section>
 
             <section className="card stack">

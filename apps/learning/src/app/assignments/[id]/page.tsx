@@ -12,6 +12,8 @@ import AssignmentEditor from "@/components/AssignmentEditor";
 import SubmissionEditor from "@/components/SubmissionEditor";
 import ReadAloud from "@/components/ReadAloud";
 import RubricView from "@/components/RubricView";
+import SchoologyScores from "@/components/SchoologyScores";
+import { placements } from "@/lib/lti-dl";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const crumbs = <><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>;
 
   if (course.role === "teacher") {
-    const [units, categories] = await Promise.all([listUnits(c, course.id), listCategories(c, course.id)]);
+    const [units, categories, placed] = await Promise.all([
+      listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id)]);
     return (
       <>
         <TopBar crumbs={crumbs} />
@@ -35,6 +38,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           <AssignmentEditor initial={a} d={d}
             units={units.map((u) => ({ id: u.id, name: u.title }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))} />
+          {placed.length > 0 && <div style={{ marginTop: 24 }}><SchoologyScores assignmentId={a.id} d={d} /></div>}
         </main>
       </>
     );

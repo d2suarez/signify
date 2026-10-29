@@ -14,7 +14,8 @@ export type IdClass = {
   covering?: boolean;
 };
 
-export type IdMember = { id: string; display_name: string; role: string; picture_url?: string | null };
+/** `email` comes only to the class's staff (grade passback matches it to the platform's class list). */
+export type IdMember = { id: string; display_name: string; role: string; picture_url?: string | null; email?: string | null };
 
 const ISSUER = (process.env.SIGNIFY_ISSUER || "").replace(/\/+$/, "");
 const CACHE_MS = 60_000;

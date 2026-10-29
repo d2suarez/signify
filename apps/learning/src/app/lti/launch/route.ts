@@ -1,6 +1,6 @@
 import { checkLaunch } from "@/lib/lti";
 import { cookieStates, ourOrigin } from "@/lib/lti-http";
-import { framePage } from "@/lib/lti-html";
+import { deepLinkFramePage, framePage } from "@/lib/lti-html";
 import { dict } from "@/lib/i18n";
 import { langOf, ltiHeaders, refuse } from "../respond";
 
@@ -21,6 +21,16 @@ export async function POST(req: Request) {
   if (!r.ok) return refuse(req, r.error, r.platform);
   const lang = langOf(req);
   const d = dict(lang);
+  if (r.launch.deepLink) {
+    const html = deepLinkFramePage({
+      lang, title: d.ltiDlTitle, body: d.ltiDlFrameBody,
+      button: { href: `/launch/${r.launch.id}`, label: d.ltiOpen },
+      poll: `/lti/deep/${r.launch.id}`, waiting: d.ltiDlFrameWaiting, sending: d.ltiDlFrameSending, gone: d.ltiDlGone,
+    });
+    return new Response(html, {
+      headers: ltiHeaders(r.platform, { "content-type": "text/html; charset=utf-8" }, { connect: true, postTo: r.launch.deepLink.returnUrl }),
+    });
+  }
   const html = framePage({
     lang,
     title: r.launch.contextTitle || d.appName,

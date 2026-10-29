@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assignmentAccess, ctx, studentsOf } from "@/lib/access";
 import { gradeHistory, setGrade } from "@/lib/grades";
+import { passBack } from "@/lib/lti-passback";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,11 @@ export async function PUT(req: Request) {
   const r = await setGrade(ctx(access.me), access.assignment, String(body.studentId || ""), new Set(students.map((s) => s.id)), {
     score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric,
   });
-  if (r.ok) return NextResponse.json({ grade: r.grade, changed: r.changed });
+  if (r.ok) {
+    // Schoology gets it in the background; this save never waits for it.
+    if (r.changed) await passBack(access, String(body.studentId));
+    return NextResponse.json({ grade: r.grade, changed: r.changed });
+  }
   return NextResponse.json({ error: r.reason }, { status: r.reason === "bad-score" ? 400 : 403 });
 }
 

@@ -5,6 +5,7 @@ import type { Dict } from "@/lib/i18n";
 import type { Flag } from "@/lib/grades";
 import WritingReplay from "./WritingReplay";
 import RubricView from "./RubricView";
+import SchoologyScores from "./SchoologyScores";
 import { rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
 
 export type DeskStudent = {
@@ -19,10 +20,11 @@ type History = { score: number | null; flag: Flag | null; comment: string; chang
  * Grading one assignment, a student at a time: their work on the left,
  * score, mark and comment on the right. Save moves to the next student.
  */
-export default function GradeDesk({ assignment, students: initial, startWith, d }: {
+export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, d }: {
   assignment: { id: string; points: number; kind: "online" | "offline"; gradesReleased: boolean; rubric: Rubric | null };
-  students: DeskStudent[]; startWith?: string; d: Dict;
+  students: DeskStudent[]; startWith?: string; schoology?: boolean; d: Dict;
 }) {
+  const [saves, setSaves] = useState(0);
   const [students, setStudents] = useState(initial);
   const [i, setI] = useState(Math.max(0, initial.findIndex((s) => s.id === startWith)));
   const s = students[i];
@@ -79,6 +81,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
         return;
       }
       const g = out.grade;
+      setSaves((n) => n + 1);
       setStudents((all) => all.map((x, j) => j === i
         ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null }
         : x));
@@ -162,6 +165,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, d 
           <textarea id="g-comment" className="field" rows={5} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} />
         </div>
         <p className="muted" style={{ fontSize: 13, margin: "8px 0 0" }}>{assignment.gradesReleased ? d.gradesReleasedNote : d.gradesHiddenNote}</p>
+        {schoology && <SchoologyScores assignmentId={assignment.id} studentId={s.id} refresh={saves} d={d} />}
         {error && <p className="notice notice-bad" role="alert" style={{ marginTop: 10 }}>{error}</p>}
         <div className="row" style={{ marginTop: 12 }}>
           <button type="button" className="btn" disabled={i === 0} onClick={() => setI(i - 1)}>← {d.previous}</button>
