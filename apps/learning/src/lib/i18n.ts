@@ -381,7 +381,7 @@ const en = {
   importFiles: "files",
   importOther: "other items",
   importSkipped: "Not imported",
-  importKeptNote: "Quizzes and discussions can't be imported yet. They are kept with this import, so a later version can bring them in without a new upload.",
+  importKeptNote: "Questions of a kind Learning doesn't have yet (and quizzes made only of them, or question banks) are left out. The quiz files are kept with this import, so a later version can bring them in without a new upload.",
   importIntoNote: "Everything goes into",
   importDraftNote: "Assignments start unpublished and lessons unscheduled, so students see nothing until you publish or present it.",
   importAgainWarn: "You already imported this same file into this course on",
@@ -720,6 +720,12 @@ const en = {
   quizWrong: "Not right",
   quizYourAnswer: "Your answer",
   quizYourAttempts: "Your attempts",
+  importQuizzesMade: "quizzes",
+  importQuestionsMade: "questions",
+  importQuestions: "quiz questions of a kind Learning doesn't have",
+  importDiscussionsNote: "{n} discussions come in as writing assignments holding the prompt: Learning has no discussions yet. Students answer in the writing box.",
+  importFromDiscussion: "from a discussion, as a writing assignment",
+  importKind_question: "Quiz question",
 };
 
 export type Key = keyof typeof en;
@@ -771,7 +777,7 @@ const es: Partial<Record<Key, string>> = {
   importFiles: "archivos",
   importOther: "otros elementos",
   importSkipped: "No se importa",
-  importKeptNote: "Los cuestionarios y debates todavía no se pueden importar. Se guardan con esta importación para que una versión futura los traiga sin volver a subir el archivo.",
+  importKeptNote: "Las preguntas de un tipo que Learning todavía no tiene (y los cuestionarios hechos solo de ellas, o los bancos de preguntas) se dejan fuera. Los archivos de los cuestionarios se guardan con esta importación para que una versión futura los traiga sin volver a subir el archivo.",
   importIntoNote: "Todo va a",
   importDraftNote: "Las tareas empiezan sin publicar y las lecciones sin fecha, así que los estudiantes no ven nada hasta que lo publiques o lo presentes.",
   importAgainWarn: "Ya importaste este mismo archivo a este curso el",
@@ -1309,6 +1315,12 @@ const es: Partial<Record<Key, string>> = {
   quizWrong: "Incorrecta",
   quizYourAnswer: "Su respuesta",
   quizYourAttempts: "Sus intentos",
+  importQuizzesMade: "cuestionarios",
+  importQuestionsMade: "preguntas",
+  importQuestions: "preguntas de un tipo que Learning no tiene",
+  importDiscussionsNote: "{n} debates llegan como tareas de escritura con la consigna: Learning todavía no tiene debates. Los estudiantes responden en el cuadro de escritura.",
+  importFromDiscussion: "de un debate, como tarea de escritura",
+  importKind_question: "Pregunta de cuestionario",
 };
 
 const dicts = { en, es } as const;

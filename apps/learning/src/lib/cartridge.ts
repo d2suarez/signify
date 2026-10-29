@@ -3,6 +3,8 @@ import { parseXml, XmlError, kid, kids, find, textOf, type XmlNode } from "./xml
 import { htmlToBlocks, cleanRef } from "./html-text";
 import { normalizeBlocks, webLink, type Block } from "./blocks";
 import { LIMITS as ASSIGNMENT_LIMITS } from "./assignments";
+import { plainText, readQti12, type QtiSkipped } from "./qti12";
+import type { Quiz } from "./quiz";
 
 /**
  * Reads an IMS Common Cartridge (1.1–1.3; Schoology's and Canvas's course
@@ -17,8 +19,13 @@ import { LIMITS as ASSIGNMENT_LIMITS } from "./assignments";
  * - Weblinks become lessons with one link block.
  * - Assignments (CC 1.3 `assignment_xmlv1p0`, Canvas's assignment_settings,
  *   and look-alikes) become assignments: title, instructions, points, due date.
- * - Quizzes (QTI) and discussions are skipped and listed; their source XML is
- *   kept so a later quiz feature can read it.
+ * - Quizzes (QTI 1.2 assessments, qti12.ts) become quizzes with the question
+ *   types Learning has; other questions are listed as skipped, and a quiz
+ *   with none Learning can take is listed as not imported. Question banks
+ *   are listed as not imported.
+ * - Discussions become online-writing assignments holding the prompt
+ *   (Learning has no discussions yet), and the summary says so.
+ * - Quizzes' QTI and discussions' text are also kept in import_sources.
  * - Files (PDFs, images, documents) are listed as not imported.
  */
 
@@ -26,11 +33,14 @@ export type PlanLesson = { kind: "lesson"; title: string; blocks: Block[] };
 export type PlanAssignment = {
   kind: "assignment"; title: string; instructions: string; points: number | null;
   dueOn: string | null; dueAt: string | null;
+  /** A discussion brought in as a writing assignment. */
+  fromDiscussion?: boolean;
 };
-export type PlanItem = PlanLesson | PlanAssignment;
+export type PlanQuiz = { kind: "quiz"; title: string; instructions: string; quiz: Quiz; skippedQuestions: QtiSkipped[] };
+export type PlanItem = PlanLesson | PlanAssignment | PlanQuiz;
 export type PlanUnit = { title: string; items: PlanItem[] };
 
-export type SkipKind = "quiz" | "discussion" | "tool" | "file" | "other";
+export type SkipKind = "quiz" | "question" | "discussion" | "tool" | "file" | "other";
 export type Skipped = { kind: SkipKind; title: string; unit: string | null };
 /** A skipped quiz or discussion, with its source kept for later. */
 export type KeptSource = { kind: "quiz" | "discussion"; title: string; unit: string | null; source: string };
@@ -50,7 +60,10 @@ export type Plan = {
 
 export type PlanSummary = {
   units: number; lessons: number; assignments: number; datedAssignments: number;
-  quizzes: number; discussions: number; tools: number; files: number; other: number;
+  /** Quizzes and discussions brought in (discussions as writing assignments, counted in assignments too). */
+  quizzesImported: number; questions: number; discussionsImported: number;
+  /** Not imported: */
+  quizzes: number; questionsSkipped: number; discussions: number; tools: number; files: number; other: number;
 };
 
 export class CartridgeError extends Error {
@@ -219,18 +232,27 @@ function fromResource(
   };
 
   if (isDiscussion(t)) {
-    const x = xmlAt(zip, res.href || res.files[0] || "");
-    const name = title || line(textOf(kid(x ?? undefined, "title"))) || "Discussion";
-    const text = textOf(kid(x ?? undefined, "text"));
+    const path = res.href || res.files.find((f) => f.endsWith(".xml")) || "";
+    const x = path ? xmlAt(zip, path) : null;
+    if (!x) return skip("discussion", title || "Discussion");
+    const name = title || line(textOf(kid(x, "title"))) || "Discussion";
+    const body = kid(x, "text");
+    const text = textOf(body);
     plan.kept.push({ kind: "discussion", title: name, unit, source: text.slice(0, PLAN_LIMITS.keptSource) });
-    return skip("discussion", name);
+    // No discussions in Learning yet: the prompt becomes an online-writing assignment.
+    const instructions = (body && (body.attrs.texttype ?? "").includes("html")) || /<[a-z][\s\S]*>/i.test(text)
+      ? blocksText(htmlToBlocks(text), path, zip, missing) : text.trim();
+    return { kind: "assignment", title: name, instructions: instructions.slice(0, ASSIGNMENT_LIMITS.instructions), points: null, dueOn: null, dueAt: null, fromDiscussion: true };
   }
   if (isQuiz(t)) {
     const path = res.href || res.files.find((f) => f.endsWith(".xml")) || "";
     const xml = path ? zip.text(path) : null;
     const name = title || line(textOf(find(xml ? safeParse(xml) : undefined, "title"))) || "Quiz";
     if (xml !== null && xml.length <= PLAN_LIMITS.keptSource) plan.kept.push({ kind: "quiz", title: name, unit, source: xml });
-    return skip("quiz", name);
+    const read = xml !== null && xml.length <= PLAN_LIMITS.keptSource && !t.includes("question-bank") ? readQti12(xml, name) : null;
+    for (const q of read?.skipped ?? []) plan.skipped.push({ kind: "question", title: `${title || read?.title || name}: ${q.title} (${q.type})`, unit });
+    if (!read || !read.quiz.items.length) return skip("quiz", name);
+    return { kind: "quiz", title: title || read.title, instructions: read.instructions, quiz: read.quiz, skippedQuestions: read.skipped };
   }
   if (isTool(t)) return skip("tool", "External tool");
   if (isWeblink(t)) {
@@ -384,12 +406,17 @@ function dayIn(at: Date, tz: string): string {
 export function summarize(plan: Plan): PlanSummary {
   const items = [...plan.loose, ...plan.units.flatMap((u) => u.items)];
   const skipped = (k: SkipKind) => plan.skipped.filter((s) => s.kind === k).length;
+  const quizzes = items.filter((i): i is PlanQuiz => i.kind === "quiz");
   return {
     units: plan.units.length,
     lessons: items.filter((i) => i.kind === "lesson").length,
     assignments: items.filter((i) => i.kind === "assignment").length,
     datedAssignments: items.filter((i) => i.kind === "assignment" && i.dueOn).length,
+    quizzesImported: quizzes.length,
+    questions: quizzes.reduce((n, q) => n + q.quiz.items.length, 0),
+    discussionsImported: items.filter((i) => i.kind === "assignment" && i.fromDiscussion).length,
     quizzes: skipped("quiz"),
+    questionsSkipped: skipped("question"),
     discussions: skipped("discussion"),
     tools: skipped("tool"),
     files: skipped("file"),

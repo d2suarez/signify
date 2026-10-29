@@ -12,7 +12,7 @@ type Stage =
   | { at: "importing"; preview: Preview }
   | { at: "done"; result: ImportResult };
 
-const SHAPE = { lesson: "s-arch", assignment: "s-tri" } as const;
+const SHAPE = { lesson: "s-arch", assignment: "s-tri", quiz: "s-tri" } as const;
 
 /**
  * Two steps: read the export and show what it would make (nothing written),
@@ -71,7 +71,8 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
     return (
       <section className="card stack" style={{ gap: 10 }} aria-live="polite">
         <h2 style={{ fontSize: 22 }}>{d.importDone}</h2>
-        <p style={{ margin: 0 }}>{s.units} {d.importUnits} · {s.lessons} {d.importLessons} · {s.assignments} {d.importAssignments}</p>
+        <p style={{ margin: 0 }}>{s.units} {d.importUnits} · {s.lessons} {d.importLessons} · {s.assignments} {d.importAssignments} · {s.quizzesImported} {d.importQuizzesMade}</p>
+        {s.discussionsImported > 0 && <p style={{ margin: 0 }}>{d.importDiscussionsNote.replace("{n}", String(s.discussionsImported))}</p>}
         <p className="muted" style={{ margin: 0 }}>{d.importDraftNote}</p>
         <Link className="btn btn-primary" style={{ alignSelf: "flex-start" }} href={`/courses/${courseId}`}>{d.importSeeCourse}</Link>
       </section>
@@ -83,22 +84,25 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
     const s = p.summary;
     const skippedBits = [
       s.quizzes && `${d.importQuizzes} (${s.quizzes})`,
+      s.questionsSkipped && `${d.importQuestions} (${s.questionsSkipped})`,
       s.discussions && `${d.importDiscussions} (${s.discussions})`,
       s.tools && `${d.importTools} (${s.tools})`,
       s.files && `${d.importFiles} (${s.files})`,
       s.other && `${d.importOther} (${s.other})`,
     ].filter(Boolean);
     const busy = stage.at === "importing";
-    const nothing = s.lessons + s.assignments + s.units === 0;
+    const nothing = s.lessons + s.assignments + s.units + s.quizzesImported === 0;
     return (
       <div className="stack">
         <section className="card stack" style={{ gap: 8 }} aria-labelledby="imp-sum">
           <h2 id="imp-sum" style={{ fontSize: 22 }}>{p.courseTitle || file?.name}</h2>
           <p style={{ margin: 0, fontSize: 18 }}>
             <b>{s.units}</b> {d.importUnits} · <b>{s.lessons}</b> {d.importLessons} · <b>{s.assignments}</b> {d.importAssignments}
+            {" · "}<b>{s.quizzesImported}</b> {d.importQuizzesMade} <span className="muted">({s.questions} {d.importQuestionsMade})</span>
           </p>
+          {s.discussionsImported > 0 && <p style={{ margin: 0 }}>{d.importDiscussionsNote.replace("{n}", String(s.discussionsImported))}</p>}
           {skippedBits.length > 0 && <p style={{ margin: 0 }}>{d.importSkipped}: {skippedBits.join(", ")}.</p>}
-          {s.quizzes + s.discussions > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importKeptNote}</p>}
+          {s.quizzes + s.questionsSkipped > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importKeptNote}</p>}
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importIntoNote} <b>{courseName}</b>. {d.importDraftNote}</p>
           {p.importedBefore.length > 0 && (
             <p className="notice notice-bad" style={{ margin: 0 }}>
@@ -130,8 +134,10 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
                   {u.items.map((it, j) => (
                     <li key={j} style={{ padding: "3px 0" }}>
                       <span className={`shape ${SHAPE[it.kind]}`} style={{ marginRight: 8 }} />
-                      <span className="sr-only">{it.kind === "lesson" ? d.lessonWord : d.assignment}: </span>
+                      <span className="sr-only">{it.kind === "lesson" ? d.lessonWord : it.kind === "quiz" ? d.kindQuiz : d.assignment}: </span>
                       {it.title}
+                      {it.kind === "quiz" && <span className="muted" style={{ fontSize: 13 }}> · {d.kindQuiz} · {it.questions} {d.importQuestionsMade}</span>}
+                      {it.discussion && <span className="muted" style={{ fontSize: 13 }}> · {d.importFromDiscussion}</span>}
                       {it.dueOn && <span className="muted" style={{ fontSize: 13 }}> · {d.due} {it.dueOn}</span>}
                     </li>
                   ))}

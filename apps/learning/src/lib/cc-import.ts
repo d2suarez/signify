@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { getDb } from "./db";
 import { readCartridge, summarize, type Plan, type PlanItem, type PlanSummary, type Skipped } from "./cartridge";
+import { quizPoints } from "./quiz";
 
 /**
  * Brings a Common Cartridge (a Schoology course export) into a course, in two
@@ -23,7 +24,7 @@ export const MAX_UPLOAD = 150 * 1024 * 1024;
 export type Preview = {
   courseTitle: string;
   summary: PlanSummary;
-  outline: { title: string | null; items: { kind: PlanItem["kind"]; title: string; dueOn: string | null }[] }[];
+  outline: { title: string | null; items: { kind: PlanItem["kind"]; title: string; dueOn: string | null; discussion?: boolean; questions?: number }[] }[];
   skipped: Skipped[];
   missingFiles: string[];
   warnings: string[];
@@ -40,7 +41,11 @@ export function sha256(buf: Buffer): string {
 function outlineOf(plan: Plan): Preview["outline"] {
   let left = OUTLINE_CAP;
   const items = (list: PlanItem[]) => {
-    const out = list.slice(0, Math.max(0, left)).map((i) => ({ kind: i.kind, title: i.title, dueOn: i.kind === "assignment" ? i.dueOn : null }));
+    const out = list.slice(0, Math.max(0, left)).map((i) => ({
+      kind: i.kind, title: i.title, dueOn: i.kind === "assignment" ? i.dueOn : null,
+      ...(i.kind === "assignment" && i.fromDiscussion ? { discussion: true } : {}),
+      ...(i.kind === "quiz" ? { questions: i.quiz.items.length } : {}),
+    }));
     left -= out.length;
     return out;
   };
@@ -99,6 +104,13 @@ export async function commitImport(
           `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by)
            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6)`,
           [ctx.tenantId, courseId, item.title, JSON.stringify(item.blocks), unitId, ctx.userId],
+        );
+      } else if (item.kind === "quiz") {
+        // A quiz is an assignment of kind quiz, a draft like everything imported.
+        await t.query(
+          `INSERT INTO assignments (tenant_id, course_id, unit_id, title, instructions, kind, points, quiz, published, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, 'quiz', $6, $7::jsonb, false, $8, $8)`,
+          [ctx.tenantId, courseId, unitId, item.title, item.instructions, Math.min(10_000, quizPoints(item.quiz)), JSON.stringify(item.quiz), ctx.userId],
         );
       } else {
         const dated = opts.keepDates && item.dueOn && item.dueAt;

@@ -12,6 +12,8 @@ import { listUnits, createUnit } from "../src/lib/units";
 import { listLessons, getLesson, saveLesson } from "../src/lib/lessons";
 import { listAssignments } from "../src/lib/assignments";
 import { normalizeBlocks, webLink } from "../src/lib/blocks";
+import { readQti12 } from "../src/lib/qti12";
+import { scoreItem } from "../src/lib/quiz";
 
 // ---------- a tiny zip writer, for fixtures ----------
 
@@ -104,6 +106,61 @@ and <a href="javascript:alert(1)">this</a>.</p>
 <p>Then answer &ldquo;why?&rdquo;&nbsp;&amp; discuss.</p>
 </body></html>`;
 
+const meta = (fields: Record<string, string>) => `<itemmetadata><qtimetadata>${Object.entries(fields).map(([k, v]) =>
+  `<qtimetadatafield><fieldlabel>${k}</fieldlabel><fieldentry>${v}</fieldentry></qtimetadatafield>`).join("")}</qtimetadata></itemmetadata>`;
+const choice = (ident: string, text: string) => `<response_label ident="${ident}"><material><mattext texttype="text/plain">${text}</mattext></material></response_label>`;
+const scoreIf = (cond: string, v = 100) => `<respcondition continue="No"><conditionvar>${cond}</conditionvar><setvar action="Set" varname="SCORE">${v}</setvar></respcondition>`;
+
+/** A QTI 1.2 quiz as Common Cartridge (and Canvas) write it, one item of each kind plus one Learning can't take. */
+const QTI = `<?xml version="1.0" encoding="UTF-8"?>
+<questestinterop xmlns="http://www.imsglobal.org/xsd/ims_qtiasiv1p2">
+<assessment ident="q1" title="Cells quiz">
+  <qtimetadata><qtimetadatafield><fieldlabel>cc_maxattempts</fieldlabel><fieldentry>2</fieldentry></qtimetadatafield>
+    <qtimetadatafield><fieldlabel>qmd_timelimit</fieldlabel><fieldentry>20</fieldentry></qtimetadatafield></qtimetadata>
+  <section ident="root">
+    <item ident="mc1" title="Nucleus">${meta({ cc_profile: "cc.multiple_choice.v0p1" })}
+      <presentation><material><mattext texttype="text/html">&lt;p&gt;Which part holds the &lt;b&gt;DNA&lt;/b&gt;?&lt;/p&gt;&lt;script&gt;steal()&lt;/script&gt;</mattext></material>
+        <response_lid ident="r1" rcardinality="Single"><render_choice>${choice("A", "Nucleus")}${choice("B", "Ribosome")}${choice("C", "Wall")}</render_choice></response_lid>
+      </presentation>
+      <resprocessing><outcomes><decvar varname="SCORE" vartype="Decimal" maxvalue="100"/></outcomes>${scoreIf(`<varequal respident="r1">A</varequal>`)}</resprocessing>
+    </item>
+    <item ident="tf1" title="Mitochondria">${meta({ cc_profile: "cc.true_false.v0p1" })}
+      <presentation><material><mattext>Mitochondria make energy.</mattext></material>
+        <response_lid ident="r1" rcardinality="Single"><render_choice>${choice("T1", "True")}${choice("F1", "False")}</render_choice></response_lid>
+      </presentation>
+      <resprocessing>${scoreIf(`<varequal respident="r1">T1</varequal>`)}</resprocessing>
+    </item>
+    <item ident="mr1" title="Plant cells">${meta({ cc_profile: "cc.multiple_response.v0p1" })}
+      <presentation><material><mattext>Which are in plant cells?</mattext></material>
+        <response_lid ident="r1" rcardinality="Multiple"><render_choice>${choice("a", "Chloroplast")}${choice("b", "Wall")}${choice("c", "Centriole")}</render_choice></response_lid>
+      </presentation>
+      <resprocessing>${scoreIf(`<and><varequal respident="r1">a</varequal><varequal respident="r1">b</varequal><not><varequal respident="r1">c</varequal></not></and>`)}</resprocessing>
+    </item>
+    <item ident="fib1" title="Jelly">${meta({ cc_profile: "cc.fib.v0p1" })}
+      <presentation><material><mattext>The jelly inside a cell is the ____.</mattext></material><response_str ident="r1" rcardinality="Single"><render_fib/></response_str></presentation>
+      <resprocessing>${scoreIf(`<varequal respident="r1" case="No">cytoplasm</varequal>`)}${scoreIf(`<varequal respident="r1" case="No">cytosol</varequal>`)}</resprocessing>
+    </item>
+    <item ident="num1" title="Chromosomes">${meta({ question_type: "numerical_question", points_possible: "2" })}
+      <presentation><material><mattext>Chromosomes in a human body cell?</mattext></material><response_str ident="r1" rcardinality="Single"><render_fib fibtype="Decimal"/></response_str></presentation>
+      <resprocessing>${scoreIf(`<or><varequal respident="r1">46</varequal><and><vargte respident="r1">45.5</vargte><varlte respident="r1">46.5</varlte></and></or>`)}</resprocessing>
+    </item>
+    <item ident="m1" title="Jobs">${meta({ question_type: "matching_question", points_possible: "3" })}
+      <presentation><material><mattext>Match each part to its job.</mattext></material>
+        <response_lid ident="rA"><material><mattext>Ribosome</mattext></material><render_choice>${choice("j1", "Makes proteins")}${choice("j2", "Stores water")}</render_choice></response_lid>
+        <response_lid ident="rB"><material><mattext>Vacuole</mattext></material><render_choice>${choice("j1", "Makes proteins")}${choice("j2", "Stores water")}</render_choice></response_lid>
+      </presentation>
+      <resprocessing>${scoreIf(`<varequal respident="rA">j1</varequal>`, 50)}${scoreIf(`<varequal respident="rB">j2</varequal>`, 50)}</resprocessing>
+    </item>
+    <item ident="es1" title="Why divide">${meta({ cc_profile: "cc.essay.v0p1" })}
+      <presentation><material><mattext>Why do cells divide?</mattext></material><response_str ident="r1"><render_fib/></response_str></presentation>
+    </item>
+    <item ident="calc1" title="Formula">${meta({ question_type: "calculated_question" })}
+      <presentation><material><mattext>Work out [x] times 2.</mattext></material><response_str ident="r1"><render_fib/></response_str></presentation>
+    </item>
+  </section>
+</assessment>
+</questestinterop>`;
+
 const FILES: Entry[] = [
   { name: "imsmanifest.xml", data: MANIFEST },
   { name: "pages/cell.html", data: CELL_PAGE },
@@ -118,7 +175,7 @@ const FILES: Entry[] = [
       <gradable points_possible="20">true</gradable>
       <due_at>2026-11-06T15:30:00</due_at>
     </assignment>` },
-  { name: "quiz/q1.xml", data: `<questestinterop><assessment ident="q1" title="Cells quiz"><section ident="s"/></assessment></questestinterop>` },
+  { name: "quiz/q1.xml", data: QTI },
   { name: "disc/d1.xml", data: `<topic><title>Talk about traits</title><text texttype="text/html">Which traits run in your family?</text></topic>` },
   { name: "lti/t1.xml", data: `<cartridge_basiclti_link/>` },
   { name: "ca1/lab-report.html", data: "<p>Write up the lab.</p>" },
@@ -253,15 +310,19 @@ test("cartridge: folders become units, everything else is listed", () => {
   const plan = readCartridge(fixture());
   assert.equal(plan.courseTitle, "Biology 9 & Lab");
   assert.deepEqual(plan.units.map((u) => u.title), ["Unit 1: Cells", "Unit 2: Genetics"]);
-  assert.deepEqual(plan.units[0].items.map((i) => `${i.kind}:${i.title}`), ["lesson:What is a cell?", "lesson:Cell explorer", "assignment:Cell diagram"]);
-  assert.deepEqual(plan.units[1].items, []);
+  assert.deepEqual(plan.units[0].items.map((i) => `${i.kind}:${i.title}`), ["lesson:What is a cell?", "lesson:Cell explorer", "assignment:Cell diagram", "quiz:Cells quiz"]);
+  // A discussion becomes a writing assignment holding the prompt.
+  assert.deepEqual(plan.units[1].items.map((i) => `${i.kind}:${i.title}`), ["assignment:Talk about traits"]);
   // A loose page, and Canvas's assignment that is in no module.
   assert.deepEqual(plan.loose.map((i) => `${i.kind}:${i.title}`), ["lesson:Welcome", "assignment:Lab report"]);
   assert.deepEqual(plan.skipped.map((s) => `${s.kind}:${s.title}`).sort(), [
-    "discussion:Talk about traits", "file:Worksheet.pdf", "other:Sneaky link", "quiz:Cells quiz", "tool:Outside tool",
+    "file:Worksheet.pdf", "other:Sneaky link", "question:Cells quiz: Formula (calculated_question)", "tool:Outside tool",
   ]);
   assert.deepEqual(plan.missingFiles, ["web_resources/cell diagram.png"]);
-  assert.deepEqual(summarize(plan), { units: 2, lessons: 3, assignments: 2, datedAssignments: 2, quizzes: 1, discussions: 1, tools: 1, files: 1, other: 1 });
+  assert.deepEqual(summarize(plan), {
+    units: 2, lessons: 3, assignments: 3, datedAssignments: 2, quizzesImported: 1, questions: 7, discussionsImported: 1,
+    quizzes: 0, questionsSkipped: 1, discussions: 0, tools: 1, files: 1, other: 1,
+  });
 });
 
 test("cartridge: assignments keep title, instructions, points and due date", () => {
@@ -279,11 +340,65 @@ test("cartridge: assignments keep title, instructions, points and due date", () 
   assert.equal(lab.kind === "assignment" && lab.dueOn, "2026-11-13");
 });
 
-test("cartridge: quizzes and discussions keep their source for later", () => {
+test("cartridge: quizzes and discussions keep their source too", () => {
   const plan = readCartridge(fixture());
   const quiz = plan.kept.find((k) => k.kind === "quiz");
-  assert.ok(quiz && quiz.source.includes("<questestinterop>") && quiz.unit === "Unit 1: Cells");
+  assert.ok(quiz && quiz.source.includes("<questestinterop") && quiz.unit === "Unit 1: Cells");
   assert.equal(plan.kept.find((k) => k.kind === "discussion")?.source, "Which traits run in your family?");
+  const disc = plan.units[1].items[0];
+  assert.ok(disc.kind === "assignment" && disc.fromDiscussion && disc.instructions === "Which traits run in your family?" && disc.points === null);
+});
+
+test("cartridge: a QTI 1.2 quiz becomes a Learning quiz, question by question", () => {
+  const plan = readCartridge(fixture());
+  const q = plan.units[0].items[3];
+  assert.ok(q.kind === "quiz");
+  assert.equal(q.quiz.settings.attempts, 2);
+  assert.equal(q.quiz.settings.timeLimit, 20);
+  const [mc, tf, mr, fib, numq, match, essay] = q.quiz.items;
+  assert.deepEqual(q.quiz.items.map((i) => i.kind), ["single", "truefalse", "multiple", "short", "numeric", "match", "essay"]);
+  assert.equal(mc.prompt, "Which part holds the DNA?", "HTML made plain; the script is gone");
+  assert.deepEqual(mc.correct.map((id) => mc.choices.find((c) => c.identifier === id)?.text), ["Nucleus"]);
+  assert.deepEqual(tf.correct, ["true"]);
+  assert.deepEqual(mr.correct.map((id) => mr.choices.find((c) => c.identifier === id)?.text).sort(), ["Chloroplast", "Wall"], "never what sits under <not>");
+  assert.deepEqual(fib.correct, ["cytoplasm", "cytosol"]);
+  assert.equal(fib.caseSensitive, false);
+  assert.equal(numq.value, 46);
+  assert.equal(numq.tolerance, 0.5);
+  assert.equal(numq.points, 2);
+  assert.equal(match.choices.length, 2);
+  assert.equal(match.targets.length, 2);
+  assert.deepEqual(match.correct.map((p) => { const [s, t] = p.split(" "); return `${match.choices.find((c) => c.identifier === s)?.text}=${match.targets.find((c) => c.identifier === t)?.text}`; }),
+    ["Ribosome=Makes proteins", "Vacuole=Stores water"]);
+  assert.equal(match.points, 3);
+  assert.equal(essay.prompt, "Why do cells divide?");
+  assert.deepEqual(q.skippedQuestions, [{ title: "Formula", type: "calculated_question" }]);
+  // Scored like any quiz.
+  assert.equal(scoreItem(mc, mc.correct[0]), 1);
+  assert.equal(scoreItem(numq, "46.4"), 2);
+});
+
+test("cartridge: a quiz is refused safely: DOCTYPE, a bank, nothing Learning can take", () => {
+  const manifest = (res: string) => `<manifest identifier="m"><organizations><organization identifier="o"><item identifier="r">
+    <item identifier="a" identifierref="qa"><title>Evil</title></item>
+    <item identifier="b" identifierref="qb"><title>Bank</title></item>
+    <item identifier="c" identifierref="qc"><title>Only formulas</title></item>
+  </item></organization></organizations><resources>${res}</resources></manifest>`;
+  const files = zip([
+    { name: "imsmanifest.xml", data: manifest(`
+      <resource identifier="qa" type="imsqti_xmlv1p2/imscc_xmlv1p1/assessment"><file href="a.xml"/></resource>
+      <resource identifier="qb" type="imsqti_xmlv1p2/imscc_xmlv1p1/question-bank"><file href="b.xml"/></resource>
+      <resource identifier="qc" type="imsqti_xmlv1p2/imscc_xmlv1p1/assessment"><file href="c.xml"/></resource>`) },
+    { name: "a.xml", data: `<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><questestinterop><assessment title="&e;"/></questestinterop>` },
+    { name: "b.xml", data: `<questestinterop><objectbank ident="b"/></questestinterop>` },
+    { name: "c.xml", data: `<questestinterop><assessment ident="c" title="Only formulas"><section ident="s"><item ident="x" title="F">${meta({ question_type: "calculated_question" })}</item></section></assessment></questestinterop>` },
+  ]);
+  const plan = readCartridge(files);
+  assert.deepEqual(plan.units.flatMap((u) => u.items), []);
+  assert.deepEqual(plan.skipped.map((s) => `${s.kind}:${s.title}`).sort(), ["question:Only formulas: F (calculated_question)", "quiz:Bank", "quiz:Evil", "quiz:Only formulas"]);
+  assert.ok(!JSON.stringify(plan).includes("root:"), "no file contents came in");
+  assert.equal(readQti12(`<!DOCTYPE x><questestinterop/>`), null);
+  assert.equal(readQti12(`<questestinterop><objectbank ident="b"/></questestinterop>`), null);
 });
 
 test("cartridge: due dates as exports write them", () => {
@@ -323,7 +438,8 @@ test("import: preview writes nothing", async () => {
 test("import: one transaction; everything a draft; units after existing ones; versions as usual", async () => {
   await createUnit(A, courseA, "Already here");
   const r = await commitImport(A, courseA, fixture(), "bio.imscc", { keepDates: true });
-  assert.equal(r.summary.assignments, 2);
+  assert.equal(r.summary.assignments, 3);
+  assert.equal(r.summary.quizzesImported, 1);
 
   const units = await listUnits(A, courseA);
   assert.deepEqual(units.map((u) => u.title), ["Already here", "Unit 1: Cells", "Unit 2: Genetics"]);
@@ -331,9 +447,18 @@ test("import: one transaction; everything a draft; units after existing ones; ve
   assert.equal(lessons.length, 3);
   assert.ok(lessons.every((l) => l.plannedFor === null && l.version === 1));
   const asg = await listAssignments(A, courseA);
-  assert.equal(asg.length, 2);
+  assert.equal(asg.length, 4);
   assert.ok(asg.every((a) => !a.published && !a.gradesReleased));
   assert.equal(asg.find((a) => a.title === "Cell diagram")?.dueOn, "2026-11-06");
+  // The quiz is a real quiz (a draft), the discussion an online-writing assignment.
+  const quiz = asg.find((a) => a.title === "Cells quiz")!;
+  assert.equal(quiz.kind, "quiz");
+  assert.equal(quiz.quiz?.items.length, 7);
+  assert.equal(quiz.points, 10, "the questions' points");
+  assert.equal(quiz.unitId, r.unitIds[0]);
+  const disc = asg.find((a) => a.title === "Talk about traits")!;
+  assert.equal(disc.kind, "online");
+  assert.equal(disc.instructions, "Which traits run in your family?");
 
   // Lessons keep history on the first edit, as any other lesson.
   const cell = lessons.find((l) => l.title === "What is a cell?")!;
@@ -357,7 +482,7 @@ test("import: one transaction; everything a draft; units after existing ones; ve
 test("import: keepDates false drops the dates", async () => {
   await commitImport(B, courseB, fixture(), "bio.imscc", { keepDates: false });
   const asg = await listAssignments(B, courseB);
-  assert.ok(asg.length === 2 && asg.every((a) => a.dueOn === null && a.dueAt === null));
+  assert.ok(asg.length === 4 && asg.every((a) => a.dueOn === null && a.dueAt === null));
 });
 
 test("import: another school sees none of it", async () => {
