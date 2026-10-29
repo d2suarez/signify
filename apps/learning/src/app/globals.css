@@ -282,6 +282,22 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .check-warn::before { background: var(--p1); }
 .check-good::before { background: var(--good); }
 @media (prefers-color-scheme: dark) { .check-bad { background: #5a1c12; color: #ffd2c8; } }
+.check-info::before { background: var(--p2); border-radius: 2px; }
+/* Standards-based grading: levels always carry their word; the tint only helps scanning. */
+.seg-wrap { flex-wrap: wrap; border-radius: 18px; }
+.seg-wrap button { min-height: 44px; }
+.sbg-table th span { white-space: nowrap; }
+.sbg-cell { text-align: center !important; white-space: nowrap; padding: 6px 8px !important; }
+.sbg-cell small { font-size: 12px; color: var(--muted); }
+.sbg-l1 { background: #fde2dc; }
+.sbg-l4 { background: #dff3e8; }
+@media (prefers-color-scheme: dark) { .sbg-l1 { background: #4a1d14; } .sbg-l4 { background: #143a28; } }
+.conv-table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.conv-table th { text-align: left; font-size: 13px; font-weight: 600; padding: 0 10px 4px 0; }
+.conv-table td { padding: 3px 10px 3px 0; }
+.std-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.std-list li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.std-list .std-level { margin-left: auto; font-weight: 700; white-space: nowrap; }
 
 /* ===================================================================
    Reading supports (UDL). Each person's own choices, set by the server as
@@ -413,3 +429,4 @@ html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due { 
 .rubric-levels { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .rubric-level { display: grid; grid-template-columns: 80px minmax(0, 1fr) minmax(0, 2fr) auto; gap: 6px; align-items: start; }
 @media (max-width: 640px) { .rubric-level { grid-template-columns: 70px minmax(0, 1fr) auto; } .rubric-level textarea { grid-column: 1 / -1; grid-row: 2; } }
+html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { background: transparent; }

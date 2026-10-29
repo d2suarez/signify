@@ -2,6 +2,7 @@ import { getDb, type Queryable } from "./db";
 import { cleanPastes, record } from "./writing";
 import { cleanTitle, unitInCourse } from "./units";
 import { normalizeRubric, rubricMax, type Rubric } from "./rubric";
+import { standardsInCourse } from "./standards";
 
 /**
  * Assignments and the work students hand in for them.
@@ -33,6 +34,8 @@ export type Assignment = {
   gradesReleased: boolean;
   /** Criteria with levels; when set, its total is the points. */
   rubric: Rubric | null;
+  /** The standards it measures (a standards course); its rubric rows may name more. */
+  standards: string[] | null;
   version: number;
   updatedAt: string;
 };
@@ -72,9 +75,16 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     published: !!r.published,
     gradesReleased: !!r.grades_released,
     rubric: r.rubric ? normalizeRubric(typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) : null,
+    standards: cleanIdList(typeof r.standards === "string" ? JSON.parse(r.standards) : r.standards),
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
+}
+
+function cleanIdList(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = [...new Set(v.filter((x): x is string => typeof x === "string" && UUID.test(x)))].slice(0, 50);
+  return out.length ? out : null;
 }
 
 export function forStudent(a: Assignment): StudentAssignment {
@@ -155,6 +165,8 @@ export type AssignmentInput = {
   gradesReleased?: unknown;
   /** A rubric, or null to remove it. */
   rubric?: unknown;
+  /** Standard ids it measures, or null for none. */
+  standards?: unknown;
 };
 
 export type AssignmentSave =
@@ -194,11 +206,23 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     };
     // With a rubric, the points are what it can give at most.
     if (next.rubric) next.points = Math.min(LIMITS.maxPoints, rubricMax(next.rubric));
+    // Alignment: only this course's own standards (not archived) are kept.
+    if (input.standards !== undefined || input.rubric !== undefined) {
+      const wanted = input.standards === undefined ? cur.standards ?? [] : cleanIdList(input.standards) ?? [];
+      const rows = next.rubric?.criteria.map((c) => c.standardId).filter((x): x is string => !!x) ?? [];
+      const ok = await standardsInCourse(ctx, cur.courseId, [...wanted, ...rows], t);
+      const list = wanted.filter((id) => ok.has(id));
+      next.standards = list.length ? list : null;
+      if (next.rubric) {
+        next.rubric = { criteria: next.rubric.criteria.map(({ standardId, ...c }) => (standardId && ok.has(standardId) ? { ...c, standardId } : c)) };
+      }
+    }
     const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);
-    const changed = rubricChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
+    const standardsChanged = JSON.stringify(next.standards) !== JSON.stringify(cur.standards);
+    const changed = rubricChanged || standardsChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
     if (!changed) return { ok: true, assignment: cur, changed: false } as const;
 
-    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric };
+    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric, standards: cur.standards };
     await t.query(
       `INSERT INTO assignment_versions (tenant_id, assignment_id, version, snapshot, saved_by, saved_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6) ON CONFLICT (assignment_id, version) DO NOTHING`,
@@ -211,12 +235,12 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     );
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
-              unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb,
+              unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb, standards = $15::jsonb,
               version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
         next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
-        next.rubric ? JSON.stringify(next.rubric) : null],
+        next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });

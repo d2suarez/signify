@@ -13,7 +13,7 @@
 import { myCourses, type MyCourse } from "./courses";
 import { listAssignments, courseSubmissions, isLate, isOverdue, type Assignment, type Submission } from "./assignments";
 import { courseGrades, type Grade } from "./grades";
-import { buildGradebook } from "./gradebook";
+import { buildGradebook, standardsView, type StandardsView } from "./gradebook";
 import { listAnnouncements } from "./announcements";
 import { addDays } from "./planner";
 import { weekday, type Day } from "./calendar";
@@ -44,6 +44,8 @@ export type CourseWork = {
   whole: number | null;
   letter: string | null;
   items: WorkItem[];
+  /** A standards course: each standard's level (released work only). */
+  standards?: StandardsView | null;
 };
 
 /**
@@ -53,10 +55,12 @@ export type CourseWork = {
  */
 export function workStatus(
   a: Pick<Assignment, "kind" | "dueAt">, sub: Pick<Submission, "submittedAt"> | null,
-  grade: Pick<Grade, "score" | "flag"> | undefined, now = new Date(),
+  grade: Pick<Grade, "score" | "flag"> & { levels?: Grade["levels"] } | undefined, now = new Date(),
 ): WorkStatus {
   if (grade?.flag === "exempt") return "exempt";
   if (grade && grade.score !== null) return "graded";
+  // A standards course may give levels and no score.
+  if (grade?.levels && Object.keys(grade.levels).length) return "graded";
   if (grade?.flag === "missing") return "missing";
   if (a.kind === "offline") return "inClass";
   if (sub?.submittedAt) return "handedIn";
@@ -95,7 +99,7 @@ export async function courseWork(ctx: Ctx, course: MyCourse, studentId: string, 
     };
   });
   const row = gb.rows[0];
-  return { course, whole: row?.whole ?? null, letter: row?.whole == null ? null : row.letter, items };
+  return { course, whole: row?.whole ?? null, letter: row?.whole == null ? null : row.letter, items, standards: standardsView(gb, row) };
 }
 
 /** Every course's work for one student. */

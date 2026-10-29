@@ -8,6 +8,8 @@ import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
 import GradebookGrid from "@/components/GradebookGrid";
+import StandardsGradebook from "@/components/StandardsGradebook";
+import { levelLabel, levelWords, topLevel } from "@/lib/standards-math";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +62,32 @@ export default async function GradebookPage({ params, searchParams }: {
         )}
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}
         {ok && students.length === 0 && <p className="empty">{d.noStudents}</p>}
-        {ok && students.length > 0 && (
+        {ok && students.length > 0 && gb.standards && (() => {
+          const sb = gb.standards, top = topLevel(sb.settings);
+          return (
+            <StandardsGradebook
+              key={period?.id || "year"}
+              courseId={course.id}
+              periodKey={period?.id || "year"}
+              summaryText={{ recent: d.summaryRecent, mean: d.summaryMean, highest: d.summaryHighest }[sb.settings.summary].toLowerCase()}
+              labels={Array.from({ length: top }, (_, i) => levelLabel(sb.settings, top - i, levelWords(d)))}
+              standards={sb.standards.map((s) => ({ id: s.id, code: s.code, description: s.description }))}
+              rows={gb.rows.map((r) => ({
+                id: r.student.id, name: r.student.name, factsName: r.student.factsName,
+                summaries: r.standards!.summaries, average: r.standards!.average, whole: r.whole, letter: r.letter,
+              }))}
+              assignments={gb.assignments.map((a) => ({ id: a.id, title: a.title, aligned: sb.aligned[a.id].length, published: a.published }))}
+              conversion={sb.settings.conversion}
+              checks={{
+                missing: gb.checks.missing.map((m) => `${m.student}, ${m.assignment}`),
+                noLevels: sb.checks.noLevels, unaligned: sb.checks.unaligned, noEvidence: sb.checks.noEvidence,
+                below70: gb.checks.below70, noDueDate: gb.checks.noDueDate,
+              }}
+              d={d}
+            />
+          );
+        })()}
+        {ok && students.length > 0 && !gb.standards && (
           <GradebookGrid
             key={period?.id || "year"}
             courseId={course.id}

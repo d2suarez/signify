@@ -12,7 +12,11 @@
 import { newId } from "./blocks";
 
 export type RubricLevel = { id: string; title: string; points: number; description: string };
-export type RubricCriterion = { id: string; title: string; description: string; levels: RubricLevel[] };
+export type RubricCriterion = {
+  id: string; title: string; description: string; levels: RubricLevel[];
+  /** The standard this row measures, in a standards course (checked against the course's standards on save). */
+  standardId?: string;
+};
 export type Rubric = { criteria: RubricCriterion[] };
 /** Which level was chosen for each criterion: criterion id → level id. */
 export type RubricSelection = Record<string, string>;
@@ -22,6 +26,7 @@ export const RUBRIC_LIMITS = {
 };
 
 const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const UUID = /^[0-9a-f-]{36}$/i;
 
 function line(v: unknown, max: number): string {
   return typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -67,7 +72,9 @@ export function normalizeRubric(input: unknown): Rubric | null {
       .map((l) => ({ id: uniqueId(l.id, used), title: line(l.title, RUBRIC_LIMITS.levelTitle), points: points(l.points), description: text(l.description, RUBRIC_LIMITS.description) }))
       .sort((a, b) => b.points - a.points);
     if (!levels.length) continue;
-    criteria.push({ id: uniqueId(o.id, used), title: line(o.title, RUBRIC_LIMITS.title), description: text(o.description, RUBRIC_LIMITS.description), levels });
+    const crit: RubricCriterion = { id: uniqueId(o.id, used), title: line(o.title, RUBRIC_LIMITS.title), description: text(o.description, RUBRIC_LIMITS.description), levels };
+    if (typeof o.standardId === "string" && UUID.test(o.standardId)) crit.standardId = o.standardId;
+    criteria.push(crit);
   }
   return criteria.length ? { criteria } : null;
 }

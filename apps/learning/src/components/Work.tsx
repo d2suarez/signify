@@ -1,6 +1,30 @@
 import type { Dict, Lang } from "@/lib/i18n";
 import type { CourseWork, WorkItem, WeekSummary } from "@/lib/family";
 import { When } from "./When";
+import type { StandardsView } from "@/lib/gradebook";
+import { levelLabel, levelWords, roundLevel } from "@/lib/standards-math";
+
+/** A standards course's standards and the level reached on each (released work only). */
+export function StandardsList({ view, d, id }: { view: StandardsView; d: Dict; id: string }) {
+  if (!view.list.length) return null;
+  return (
+    <section aria-labelledby={id}>
+      <h3 id={id} className="label" style={{ margin: "10px 0 0" }}>{d.standards}</h3>
+      <ul className="std-list">
+        {view.list.map((s) => (
+          <li key={s.id}>
+            <b>{s.code}</b>
+            <span className="muted" style={{ flex: "1 1 200px" }}>{s.description}</span>
+            <span className="std-level">
+              {s.level === null ? <span className="muted" style={{ fontWeight: 400 }}>{d.noLevelYet}</span>
+                : `${s.level} · ${levelLabel(view.settings, roundLevel(s.level), levelWords(d))}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 /**
  * A student's work as the student's family sees it (the parent view and the
@@ -11,7 +35,7 @@ import { When } from "./When";
 export function WorkChip({ item, d }: { item: WorkItem; d: Dict }) {
   const late = item.late ? ` · ${d.late}` : "";
   switch (item.status) {
-    case "graded": return <span className="chip chip-done">{item.score} / {item.points}{late}</span>;
+    case "graded": return <span className="chip chip-done">{item.score === null ? d.graded : `${item.score} / ${item.points}`}{late}</span>;
     case "exempt": return <span className="chip chip-exempt">{d.exempt}</span>;
     case "missing": return <span className="chip chip-missing">{d.missing}</span>;
     case "handedIn": return <span className="chip chip-done">{d.handedIn}{late}</span>;
@@ -57,6 +81,8 @@ export function CourseWorkCard({ w, d, L }: { w: CourseWork; d: Dict; L: Lang })
           {w.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{w.whole}% · {w.letter}</b>}
         </div>
       </div>
+      {w.standards && <p className="muted" style={{ fontSize: 12, margin: "4px 0 0", textAlign: "right" }}>{d.convertedNote}</p>}
+      {w.standards && <StandardsList view={w.standards} d={d} id={`${headId}-std`} />}
       {w.items.length === 0
         ? <p className="empty">{d.noAssignmentsStudent}</p>
         : <WorkList items={w.items} d={d} L={L} />}

@@ -18,6 +18,8 @@ const UUID = /^[0-9a-f-]{36}$/i;
 
 import { FLAGS, MAX_DROP, type Flag } from "./grade-math";
 import { cleanSelection, type RubricSelection } from "./rubric";
+import { alignedStandards, cleanLevels, topLevel } from "./standards-math";
+import { courseGrading } from "./standards";
 export const MAX_COMMENT = 5000;
 /** A score may go above the points (extra credit), up to this many times them. */
 export const MAX_SCORE_FACTOR = 10;
@@ -30,6 +32,8 @@ export type Grade = {
   comment: string;
   /** The rubric level chosen per criterion, when the assignment has a rubric. */
   rubric: RubricSelection | null;
+  /** The level reached per standard (standards courses only): standard id → level. */
+  levels: Record<string, number> | null;
   gradedAt: string;
 };
 
@@ -41,6 +45,7 @@ function toGrade(r: Record<string, unknown>): Grade {
     flag: FLAGS.includes(r.flag as Flag) ? (r.flag as Flag) : null,
     comment: String(r.comment ?? ""),
     rubric: r.rubric ? (typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) as RubricSelection : null,
+    levels: r.levels ? (typeof r.levels === "string" ? JSON.parse(r.levels) : r.levels) as Record<string, number> : null,
     gradedAt: r.graded_at instanceof Date ? r.graded_at.toISOString() : String(r.graded_at),
   };
 }
@@ -62,7 +67,7 @@ export async function gradesFor(ctx: Ctx, assignmentId: string): Promise<Grade[]
   return rows.map(toGrade);
 }
 
-export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown };
+export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown; levels?: unknown };
 
 export type GradeSave =
   | { ok: true; grade: Grade | null; changed: boolean }
@@ -101,34 +106,43 @@ export async function setGrade(
     const cur = rows[0] ? toGrade(rows[0]) : null;
     const rubric = sentRubric ? cleanSelection(a.rubric, input.rubric) : a.rubric ? cleanSelection(a.rubric, cur?.rubric) : null;
     const sameRubric = JSON.stringify(rubric) === JSON.stringify(cur?.rubric ?? null);
+    // Levels only in a standards course, and only for standards this assignment measures.
+    // A points course never changes them (nor reads them).
+    let levels = cur?.levels ?? null;
+    const grading = await courseGrading(ctx, a.courseId, t);
+    if (grading.mode === "standards") {
+      const aligned = alignedStandards(a), top = topLevel(grading.settings);
+      levels = cleanLevels(aligned, top, input.levels !== undefined ? input.levels : cur?.levels);
+    }
+    const sameLevels = JSON.stringify(levels) === JSON.stringify(cur?.levels ?? null);
     const same = cur
-      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric
-      : score === null && flag === null && comment === "" && rubric === null;
+      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric && sameLevels
+      : score === null && flag === null && comment === "" && rubric === null && levels === null;
     if (same) return { ok: true, grade: cur, changed: false } as const;
 
     await t.query(
-      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, changed_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $7)`,
-      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null],
+      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, changed_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $7)`,
+      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null],
     );
-    if (score === null && flag === null && comment === "" && rubric === null) {
+    if (score === null && flag === null && comment === "" && rubric === null && levels === null) {
       await t.query("DELETE FROM grades WHERE tenant_id = $1 AND assignment_id = $2 AND student_id = $3", [ctx.tenantId, a.id, studentId]);
       return { ok: true, grade: null, changed: true } as const;
     }
     const saved = await t.query(
-      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, graded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $7)
+      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, graded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $7)
        ON CONFLICT (assignment_id, student_id)
        DO UPDATE SET score = EXCLUDED.score, flag = EXCLUDED.flag, comment = EXCLUDED.comment, rubric = EXCLUDED.rubric,
-                     graded_by = EXCLUDED.graded_by, graded_at = now()
+                     levels = EXCLUDED.levels, graded_by = EXCLUDED.graded_by, graded_at = now()
        RETURNING *`,
-      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null],
+      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null],
     );
     return { ok: true, grade: toGrade(saved[0]), changed: true } as const;
   });
 }
 
-export type HistoryEntry = { score: number | null; flag: Flag | null; comment: string; changedBy: string; changedAt: string };
+export type HistoryEntry = { score: number | null; flag: Flag | null; comment: string; levels: Record<string, number> | null; changedBy: string; changedAt: string };
 
 export async function gradeHistory(ctx: Ctx, assignmentId: string, studentId: string): Promise<HistoryEntry[]> {
   if (!UUID.test(assignmentId)) return [];
@@ -141,6 +155,7 @@ export async function gradeHistory(ctx: Ctx, assignmentId: string, studentId: st
     score: r.score == null ? null : Number(r.score),
     flag: (r.flag as Flag) ?? null,
     comment: String(r.comment ?? ""),
+    levels: r.levels ? (typeof r.levels === "string" ? JSON.parse(r.levels) : r.levels) as Record<string, number> : null,
     changedBy: String(r.changed_by),
     changedAt: r.changed_at instanceof Date ? r.changed_at.toISOString() : String(r.changed_at),
   }));

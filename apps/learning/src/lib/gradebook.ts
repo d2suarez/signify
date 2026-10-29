@@ -4,6 +4,10 @@ import {
   type Category, type CourseGrade, type Grade, type Period,
   computeGrade, courseGrades, inPeriod, isWeighted, letterFor, listCategories, wholePercent,
 } from "./grades";
+import { courseGrading, listStandards, type Standard } from "./standards";
+import {
+  alignedStandards, averageLevel, convert, summarize, type Evidence, type StandardsSettings,
+} from "./standards-math";
 
 /**
  * Everything the gradebook shows for one course and one grading period,
@@ -49,17 +53,44 @@ export function toStudents(members: IdMember[]): Student[] {
     .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "en", { sensitivity: "base" }));
 }
 
-export type Cell = { score: number | null; flag: Grade["flag"]; comment: string; late: boolean; handedIn: boolean };
+export type Cell = {
+  score: number | null; flag: Grade["flag"]; comment: string; late: boolean; handedIn: boolean;
+  /** Standards courses only: a level was given on at least one standard. */
+  leveled?: boolean;
+};
 
 export type Row = {
   student: Student;
   cells: Record<string, Cell>;
+  /** In a standards course: percent = the converted percent; counted = standards with evidence. */
   grade: CourseGrade;
   whole: number | null;
   letter: string;
+  /** Standards courses only: each standard's period summary, and their average. */
+  standards?: { summaries: Record<string, StandardSummary>; average: number | null };
+};
+
+export type StandardSummary = { level: number | null; scores: number };
+
+/** What a standards course adds to the gradebook. */
+export type StandardsBook = {
+  settings: StandardsSettings;
+  standards: Standard[];
+  /** Assignment id → the standards it measures (current ones only). */
+  aligned: Record<string, string[]>;
+  checks: {
+    /** Assignments in the period that measure no standard: their scores don't count. */
+    unaligned: number;
+    /** Students with no level on any standard yet (no course grade). */
+    noEvidence: number;
+    /** Student × aligned assignment with no level yet (not missing or exempt). */
+    noLevels: number;
+  };
 };
 
 export type Gradebook = {
+  /** null for a points course, which is worked out exactly as it always was. */
+  standards: StandardsBook | null;
   weighted: boolean;
   categories: Category[];
   period: Period | null;
@@ -100,16 +131,22 @@ export async function buildGradebook(
   ctx: Ctx, courseId: string, students: Student[], period: Period | null,
   opts: { releasedOnly?: boolean } = {},
 ): Promise<Gradebook> {
-  const [all, gradeList, subList, categories, weighted] = await Promise.all([
+  const [all, gradeList, subList, categories, weighted, grading] = await Promise.all([
     listAssignments(ctx, courseId),
     courseGrades(ctx, courseId),
     courseSubmissions(ctx, courseId, students.length === 1 ? students[0].id : undefined),
     listCategories(ctx, courseId),
     isWeighted(ctx, courseId),
+    courseGrading(ctx, courseId),
   ]);
   const assignments = all.filter((a) => inPeriod(a, period) && (!opts.releasedOnly || (a.published && a.gradesReleased)));
   const grades = new Map(gradeList.map((g) => [`${g.assignmentId}:${g.studentId}`, g]));
   const subs = new Map(subList.map((s) => [`${s.assignmentId}:${s.studentId}`, s]));
+
+  if (grading.mode === "standards") {
+    const standards = await listStandards(ctx, courseId);
+    return standardsGradebook(assignments, grades, subs, students, period, categories, weighted, grading.settings, standards);
+  }
 
   const rows: Row[] = students.map((student) => {
     const mine = new Map<string, Grade>();
@@ -140,7 +177,7 @@ export async function buildGradebook(
     }
   }
   return {
-    weighted, categories, period, assignments, rows, classAverage,
+    standards: null, weighted, categories, period, assignments, rows, classAverage,
     checks: {
       missing,
       ungraded,
@@ -148,6 +185,99 @@ export async function buildGradebook(
       noDueDate: period ? assignments.filter((a) => !a.dueOn).length : 0,
       uncategorized: weighted ? assignments.filter((a) => !a.categoryId).length : 0,
     },
+  };
+}
+
+/** When a score was "made", for "most recent": the due moment, else the due day, else when graded. */
+function evidenceAt(a: Assignment, g: Grade): string {
+  return a.dueAt ?? (a.dueOn ? `${a.dueOn}T23:59:59.999Z` : g.gradedAt);
+}
+
+/**
+ * A standards course: each standard's summary per student over the period's
+ * levels, their average, and that average converted to a percent (and so a
+ * letter) for FACTS. Exempt work is left out; missing work is no evidence.
+ */
+function standardsGradebook(
+  assignments: Assignment[], grades: Map<string, Grade>, subs: Map<string, Submission>, students: Student[],
+  period: Period | null, categories: Category[], weighted: boolean, settings: StandardsSettings, standards: Standard[],
+): Gradebook {
+  const live = new Set(standards.map((s) => s.id));
+  const aligned: Record<string, string[]> = {};
+  for (const a of assignments) aligned[a.id] = alignedStandards(a).filter((id) => live.has(id));
+
+  let noLevels = 0;
+  const rows: Row[] = students.map((student) => {
+    const evidence = new Map<string, Evidence[]>();
+    for (const a of assignments) {
+      const g = grades.get(`${a.id}:${student.id}`);
+      if (!aligned[a.id].length) continue;
+      if (g?.flag === "exempt") continue;
+      const got = aligned[a.id].filter((id) => g?.levels?.[id] !== undefined);
+      if (!got.length && g?.flag !== "missing") noLevels++;
+      for (const id of got) {
+        if (!evidence.has(id)) evidence.set(id, []);
+        evidence.get(id)!.push({ level: g!.levels![id], at: evidenceAt(a, g!), gradedAt: g!.gradedAt });
+      }
+    }
+    const summaries: Record<string, StandardSummary> = {};
+    for (const s of standards) {
+      const list = evidence.get(s.id) ?? [];
+      summaries[s.id] = { level: summarize(list, settings.summary), scores: list.length };
+    }
+    const average = averageLevel(standards.map((s) => summaries[s.id].level));
+    const percent = convert(average, settings);
+    const counted = standards.filter((s) => summaries[s.id].level !== null).length;
+    const cells = cellsFor(student.id, assignments, grades, subs);
+    for (const a of assignments) {
+      const lv = grades.get(`${a.id}:${student.id}`)?.levels;
+      cells[a.id].leveled = !!lv && aligned[a.id].some((id) => lv[id] !== undefined);
+    }
+    return {
+      student,
+      cells,
+      grade: { percent, byCategory: {}, counted, dropped: [] },
+      whole: percent === null ? null : wholePercent(percent),
+      letter: letterFor(percent),
+      standards: { summaries, average },
+    };
+  });
+
+  const graded = rows.filter((r) => r.grade.percent !== null);
+  const classAverage = graded.length ? graded.reduce((n, r) => n + (r.grade.percent as number), 0) / graded.length : null;
+  const missing: { student: string; assignment: string }[] = [];
+  for (const r of rows) for (const a of assignments) {
+    const c = r.cells[a.id];
+    if (c.flag === "missing" && c.score === null) missing.push({ student: r.student.name, assignment: a.title });
+  }
+  return {
+    standards: {
+      settings, standards, aligned,
+      checks: {
+        unaligned: assignments.filter((a) => !aligned[a.id].length).length,
+        noEvidence: rows.filter((r) => r.standards!.average === null).length,
+        noLevels,
+      },
+    },
+    weighted, categories, period, assignments, rows, classAverage,
+    checks: {
+      missing,
+      ungraded: noLevels,
+      below70: rows.filter((r) => r.whole !== null && r.whole < 70).length,
+      noDueDate: period ? assignments.filter((a) => !a.dueOn).length : 0,
+      uncategorized: 0,
+    },
+  };
+}
+
+/** What a student or parent sees of a standards course: each standard and its level. Null for a points course. */
+export type StandardsView = { settings: StandardsSettings; list: { id: string; code: string; description: string; level: number | null }[] };
+
+export function standardsView(gb: Gradebook, row: Row | undefined): StandardsView | null {
+  if (!gb.standards || !row?.standards) return null;
+  return {
+    settings: gb.standards.settings,
+    list: gb.standards.standards.map((s) => ({ id: s.id, code: s.code, description: s.description, level: row.standards!.summaries[s.id]?.level ?? null })),
   };
 }
 

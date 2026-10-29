@@ -5,8 +5,10 @@ import type { Dict } from "@/lib/i18n";
 import { newCriterion, rubricMax, RUBRIC_LIMITS, type Rubric, type RubricCriterion, type RubricLevel } from "@/lib/rubric";
 
 /** Writing an assignment's rubric: criteria down, levels across, each level worth points. */
-export default function RubricEditor({ rubric, onChange, d }: {
-  rubric: Rubric | null; onChange: (r: Rubric | null) => void; d: Dict;
+export default function RubricEditor({ rubric, onChange, standards, d }: {
+  rubric: Rubric | null; onChange: (r: Rubric | null) => void;
+  /** In a standards course, each row may measure one of these. */
+  standards?: { id: string; name: string }[]; d: Dict;
 }) {
   if (!rubric) {
     return (
@@ -43,6 +45,16 @@ export default function RubricEditor({ rubric, onChange, d }: {
               <input id={`rc-${c.id}`} className="field" value={c.title} maxLength={RUBRIC_LIMITS.title} placeholder={d.criterionPlaceholder}
                 onChange={(e) => setCriterion(i, { title: e.target.value })} />
             </div>
+            {standards && standards.length > 0 && (
+              <div className="fieldset" style={{ flex: "0 1 180px", marginTop: 0 }}>
+                <label htmlFor={`rs-${c.id}`}>{d.rubricStandard}</label>
+                <select id={`rs-${c.id}`} className="field" value={c.standardId || ""}
+                  onChange={(e) => setCriterion(i, { standardId: e.target.value || undefined })}>
+                  <option value="">{d.noStandard}</option>
+                  {standards.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
             <button type="button" className="btn btn-sm" onClick={() => removeCriterion(i)} aria-label={`${d.delete}: ${d.criterion} ${i + 1}`}>{d.delete}</button>
           </div>
           <div className="rubric-levels">

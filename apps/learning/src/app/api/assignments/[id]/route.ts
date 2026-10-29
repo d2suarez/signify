@@ -12,7 +12,7 @@ async function teacher(id: string) {
   return { access };
 }
 
-/** Save an assignment. Body: { baseVersion, title?, instructions?, kind?, points?, dueOn?, dueAt?, unitId?, categoryId?, published?, gradesReleased? }. */
+/** Save an assignment. Body: { baseVersion, title?, instructions?, kind?, points?, dueOn?, dueAt?, unitId?, categoryId?, published?, gradesReleased?, rubric?, standards? }. */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { access, error } = await teacher(id);
@@ -31,7 +31,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     baseVersion: Number(body.baseVersion),
     title: body.title, instructions: body.instructions, kind: body.kind, points: body.points,
     dueOn: body.dueOn, dueAt: body.dueAt, unitId: body.unitId, categoryId: body.categoryId,
-    published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric,
+    published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric, standards: body.standards,
   });
   if (r.ok) {
     // Releasing grades (or new points) changes what Schoology should hold.

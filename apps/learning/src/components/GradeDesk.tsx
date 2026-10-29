@@ -7,11 +7,16 @@ import WritingReplay from "./WritingReplay";
 import RubricView from "./RubricView";
 import SchoologyScores from "./SchoologyScores";
 import { rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
+import { levelsFromRubric } from "@/lib/standards-math";
+
+type Levels = Record<string, number>;
+/** A standards course: the standards this assignment measures and the scale's labels (top level first). */
+export type DeskStandards = { list: { id: string; code: string; description: string }[]; labels: string[] };
 
 export type DeskStudent = {
   id: string; name: string;
   body: string | null; submittedAt: string | null; late: boolean;
-  score: number | null; flag: Flag | null; comment: string; rubric: RubricSelection | null;
+  score: number | null; flag: Flag | null; comment: string; rubric: RubricSelection | null; levels: Levels | null;
 };
 
 type History = { score: number | null; flag: Flag | null; comment: string; changedAt: string }[];
@@ -20,9 +25,9 @@ type History = { score: number | null; flag: Flag | null; comment: string; chang
  * Grading one assignment, a student at a time: their work on the left,
  * score, mark and comment on the right. Save moves to the next student.
  */
-export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, d }: {
+export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, standards, d }: {
   assignment: { id: string; points: number; kind: "online" | "offline"; gradesReleased: boolean; rubric: Rubric | null };
-  students: DeskStudent[]; startWith?: string; schoology?: boolean; d: Dict;
+  students: DeskStudent[]; startWith?: string; schoology?: boolean; standards?: DeskStandards; d: Dict;
 }) {
   const [saves, setSaves] = useState(0);
   const [students, setStudents] = useState(initial);
@@ -32,6 +37,8 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   const [flag, setFlag] = useState<Flag | "">(s.flag || "");
   const [comment, setComment] = useState(s.comment);
   const [sel, setSel] = useState<RubricSelection | null>(s.rubric);
+  const [levels, setLevels] = useState<Levels | null>(s.levels);
+  const top = standards?.labels.length ?? 0;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<History | null>(null);
@@ -45,6 +52,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setFlag(cur.flag || "");
     setComment(cur.comment);
     setSel(cur.rubric);
+    setLevels(cur.levels);
     setError("");
     setHistory(null);
     setShowWriting(false);
@@ -54,7 +62,16 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   }, [i]);
 
   const dirty = (score === "" ? null : Number(score)) !== s.score || (flag || null) !== s.flag || comment.trim() !== s.comment
-    || JSON.stringify(sel ?? null) !== JSON.stringify(s.rubric ?? null);
+    || JSON.stringify(sel ?? null) !== JSON.stringify(s.rubric ?? null)
+    || JSON.stringify(levels ?? null) !== JSON.stringify(s.levels ?? null);
+
+  const setLevel = (standardId: string, level: number | null) => {
+    setLevels((cur) => {
+      const next = { ...(cur ?? {}) };
+      if (level === null) delete next[standardId]; else next[standardId] = level;
+      return Object.keys(next).length ? next : null;
+    });
+  };
 
   // Choosing a level fills in the score from the rubric (the teacher can still change it).
   const pick = (criterionId: string, levelId: string | null) => {
@@ -65,6 +82,13 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setSel(clean);
     const { score: total } = rubricScore(assignment.rubric, clean);
     setScore(total === null ? "" : String(total));
+    // A row aligned to a standard fills in that standard's level too.
+    if (standards) {
+      const c = assignment.rubric.criteria.find((x) => x.id === criterionId);
+      if (c?.standardId && standards.list.some((x) => x.id === c.standardId)) {
+        setLevel(c.standardId, levelsFromRubric(assignment.rubric, clean, top)[c.standardId] ?? null);
+      }
+    }
   };
 
   const save = async (thenNext: boolean) => {
@@ -73,7 +97,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     try {
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}) }),
+        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}), ...(standards ? { levels: levels ?? {} } : {}) }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -83,7 +107,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
       const g = out.grade;
       setSaves((n) => n + 1);
       setStudents((all) => all.map((x, j) => j === i
-        ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null }
+        ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null }
         : x));
       if (thenNext && i < students.length - 1) setI(i + 1);
     } catch {
@@ -145,7 +169,29 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
             <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />
           </div>
         )}
-        <div className="fieldset" style={assignment.rubric ? undefined : { marginTop: 0 }}>
+        {standards && standards.list.length > 0 && (
+          <div className="fieldset" style={assignment.rubric ? undefined : { marginTop: 0 }}>
+            <p className="flabel" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 2px" }}>{d.proficiency}</p>
+            <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>{d.levelsHint}</p>
+            {standards.list.map((st) => (
+              <fieldset key={st.id} style={{ border: 0, padding: 0, margin: "0 0 8px" }}>
+                <legend style={{ fontSize: 14, marginBottom: 4 }}><b>{st.code}</b>{st.description ? <span className="muted"> · {st.description}</span> : null}</legend>
+                <div className="seg seg-wrap">
+                  <button type="button" aria-pressed={levels?.[st.id] === undefined} onClick={() => setLevel(st.id, null)}>{d.notScored}</button>
+                  {standards.labels.map((label, k) => {
+                    const lv = top - k;
+                    return (
+                      <button key={lv} type="button" aria-pressed={levels?.[st.id] === lv} onClick={() => setLevel(st.id, lv)}>
+                        {lv} · {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ))}
+          </div>
+        )}
+        <div className="fieldset" style={assignment.rubric || standards?.list.length ? undefined : { marginTop: 0 }}>
           <label htmlFor="g-score">{d.score} <span className="muted" style={{ fontWeight: 400 }}>{d.outOf} {assignment.points}</span></label>
           <input id="g-score" ref={scoreRef} className="field score-input" inputMode="decimal" value={score}
             onChange={(e) => setScore(e.target.value)} aria-invalid={error === d.badScore} autoComplete="off" />

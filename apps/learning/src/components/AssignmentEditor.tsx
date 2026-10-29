@@ -22,8 +22,10 @@ function localTime(iso: string | null): string {
  * The teacher's form for one assignment. Saved with an explicit Save (it is
  * a form, not a document), version-checked like lessons.
  */
-export default function AssignmentEditor({ initial, units, categories, d }: {
-  initial: Assignment; units: Option[]; categories: Option[]; d: Dict;
+export default function AssignmentEditor({ initial, units, categories, standards, d }: {
+  initial: Assignment; units: Option[]; categories: Option[];
+  /** The course's standards, in a standards course only. */
+  standards?: (Option & { description: string })[]; d: Dict;
 }) {
   const [a, setA] = useState(initial);
   const [time, setTime] = useState("23:59");
@@ -52,6 +54,7 @@ export default function AssignmentEditor({ initial, units, categories, d }: {
           baseVersion: a.version, title: next.title, instructions: next.instructions, kind: next.kind,
           points: next.points, dueOn: next.dueOn, dueAt, unitId: next.unitId || null, categoryId: next.categoryId || null,
           published: next.published, gradesReleased: next.gradesReleased, rubric: next.rubric,
+          ...(standards ? { standards: next.standards ?? [] } : {}),
         }),
       });
       if (res.status === 409) { setStatus("conflict"); return; }
@@ -106,7 +109,26 @@ export default function AssignmentEditor({ initial, units, categories, d }: {
               </select>
             </div>
           </div>
-          <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} d={d} />
+          {standards && (
+            <fieldset className="card stack" style={{ gap: 6 }}>
+              <legend className="label" style={{ float: "left", padding: 0 }}>{d.alignStandards}</legend>
+              <p className="muted" style={{ margin: 0, fontSize: 13, clear: "both" }}>{d.alignHint}</p>
+              {standards.length === 0
+                ? <p className="empty" style={{ margin: 0 }}><Link href={`/courses/${a.courseId}/settings`}>{d.noStandardsYet}</Link></p>
+                : standards.map((s) => (
+                  <label key={s.id} className="check" style={{ whiteSpace: "normal", alignItems: "flex-start" }}>
+                    <input type="checkbox" checked={!!a.standards?.includes(s.id)}
+                      onChange={(e) => {
+                        const cur = a.standards ?? [];
+                        const next = e.target.checked ? [...cur, s.id] : cur.filter((x) => x !== s.id);
+                        set({ standards: next.length ? next : null });
+                      }} />
+                    <span><b>{s.name}</b>{s.description ? ` · ${s.description}` : ""}</span>
+                  </label>
+                ))}
+            </fieldset>
+          )}
+          <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} standards={standards} d={d} />
         </div>
 
         <aside className="editor-side">

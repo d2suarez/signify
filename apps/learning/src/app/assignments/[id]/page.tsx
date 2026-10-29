@@ -5,6 +5,7 @@ import { assignmentAccess, ctx, lang } from "@/lib/access";
 import { getSubmission } from "@/lib/assignments";
 import { gradesFor, listCategories } from "@/lib/grades";
 import { listUnits } from "@/lib/units";
+import { courseGrading, listStandards } from "@/lib/standards";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { When } from "@/components/When";
@@ -14,6 +15,9 @@ import ReadAloud from "@/components/ReadAloud";
 import RubricView from "@/components/RubricView";
 import SchoologyScores from "@/components/SchoologyScores";
 import { placements } from "@/lib/lti-dl";
+import { StandardsList } from "@/components/Work";
+import type { StandardsView } from "@/lib/gradebook";
+import { alignedStandards } from "@/lib/standards-math";
 
 export const dynamic = "force-dynamic";
 
@@ -29,15 +33,18 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   const crumbs = <><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>;
 
   if (course.role === "teacher") {
-    const [units, categories, placed] = await Promise.all([
-      listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id)]);
+    const [units, categories, placed, grading, standards] = await Promise.all([
+      listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
+      courseGrading(c, course.id), listStandards(c, course.id),
+    ]);
     return (
       <>
         <TopBar crumbs={crumbs} />
         <main className="page">
           <AssignmentEditor initial={a} d={d}
             units={units.map((u) => ({ id: u.id, name: u.title }))}
-            categories={categories.map((k) => ({ id: k.id, name: k.name }))} />
+            categories={categories.map((k) => ({ id: k.id, name: k.name }))}
+            standards={grading.mode === "standards" ? standards.map((s) => ({ id: s.id, name: s.code, description: s.description })) : undefined} />
           {placed.length > 0 && <div style={{ marginTop: 24 }}><SchoologyScores assignmentId={a.id} d={d} /></div>}
         </main>
       </>
@@ -45,10 +52,19 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   }
 
   // A student: their own work, and their grade once it's released.
-  const [submission, grades] = await Promise.all([getSubmission(c, a.id, me.id), gradesFor(c, a.id)]);
+  const [submission, grades, grading, allStandards] = await Promise.all([
+    getSubmission(c, a.id, me.id), gradesFor(c, a.id), courseGrading(c, course.id), listStandards(c, course.id),
+  ]);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   const shown = a.gradesReleased ? mine : null;
   const locked = !!mine && (mine.score !== null || mine.flag === "exempt");
+  // A standards course: the standards this measures, with the student's level once released.
+  const aligned = grading.mode === "standards" ? alignedStandards(a) : [];
+  const levelsView: StandardsView | null = aligned.length ? {
+    settings: grading.settings,
+    list: allStandards.filter((s) => aligned.includes(s.id))
+      .map((s) => ({ id: s.id, code: s.code, description: s.description, level: shown?.flag === "exempt" ? null : shown?.levels?.[s.id] ?? null })),
+  } : null;
 
   return (
     <>
@@ -62,6 +78,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         </div>
         {!a.instructions && <ReadAloud text={a.title} d={d} />}
 
+        {levelsView && <section className="card"><StandardsList view={levelsView} d={d} id="a-standards" /></section>}
         {shown && (shown.score !== null || shown.flag || shown.comment) && (
           <section className="card" aria-labelledby="your-grade">
             <p className="label" id="your-grade">{d.yourGrade}</p>
