@@ -174,6 +174,14 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`signify learning listening on :${PORT}${DEV ? ' (next dev)' : ''}`);
   });
+
+  // The nightly off-site database backup (dbbackup.js); off without R2 settings
+  // and on PGlite (local development has no DATABASE_URL).
+  if (process.env.DATABASE_URL) {
+    const dbbackup = require('./dbbackup');
+    const { Pool } = require('pg');
+    dbbackup.start(dbbackup.pgDb(new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })));
+  }
 }
 
 main().catch((e) => {

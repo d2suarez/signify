@@ -9,7 +9,8 @@
     "start": "node server.js",
     "local": "LEARNING_DEV_USER=teacher PORT=3120 node server.js",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "restore-db": "node restore-db.js"
   },
   "engines": {
     "node": ">=22"
