@@ -5,7 +5,8 @@ import { readMe, myClasses, token, type Me } from "./auth";
 import { membersOf } from "./roster";
 import { getAssignment, type Assignment } from "./assignments";
 import { toStudents, type Student } from "./gradebook";
-import { courseFor, type Course, type CourseRole } from "./courses";
+import { courseFor, myCourses, type Course, type CourseRole } from "./courses";
+import type { Viewer } from "./standards-library";
 import { getLesson, type Lesson } from "./lessons";
 import { pickLang, type Lang } from "./i18n";
 import { DEFAULT_PREFS, type Prefs } from "./prefs";
@@ -67,6 +68,18 @@ export async function studentsOf(access: CourseAccess): Promise<{ ok: boolean; s
 /** Sets the school's grading periods: its admins. */
 export function isSchoolAdmin(me: Me): boolean {
   return me.role === "admin" || me.role === "super_admin";
+}
+
+/**
+ * Who is using the standards library: the courses they teach now (from
+ * Signify ID) and whether they run the school. Null for anyone who neither
+ * teaches nor administers: students and parents don't browse the library.
+ */
+export async function standardsViewer(me: Me): Promise<Viewer | null> {
+  const { classes } = await myClasses();
+  const teaches = (await myCourses(me.tenantId, classes)).filter((c) => c.role === "teacher").map((c) => c.id);
+  const admin = isSchoolAdmin(me);
+  return teaches.length || admin ? { tenantId: me.tenantId, userId: me.id, admin, teaches } : null;
 }
 
 export function ctx(me: Me) {

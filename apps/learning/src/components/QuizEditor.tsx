@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import type { Dict, Key } from "@/lib/i18n";
+import { StandardOptionList, type StandardOption } from "./StandardsPicker";
 import { blankItem, ITEM_KINDS, newItemId, quizPoints, type ItemKind, type Quiz, type QuizItem, type QuizSettings } from "@/lib/quiz";
-
-type Option = { id: string; name: string; description: string };
 
 /**
  * A quiz's questions and settings, inside the assignment form (saved and
@@ -12,7 +11,7 @@ type Option = { id: string; name: string; description: string };
  * cleans it again with normalizeQuiz.
  */
 export default function QuizEditor({ quiz, onChange, standards, attempted, d }: {
-  quiz: Quiz; onChange: (q: Quiz) => void; standards?: Option[]; attempted: number; d: Dict;
+  quiz: Quiz; onChange: (q: Quiz) => void; standards?: StandardOption[]; attempted: number; d: Dict;
 }) {
   const [adding, setAdding] = useState<ItemKind>("single");
   const set = (patch: Partial<QuizSettings>) => onChange({ ...quiz, settings: { ...quiz.settings, ...patch } });
@@ -116,7 +115,7 @@ export default function QuizEditor({ quiz, onChange, standards, attempted, d }: 
 }
 
 function ItemFields({ item: it, onChange, standards, d }: {
-  item: QuizItem; onChange: (i: QuizItem) => void; standards?: Option[]; d: Dict;
+  item: QuizItem; onChange: (i: QuizItem) => void; standards?: StandardOption[]; d: Dict;
 }) {
   const id = (s: string) => `qi-${it.identifier}-${s}`;
   const set = (patch: Partial<QuizItem>) => onChange({ ...it, ...patch });
@@ -270,7 +269,7 @@ function ItemFields({ item: it, onChange, standards, d }: {
             <label htmlFor={id("std")}>{d.quizStandard}</label>
             <select id={id("std")} className="field" value={it.standardId ?? ""} onChange={(e) => set({ standardId: e.target.value || null })}>
               <option value="">{d.quizNoStandard}</option>
-              {standards.map((s) => <option key={s.id} value={s.id}>{s.name}{s.description ? ` · ${s.description}` : ""}</option>)}
+              <StandardOptionList options={standards} />
             </select>
           </div>
         )}

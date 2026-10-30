@@ -27,6 +27,7 @@ export default async function Home() {
           <h1 style={{ fontSize: 34 }} className="grow">{t(onlyParent ? "yourChildren" : "myCourses", L)}</h1>
           {(learning.length > 0 || isParent) && <Link className="btn" href="/week">{t("thisWeek", L)}</Link>}
           {teaching.length > 0 && <Link className="btn" href="/planner">{t("planner", L)}</Link>}
+          {(teaching.length > 0 || isSchoolAdmin(me)) && <Link className="btn" href="/standards">{t("standardsLibrary", L)}</Link>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/periods">{t("periods", L)}</a>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/grading">{t("gradingSetupLink", L)}</a>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/lti">{t("ltiTitle", L)}</a>}

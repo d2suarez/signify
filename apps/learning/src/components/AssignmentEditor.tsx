@@ -8,6 +8,7 @@ import { onSabbath } from "@/lib/calendar";
 import { rubricMax } from "@/lib/rubric";
 import RubricEditor from "./RubricEditor";
 import QuizEditor from "./QuizEditor";
+import StandardsPicker, { type StandardOption } from "./StandardsPicker";
 import { DEFAULT_SETTINGS, quizPoints } from "@/lib/quiz";
 
 type Option = { id: string; name: string };
@@ -26,8 +27,8 @@ function localTime(iso: string | null): string {
  */
 export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, d }: {
   initial: Assignment; units: Option[]; categories: Option[];
-  /** The course's standards, in a standards course only. */
-  standards?: (Option & { description: string })[];
+  /** The course's standards (any course may align work; only a standards course grades by them). */
+  standards?: StandardOption[];
   /** A quiz: how many students have handed in an attempt. */
   attempted?: number; d: Dict;
 }) {
@@ -126,23 +127,8 @@ export default function AssignmentEditor({ initial, units, categories, standards
             </div>
           </div>
           {standards && (
-            <fieldset className="card stack" style={{ gap: 6 }}>
-              <legend className="label" style={{ float: "left", padding: 0 }}>{d.alignStandards}</legend>
-              <p className="muted" style={{ margin: 0, fontSize: 13, clear: "both" }}>{d.alignHint}</p>
-              {standards.length === 0
-                ? <p className="empty" style={{ margin: 0 }}><Link href={`/courses/${a.courseId}/settings`}>{d.noStandardsYet}</Link></p>
-                : standards.map((s) => (
-                  <label key={s.id} className="check" style={{ whiteSpace: "normal", alignItems: "flex-start" }}>
-                    <input type="checkbox" checked={!!a.standards?.includes(s.id)}
-                      onChange={(e) => {
-                        const cur = a.standards ?? [];
-                        const next = e.target.checked ? [...cur, s.id] : cur.filter((x) => x !== s.id);
-                        set({ standards: next.length ? next : null });
-                      }} />
-                    <span><b>{s.name}</b>{s.description ? ` · ${s.description}` : ""}</span>
-                  </label>
-                ))}
-            </fieldset>
+            <StandardsPicker options={standards} value={a.standards ?? []} onChange={(ids) => set({ standards: ids.length ? ids : null })}
+              addHref={`/standards?course=${a.courseId}`} legend={d.alignStandards} hint={d.alignHint} d={d} />
           )}
           {a.kind === "quiz"
             ? <QuizEditor quiz={a.quiz ?? { settings: DEFAULT_SETTINGS, items: [] }} attempted={attempted} standards={standards} d={d}

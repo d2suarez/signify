@@ -8,6 +8,7 @@ import { getSubmission } from "@/lib/assignments";
 import { gradesFor, listCategories } from "@/lib/grades";
 import { listUnits } from "@/lib/units";
 import { courseGrading, listStandards } from "@/lib/standards";
+import { standardOptions } from "@/lib/standards-library";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { When } from "@/components/When";
@@ -47,9 +48,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     const toolLink = await linkForAssignment(me.tenantId, a.id);
     const tool = toolLink ? await getTool(me.tenantId, toolLink.toolId) : null;
     const sent = toolLink ? await toolScores(me.tenantId, a.id) : [];
-    const [units, categories, placed, grading, standards, attempts] = await Promise.all([
+    const [units, categories, placed, options, attempts] = await Promise.all([
       listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
-      courseGrading(c, course.id), listStandards(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
+      standardOptions(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
     ]);
     return (
       <>
@@ -58,7 +59,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           <AssignmentEditor initial={a} d={d}
             units={units.map((u) => ({ id: u.id, name: u.title }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
-            standards={grading.mode === "standards" ? standards.map((s) => ({ id: s.id, name: s.code, description: s.description })) : undefined}
+            standards={options}
             attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size} />
           {toolLink && (
             <section className="card stack" style={{ marginTop: 24, gap: 8 }} aria-labelledby="tool-title">

@@ -469,3 +469,11 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 @media (max-width: 480px) { .scale-table .field { width: 68px; } .scale-band { padding: 8px; } }
 .grade-pick { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; min-width: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; cursor: pointer; }
 .grade-pick:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+/* Standards library */
+.std-info { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
+.std-info dt { color: var(--muted); font-weight: 600; }
+.std-info dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .std-info { grid-template-columns: 1fr; } .std-info dd { margin-bottom: 6px; } }
+.std-tree li.std-heading { color: var(--muted); font-weight: 600; }
+.std-notices { border-top: 1px solid var(--line, #ddd); padding-top: 8px; margin-top: 8px; }

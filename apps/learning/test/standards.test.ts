@@ -189,7 +189,7 @@ test("points course: the numbers are the ones worked out by hand", async () => {
 async function standardsCourse() {
   const c = await course();
   await setGradingMode(T, c.id, "standards");
-  const sA = (await addStandard(T, c.id, "  RL.1 ", "Cite textual evidence", "case-123"))!;
+  const sA = (await addStandard(T, c.id, "  RL.1 ", "Cite textual evidence"))!;
   const sB = (await addStandard(T, c.id, "W.2", "Write to explain"))!;
   return { c, sA, sB };
 }
@@ -197,7 +197,7 @@ async function standardsCourse() {
 test("standards: list, edit, order, archive; another school can't touch them", async () => {
   const { c, sA, sB } = await standardsCourse();
   assert.equal(sA.code, "RL.1");
-  assert.equal(sA.externalId, "case-123");
+  assert.ok(sA.itemId && sA.editable, "typed into the course: an item of the course's own framework");
   assert.equal(await addStandard(T, c.id, "   ", "no code"), null);
   assert.ok(await updateStandard(T, c.id, sB.id, "W.2a", "Explain clearly"));
   assert.ok(await moveStandard(T, c.id, sB.id, -1));

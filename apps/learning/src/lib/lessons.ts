@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { type Block, normalizeBlocks } from "./blocks";
 import { unitInCourse } from "./units";
+import { standardsInCourse } from "./standards";
 
 /**
  * Lessons. Every save names the version it started from; a save based on an
@@ -18,6 +19,8 @@ export type Lesson = {
   plannedFor: string | null;
   durationMin: number;
   blocks: Block[];
+  /** The course standards it addresses (filing, like its unit: not versioned). */
+  standards: string[] | null;
   version: number;
   updatedAt: string;
 };
@@ -50,6 +53,7 @@ function toLesson(r: Record<string, unknown>): Lesson {
     plannedFor: day(r.planned_for),
     durationMin: Number(r.duration_min),
     blocks: (typeof r.blocks === "string" ? JSON.parse(r.blocks) : r.blocks) as Block[],
+    standards: Array.isArray(r.standards) ? (r.standards as string[]) : typeof r.standards === "string" ? JSON.parse(r.standards) : null,
     version: Number(r.version),
     updatedAt: iso(r.updated_at),
   };
@@ -97,6 +101,23 @@ export async function getLesson(ctx: Ctx, id: string): Promise<Lesson | null> {
     [ctx.tenantId, id],
   );
   return rows[0] ? toLesson(rows[0]) : null;
+}
+
+/**
+ * Which of the course's standards a lesson addresses. Only the course's own
+ * live standards are kept, once each. Filing, like the unit: no new
+ * version. Returns what was kept, or null if there is no such lesson.
+ */
+export async function setLessonStandards(ctx: Ctx, id: string, ids: unknown): Promise<string[] | null> {
+  const lesson = await getLesson(ctx, id);
+  if (!lesson) return null;
+  const want = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : [];
+  const db = await getDb();
+  const ok = await standardsInCourse(ctx, lesson.courseId, want, db);
+  const list = [...new Set(want.filter((x) => ok.has(x)))];
+  await db.query("UPDATE lessons SET standards = $3::jsonb WHERE tenant_id = $1 AND id = $2",
+    [ctx.tenantId, id, list.length ? JSON.stringify(list) : null]);
+  return list;
 }
 
 export type SaveInput = {
