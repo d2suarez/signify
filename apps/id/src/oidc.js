@@ -50,7 +50,7 @@ router.get('/.well-known/openid-configuration', (req, res) => {
     code_challenge_methods_supported: ['S256'],
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'sid',
-      'email', 'email_verified', 'name', 'given_name', 'family_name', 'picture',
+      'email', 'email_verified', 'name', 'given_name', 'family_name', 'middle_name', 'official_name', 'picture',
       'tenant', 'tenant_name', 'tenant_kind', 'role', 'role_label', 'perms', 'is_minor', 'grade_level',
     ],
   });
@@ -226,7 +226,13 @@ async function buildClaims(app, userId, tenantId, sessionId) {
     sub: access.user.id,
     email: access.user.email,
     email_verified: true,
+    // name = the display name (what to show). given_name / family_name are
+    // the school's official name where it has one, else Google's.
     name: access.user.name,
+    given_name: access.user.givenName || undefined,
+    family_name: access.user.familyName || undefined,
+    middle_name: access.user.middleName || undefined,
+    official_name: access.user.officialName,
     picture: access.user.picture || undefined,
     is_minor: access.user.isMinor,
     sid: sessionId,

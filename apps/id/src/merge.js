@@ -17,6 +17,8 @@ const guards = require('./guards');
 // a primary key are handled explicitly rather than by hoping.
 const SIMPLE_REFS = [
   ['identities', 'user_id'],
+  ['name_changes', 'user_id'],
+  ['name_changes', 'changed_by'],
   ['classes', 'created_by'],
   ['guardian_links', 'guardian_id'],
   ['guardian_links', 'student_id'],
@@ -148,6 +150,16 @@ async function merge({ keepId, fromId, actor, confirmEmail = '' }) {
       const r = await client.query(`UPDATE ${table} SET ${column} = $2 WHERE ${column} = $1`, [fromId, keepId]);
       moved += r.rowCount || 0;
     }
+
+    // The school's official name follows the person: kept from the keeper,
+    // else taken from the record merged away.
+    await client.query(
+      `UPDATE users k SET official_given_name = f.official_given_name, official_middle_name = f.official_middle_name,
+                          official_family_name = f.official_family_name, official_suffix = f.official_suffix,
+                          official_name_source = f.official_name_source, official_name_at = f.official_name_at
+         FROM users f
+        WHERE k.id = $1 AND f.id = $2 AND k.official_family_name IS NULL AND f.official_family_name IS NOT NULL`,
+      [keepId, fromId]);
 
     // Sessions and tokens are not moved — they belong to a sign-in that no
     // longer means anything. Deleting the row takes them with it.

@@ -182,8 +182,31 @@ function personalOverview(me) {
       '<div class="small" style="margin-top:.5rem">' + esc(me.roleLabel || 'No role') +
         (me.tenantName ? ' · ' + esc(me.tenantName) : '') + '</div>' +
     '</div></div>' +
+    '<div id="myName"></div>' +
     '<div class="card"><div class="card-head"><h2>Your apps</h2></div>' +
     '<div class="table-wrap"><table><tbody>' + apps + '</tbody></table></div></div>';
+  api('/me/name').then(function (n) {
+    if (!n.may_change) return;
+    var box = document.getElementById('myName');
+    if (!box) return;
+    box.innerHTML = '<div class="card" style="margin-bottom:1rem"><div class="card-body">' +
+      '<div class="field"><label for="myNameInput">The name the apps show for you</label>' +
+      '<input id="myNameInput" type="text" maxlength="120" value="' + esc(n.display_name) + '">' +
+      '<div class="hint">Your school lets you choose this. ' +
+      (n.official ? 'Its records still hold your name as ' + esc([n.official.given, n.official.middle, n.official.family, n.official.suffix].filter(Boolean).join(' ')) + '.' : '') +
+      '</div></div><div class="toolbar" style="margin:0">' +
+      '<button class="btn btn-sm btn-primary" id="myNameSave">Save</button>' +
+      (n.display_name_source === 'self' ? '<button class="btn btn-sm" id="myNameReset">Use my usual name</button>' : '') +
+      '</div></div></div>';
+    var send = function (body) {
+      api('/me/name', { method: 'PUT', body: body })
+        .then(function (r) { toast('The apps will show ' + r.display_name + '.'); setPage('overview'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+    document.getElementById('myNameSave').onclick = function () { send({ display_name: document.getElementById('myNameInput').value }); };
+    var reset = document.getElementById('myNameReset');
+    if (reset) reset.onclick = function () { send({ reset: true }); };
+  }).catch(function () {});
 }
 
 pages.overview = function () {
@@ -620,6 +643,7 @@ function editUserDialog(u, roles) {
       'Every device this person is signed in on, in every app, stops working immediately.</div>' +
       '<hr style="border:none;border-top:1px solid var(--line);margin:1.25rem 0">' +
       '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" id="m_names">Names</button>' +
         '<button class="btn btn-sm" id="m_revoke">Sign out everywhere</button>' +
         '<button class="btn btn-sm" id="m_release">Release email address</button>' +
         '<button class="btn btn-sm" id="m_merge">Merge another account in</button>' +
@@ -635,6 +659,7 @@ function editUserDialog(u, roles) {
       }
       var move = m.querySelector('#m_move');
       if (move) move.onclick = function () { closeModal(); moveDialog(u, roles); };
+      m.querySelector('#m_names').onclick = function () { closeModal(); namesDialog(u); };
       m.querySelector('#m_revoke').onclick = function () {
         api('/users/' + u.id + '/sessions', { method: 'DELETE' })
           .then(function (d) { toast('Signed out of ' + d.revoked + ' session' + (d.revoked === 1 ? '' : 's') + '.'); })
@@ -1045,6 +1070,184 @@ function guardianDialog(d) {
       });
     },
   });
+}
+
+// ---------- names ----------
+// The official name is the school's record (from FACTS, typed in or uploaded
+// from an export); the display name is what the apps show. Signify never
+// connects to FACTS itself.
+
+var NAME_SOURCES = { google: 'Follows Google', school: 'Set by the school', self: 'Chosen by them' };
+
+function fullName(o) { return o ? [o.given, o.middle, o.family, o.suffix].filter(Boolean).join(' ') : ''; }
+
+function nameChangeText(h) {
+  if (h.kind === 'official') {
+    return 'Official name ' + (h.before ? esc(fullName(h.before)) + ' → ' : '') + (h.after ? '<strong>' + esc(fullName(h.after)) + '</strong>' : 'cleared');
+  }
+  return 'Shown name ' + esc(h.before ? h.before.name : '') + ' → <strong>' + esc(h.after ? h.after.name : '') + '</strong>' +
+    (h.after && h.after.source === 'google' ? ' (follows Google again)' : '');
+}
+var NAME_HOW = { admin: 'by hand', import: 'from a file', self: 'by them', reset: 'reset' };
+
+pages.names = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Names', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/names?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    if (d.tenant.kind === 'independent') {
+      document.getElementById('main').innerHTML = head('Names', 'Official names belong to a school.');
+      return;
+    }
+    var recent = d.recent.map(function (h) {
+      return '<tr><td><div style="font-weight:550">' + esc(h.person_name) + '</div><div class="small muted">' + esc(h.person_email) + '</div></td>' +
+        '<td>' + nameChangeText(h) + '</td>' +
+        '<td class="small muted">' + esc(NAME_HOW[h.source] || h.source) + (h.changed_by_name ? ', ' + esc(h.changed_by_name) : '') +
+        '<div>' + esc(new Date(h.created_at).toLocaleString()) + '</div></td></tr>';
+    }).join('') || '<tr><td colspan="3" class="empty">No names changed yet.</td></tr>';
+
+    document.getElementById('main').innerHTML =
+      head('Names', 'Each person has an official name from the school’s records (FACTS) and a name the apps show. ' +
+        'Grade lists for the office use the official name; everything else shows the display name.') +
+      '<div class="stat-row" style="margin-bottom:1rem">' +
+        '<div class="card stat"><div class="n">' + d.counts.official + ' of ' + d.counts.people + '</div><div class="k">Have an official name</div></div>' +
+        '<div class="card stat"><div class="n">' + d.counts.school_display + '</div><div class="k">Shown names set by the school</div></div>' +
+        '<div class="card stat"><div class="n">' + d.counts.self_display + '</div><div class="k">Chosen by the person</div></div>' +
+      '</div>' +
+      '<div class="card" style="margin-bottom:1rem"><div class="card-head"><h2>Upload official names</h2></div><div class="card-body">' +
+        '<p class="small" style="margin-top:0">Export a student or staff list from FACTS as CSV and upload it here. Signify does not connect to FACTS. ' +
+        'Each row is matched to a person by email address (or a <span class="code">Signify ID</span> column). The file needs ' +
+        '<span class="code">First name</span> and <span class="code">Last name</span> columns (<span class="code">Middle name</span> and <span class="code">Suffix</span> are optional), ' +
+        'or one <span class="code">Name</span> column written <span class="code">Last, First Middle</span>. A <span class="code">Nickname</span> or ' +
+        '<span class="code">Display name</span> column sets the shown name, except for anyone who chose their own.</p>' +
+        '<div class="toolbar" style="margin:0">' +
+          '<label class="btn btn-sm" for="namesFile" style="cursor:pointer">Choose a CSV file</label>' +
+          '<input type="file" id="namesFile" accept=".csv,text/csv" style="position:absolute;left:-9999px">' +
+          '<span class="small muted" id="namesFileLabel">No file chosen</span>' +
+          '<button class="btn btn-sm btn-primary" id="namesPreview" disabled>Preview</button>' +
+          '<a class="btn btn-sm btn-quiet" href="/api/admin/names/template.csv">Download a template</a>' +
+        '</div><div id="namesResult"></div>' +
+      '</div></div>' +
+      '<div class="card" style="margin-bottom:1rem"><div class="card-body">' +
+        '<label class="perm-row" style="cursor:pointer;margin:0"><input type="checkbox" id="namesSelf"' + (d.self_display ? ' checked' : '') + '>' +
+        '<span class="label">Let people choose the name the apps show for them' +
+        '<span class="small muted" style="display:block">Their official name stays as the school recorded it. They change it from their account page in Signify ID.</span></span></label>' +
+      '</div></div>' +
+      '<div class="card"><div class="card-head"><h2>Recent changes</h2></div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Person</th><th>Change</th><th>How</th></tr></thead><tbody>' + recent + '</tbody></table></div>' +
+      '<p class="small muted" style="margin:.6rem .9rem">To change one person’s names, open them on the People page, then Manage → Names.</p></div>';
+
+    document.getElementById('namesSelf').onchange = function () {
+      var on = this.checked;
+      api('/names/settings', { method: 'PUT', body: { tenant_id: state.tenantId, self_display: on } })
+        .then(function () { toast(on ? 'People may now choose their shown name.' : 'Only the school sets shown names now.'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+
+    var fileText = '', fileName = '';
+    var previewBtn = document.getElementById('namesPreview');
+    document.getElementById('namesFile').onchange = function () {
+      var f = this.files[0];
+      if (!f) return;
+      fileName = f.name;
+      var reader = new FileReader();
+      reader.onload = function () {
+        fileText = String(reader.result || '');
+        document.getElementById('namesFileLabel').textContent = fileName;
+        previewBtn.disabled = false;
+        document.getElementById('namesResult').innerHTML = '';
+      };
+      reader.readAsText(f);
+    };
+    previewBtn.onclick = function () {
+      api('/names/preview', { method: 'POST', body: { tenant_id: state.tenantId, csv: fileText } })
+        .then(function (a) { renderNamesPreview(a, fileText, fileName); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+  });
+};
+
+function renderNamesPreview(a, fileText, fileName) {
+  var box = document.getElementById('namesResult');
+  var rows = a.rows.map(function (r) {
+    var chip = r.action === 'update' ? '<span class="chip chip-blue">Change</span>'
+      : r.action === 'same' ? '<span class="chip">No change</span>' : '<span class="chip chip-red">Skip</span>';
+    var what = [];
+    if (r.action === 'error') what.push('<span class="problem">' + esc(r.problems.join(' ')) + '</span>');
+    if (r.officialChange) what.push('Official: ' + (r.currentOfficial ? esc(fullName(r.currentOfficial)) + ' → ' : '') + '<strong>' + esc(fullName(r.official)) + '</strong>');
+    if (r.display) what.push('Shown: ' + esc(r.currentDisplay) + ' → <strong>' + esc(r.display) + '</strong>');
+    if (r.displayKept) what.push('<span class="muted">Keeps the name they chose (' + esc(r.currentDisplay) + '), not ' + esc(r.displayKept) + '</span>');
+    return '<tr><td class="row-num">' + esc(r.line) + '</td><td>' + chip + '</td><td class="small">' + esc(r.email || '') + '</td>' +
+      '<td class="small">' + what.join('<br>') + '</td></tr>';
+  }).join('');
+  var s = a.summary;
+  box.innerHTML =
+    '<div class="notice notice-info" style="margin-top:1rem"><strong>Nothing has changed yet</strong>' +
+      s.update + ' to change, ' + s.same + ' already right, ' + s.errors + ' skipped. ' +
+      (s.notInFile ? s.notInFile + ' people at ' + esc(a.tenant.name) + ' are not in this file; their names stay as they are.' : '') + '</div>' +
+    (a.unknownColumns.length ? '<div class="notice notice-warn"><strong>Columns that were ignored</strong>' + esc(a.unknownColumns.join(', ')) + '</div>' : '') +
+    '<div class="table-wrap" style="max-height:24rem;overflow:auto"><table><thead><tr><th>Line</th><th></th><th>Email</th><th>What happens</th></tr></thead><tbody>' +
+    rows + '</tbody></table></div>' +
+    '<div class="toolbar" style="margin:.75rem 0 0"><button class="btn btn-primary btn-sm" id="namesApply"' + (s.update ? '' : ' disabled') + '>' +
+      'Apply ' + s.update + (s.update === 1 ? ' change' : ' changes') + '</button></div>';
+  document.getElementById('namesApply').onclick = function () {
+    this.disabled = true;
+    api('/names/apply', { method: 'POST', body: { tenant_id: state.tenantId, csv: fileText, filename: fileName } })
+      .then(function (r) {
+        toast(r.summary.officialWritten + ' official names and ' + r.summary.displayWritten + ' shown names saved.');
+        setPage('names');
+      })
+      .catch(function (e) { toast(e.message, true); });
+  };
+}
+
+function namesDialog(u) {
+  api('/users/' + u.id + '/names?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (n) {
+    var o = n.official || { given: '', middle: '', family: '', suffix: '' };
+    var history = n.history.map(function (h) {
+      return '<li class="small">' + nameChangeText(h) + ' <span class="muted">· ' + esc(NAME_HOW[h.source] || h.source) +
+        (h.changed_by_name ? ', ' + esc(h.changed_by_name) : '') + ', ' + esc(new Date(h.created_at).toLocaleDateString()) + '</span></li>';
+    }).join('');
+    var field = function (id, label, value, hint) {
+      return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="text" maxlength="80" value="' + esc(value) + '">' +
+        (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
+    };
+    modal({
+      title: 'Names for ' + n.display_name,
+      subtitle: u.email,
+      confirm: 'Save names',
+      body:
+        '<h3 style="margin:0 0 .5rem">Official name</h3>' +
+        '<p class="small muted" style="margin-top:0">As the school’s records (FACTS) hold it. Used for grade lists in last-name order.' +
+          (n.official_source ? ' Last set ' + (n.official_source === 'import' ? 'from a file' : 'by hand') + '.' : ' Not set yet.') + '</p>' +
+        '<div class="row">' + field('nm_given', 'First name', o.given) + field('nm_middle', 'Middle name', o.middle, 'Optional') + '</div>' +
+        '<div class="row">' + field('nm_family', 'Last name', o.family) + field('nm_suffix', 'Suffix', o.suffix, 'Optional, such as Jr. or III') + '</div>' +
+        (n.official ? '<label class="perm-row" style="cursor:pointer;margin:0 0 .75rem"><input type="checkbox" id="nm_clear"><span class="label">Remove the official name</span></label>' : '') +
+        '<h3 style="margin:.75rem 0 .5rem">Shown in the apps</h3>' +
+        '<div class="field"><label for="nm_display">Display name</label><input id="nm_display" type="text" maxlength="120" value="' + esc(n.display_name) + '">' +
+          '<div class="hint">' + esc(NAME_SOURCES[n.display_name_source] || '') +
+          (n.display_name_source === 'google' ? '. Saving a different name stops Google changing it.' : '') + '</div></div>' +
+        (n.display_name_source !== 'google' ? '<label class="perm-row" style="cursor:pointer;margin:0"><input type="checkbox" id="nm_reset"><span class="label">Follow their Google name again</span></label>' : '') +
+        (history ? '<h3 style="margin:1rem 0 .5rem">Changes</h3><ul style="margin:0;padding-left:1.1rem">' + history + '</ul>' : ''),
+      onConfirm: function (m) {
+        var body = { tenant_id: state.tenantId };
+        var v = function (id) { return m.querySelector(id).value.trim(); };
+        var clear = m.querySelector('#nm_clear');
+        if (clear && clear.checked) body.official = null;
+        else if (v('#nm_given') || v('#nm_family') || v('#nm_middle') || v('#nm_suffix')) {
+          body.official = { given: v('#nm_given'), middle: v('#nm_middle'), family: v('#nm_family'), suffix: v('#nm_suffix') };
+        }
+        var reset = m.querySelector('#nm_reset');
+        if (reset && reset.checked) body.display_reset = true;
+        else if (v('#nm_display') !== n.display_name) body.display_name = v('#nm_display');
+        return api('/users/' + u.id + '/names', { method: 'PUT', body: body }).then(function (r) {
+          toast(r.changed.official || r.changed.display ? 'Names saved.' : 'Nothing changed.');
+          setPage(state.page);
+        });
+      },
+    });
+  }).catch(function (e) { toast(e.message, true); });
 }
 
 // ---------- places ----------

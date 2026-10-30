@@ -27,6 +27,13 @@ const INVENTORY = {
     display_name: { personal: true, category: 'identity', purpose: 'The name shown to a person\u2019s teachers and classmates.', exposed: 'staff' },
     given_name:   { personal: true, category: 'identity', purpose: 'A person\u2019s first name, as Google or the school roster provides it.', exposed: 'staff' },
     family_name:  { personal: true, category: 'identity', purpose: 'A person\u2019s last name, as Google or the school roster provides it.', exposed: 'staff' },
+    official_given_name:  { personal: true, category: 'identity', purpose: 'A person\u2019s first name as the school\u2019s own records hold it, entered or uploaded by the school.', exposed: 'staff' },
+    official_middle_name: { personal: true, category: 'identity', purpose: 'A person\u2019s middle name as the school\u2019s own records hold it.', exposed: 'staff' },
+    official_family_name: { personal: true, category: 'identity', purpose: 'A person\u2019s last name as the school\u2019s own records hold it. Used to put grade lists in the same order as the school\u2019s records.', exposed: 'staff' },
+    official_suffix:      { personal: true, category: 'identity', purpose: 'A name suffix such as Jr. or III, as the school\u2019s own records hold it.', exposed: 'staff' },
+    official_name_source: { personal: true, category: 'identity', purpose: 'Whether the school\u2019s record of a name was typed in or uploaded from a file.', exposed: 'admin' },
+    official_name_at:     { personal: true, category: 'technical', purpose: 'The date the school last changed its record of a person\u2019s name.', exposed: 'admin' },
+    display_name_source:  { personal: true, category: 'identity', purpose: 'Whether the name shown in the apps follows the Google account, was set by the school, or was chosen by the person.', exposed: 'admin' },
     picture_url:  { personal: true, category: 'identity', purpose: 'Link to the Google profile picture, so an account is recognisable. The image itself is served by Google, not stored here.', exposed: 'staff' },
     status:       { personal: true, category: 'school', purpose: 'Whether a person\u2019s account is active, awaiting approval, suspended or blocked.', exposed: 'admin' },
     is_minor:     { personal: true, category: 'school', purpose: 'A retired setting, kept only so older records still read correctly. Every account is for someone aged 13 or over, so it is no longer used.', exposed: 'apps' },
@@ -61,6 +68,18 @@ const INVENTORY = {
     added_by:        { personal: true, category: 'technical', purpose: 'Which administrator added a person to a school, so the change can be traced.', exposed: 'admin' },
     created_at:      { personal: true, category: 'technical', purpose: 'The date a person joined a school.', exposed: 'admin' },
     updated_at:      { personal: true, category: 'technical', purpose: 'The date a person\u2019s role or status at a school last changed.', exposed: 'admin' },
+  },
+
+  name_changes: {
+    id:         N('Internal reference for one change to a name.'),
+    user_id:    { personal: true, category: 'identity', purpose: 'Whose name was changed.', exposed: 'admin' },
+    tenant_id:  { personal: true, category: 'school', purpose: 'Which school a name change was made at.', exposed: 'admin' },
+    kind:       N('Whether the change was to the school\u2019s record of a name or to the name shown in the apps.'),
+    before:     { personal: true, category: 'identity', purpose: 'A name as it was before a change, so a mistake can be put right.', exposed: 'admin' },
+    after:      { personal: true, category: 'identity', purpose: 'A name as it became after a change.', exposed: 'admin' },
+    source:     N('How a name change was made: by the school, from an uploaded file, or by the person.'),
+    changed_by: { personal: true, category: 'technical', purpose: 'Which member of staff, or which person, changed a name.', exposed: 'admin' },
+    created_at: { personal: true, category: 'technical', purpose: 'The date a name was changed.', exposed: 'admin' },
   },
 
   guardian_links: {
@@ -380,6 +399,14 @@ const DISCLOSURES = [
     category: 'identity',
     text: 'Each person\u2019s name: a first name, a last name, and the name shown to their teachers and classmates.',
     covers: ['users.display_name', 'users.given_name', 'users.family_name'],
+  },
+  {
+    category: 'identity',
+    text: 'If the school keeps one, its official record of a person\u2019s name (first, middle, last and any suffix such as Jr.), typed in or uploaded from the school\u2019s own records. Apps used by teachers are told it so grade lists match the school\u2019s records; classmates are not. Whether the name shown in the apps was set by the school or chosen by the person, and every change to either name: what it was, what it became, who changed it and when.',
+    covers: ['users.official_given_name', 'users.official_middle_name', 'users.official_family_name', 'users.official_suffix',
+             'users.official_name_source', 'users.official_name_at', 'users.display_name_source',
+             'name_changes.user_id', 'name_changes.tenant_id', 'name_changes.before', 'name_changes.after',
+             'name_changes.changed_by', 'name_changes.created_at'],
   },
   {
     category: 'identity',

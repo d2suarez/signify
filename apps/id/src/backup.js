@@ -102,6 +102,8 @@ async function collect(tenantId, takenBy) {
     q(`SELECT rp.role_id, rp.permission, rp.scope FROM role_permissions rp
          JOIN roles r ON r.id = rp.role_id WHERE r.tenant_id = $1`, [tenantId]),
     q(`SELECT u.id, u.email, u.display_name, u.given_name, u.family_name,
+              u.official_given_name, u.official_middle_name, u.official_family_name, u.official_suffix,
+              u.official_name_source, u.display_name_source,
               u.status, u.is_minor, u.minor_source, u.created_at
          FROM users u JOIN memberships m ON m.user_id = u.id
         WHERE m.tenant_id = $1 AND u.deleted_at IS NULL`, [tenantId]),
@@ -299,6 +301,19 @@ async function preview({ file, actor, tenantId }) {
 /**
  * Applies a verified backup, after snapshotting the current state.
  */
+// Official names and where the display name came from, when the backup
+// carries them (older backups do not: leave the account as it is).
+async function restoreNames(client, userId, u) {
+  if (!('display_name_source' in u)) return;
+  await client.query(
+    `UPDATE users SET official_given_name = $2, official_middle_name = $3, official_family_name = $4,
+                      official_suffix = $5, official_name_source = $6, display_name_source = $7
+      WHERE id = $1`,
+    [userId, u.official_given_name || null, u.official_middle_name || null, u.official_family_name || null,
+     u.official_suffix || null, u.official_family_name ? (u.official_name_source || 'admin') : null,
+     u.display_name_source || 'google']);
+}
+
 async function restore({ file, actor, tenantId, confirmName = '', acknowledgeStale = false }) {
   const pre = await preview({ file, actor, tenantId });
   if (!pre.ok) return pre;
@@ -364,6 +379,7 @@ async function restore({ file, actor, tenantId, confirmName = '', acknowledgeSta
           `UPDATE users SET display_name = $2, given_name = $3, family_name = $4,
                             is_minor = $5, minor_source = $6 WHERE id = $1`,
           [existing.id, u.display_name, u.given_name, u.family_name, u.is_minor, u.minor_source]);
+        await restoreNames(client, existing.id, u);
         userId = existing.id;
         usersUpdated += 1;
       } else {
@@ -373,6 +389,7 @@ async function restore({ file, actor, tenantId, confirmName = '', acknowledgeSta
            ON CONFLICT (id) DO NOTHING RETURNING id`,
           [u.id, u.email, u.display_name, u.given_name, u.family_name, u.status, u.is_minor, u.minor_source]);
         userId = created.rows.length ? created.rows[0].id : u.id;
+        if (created.rows.length) await restoreNames(client, userId, u);
         usersCreated += 1;
       }
       userIdMap.set(u.id, userId);

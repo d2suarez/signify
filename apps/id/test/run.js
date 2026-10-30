@@ -2726,6 +2726,141 @@ function section(title) { console.log(`\n${title}`); }
           !!(await db.one('SELECT 1 FROM audit_log WHERE action = $1 AND tenant_id = $2 LIMIT 1', [action, tenant.id])));
       }
     }
+
+    section('Official names and display names');
+    {
+      const names = require('../src/names');
+      const oidcMod = require('../src/oidc');
+      const tokenFor = async (userId, isStaff) => {
+        const sess = await sessions.create(userId, { ip: '10.0.0.41', userAgent: 'test', isStaff });
+        const v = crypto.randomBytes(32).toString('base64url');
+        const c = crypto.createHash('sha256').update(v).digest('base64url');
+        const a = await fetch(`${base}/authorize?response_type=code&client_id=atlas` +
+          `&redirect_uri=${encodeURIComponent('http://localhost:4000/auth/callback')}` +
+          `&scope=openid+profile+email+roles&state=n&code_challenge=${c}&code_challenge_method=S256`,
+          { headers: { cookie: `${sessions.COOKIE}=${encodeURIComponent(sess.raw)}` }, redirect: 'manual' });
+        const code = new URL(a.headers.get('location')).searchParams.get('code');
+        return (await fetch(`${base}/token`, {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+          body: form({ grant_type: 'authorization_code', code, redirect_uri: 'http://localhost:4000/auth/callback', code_verifier: v }),
+        })).json();
+      };
+
+      eq('Last, First Middle Suffix is split the way the office wrote it',
+        names.splitLastFirst('de la Rosa, María José Jr.'), { given: 'María', middle: 'José', family: 'de la Rosa', suffix: 'Jr.' });
+      eq('without a comma nothing is guessed', names.splitLastFirst('Mary Ann Smith'), null);
+      eq('an official name needs a first and a last name', names.cleanOfficial({ given: 'Ada' }).ok, false);
+
+      // Gina signs in with Google, which names her.
+      const gina = await identity.resolveUser({ provider: 'google', subject: 'google-sub-gina', email: 'gina@school.edu',
+        name: 'Gina Google', givenName: 'Gina', familyName: 'Google', hostedDomain: 'school.edu' });
+      await identity.ensureMembership(gina.user.id, 'gina@school.edu', 'school.edu');
+      await db.query("INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,'student')", [klass.id, gina.user.id]);
+      const ginaId = gina.user.id;
+      const resign = (name) => identity.resolveUser({ provider: 'google', subject: 'google-sub-gina', email: 'gina@school.edu',
+        name, givenName: 'Gina', familyName: 'Google', hostedDomain: 'school.edu' });
+      await resign('Gina G');
+      eq('until anyone chooses, the shown name follows Google', (await db.one('SELECT display_name FROM users WHERE id = $1', [ginaId])).display_name, 'Gina G');
+
+      const put = (cookie, id, body) => pCall(cookie, `/users/${id}/names`, 'PUT', { tenant_id: tenant.id, ...body });
+      eq('a teacher cannot change a name', (await put(placesTeacher, ginaId, { display_name: 'Nope' })).status, 403);
+      eq('nor read the record of one', (await pCall(placesTeacher, `/users/${ginaId}/names?tenant_id=${tenant.id}`)).status, 403);
+      eq('half an official name is refused', (await put(placesAdmin, ginaId, { official: { given: 'Regina' } })).status, 400);
+      const set = await put(placesAdmin, ginaId, {
+        official: { given: ' Regina ', middle: 'Louise', family: 'van  der Berg', suffix: '' }, display_name: 'Gina van der Berg' });
+      eq('a local admin sets the official name and the shown name', set.status, 200);
+      const setBody = await set.json();
+      eq('spacing is tidied', setBody.person.official, { given: 'Regina', middle: 'Louise', family: 'van der Berg', suffix: '' });
+      eq('the shown name is now the school’s', setBody.person.display_name_source, 'school');
+      await resign('Gina Google Again');
+      eq('so a later Google sign-in leaves it alone', (await db.one('SELECT display_name, given_name FROM users WHERE id = $1', [ginaId])).display_name, 'Gina van der Berg');
+      eq('the same call twice changes nothing', (await (await put(placesAdmin, ginaId, { display_name: 'Gina van der Berg' })).json()).changed.display, false);
+      const elsewhereUser = await db.one('SELECT u.id FROM users u JOIN memberships m ON m.user_id = u.id WHERE m.tenant_id = $1 LIMIT 1', [other.id]);
+      if (elsewhereUser) {
+        eq('a local admin cannot name someone at another school',
+          (await pCall(placesAdmin, `/users/${elsewhereUser.id}/names`, 'PUT', { tenant_id: other.id, display_name: 'X' })).status, 403);
+      }
+
+      // What the apps are told.
+      const ginaTok = await tokenFor(ginaId, false);
+      const ginaInfo = await (await fetch(`${base}/userinfo`, bearer(ginaTok.access_token))).json();
+      eq('the token’s name is the shown name', ginaInfo.name, 'Gina van der Berg');
+      eq('given_name and family_name are the official ones', [ginaInfo.given_name, ginaInfo.middle_name, ginaInfo.family_name], ['Regina', 'Louise', 'van der Berg']);
+      eq('and say so', ginaInfo.official_name, true);
+      const bobClaims = await oidcMod.buildClaims({ namespace: 'atlas', client_id: 'atlas' }, bobUser.id, tenant.id, null);
+      eq('with no official name the claims say so, and the shown name is unchanged', bobClaims.official_name, false);
+
+      const teacherView = await (await fetch(`${base}/api/v1/classes/${klass.id}/members`, bearer(t3.access_token))).json();
+      const ginaRow = teacherView.members.find((m) => m.id === ginaId);
+      eq('a teacher’s class list carries the official name', ginaRow.official_name && ginaRow.official_name.family, 'van der Berg');
+      eq('and the shown name', ginaRow.display_name, 'Gina van der Berg');
+      eq('someone with none has null', teacherView.members.find((m) => m.id === bobUser.id).official_name, null);
+      ok('the raw columns are not passed through', !('official_family_name' in ginaRow));
+      const classmateView = await (await fetch(`${base}/api/v1/classes/${klass.id}/members`, bearer(ginaTok.access_token))).json();
+      ok('a classmate sees the shown name only',
+        classmateView.members.every((m) => !('official_name' in m) && !('email' in m)) && classmateView.members.some((m) => m.display_name === 'Gina van der Berg'));
+
+      // Choosing your own.
+      eq('a person cannot choose their own while the school says no',
+        (await pCall(placesTeacher, '/me/name', 'PUT', { display_name: 'Prof' })).status, 403);
+      eq('only staff who manage people change the setting',
+        (await pCall(placesTeacher, '/names/settings', 'PUT', { self_display: true })).status, 403);
+      eq('a local admin allows it', (await pCall(placesAdmin, '/names/settings', 'PUT', { tenant_id: tenant.id, self_display: true })).status, 200);
+      eq('the person is told they may', (await (await pCall(placesTeacher, '/me/name')).json()).may_change, true);
+      const mine = await pCall(placesTeacher, '/me/name', 'PUT', { display_name: '  Ms. Teacher ' });
+      eq('then a person chooses their own', (await mine.json()).display_name, 'Ms. Teacher');
+      eq('a blank one is refused', (await pCall(placesTeacher, '/me/name', 'PUT', { display_name: '  ' })).status, 400);
+      await pCall(placesAdmin, '/names/settings', 'PUT', { tenant_id: tenant.id, self_display: false });
+
+      // The file from the office.
+      const teacherRow = await db.one("SELECT id FROM users WHERE email = 'places-teacher@school.edu'");
+      const file = [
+        'Student Name,Email,Nickname',
+        '"Fielding, Robert Allen Jr.",bob@school.edu,Bobby',
+        '"van der Berg, Regina Louise",GINA@school.edu,',
+        '"Nobody, Known",nobody@school.edu,',
+        '"Teacher, Pat",places-teacher@school.edu,Mr. T',
+        '"Fielding, Robert",bob@school.edu,',
+        'Just Words,carla@school.edu,',
+      ].join('\r\n');
+      const pre = await pCall(placesAdmin, '/names/preview', 'POST', { tenant_id: tenant.id, csv: file });
+      eq('a local admin previews a file of official names', pre.status, 200);
+      const preview = await pre.json();
+      const byLine = (n) => preview.rows.find((r) => r.line === n);
+      eq('matched on email, written Last, First', byLine(2).official, { given: 'Robert', middle: 'Allen', family: 'Fielding', suffix: 'Jr.' });
+      eq('the nickname column becomes the shown name', byLine(2).display, 'Bobby');
+      eq('a name already right is left alone', byLine(3).action, 'same');
+      eq('an unknown address is an error', byLine(4).action, 'error');
+      eq('a name the person chose is kept, and the preview says so', [byLine(5).display, byLine(5).displayKept], [undefined, 'Mr. T']);
+      ok('the same person twice is an error', byLine(6).problems.some((p) => /line 2/.test(p)));
+      eq('a name with no comma is not guessed at', byLine(7).action, 'error');
+      eq('the preview writes nothing', (await db.one('SELECT official_family_name FROM users WHERE id = $1', [bobUser.id])).official_family_name, null);
+      ok('people the file missed are counted', preview.summary.notInFile > 0);
+      eq('a teacher cannot import', (await pCall(placesTeacher, '/names/preview', 'POST', { csv: file })).status, 403);
+      eq('a file with no email column is refused',
+        (await pCall(placesAdmin, '/names/preview', 'POST', { tenant_id: tenant.id, csv: 'First name,Last name\r\nA,B' })).status, 400);
+
+      const applied = await (await pCall(placesAdmin, '/names/apply', 'POST', { tenant_id: tenant.id, csv: file, filename: 'facts.csv' })).json();
+      eq('applying writes the official names that changed', applied.summary.officialWritten, 2);
+      const bobNow = await db.one('SELECT * FROM users WHERE id = $1', [bobUser.id]);
+      eq('Bob now has his official name', [bobNow.official_given_name, bobNow.official_family_name, bobNow.official_suffix, bobNow.official_name_source], ['Robert', 'Fielding', 'Jr.', 'import']);
+      eq('and the school’s shown name', [bobNow.display_name, bobNow.display_name_source], ['Bobby', 'school']);
+      eq('the teacher keeps the name they chose', (await db.one('SELECT display_name FROM users WHERE id = $1', [teacherRow.id])).display_name, 'Ms. Teacher');
+      eq('the same file again changes nothing', (await (await pCall(placesAdmin, '/names/apply', 'POST', { tenant_id: tenant.id, csv: file })).json()).summary.officialWritten, 0);
+      ok('the import is in the audit log', !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'names.imported' AND tenant_id = $1", [tenant.id])));
+
+      const rec = await (await pCall(placesAdmin, `/users/${bobUser.id}/names?tenant_id=${tenant.id}`)).json();
+      ok('every change is kept, newest first', rec.history.length >= 2 && rec.history[0].created_at >= rec.history[rec.history.length - 1].created_at);
+      ok('with what it was and what it became, and how', rec.history.some((h) => h.kind === 'display' && h.after.name === 'Bobby' && h.source === 'import'));
+      const page = await (await pCall(placesAdmin, `/names?tenant_id=${tenant.id}`)).json();
+      ok('the Names page counts official names and lists recent changes', page.counts.official >= 2 && page.recent.length > 0);
+
+      const reset = await (await put(placesAdmin, bobUser.id, { display_reset: true })).json();
+      eq('reset hands the shown name back to Google, starting from the official one', [reset.person.display_name, reset.person.display_name_source], ['Robert Fielding', 'google']);
+      eq('clearing the official name', (await (await put(placesAdmin, bobUser.id, { official: null })).json()).person.official, null);
+      ok('the record export carries name changes',
+        (await (await pCall(placesAdmin, `/users/${bobUser.id}/export`)).json()).name_changes.length >= 3);
+    }
     placesSrv.close();
   }
 

@@ -40,8 +40,10 @@
 // 2026-10-29: once a school confirms a parent's link to a student, the apps
 // that parent signs in to are told which children and classes, so the parent
 // can see that child's work.
-const VERSION = '2026-10-29';
-const EFFECTIVE = '29 October 2026';
+// 2026-10-30: a school may keep its official record of each name (from its
+// own records, entered by hand or uploaded), and every name change is kept.
+const VERSION = '2026-10-30';
+const EFFECTIVE = '30 October 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

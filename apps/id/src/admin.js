@@ -25,6 +25,7 @@ const appAdmin = require('./app-admin');
 const coverage = require('./coverage');
 const features = require('./features');
 const guardians = require('./guardians');
+const names = require('./names');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -569,7 +570,7 @@ router.get('/users/:id/export', async (req, res) => {
   const user = await db.one('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return fail(res, 404, 'No such person.');
 
-  const [identities, memberships, classes, guardiansOf, childrenOf, sessionRows, disclosures, reported] = await Promise.all([
+  const [identities, memberships, classes, guardiansOf, childrenOf, sessionRows, disclosures, reported, nameHistory] = await Promise.all([
     db.many('SELECT provider, subject, email_at_link, hosted_domain, linked_at, last_login_at FROM identities WHERE user_id = $1', [user.id]),
     db.many(`SELECT m.status, m.grade_level, m.graduation_year, m.school_year, m.created_at, r.key AS role, t.name AS school
                FROM memberships m JOIN roles r ON r.id = m.role_id JOIN tenants t ON t.id = m.tenant_id
@@ -583,6 +584,7 @@ router.get('/users/:id/export', async (req, res) => {
     sessions.listForUser(user.id),
     audit.list({ targetId: user.id, limit: 500 }),
     reports.forUser(user.id),
+    db.many('SELECT kind, before, after, source, created_at FROM name_changes WHERE user_id = $1 ORDER BY created_at', [user.id]),
   ]);
 
   await audit.from(req, {
@@ -600,6 +602,8 @@ router.get('/users/:id/export', async (req, res) => {
     person: {
       id: user.id, email: user.email, name: user.display_name,
       given_name: user.given_name, family_name: user.family_name,
+      display_name_source: user.display_name_source,
+      official_name: names.officialOf(user), official_name_source: user.official_name_source,
       status: user.status, is_minor: user.is_minor, minor_source: user.minor_source,
       created_at: user.created_at, last_seen_at: user.last_seen_at,
     },
@@ -611,6 +615,7 @@ router.get('/users/:id/export', async (req, res) => {
     sessions: sessionRows,
     activity_and_disclosures: disclosures,
     problem_reports: reported,
+    name_changes: nameHistory,
   });
 });
 
@@ -969,6 +974,173 @@ router.put('/places', async (req, res) => {
   if (!t) return fail(res, 404, 'No such school.');
   await audit.from(req, { tenantId, action: 'tenant.locations_updated', targetType: 'tenant', targetId: tenantId, detail: { count: locations.length } });
   res.json({ ok: true, locations });
+});
+
+// ---------- official names and display names ----------
+// The official name is the school's record (FACTS, at Richmond), typed in or
+// uploaded from a CSV the office exported; the display name is what apps
+// show. See src/names.js. Both are a school admin's job (core:manage_users).
+
+// A member of this school, not deleted. Unlike canManageUser this lets a
+// local admin keep a fellow admin's official name right: it is a record,
+// not access. Platform admins stay out of a school's reach.
+async function nameTarget(actor, userId, tenantId) {
+  const row = await db.one(
+    `SELECT u.id, (SELECT 1 FROM platform_admins pa WHERE pa.user_id = u.id) AS is_super
+       FROM users u JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $2
+      WHERE u.id = $1 AND u.deleted_at IS NULL`, [userId, tenantId]).catch(() => null);
+  if (!row) return { ok: false, reason: 'That person is not in this school.' };
+  if (row.is_super && !actor.isSuper) return { ok: false, reason: 'A super admin’s name can only be changed by a super admin.' };
+  return { ok: true };
+}
+
+router.get('/names', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const tenant = await db.one('SELECT id, name, kind, settings FROM tenants WHERE id = $1', [tenantId]);
+  if (!tenant) return fail(res, 404, 'No such school.');
+  const counts = await db.one(
+    `SELECT COUNT(*) AS people, COUNT(u.official_family_name) AS official,
+            COUNT(*) FILTER (WHERE u.display_name_source = 'school') AS school_display,
+            COUNT(*) FILTER (WHERE u.display_name_source = 'self') AS self_display
+       FROM users u JOIN memberships m ON m.user_id = u.id
+      WHERE m.tenant_id = $1 AND u.deleted_at IS NULL`, [tenantId]);
+  res.json({
+    tenant: { id: tenant.id, name: tenant.name, kind: tenant.kind },
+    self_display: names.selfDisplayAllowed(tenant.settings),
+    counts: {
+      people: Number(counts.people), official: Number(counts.official),
+      school_display: Number(counts.school_display), self_display: Number(counts.self_display),
+    },
+    recent: await names.recent(tenantId),
+  });
+});
+
+router.put('/names/settings', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const allow = b.self_display === true;
+  const updated = await db.one(
+    `UPDATE tenants SET settings = jsonb_set(settings, '{names}',
+            COALESCE(settings->'names', '{}'::jsonb) || jsonb_build_object('self_display', $2::boolean)),
+            updated_at = now()
+      WHERE id = $1 RETURNING id`, [tenantId, allow]);
+  if (!updated) return fail(res, 404, 'No such school.');
+  await audit.from(req, { tenantId, action: 'tenant.names_settings_updated', targetType: 'tenant', targetId: tenantId, detail: { self_display: allow } });
+  res.json({ ok: true, self_display: allow });
+});
+
+const namesBody = express.json({ limit: '6mb' });
+
+router.post('/names/preview', namesBody, async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, (req.body || {}).tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await names.analyse({ text: (req.body || {}).csv, tenantId });
+  if (!result.ok) return fail(res, 400, result.error);
+  res.json(result);
+});
+
+router.post('/names/apply', namesBody, async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await names.apply({ text: b.csv, tenantId, actorId: actor.userId });
+  if (!result.ok) return fail(res, 400, result.error);
+  await audit.from(req, {
+    tenantId, action: 'names.imported', targetType: 'tenant', targetId: tenantId,
+    detail: {
+      filename: String(b.filename || '').slice(0, 120), rows: result.summary.rows,
+      official: result.summary.officialWritten, display: result.summary.displayWritten, errors: result.summary.errors,
+    },
+  });
+  res.json({ ok: true, summary: result.summary });
+});
+
+router.get('/names/template.csv', (req, res) => {
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="official-names-template.csv"');
+  res.send(names.template());
+});
+
+router.get('/users/:id/names', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const tenantId = guards.tenantScope(actor, req.query.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const can = await nameTarget(actor, req.params.id, tenantId);
+  if (!can.ok) return fail(res, 403, can.reason);
+  res.json(await names.forPerson(req.params.id));
+});
+
+// { official: {given, middle, family, suffix} | null (clear), display_name, display_reset }
+router.put('/users/:id/names', async (req, res) => {
+  const actor = guards.requirePerm(req, res, 'core:manage_users', 'tenant');
+  if (!actor) return;
+  const b = req.body || {};
+  const tenantId = guards.tenantScope(actor, b.tenant_id);
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const can = await nameTarget(actor, req.params.id, tenantId);
+  if (!can.ok) return fail(res, 403, can.reason);
+
+  let official = null;
+  if (b.official) {
+    const checked = names.cleanOfficial(b.official);
+    if (!checked.ok) return fail(res, 400, checked.error);
+    official = checked.official;
+  }
+  if ('display_name' in b && !b.display_reset && !names.cleanPart(b.display_name)) return fail(res, 400, 'Enter a name to show.');
+
+  const changed = await db.tx(async (client) => {
+    const out = {};
+    if (official) out.official = (await names.writeOfficial(client, { userId: req.params.id, tenantId, official, source: 'admin', actorId: actor.userId })).changed;
+    else if ('official' in b && b.official === null) out.official = (await names.clearOfficial(client, { userId: req.params.id, tenantId, actorId: actor.userId })).changed;
+    if (b.display_reset) out.display = (await names.writeDisplay(client, { userId: req.params.id, tenantId, reset: true, actorId: actor.userId })).changed;
+    else if ('display_name' in b) out.display = (await names.writeDisplay(client, { userId: req.params.id, tenantId, name: b.display_name, source: 'school', actorId: actor.userId })).changed;
+    return out;
+  });
+  if (changed.official || changed.display) {
+    await audit.from(req, { tenantId, action: 'user.names_changed', targetType: 'user', targetId: req.params.id, detail: changed });
+  }
+  res.json({ ok: true, changed, person: await names.forPerson(req.params.id) });
+});
+
+// A person's own display name, where their school allows it. Anyone signed
+// in may read theirs; changing it needs the school's say-so.
+router.get('/me/name', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  const tenant = actor.tenantId ? await db.one('SELECT settings, kind FROM tenants WHERE id = $1', [actor.tenantId]) : null;
+  const me = await names.forPerson(actor.userId);
+  res.json({
+    display_name: me.display_name, display_name_source: me.display_name_source, official: me.official,
+    may_change: !!tenant && tenant.kind === 'school' && names.selfDisplayAllowed(tenant.settings),
+  });
+});
+
+router.put('/me/name', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  const tenant = actor.tenantId ? await db.one('SELECT settings, kind FROM tenants WHERE id = $1', [actor.tenantId]) : null;
+  if (!tenant || tenant.kind !== 'school' || !names.selfDisplayAllowed(tenant.settings)) {
+    return fail(res, 403, 'Your school sets the names shown in the apps. Ask the office to change yours.');
+  }
+  const b = req.body || {};
+  const w = await names.writeDisplay(names.pool, {
+    userId: actor.userId, tenantId: actor.tenantId, actorId: actor.userId,
+    ...(b.reset ? { reset: true } : { name: b.display_name, source: 'self' }),
+  });
+  if (!w.ok) return fail(res, 400, w.error);
+  if (w.changed) await audit.from(req, { tenantId: actor.tenantId, action: 'user.display_name_self', targetType: 'user', targetId: actor.userId, detail: { reset: !!b.reset } });
+  res.json({ ok: true, display_name: (await names.forPerson(actor.userId)).display_name });
 });
 
 // ---------- parents and guardians ----------

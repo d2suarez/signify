@@ -89,7 +89,10 @@ async function resolveUser({ provider, subject, email, name, givenName, familyNa
       const updated = await client.query(
         `UPDATE users
             SET email = $2,
-                display_name = COALESCE(NULLIF($3, ''), display_name),
+                -- Google's name is followed only until the school or the
+                -- person has chosen one (src/names.js).
+                display_name = CASE WHEN display_name_source = 'google'
+                                    THEN COALESCE(NULLIF($3, ''), display_name) ELSE display_name END,
                 given_name = COALESCE(NULLIF($4, ''), given_name),
                 family_name = COALESCE(NULLIF($5, ''), family_name),
                 picture_url = COALESCE(NULLIF($6, ''), picture_url),
@@ -148,7 +151,8 @@ async function resolveUser({ provider, subject, email, name, givenName, familyNa
       );
       const updated = await client.query(
         `UPDATE users
-            SET display_name = COALESCE(NULLIF($2, ''), display_name),
+            SET display_name = CASE WHEN display_name_source = 'google'
+                                    THEN COALESCE(NULLIF($2, ''), display_name) ELSE display_name END,
                 given_name = COALESCE(NULLIF($3, ''), given_name),
                 family_name = COALESCE(NULLIF($4, ''), family_name),
                 picture_url = COALESCE(NULLIF($5, ''), picture_url),
@@ -312,6 +316,11 @@ async function accessFor(userId, tenantId = null) {
     user: {
       id: user.id, email: user.email, name: user.display_name,
       picture: user.picture_url, status: user.status, isMinor: user.is_minor,
+      // The school's official name where it has one, else what Google says.
+      givenName: user.official_family_name ? user.official_given_name : user.given_name,
+      familyName: user.official_family_name || user.family_name,
+      middleName: user.official_family_name ? user.official_middle_name : null,
+      officialName: !!user.official_family_name,
     },
     isSuper,
     membership: active,

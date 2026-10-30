@@ -18,6 +18,7 @@ const rbac = require('./rbac');
 const reports = require('./reports');
 const features = require('./features');
 const guardians = require('./guardians');
+const names = require('./names');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -189,12 +190,24 @@ router.get('/classes/:id/members', async (req, res) => {
   // Email addresses need the same pairing the access check uses: reach that
   // actually applies to this school, or being staff in the class itself.
   const staff = (wideReach && sameSchool) || (membership && ['teacher', 'aide'].includes(membership.role));
+  // Staff also get the school's official name (null where there is none),
+  // for lists that must match the school's records, such as a grade list in
+  // last-name order. Classmates see the display name only.
   const rows = await db.many(
     `SELECT u.id, u.display_name, u.picture_url, cm.role,
-            (cm.coverage_id IS NOT NULL) AS covering${staff ? ', u.email' : ''}
+            (cm.coverage_id IS NOT NULL) AS covering${staff ? `, u.email,
+            u.official_given_name, u.official_middle_name, u.official_family_name, u.official_suffix` : ''}
        FROM class_access cm JOIN users u ON u.id = cm.user_id
       WHERE cm.class_id = $1 AND u.deleted_at IS NULL
       ORDER BY cm.role, u.display_name`, [req.params.id]);
+  const members = rows.map((r) => {
+    if (!staff) return r;
+    const { official_given_name, official_middle_name, official_family_name, official_suffix, ...rest } = r;
+    return {
+      ...rest,
+      official_name: names.officialOf({ official_given_name, official_middle_name, official_family_name, official_suffix }),
+    };
+  });
 
   if (staff) {
     await audit.record({
@@ -203,7 +216,7 @@ router.get('/classes/:id/members', async (req, res) => {
       detail: { count: rows.length }, ip: req.ip, disclosure: true,
     });
   }
-  res.json({ members: rows });
+  res.json({ members });
 });
 
 /**
