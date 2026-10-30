@@ -3,9 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dict } from "@/lib/i18n";
-import { cellText, computeGrade, letterFor, parseCell, wholePercent, type CalcGrade, type Flag } from "@/lib/grade-math";
+import { cellText, computeGrade, gradeFor, parseCell, wholePercent, type CalcGrade, type Flag } from "@/lib/grade-math";
+import { gpaText, type ScaleRow } from "@/lib/grade-scale";
+import { finalScore, penaltyFor, type Applied, type LateOverride, type Penalty } from "@/lib/late-policy";
 
-type Cell = { score: number | null; flag: Flag | null; comment: string; late: boolean; handedIn: boolean };
+type Cell = {
+  score: number | null; flag: Flag | null; comment: string; late: boolean; handedIn: boolean;
+  autoDays: number | null; lateOverride: LateOverride | null;
+};
 type A = { id: string; title: string; points: number; categoryId: string | null; dueOn: string | null; published: boolean };
 type R = { id: string; name: string; factsName: string; cells: Record<string, Cell> };
 type Cat = { id: string; name: string; weight: number; dropLowest?: number };
@@ -21,8 +26,10 @@ const key = (r: string, a: string) => `${r}:${a}`;
 export default function GradebookGrid(props: {
   courseId: string; periodKey: string; periodLabel: string; weighted: boolean; categories: Cat[];
   assignments: A[]; rows: R[]; noDueDate: number; uncategorized: number; d: Dict;
+  /** The school's scale for this course's band, and each assignment's late policy (null = a mark only). */
+  scale: ScaleRow[]; bandName: string; lateRules: Record<string, Applied | null>;
 }) {
-  const { courseId, periodKey, periodLabel, weighted, categories, assignments, d } = props;
+  const { courseId, periodKey, periodLabel, weighted, categories, assignments, scale, lateRules, d } = props;
   const [rows, setRows] = useState(props.rows);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [state, setState] = useState<Record<string, "saving" | "error">>({});
@@ -42,11 +49,25 @@ export default function GradebookGrid(props: {
     try { localStorage.setItem(tickKey, JSON.stringify(next)); } catch { /* private window */ }
   };
 
+  // The late penalty is worked out again here, so a typed score shows what counts at once.
+  const penalties = useMemo(() => {
+    const out = new Map<string, Penalty | null>();
+    for (const r of rows) for (const a of assignments) {
+      const c = r.cells[a.id];
+      out.set(key(r.id, a.id), penaltyFor(lateRules[a.id] ?? null, a.points, { score: c.score, flag: c.flag, autoDays: c.autoDays, override: c.lateOverride }));
+    }
+    return out;
+  }, [rows, assignments, lateRules]);
   const totals = useMemo(() => rows.map((r) => {
-    const g = new Map<string, CalcGrade>(Object.entries(r.cells).map(([id, c]) => [id, { score: c.score, flag: c.flag }]));
+    const g = new Map<string, CalcGrade>(Object.entries(r.cells).map(([id, c]) => {
+      const p = penalties.get(key(r.id, id)) ?? null;
+      return [id, { score: c.score === null ? null : finalScore(c.score, p), flag: c.flag }];
+    }));
     const res = computeGrade(assignments, g, { weighted, categories });
-    return { id: r.id, percent: res.percent, whole: res.percent === null ? null : wholePercent(res.percent), letter: letterFor(res.percent), dropped: new Set(res.dropped) };
-  }), [rows, assignments, weighted, categories]);
+    const { letter, gpa } = gradeFor(res.percent, scale);
+    return { id: r.id, percent: res.percent, whole: res.percent === null ? null : wholePercent(res.percent), letter, gpa, dropped: new Set(res.dropped) };
+  }), [rows, assignments, weighted, categories, penalties, scale]);
+  const penalized = [...penalties.values()].filter((p) => p && p.points > 0).length;
   const totalBy = new Map(totals.map((t) => [t.id, t]));
   const graded = totals.filter((t) => t.percent !== null);
   const average = graded.length ? graded.reduce((n, t) => n + (t.percent as number), 0) / graded.length : null;
@@ -134,7 +155,7 @@ export default function GradebookGrid(props: {
             </span>
           )}
           <span className="spacer" style={{ flex: 1 }} />
-          <span className="muted" style={{ fontSize: 12 }}>M = {d.missing} · EX = {d.exempt} · 18 L = {d.late}{categories.some((c) => c.dropLowest) ? <> · <s>18</s> = {d.droppedGrade}</> : null}</span>
+          <span className="muted" style={{ fontSize: 12 }}>M = {d.missing} · EX = {d.exempt} · 18 L = {d.late}{categories.some((c) => c.dropLowest) ? <> · <s>18</s> = {d.droppedGrade}</> : null}{Object.values(lateRules).some(Boolean) ? <> · → 16 = {d.countsAs} {d.lateLegend}</> : null}</span>
         </div>
         <div className="gb-scroll">
           <table ref={grid} className="gb-table">
@@ -164,6 +185,9 @@ export default function GradebookGrid(props: {
                       const k = key(r.id, a.id);
                       const shown = draft[k] ?? cellText({ score: c.score, flag: c.flag });
                       const dropped = t.dropped.has(a.id);
+                      const p = penalties.get(k) ?? null;
+                      const after = p && c.score !== null && draft[k] === undefined ? finalScore(c.score, p) : null;
+                      const lateText = p && after !== null ? `${c.score} − ${p.percent}% (${d.late}) → ${after}` : "";
                       const cls = ["gb-cell",
                         c.flag === "missing" && c.score === null ? "is-missing" : "",
                         c.flag === "exempt" ? "is-exempt" : "",
@@ -171,14 +195,15 @@ export default function GradebookGrid(props: {
                         dropped ? "is-dropped" : "",
                         state[k] === "error" ? "is-error" : "", state[k] === "saving" ? "is-saving" : ""].join(" ");
                       return (
-                        <td key={a.id}>
+                        <td key={a.id} className={after !== null && p!.points > 0 ? "gb-has-after" : undefined}>
                           <input className={cls} value={shown} data-r={ri} data-a={ai} inputMode="decimal" autoComplete="off"
-                            aria-label={`${r.name}, ${a.title}${dropped ? `, ${d.droppedGrade}` : ""}`} aria-invalid={state[k] === "error" || undefined}
-                            title={state[k] === "error" ? d.badScore : [dropped ? d.droppedGrade : "", c.comment].filter(Boolean).join(" · ") || undefined}
+                            aria-label={`${r.name}, ${a.title}${dropped ? `, ${d.droppedGrade}` : ""}${lateText ? `, ${lateText}` : ""}`} aria-invalid={state[k] === "error" || undefined}
+                            title={state[k] === "error" ? d.badScore : [dropped ? d.droppedGrade : "", lateText, c.comment].filter(Boolean).join(" · ") || undefined}
                             onFocus={(e) => e.currentTarget.select()}
                             onChange={(e) => setDraft((x) => ({ ...x, [k]: e.target.value }))}
                             onBlur={() => commit(ri, ai)}
                             onKeyDown={(e) => onKey(e, ri, ai)} />
+                          {after !== null && p!.points > 0 && <span className="gb-after" aria-hidden="true">→ {after}</span>}
                         </td>
                       );
                     })}
@@ -206,7 +231,7 @@ export default function GradebookGrid(props: {
                     <input type="checkbox" checked={!!ticked[r.id]} onChange={(e) => tick(r.id, e.target.checked)} />
                     <span className={ticked[r.id] ? "facts-done" : undefined}>{r.factsName}</span>
                   </label>
-                  <b>{t.whole === null ? "—" : `${t.whole} · ${t.letter}`}</b>
+                  <b>{t.whole === null ? "—" : `${t.whole} · ${t.letter}${t.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(t.gpa))}`}`}</b>
                 </li>
               );
             })}
@@ -215,7 +240,7 @@ export default function GradebookGrid(props: {
             <button type="button" className="btn btn-primary" onClick={copy}>{copied ? d.copied : d.copyGrades}</button>
             <a className="btn" href={`/api/courses/${courseId}/facts?period=${periodKey}`} download>{d.downloadFile}</a>
           </div>
-          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>{d.scaleNote}</p>
+          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>{d.scaleNote.replace("{band}", props.bandName)}</p>
         </div>
 
         <div className="card">
@@ -226,6 +251,7 @@ export default function GradebookGrid(props: {
             {below70 > 0 && <li className="check-warn">{below70} {d.below70}</li>}
             {props.noDueDate > 0 && <li className="check-warn">{props.noDueDate} {d.noDueCount}</li>}
             {props.uncategorized > 0 && <li className="check-warn">{props.uncategorized} {d.uncategorizedCount}</li>}
+            {penalized > 0 && <li className="check-warn">{penalized} {d.latePenaltiesTaken}</li>}
             {missing.length === 0 && ungraded === 0 && <li className="check-good">{d.allGraded}</li>}
           </ul>
         </div>

@@ -77,10 +77,12 @@ export default async function GradebookPage({ params, searchParams }: {
               standards={sb.standards.map((s) => ({ id: s.id, code: s.code, description: s.description }))}
               rows={gb.rows.map((r) => ({
                 id: r.student.id, name: r.student.name, factsName: r.student.factsName,
-                summaries: r.standards!.summaries, average: r.standards!.average, whole: r.whole, letter: r.letter,
+                summaries: r.standards!.summaries, average: r.standards!.average, whole: r.whole, letter: r.letter, gpa: r.gpa,
               }))}
               assignments={gb.assignments.map((a) => ({ id: a.id, title: a.title, aligned: sb.aligned[a.id].length, published: a.published }))}
               conversion={sb.settings.conversion}
+              scale={gb.scale}
+              bandName={gb.band.name}
               checks={{
                 missing: gb.checks.missing.map((m) => `${m.student}, ${m.assignment}`),
                 noLevels: sb.checks.noLevels, unaligned: sb.checks.unaligned, noEvidence: sb.checks.noEvidence,
@@ -102,6 +104,9 @@ export default async function GradebookPage({ params, searchParams }: {
             rows={gb.rows.map((r) => ({ id: r.student.id, name: r.student.name, factsName: r.student.factsName, cells: r.cells }))}
             noDueDate={gb.checks.noDueDate}
             uncategorized={gb.checks.uncategorized}
+            scale={gb.scale}
+            bandName={gb.band.name}
+            lateRules={gb.lateRules}
             d={d}
           />
         )}

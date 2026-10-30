@@ -31,6 +31,7 @@ export default async function PeriodsPage() {
       <main className="page stack" style={{ maxWidth: 760 }}>
         <h1 style={{ fontSize: 34 }}>{d.periods}</h1>
         <p className="muted" style={{ margin: 0 }}>{d.periodsHint}</p>
+        <p style={{ margin: 0 }}><Link href="/school/grading">{d.gradingSetupLink}</Link></p>
         {!admin && <p className="notice">{d.onlyAdmins}</p>}
         <section className="card">
           {periods.length === 0 && <p className="empty">{d.noPeriods}</p>}

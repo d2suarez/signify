@@ -8,7 +8,7 @@
  * recent by default; mean or highest as options). FACTS still wants a
  * percent and a letter, so the average of a student's standard summaries is
  * turned into a percent by the course's conversion table, and the letter
- * follows that percent on the usual scale (letterFor).
+ * follows that percent on the course's school scale (gradeFor, grade-scale.ts).
  *
  * Exempt work is left out. Missing work is no evidence: it changes no
  * standard (it is listed in the gradebook's checks instead).

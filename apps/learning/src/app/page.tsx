@@ -28,6 +28,7 @@ export default async function Home() {
           {(learning.length > 0 || isParent) && <Link className="btn" href="/week">{t("thisWeek", L)}</Link>}
           {teaching.length > 0 && <Link className="btn" href="/planner">{t("planner", L)}</Link>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/periods">{t("periods", L)}</a>}
+          {isSchoolAdmin(me) && <a className="btn" href="/school/grading">{t("gradingSetupLink", L)}</a>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/lti">{t("ltiTitle", L)}</a>}
         </div>
         {!ok && (

@@ -1,6 +1,7 @@
 import type { Dict, Lang } from "@/lib/i18n";
 import type { CourseWork, WorkItem, WeekSummary } from "@/lib/family";
 import { When } from "./When";
+import { gpaText } from "@/lib/grade-scale";
 import type { StandardsView } from "@/lib/gradebook";
 import { levelLabel, levelWords, roundLevel } from "@/lib/standards-math";
 
@@ -35,7 +36,12 @@ export function StandardsList({ view, d, id }: { view: StandardsView; d: Dict; i
 export function WorkChip({ item, d }: { item: WorkItem; d: Dict }) {
   const late = item.late ? ` · ${d.late}` : "";
   switch (item.status) {
-    case "graded": return <span className="chip chip-done">{item.score === null ? d.graded : `${item.score} / ${item.points}`}{late}</span>;
+    case "graded": return (
+      <span className="chip chip-done">
+        {item.score === null ? d.graded : `${item.score} / ${item.points}`}{late}
+        {item.lateTaken ? ` (${item.lateTaken.raw} − ${item.lateTaken.percent}%)` : ""}
+      </span>
+    );
     case "exempt": return <span className="chip chip-exempt">{d.exempt}</span>;
     case "missing": return <span className="chip chip-missing">{d.missing}</span>;
     case "handedIn": return <span className="chip chip-done">{d.handedIn}{late}</span>;
@@ -78,7 +84,7 @@ export function CourseWorkCard({ w, d, L }: { w: CourseWork; d: Dict; L: Lang })
         </div>
         <div className="grade-badge" style={{ padding: 0, textAlign: "right" }}>
           <span className="label">{d.courseGrade}</span>
-          {w.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{w.whole}% · {w.letter}</b>}
+          {w.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{w.whole}% · {w.letter}{w.gpa == null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(w.gpa))}`}</b>}
         </div>
       </div>
       {w.standards && <p className="muted" style={{ fontSize: 12, margin: "4px 0 0", textAlign: "right" }}>{d.convertedNote}</p>}

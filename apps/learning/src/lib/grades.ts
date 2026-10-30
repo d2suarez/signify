@@ -9,7 +9,10 @@ import type { Assignment } from "./assignments";
  *   - no score, no flag: not graded yet; left out of the course grade.
  *   - missing: counts as zero until a score replaces it.
  *   - exempt: left out, whatever the score.
- *   - late: a mark only (no penalty yet); the score counts as normal.
+ *   - late: a mark; the school's late policy (late-policy.ts) may take a
+ *     penalty off the score when the gradebook works it out. The score
+ *     stored is always the raw score; a teacher's change to the penalty is
+ *     `lateOverride`.
  * Every change is appended to grade_history first.
  */
 
@@ -20,6 +23,7 @@ import { FLAGS, MAX_DROP, type Flag } from "./grade-math";
 import { cleanSelection, type RubricSelection } from "./rubric";
 import { alignedStandards, cleanLevels, topLevel } from "./standards-math";
 import { courseGrading } from "./standards";
+import { normalizeOverride, type LateOverride } from "./late-policy";
 export const MAX_COMMENT = 5000;
 /** A score may go above the points (extra credit), up to this many times them. */
 export const MAX_SCORE_FACTOR = 10;
@@ -34,6 +38,8 @@ export type Grade = {
   rubric: RubricSelection | null;
   /** The level reached per standard (standards courses only): standard id → level. */
   levels: Record<string, number> | null;
+  /** The teacher waived or changed this grade's late penalty. */
+  lateOverride: LateOverride | null;
   gradedAt: string;
 };
 
@@ -46,6 +52,7 @@ function toGrade(r: Record<string, unknown>): Grade {
     comment: String(r.comment ?? ""),
     rubric: r.rubric ? (typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) as RubricSelection : null,
     levels: r.levels ? (typeof r.levels === "string" ? JSON.parse(r.levels) : r.levels) as Record<string, number> : null,
+    lateOverride: normalizeOverride(typeof r.late_override === "string" ? JSON.parse(r.late_override) : r.late_override),
     gradedAt: r.graded_at instanceof Date ? r.graded_at.toISOString() : String(r.graded_at),
   };
 }
@@ -67,7 +74,7 @@ export async function gradesFor(ctx: Ctx, assignmentId: string): Promise<Grade[]
   return rows.map(toGrade);
 }
 
-export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown; levels?: unknown };
+export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown; levels?: unknown; late?: unknown };
 
 export type GradeSave =
   | { ok: true; grade: Grade | null; changed: boolean }
@@ -115,34 +122,42 @@ export async function setGrade(
       levels = cleanLevels(aligned, top, input.levels !== undefined ? input.levels : cur?.levels);
     }
     const sameLevels = JSON.stringify(levels) === JSON.stringify(cur?.levels ?? null);
+    // The late penalty's override: unchanged when not sent (the grid sends none).
+    const late = input.late !== undefined ? normalizeOverride(input.late) : cur?.lateOverride ?? null;
+    const sameLate = JSON.stringify(late) === JSON.stringify(cur?.lateOverride ?? null);
     const same = cur
-      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric && sameLevels
+      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric && sameLevels && sameLate
       : score === null && flag === null && comment === "" && rubric === null && levels === null;
     if (same) return { ok: true, grade: cur, changed: false } as const;
 
     await t.query(
-      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, changed_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $7)`,
-      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null],
+      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, changed_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7)`,
+      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null,
+        late ? JSON.stringify(late) : null],
     );
     if (score === null && flag === null && comment === "" && rubric === null && levels === null) {
       await t.query("DELETE FROM grades WHERE tenant_id = $1 AND assignment_id = $2 AND student_id = $3", [ctx.tenantId, a.id, studentId]);
       return { ok: true, grade: null, changed: true } as const;
     }
     const saved = await t.query(
-      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, graded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $7)
+      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, graded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7)
        ON CONFLICT (assignment_id, student_id)
        DO UPDATE SET score = EXCLUDED.score, flag = EXCLUDED.flag, comment = EXCLUDED.comment, rubric = EXCLUDED.rubric,
-                     levels = EXCLUDED.levels, graded_by = EXCLUDED.graded_by, graded_at = now()
+                     levels = EXCLUDED.levels, late_override = EXCLUDED.late_override, graded_by = EXCLUDED.graded_by, graded_at = now()
        RETURNING *`,
-      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null],
+      [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null,
+        late ? JSON.stringify(late) : null],
     );
     return { ok: true, grade: toGrade(saved[0]), changed: true } as const;
   });
 }
 
-export type HistoryEntry = { score: number | null; flag: Flag | null; comment: string; levels: Record<string, number> | null; changedBy: string; changedAt: string };
+export type HistoryEntry = {
+  score: number | null; flag: Flag | null; comment: string; levels: Record<string, number> | null;
+  lateOverride: LateOverride | null; changedBy: string; changedAt: string;
+};
 
 export async function gradeHistory(ctx: Ctx, assignmentId: string, studentId: string): Promise<HistoryEntry[]> {
   if (!UUID.test(assignmentId)) return [];
@@ -156,6 +171,7 @@ export async function gradeHistory(ctx: Ctx, assignmentId: string, studentId: st
     flag: (r.flag as Flag) ?? null,
     comment: String(r.comment ?? ""),
     levels: r.levels ? (typeof r.levels === "string" ? JSON.parse(r.levels) : r.levels) as Record<string, number> : null,
+    lateOverride: normalizeOverride(typeof r.late_override === "string" ? JSON.parse(r.late_override) : r.late_override),
     changedBy: String(r.changed_by),
     changedAt: r.changed_at instanceof Date ? r.changed_at.toISOString() : String(r.changed_at),
   }));

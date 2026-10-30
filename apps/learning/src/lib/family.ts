@@ -14,6 +14,7 @@ import { myCourses, type MyCourse } from "./courses";
 import { listAssignments, courseSubmissions, isLate, isOverdue, type Assignment, type Submission } from "./assignments";
 import { courseGrades, type Grade } from "./grades";
 import { buildGradebook, standardsView, type StandardsView } from "./gradebook";
+import { finalScore } from "./late-policy";
 import { listAnnouncements } from "./announcements";
 import { addDays } from "./planner";
 import { weekday, type Day } from "./calendar";
@@ -34,8 +35,10 @@ export type WorkItem = {
   dueAt: string | null;
   status: WorkStatus;
   late: boolean;
-  /** Released grades only; null otherwise. */
+  /** Released grades only; null otherwise. The score that counts (after any late penalty). */
   score: number | null;
+  /** When a late penalty was taken: the score as given and the percent of the points taken off. */
+  lateTaken?: { raw: number; percent: number } | null;
   gradedAt: string | null;
 };
 
@@ -43,6 +46,7 @@ export type CourseWork = {
   course: MyCourse;
   whole: number | null;
   letter: string | null;
+  gpa?: number | null;
   items: WorkItem[];
   /** A standards course: each standard's level (released work only). */
   standards?: StandardsView | null;
@@ -86,20 +90,25 @@ export async function courseWork(ctx: Ctx, course: MyCourse, studentId: string, 
   const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
   const gradeBy = new Map(grades.filter((g) => g.studentId === studentId).map((g) => [g.assignmentId, g]));
 
+  const row = gb.rows[0];
   const items = assignments.map((a): WorkItem => {
     const s = subBy.get(a.id) || null;
     const g = a.gradesReleased ? gradeBy.get(a.id) : undefined;
+    const p = g && g.score !== null ? row?.cells[a.id]?.penalty ?? null : null;
     return {
       id: a.id, title: a.title, courseId: course.id, courseName: course.name,
       kind: a.kind, points: a.points, dueOn: a.dueOn, dueAt: a.dueAt,
       status: workStatus(a, s, g, now),
       late: isLate(a, s) || g?.flag === "late",
-      score: g ? g.score : null,
+      score: g ? (p && g.score !== null ? finalScore(g.score, p) : g.score) : null,
+      lateTaken: p && p.points > 0 && g?.score != null ? { raw: g.score, percent: p.percent } : null,
       gradedAt: g ? g.gradedAt : null,
     };
   });
-  const row = gb.rows[0];
-  return { course, whole: row?.whole ?? null, letter: row?.whole == null ? null : row.letter, items, standards: standardsView(gb, row) };
+  return {
+    course, whole: row?.whole ?? null, letter: row?.whole == null ? null : row.letter, gpa: row?.whole == null ? null : row.gpa,
+    items, standards: standardsView(gb, row),
+  };
 }
 
 /** Every course's work for one student. */

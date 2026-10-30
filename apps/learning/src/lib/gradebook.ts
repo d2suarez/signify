@@ -1,9 +1,12 @@
 import type { IdMember } from "./roster";
-import { type Assignment, type Submission, courseSubmissions, isLate, listAssignments } from "./assignments";
+import { type Assignment, type Submission, courseSubmissions, isLate, listAssignments, listSubmissions } from "./assignments";
 import {
   type Category, type CourseGrade, type Grade, type Period,
-  computeGrade, courseGrades, inPeriod, isWeighted, letterFor, listCategories, wholePercent,
+  computeGrade, courseGrades, gradeFor, inPeriod, isWeighted, listCategories, wholePercent,
 } from "./grades";
+import { courseSetup, SCHOOL_TZ, type CourseSetup } from "./school-grading";
+import { finalScore, lateDays, penaltyFor, type Applied, type LateOverride, type Penalty } from "./late-policy";
+import type { ScaleRow } from "./grade-scale";
 import { courseGrading, listStandards, type Standard } from "./standards";
 import {
   alignedStandards, averageLevel, convert, summarize, type Evidence, type StandardsSettings,
@@ -54,7 +57,13 @@ export function toStudents(members: IdMember[]): Student[] {
 }
 
 export type Cell = {
+  /** The raw score, as given. */
   score: number | null; flag: Grade["flag"]; comment: string; late: boolean; handedIn: boolean;
+  /** Days late by the hand-in time (null = not late by the clock; paper work never is). */
+  autoDays: number | null;
+  lateOverride: LateOverride | null;
+  /** The late policy's penalty (points courses only); the score that counts is finalScore(score, penalty). */
+  penalty: Penalty | null;
   /** Standards courses only: a level was given on at least one standard. */
   leveled?: boolean;
 };
@@ -66,6 +75,8 @@ export type Row = {
   grade: CourseGrade;
   whole: number | null;
   letter: string;
+  /** GPA points for the letter, from the school's scale. */
+  gpa: number | null;
   /** Standards courses only: each standard's period summary, and their average. */
   standards?: { summaries: Record<string, StandardSummary>; average: number | null };
 };
@@ -91,6 +102,11 @@ export type StandardsBook = {
 export type Gradebook = {
   /** null for a points course, which is worked out exactly as it always was. */
   standards: StandardsBook | null;
+  /** The school's scale for this course's grade band. */
+  scale: ScaleRow[];
+  band: { id: string; name: string; from: CourseSetup["bandFrom"] };
+  /** Assignment id → the late policy that applies (points courses; null = late is a mark only). */
+  lateRules: Record<string, Applied | null>;
   weighted: boolean;
   categories: Category[];
   period: Period | null;
@@ -106,20 +122,55 @@ export type Gradebook = {
   };
 };
 
-function cellsFor(studentId: string, assignments: Assignment[], grades: Map<string, Grade>, subs: Map<string, Submission>): Record<string, Cell> {
+function cellsFor(
+  studentId: string, assignments: Assignment[], grades: Map<string, Grade>, subs: Map<string, Submission>,
+  rules: Record<string, Applied | null> = {},
+): Record<string, Cell> {
   const out: Record<string, Cell> = {};
   for (const a of assignments) {
     const g = grades.get(`${a.id}:${studentId}`);
     const s = subs.get(`${a.id}:${studentId}`) || null;
+    // Paper work has no hand-in time: only the teacher's Late mark makes it late.
+    const autoDays = a.kind !== "offline" && isLate(a, s) ? lateDays(a.dueAt!, s!.submittedAt!, SCHOOL_TZ) : null;
+    const score = g?.score ?? null, flag = g?.flag ?? null, lateOverride = g?.lateOverride ?? null;
     out[a.id] = {
-      score: g?.score ?? null,
-      flag: g?.flag ?? null,
+      score, flag,
       comment: g?.comment ?? "",
       late: g?.flag === "late" || isLate(a, s),
       handedIn: !!s?.submittedAt,
+      autoDays, lateOverride,
+      penalty: penaltyFor(rules[a.id] ?? null, a.points, { score, flag, autoDays, override: lateOverride }),
     };
   }
   return out;
+}
+
+/**
+ * One assignment's late penalties, by student id, for screens that show one
+ * assignment (grading desk, the student's page) and for grade passback, so
+ * they agree with the gradebook. Empty in a standards course or when no
+ * policy applies.
+ */
+export async function assignmentPenalties(ctx: Ctx, a: Assignment, grades: Grade[]): Promise<{ rule: Applied | null; byStudent: Map<string, { autoDays: number | null; penalty: Penalty | null }> }> {
+  const byStudent = new Map<string, { autoDays: number | null; penalty: Penalty | null }>();
+  const [grading, setup, categories] = await Promise.all([courseGrading(ctx, a.courseId), courseSetup(ctx, a.courseId), listCategories(ctx, a.courseId)]);
+  if (grading.mode === "standards") return { rule: null, byStudent };
+  const rule = lateRulesFor(setup, [a], categories)[a.id];
+  if (!rule) return { rule, byStudent };
+  const subs = new Map((await listSubmissions(ctx, a.id)).map((s) => [s.studentId, s]));
+  const ids = new Set([...grades.map((g) => g.studentId), ...subs.keys()]);
+  const gradeBy = new Map(grades.map((g) => [g.studentId, g]));
+  for (const id of ids) {
+    const c = cellsFor(id, [a], new Map(gradeBy.has(id) ? [[`${a.id}:${id}`, gradeBy.get(id)!]] : []), new Map(subs.has(id) ? [[`${a.id}:${id}`, subs.get(id)!]] : []), { [a.id]: rule })[a.id];
+    byStudent.set(id, { autoDays: c.autoDays, penalty: c.penalty });
+  }
+  return { rule, byStudent };
+}
+
+/** Each assignment's late policy in this course. */
+export function lateRulesFor(setup: CourseSetup, assignments: Assignment[], categories: Category[]): Record<string, Applied | null> {
+  const catName = new Map(categories.map((c) => [c.id, c.name]));
+  return Object.fromEntries(assignments.map((a) => [a.id, setup.ruleFor({ category: a.categoryId ? catName.get(a.categoryId) ?? null : null, kind: a.kind })]));
 }
 
 /**
@@ -131,36 +182,45 @@ export async function buildGradebook(
   ctx: Ctx, courseId: string, students: Student[], period: Period | null,
   opts: { releasedOnly?: boolean } = {},
 ): Promise<Gradebook> {
-  const [all, gradeList, subList, categories, weighted, grading] = await Promise.all([
+  const [all, gradeList, subList, categories, weighted, grading, setup] = await Promise.all([
     listAssignments(ctx, courseId),
     courseGrades(ctx, courseId),
     courseSubmissions(ctx, courseId, students.length === 1 ? students[0].id : undefined),
     listCategories(ctx, courseId),
     isWeighted(ctx, courseId),
     courseGrading(ctx, courseId),
+    courseSetup(ctx, courseId),
   ]);
+  const scale = setup.band.rows;
+  const band = { id: setup.band.id, name: setup.band.name, from: setup.bandFrom };
   const assignments = all.filter((a) => inPeriod(a, period) && (!opts.releasedOnly || (a.published && a.gradesReleased)));
   const grades = new Map(gradeList.map((g) => [`${g.assignmentId}:${g.studentId}`, g]));
   const subs = new Map(subList.map((s) => [`${s.assignmentId}:${s.studentId}`, s]));
 
   if (grading.mode === "standards") {
     const standards = await listStandards(ctx, courseId);
-    return standardsGradebook(assignments, grades, subs, students, period, categories, weighted, grading.settings, standards);
+    return { ...standardsGradebook(assignments, grades, subs, students, period, categories, weighted, grading.settings, standards, scale), band };
   }
 
+  const lateRules = lateRulesFor(setup, assignments, categories);
   const rows: Row[] = students.map((student) => {
+    const cells = cellsFor(student.id, assignments, grades, subs, lateRules);
+    // The score that counts is after any late penalty; with no policy it is the score as given.
     const mine = new Map<string, Grade>();
     for (const a of assignments) {
       const g = grades.get(`${a.id}:${student.id}`);
-      if (g) mine.set(a.id, g);
+      const p = cells[a.id].penalty;
+      if (g) mine.set(a.id, p && g.score !== null ? { ...g, score: finalScore(g.score, p) } : g);
     }
     const grade = computeGrade(assignments, mine, { weighted, categories });
+    const { letter, gpa } = gradeFor(grade.percent, scale);
     return {
       student,
-      cells: cellsFor(student.id, assignments, grades, subs),
+      cells,
       grade,
       whole: grade.percent === null ? null : wholePercent(grade.percent),
-      letter: letterFor(grade.percent),
+      letter,
+      gpa,
     };
   });
 
@@ -177,7 +237,7 @@ export async function buildGradebook(
     }
   }
   return {
-    standards: null, weighted, categories, period, assignments, rows, classAverage,
+    standards: null, scale, band, lateRules, weighted, categories, period, assignments, rows, classAverage,
     checks: {
       missing,
       ungraded,
@@ -201,7 +261,8 @@ function evidenceAt(a: Assignment, g: Grade): string {
 function standardsGradebook(
   assignments: Assignment[], grades: Map<string, Grade>, subs: Map<string, Submission>, students: Student[],
   period: Period | null, categories: Category[], weighted: boolean, settings: StandardsSettings, standards: Standard[],
-): Gradebook {
+  scale: ScaleRow[],
+): Omit<Gradebook, "band"> {
   const live = new Set(standards.map((s) => s.id));
   const aligned: Record<string, string[]> = {};
   for (const a of assignments) aligned[a.id] = alignedStandards(a).filter((id) => live.has(id));
@@ -233,12 +294,14 @@ function standardsGradebook(
       const lv = grades.get(`${a.id}:${student.id}`)?.levels;
       cells[a.id].leveled = !!lv && aligned[a.id].some((id) => lv[id] !== undefined);
     }
+    const { letter, gpa } = gradeFor(percent, scale);
     return {
       student,
       cells,
       grade: { percent, byCategory: {}, counted, dropped: [] },
       whole: percent === null ? null : wholePercent(percent),
-      letter: letterFor(percent),
+      letter,
+      gpa,
       standards: { summaries, average },
     };
   });
@@ -259,7 +322,7 @@ function standardsGradebook(
         noLevels,
       },
     },
-    weighted, categories, period, assignments, rows, classAverage,
+    scale, lateRules: {}, weighted, categories, period, assignments, rows, classAverage,
     checks: {
       missing,
       ungraded: noLevels,

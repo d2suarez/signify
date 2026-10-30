@@ -3,6 +3,8 @@ import { token } from "./auth";
 import { membersOf } from "./roster";
 import { gradesFor } from "./grades";
 import { courseGrading } from "./standards";
+import { assignmentPenalties } from "./gradebook";
+import { finalScore } from "./late-policy";
 import { kickScores, queueGrades, type QueueGrade } from "./lti-ags";
 import type { AssignmentAccess } from "./access";
 
@@ -20,7 +22,12 @@ export async function passBack(access: AssignmentAccess, only?: string): Promise
       courseGrading({ tenantId: me.tenantId, userId: me.id }, course.id),
     ]);
     const email = new Map(members.map((m) => [m.id, m.email || ""]));
-    const byStudent = new Map(grades.map((g) => [g.studentId, g]));
+    // What goes is the score that counts: after the late policy's penalty, if any (none = as given).
+    const { byStudent: late } = await assignmentPenalties({ tenantId: me.tenantId, userId: me.id }, a, grades);
+    const byStudent = new Map(grades.map((g) => {
+      const p = late.get(g.studentId)?.penalty ?? null;
+      return [g.studentId, p && g.score !== null ? { ...g, score: finalScore(g.score, p) } : g];
+    }));
     const ids = only ? [only] : [...new Set([...byStudent.keys(), ...members.filter((m) => m.role === "student").map((m) => m.id)])];
     const list: QueueGrade[] = ids.map((id) => ({ studentId: id, email: email.get(id) || null, grade: byStudent.get(id) || null }));
     // A standards course sends levels-only work as its converted percent of the points.

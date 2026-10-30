@@ -14,6 +14,7 @@ import {
   setWeighted, addPeriod, listPeriods, inPeriod,
 } from "../src/lib/grades";
 import { buildGradebook, factsCsv, splitName, toStudents } from "../src/lib/gradebook";
+import { LEGACY_SCALE } from "../src/lib/grade-scale";
 
 let db: Db;
 const T = { tenantId: "school-a", userId: "teacher-1" };
@@ -241,11 +242,11 @@ test("grade maths: weighted categories, scaled over the categories with work in 
 test("letters follow the rounded percent", () => {
   assert.equal(wholePercent(89.5), 90);
   assert.equal(wholePercent(89.49), 89);
-  assert.equal(letterFor(89.5), "A−");
-  assert.equal(letterFor(92.9), "A");
-  assert.equal(letterFor(65), "D");
-  assert.equal(letterFor(59.4), "F");
-  assert.equal(letterFor(null), "");
+  assert.equal(letterFor(89.5, LEGACY_SCALE), "A−");
+  assert.equal(letterFor(92.9, LEGACY_SCALE), "A");
+  assert.equal(letterFor(65, LEGACY_SCALE), "D");
+  assert.equal(letterFor(59.4, LEGACY_SCALE), "F");
+  assert.equal(letterFor(null, LEGACY_SCALE), "");
 });
 
 // ---------- periods and the gradebook ----------

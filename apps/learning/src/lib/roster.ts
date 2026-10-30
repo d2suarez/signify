@@ -12,6 +12,8 @@ export type IdClass = {
   subject?: string | null;
   role?: string | null;
   covering?: boolean;
+  /** Signify ID year groups the class covers ("9", "10", …); decides its grade scale band. */
+  grade_levels?: string[] | null;
 };
 
 /** `email` comes only to the class's staff (grade passback matches it to the platform's class list). */

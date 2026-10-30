@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Dict } from "@/lib/i18n";
 import { letterFor } from "@/lib/grade-math";
+import type { ScaleRow } from "@/lib/grade-scale";
 import {
   defaultConversion, levelWords, SCALE_LIMITS, SUMMARY_METHODS, type ConversionRow, type StandardsSettings, type SummaryMethod,
 } from "@/lib/standards-math";
@@ -12,8 +13,8 @@ import {
  * worked out, and the conversion to a percent for FACTS. Sent whole as JSON;
  * the server cleans it (normalizeSettings).
  */
-export default function StandardsSettingsForm({ courseId, initial, action, d }: {
-  courseId: string; initial: StandardsSettings; action: (f: FormData) => Promise<void>; d: Dict;
+export default function StandardsSettingsForm({ courseId, initial, scale, action, d }: {
+  courseId: string; initial: StandardsSettings; scale: ScaleRow[]; action: (f: FormData) => Promise<void>; d: Dict;
 }) {
   const [labels, setLabels] = useState(initial.labels);
   const [summary, setSummary] = useState<SummaryMethod>(initial.summary);
@@ -86,7 +87,7 @@ export default function StandardsSettingsForm({ courseId, initial, action, d }: 
                     <input type="number" className="field" style={{ width: 100 }} min={0} max={100} step="any" value={r.percent}
                       aria-label={`${d.percentWord}, ${i + 1}`} onChange={(e) => setRow(i, { percent: Number(e.target.value) })} />
                   </td>
-                  <td><b>{letterFor(r.percent)}</b></td>
+                  <td><b>{letterFor(r.percent, scale)}</b></td>
                   <td>
                     {!last && <button type="button" className="btn btn-sm" aria-label={`${d.removeRow} ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>×</button>}
                   </td>

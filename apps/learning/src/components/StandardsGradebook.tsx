@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Dict } from "@/lib/i18n";
 import { letterFor } from "@/lib/grade-math";
+import { gpaText, type ScaleRow } from "@/lib/grade-scale";
 import type { ConversionRow } from "@/lib/standards-math";
 
 type Std = { id: string; code: string; description: string };
 type R = {
   id: string; name: string; factsName: string;
   summaries: Record<string, { level: number | null; scores: number }>;
-  average: number | null; whole: number | null; letter: string;
+  average: number | null; whole: number | null; letter: string; gpa: number | null;
 };
 type A = { id: string; title: string; aligned: number; published: boolean };
 
@@ -22,11 +23,11 @@ type A = { id: string; title: string; aligned: number; published: boolean };
  */
 export default function StandardsGradebook(props: {
   courseId: string; periodKey: string; summaryText: string; labels: string[];
-  standards: Std[]; rows: R[]; assignments: A[]; conversion: ConversionRow[];
+  standards: Std[]; rows: R[]; assignments: A[]; conversion: ConversionRow[]; scale: ScaleRow[]; bandName: string;
   checks: { missing: string[]; noLevels: number; unaligned: number; noEvidence: number; below70: number; noDueDate: number };
   d: Dict;
 }) {
-  const { courseId, periodKey, labels, standards, rows, assignments, conversion, checks, d } = props;
+  const { courseId, periodKey, labels, standards, rows, assignments, conversion, scale, checks, d } = props;
   const top = labels.length;
   const [copied, setCopied] = useState(false);
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
@@ -119,7 +120,7 @@ export default function StandardsGradebook(props: {
                   <input type="checkbox" checked={!!ticked[r.id]} onChange={(e) => tick(r.id, e.target.checked)} />
                   <span className={ticked[r.id] ? "facts-done" : undefined}>{r.factsName}</span>
                 </label>
-                <b>{r.whole === null ? "—" : `${r.whole} · ${r.letter}`}</b>
+                <b>{r.whole === null ? "—" : `${r.whole} · ${r.letter}${r.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(r.gpa))}`}`}</b>
               </li>
             ))}
           </ol>
@@ -127,6 +128,7 @@ export default function StandardsGradebook(props: {
             <button type="button" className="btn btn-primary" onClick={copy}>{copied ? d.copied : d.copyGrades}</button>
             <a className="btn" href={`/api/courses/${courseId}/facts?period=${periodKey}`} download>{d.downloadFile}</a>
           </div>
+          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>{d.scaleNote.replace("{band}", props.bandName)}</p>
         </div>
 
         <div className="card">
@@ -135,7 +137,7 @@ export default function StandardsGradebook(props: {
             <li className="check-info">
               {d.standardsConversionCheck}{" "}
               {conversion.map((c, i) => (
-                <span key={i} style={{ whiteSpace: "nowrap" }}>{i ? " · " : ""}{c.min > 0 ? `${c.min}+` : `< ${conversion[i - 1]?.min ?? ""}`} → {c.percent}% ({letterFor(c.percent)})</span>
+                <span key={i} style={{ whiteSpace: "nowrap" }}>{i ? " · " : ""}{c.min > 0 ? `${c.min}+` : `< ${conversion[i - 1]?.min ?? ""}`} → {c.percent}% ({letterFor(c.percent, scale)})</span>
               ))}{" "}
               <Link href={`/courses/${courseId}/settings`}>{d.changeConversion}</Link>
             </li>

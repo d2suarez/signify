@@ -67,7 +67,7 @@ test("i18n: every string has Spanish", () => {
   const en = dict("en");
   const es = dict("es");
   // The same word in both languages, on purpose.
-  const same = new Set(["appName", "plan", "normalWord"]);
+  const same = new Set(["appName", "plan", "normalWord", "gpaShort"]);
   const missing = (Object.keys(en) as (keyof typeof en)[]).filter((k) => !same.has(k) && es[k] === en[k]);
   assert.deepEqual(missing, [], `no Spanish for: ${missing.join(", ")}`);
 });

@@ -14,6 +14,7 @@ import {
   levelsFromRubric, levelWords, normalizeSettings, summarize,
 } from "../src/lib/standards-math";
 import { letterFor } from "../src/lib/grade-math";
+import { DEFAULT_SCALES } from "../src/lib/grade-scale";
 import { dict } from "../src/lib/i18n";
 
 let db: Db;
@@ -55,7 +56,7 @@ test("standards maths: default settings, labels and the conversion table", () =>
   assert.equal(s.summary, "recent");
   assert.deepEqual(defaultConversion(4).map((r) => r.min), [3.5, 3, 2.5, 2, 0]);
   // Every default percent lands in the letter it is meant to.
-  assert.deepEqual(s.conversion.map((r) => letterFor(r.percent)), ["A", "B", "C", "D", "F"]);
+  assert.deepEqual(s.conversion.map((r) => letterFor(r.percent, DEFAULT_SCALES.bands[0].rows)), ["A", "B", "C", "D", "F"]);
   const d = dict("en"), es = dict("es");
   assert.equal(levelLabel(s, 4, levelWords(d)), "Exceeds");
   assert.equal(levelLabel(s, 1, levelWords(es)), "Inicial");

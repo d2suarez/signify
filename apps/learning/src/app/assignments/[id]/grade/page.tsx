@@ -4,6 +4,7 @@ import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang, studentsOf } from "@/lib/access";
 import { isLate, listSubmissions } from "@/lib/assignments";
 import { gradesFor } from "@/lib/grades";
+import { assignmentPenalties } from "@/lib/gradebook";
 import { dict } from "@/lib/i18n";
 import { courseGrading, listStandards } from "@/lib/standards";
 import { alignedStandards, levelLabel, levelWords, topLevel } from "@/lib/standards-math";
@@ -40,6 +41,7 @@ export default async function GradePage({ params, searchParams }: {
       labels: Array.from({ length: top }, (_, i) => levelLabel(grading.settings, top - i, levelWords(d))),
     };
   }
+  const late = await assignmentPenalties(c, a, grades);
   const subBy = new Map(subs.map((s) => [s.studentId, s]));
   const gradeBy = new Map(grades.map((g) => [g.studentId, g]));
 
@@ -52,6 +54,7 @@ export default async function GradePage({ params, searchParams }: {
       submittedAt: sub?.submittedAt ?? null,
       late: isLate(a, sub),
       score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null, levels: g?.levels ?? null,
+      autoDays: late.byStudent.get(s.id)?.autoDays ?? null, lateOverride: g?.lateOverride ?? null,
     };
   });
 
@@ -69,7 +72,7 @@ export default async function GradePage({ params, searchParams }: {
         {ok && desk.length === 0 && <p className="empty">{d.noStudents}</p>}
         {ok && desk.length > 0 && (
           <GradeDesk assignment={{ id: a.id, points: a.points, kind: a.kind, gradesReleased: a.gradesReleased, rubric: a.rubric }}
-            students={desk} startWith={student} schoology={placed.length > 0} standards={standards} d={d} />
+            students={desk} startWith={student} schoology={placed.length > 0} standards={standards} lateRule={late.rule} d={d} />
         )}
       </main>
     </>

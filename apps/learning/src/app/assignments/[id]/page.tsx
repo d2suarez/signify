@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { assignmentPenalties } from "@/lib/gradebook";
+import { finalScore } from "@/lib/late-policy";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang } from "@/lib/access";
@@ -88,6 +90,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   ]);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   const shown = a.gradesReleased ? mine : null;
+  // The late penalty the gradebook takes, shown as given score, penalty and the score that counts.
+  const penalty = shown && shown.score !== null ? (await assignmentPenalties(c, a, [shown])).byStudent.get(me.id)?.penalty ?? null : null;
+  const taken = penalty && penalty.points > 0 ? penalty : null;
   const locked = !!mine && (mine.score !== null || mine.flag === "exempt");
   // A standards course: the standards this measures, with the student's level once released.
   const aligned = grading.mode === "standards" ? alignedStandards(a) : [];
@@ -115,10 +120,15 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             <p className="label" id="your-grade">{d.yourGrade}</p>
             <p style={{ fontFamily: "var(--display)", fontSize: 30, fontWeight: 800, margin: "6px 0 0" }}>
               {shown.flag === "exempt" ? d.exempt
-                : shown.score !== null ? `${shown.score} / ${a.points}`
+                : shown.score !== null ? `${taken ? finalScore(shown.score, taken) : shown.score} / ${a.points}`
                 : shown.flag === "missing" ? d.missing : ""}
               {shown.flag === "late" && <span className="chip chip-late" style={{ marginLeft: 10, verticalAlign: "middle" }}>{d.late}</span>}
             </p>
+            {taken && shown.score !== null && (
+              <p className="muted" style={{ margin: "4px 0 0", fontSize: 14 }}>
+                {d.rawScore} {shown.score} · {d.latePenalty} −{taken.percent}% ({d.schoolDaysLate}: {taken.days}) · {d.countsAs} {finalScore(shown.score, taken)}
+              </p>
+            )}
             {shown.comment && (
               <div style={{ marginTop: 10 }}>
                 <p className="label">{d.teacherComment}</p>

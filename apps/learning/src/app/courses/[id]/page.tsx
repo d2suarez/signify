@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { gpaText } from "@/lib/grade-scale";
+import { finalScore, type Penalty } from "@/lib/late-policy";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { courseAccess, ctx, lang } from "@/lib/access";
@@ -318,7 +320,7 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
           </div>
           <div className="card grade-badge">
             <span className="label">{d.courseGrade}</span>
-            {row.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{row.whole}% · {row.letter}</b>}
+            {row.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{row.whole}% · {row.letter}{row.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(row.gpa))}`}</b>}
           </div>
         </div>
         {sv && (
@@ -371,11 +373,18 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
 
 function StudentStatus({ a, handedIn, started, late, overdue, cell, dropped, d }: {
   a: Assignment; handedIn: boolean; started: boolean; late: boolean; overdue: boolean; dropped: boolean;
-  cell: { score: number | null; flag: string | null; leveled?: boolean } | undefined; d: Dict;
+  cell: { score: number | null; flag: string | null; leveled?: boolean; penalty?: Penalty | null } | undefined; d: Dict;
 }) {
   // Only released grades reach here (cell is undefined otherwise).
   if (cell && cell.flag === "exempt") return <span className="chip chip-exempt">{d.exempt}</span>;
-  if (cell && cell.score !== null) return <span className="chip chip-done">{cell.score} / {a.points}{late ? ` · ${d.late}` : ""}{dropped ? ` · ${d.droppedGrade}` : ""}</span>;
+  if (cell && cell.score !== null) {
+    const p = cell.penalty && cell.penalty.points > 0 ? cell.penalty : null;
+    return (
+      <span className="chip chip-done">
+        {p ? finalScore(cell.score, p) : cell.score} / {a.points}{late ? ` · ${d.late}` : ""}{p ? ` (${cell.score} − ${p.percent}%)` : ""}{dropped ? ` · ${d.droppedGrade}` : ""}
+      </span>
+    );
+  }
   if (cell?.leveled) return <span className="chip chip-done">{d.graded}{late ? ` · ${d.late}` : ""}</span>;
   if (cell && cell.flag === "missing") return <span className="chip chip-missing">{d.missing}{dropped ? ` · ${d.droppedGrade}` : ""}</span>;
   if (a.kind === "offline") return null;

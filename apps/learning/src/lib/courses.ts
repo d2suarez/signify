@@ -41,8 +41,9 @@ function toCourse(r: Record<string, unknown>): Course {
 
 /**
  * The courses this person can open, made from their Signify ID classes.
- * Teachers' classes become courses on sight (and get the latest name); a
- * student only sees a course its teacher has already opened.
+ * Teachers' classes become courses on sight (and get the latest name and
+ * grade levels); a student only sees a course its teacher has already
+ * opened.
  */
 export async function myCourses(tenantId: string, classes: IdClass[]): Promise<MyCourse[]> {
   const db = await getDb();
@@ -53,12 +54,12 @@ export async function myCourses(tenantId: string, classes: IdClass[]): Promise<M
     let rows;
     if (role === "teacher") {
       rows = await db.query(
-        `INSERT INTO courses (tenant_id, id_class_id, name, subject)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO courses (tenant_id, id_class_id, name, subject, grade_levels)
+         VALUES ($1, $2, $3, $4, $5::jsonb)
          ON CONFLICT (tenant_id, id_class_id)
-         DO UPDATE SET name = EXCLUDED.name, subject = EXCLUDED.subject
+         DO UPDATE SET name = EXCLUDED.name, subject = EXCLUDED.subject, grade_levels = EXCLUDED.grade_levels
          RETURNING *`,
-        [tenantId, c.id, c.name, c.subject || ""],
+        [tenantId, c.id, c.name, c.subject || "", Array.isArray(c.grade_levels) ? JSON.stringify(c.grade_levels.map(String).slice(0, 20)) : null],
       );
     } else {
       rows = await db.query("SELECT * FROM courses WHERE tenant_id = $1 AND id_class_id = $2", [tenantId, c.id]);

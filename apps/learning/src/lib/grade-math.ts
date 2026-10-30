@@ -6,6 +6,8 @@
 export type Flag = "missing" | "late" | "exempt";
 export const FLAGS: Flag[] = ["missing", "late", "exempt"];
 
+import type { ScaleRow } from "./grade-scale";
+
 type HasPoints = { id: string; points: number; categoryId: string | null };
 type HasDue = { dueOn: string | null };
 type PeriodRange = { startsOn: string; endsOn: string };
@@ -122,17 +124,20 @@ export function wholePercent(p: number): number {
   return Math.floor(p + 0.5 + 1e-9);
 }
 
-/** A common US high school scale; the letter follows the rounded percent. */
-export const LETTER_SCALE: [number, string][] = [
-  [93, "A"], [90, "A−"], [87, "B+"], [83, "B"], [80, "B−"], [77, "C+"],
-  [73, "C"], [70, "C−"], [67, "D+"], [63, "D"], [60, "D−"], [0, "F"],
-];
-
-export function letterFor(p: number | null): string {
-  if (p === null) return "";
+/**
+ * The letter (and GPA points) for a percent on a scale (grade-scale.ts):
+ * the first row, top down, whose minimum the rounded percent reaches.
+ */
+export function gradeFor(p: number | null, scale: ScaleRow[]): { letter: string; gpa: number | null } {
+  if (p === null) return { letter: "", gpa: null };
   const w = wholePercent(p);
-  for (const [min, letter] of LETTER_SCALE) if (w >= min) return letter;
-  return "F";
+  for (const r of scale) if (w >= r.min) return { letter: r.letter, gpa: r.gpa };
+  const last = scale[scale.length - 1];
+  return last ? { letter: last.letter, gpa: last.gpa } : { letter: "", gpa: null };
+}
+
+export function letterFor(p: number | null, scale: ScaleRow[]): string {
+  return gradeFor(p, scale).letter;
 }
 
 // ---------- typing grades into the grid ----------

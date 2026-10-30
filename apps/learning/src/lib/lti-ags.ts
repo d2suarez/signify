@@ -16,8 +16,10 @@ import { averageLevel, convert, round2, type StandardsSettings } from "./standar
  * A failure is retried with backoff and stays visible; after the last try
  * the row is "failed" until a teacher presses Retry.
  *
- * What is sent follows the gradebook: a score counts as given (late is only a
- * mark), missing without a score is 0, exempt and ungraded send nothing.
+ * What is sent follows the gradebook: a score counts as given, less the
+ * school's late penalty when a policy applies (passBack works that out; with
+ * no policy late is only a mark), missing without a score is 0, exempt and
+ * ungraded send nothing.
  * Grades a student can't see yet (not released) aren't sent either. In a
  * standards course, work given levels and no score sends the course's
  * conversion of those levels' average as a share of the points (Schoology

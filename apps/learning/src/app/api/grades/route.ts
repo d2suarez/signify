@@ -6,7 +6,8 @@ import { passBack } from "@/lib/lti-passback";
 export const dynamic = "force-dynamic";
 
 /**
- * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels? }.
+ * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late? }
+ * (late = the teacher's change to the late penalty: {waive}, {percent}, {days} or null).
  * The student must be in the class in Signify ID right now; if ID can't be
  * asked, nothing is written.
  */
@@ -26,7 +27,7 @@ export async function PUT(req: Request) {
   const { ok, students } = await studentsOf(access);
   if (!ok) return NextResponse.json({ error: "roster" }, { status: 503 });
   const r = await setGrade(ctx(access.me), access.assignment, String(body.studentId || ""), new Set(students.map((s) => s.id)), {
-    score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels,
+    score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels, late: body.late,
   });
   if (r.ok) {
     // Schoology gets it in the background; this save never waits for it.

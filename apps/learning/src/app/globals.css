@@ -260,6 +260,7 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .gb-cell:focus { border-color: var(--p2); background: var(--surface); outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--p2) 30%, transparent); }
 .gb-cell.is-missing { background: #fde2dc; color: #9c1f08; font-weight: 700; }
 .gb-cell.is-late { background: #fdf3c4; color: #5c4a00; }
+.gb-after { display: block; font-size: 11px; text-align: right; padding: 0 8px 2px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gb-cell.is-exempt { background: var(--desk); color: var(--muted); }
 /* Left out by "drop lowest": struck through (never colour alone), the word is in its label and tooltip. */
 .gb-cell.is-dropped { text-decoration: line-through; color: var(--muted); }
@@ -457,3 +458,14 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .meter-cell { display: inline-flex; align-items: center; gap: 8px; }
 .meter { display: inline-block; width: 90px; height: 10px; border-radius: 5px; background: var(--desk); overflow: hidden; border: 1px solid var(--line); }
 .meter > span { display: block; height: 100%; background: var(--ink); }
+
+/* School grade scales and late policies (/school/grading). */
+.scale-band { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0; min-width: 0; }
+.scale-table { border-collapse: collapse; margin-top: 10px; }
+.scale-table th { text-align: left; font-size: 13px; padding: 0 6px 4px 0; }
+.scale-table td { padding: 2px 6px 2px 0; }
+.scale-table .field { width: 96px; min-height: 44px; }
+.scale-table .btn { min-width: 44px; min-height: 44px; }
+@media (max-width: 480px) { .scale-table .field { width: 68px; } .scale-band { padding: 8px; } }
+.grade-pick { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; min-width: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; cursor: pointer; }
+.grade-pick:has(input:disabled) { opacity: .5; cursor: not-allowed; }
