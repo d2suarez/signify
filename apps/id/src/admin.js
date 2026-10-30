@@ -26,6 +26,7 @@ const coverage = require('./coverage');
 const features = require('./features');
 const guardians = require('./guardians');
 const names = require('./names');
+const practice = require('./practice');
 const { config } = require('./config');
 
 const router = express.Router();
@@ -974,6 +975,45 @@ router.put('/places', async (req, res) => {
   if (!t) return fail(res, 404, 'No such school.');
   await audit.from(req, { tenantId, action: 'tenant.locations_updated', targetType: 'tenant', targetId: tenantId, detail: { count: locations.length } });
   res.json({ ok: true, locations });
+});
+
+// ---------- practice class ----------
+// A made-up class with made-up students, so a teacher can see the student
+// and parent side of the apps before there is real data (src/practice.js).
+// Super admins only: it creates accounts and can change a test account's role.
+
+router.get('/practice', async (req, res) => {
+  const actor = guards.requirePlatformAdmin(req, res, 'The practice class');
+  if (!actor) return;
+  if (!req.query.tenant_id) return fail(res, 400, 'Choose a school first.');
+  const st = await practice.status(String(req.query.tenant_id));
+  if (!st) return fail(res, 404, 'No such school.');
+  res.json(st);
+});
+
+router.post('/practice', async (req, res) => {
+  const actor = guards.requirePlatformAdmin(req, res, 'The practice class');
+  if (!actor) return;
+  const b = req.body || {};
+  const result = await practice.setup({
+    tenantId: b.tenant_id, teacherEmail: b.teacher_email, studentEmail: b.student_email,
+    parentEmail: b.parent_email, makeStudent: b.make_student === true, actorId: actor.userId,
+  });
+  if (!result.ok) return fail(res, 400, result.error);
+  await audit.from(req, { tenantId: b.tenant_id, action: 'practice.setup', targetType: 'class', targetId: result.classId,
+    detail: { teacher: b.teacher_email, student: b.student_email, parent: b.parent_email } });
+  res.json(result);
+});
+
+router.delete('/practice', async (req, res) => {
+  const actor = guards.requirePlatformAdmin(req, res, 'The practice class');
+  if (!actor) return;
+  const tenantId = String(req.query.tenant_id || '');
+  if (!tenantId) return fail(res, 400, 'Choose a school first.');
+  const result = await practice.remove({ tenantId });
+  if (!result.ok) return fail(res, 404, result.error);
+  await audit.from(req, { tenantId, action: 'practice.removed', targetType: 'tenant', targetId: tenantId, detail: result.removed });
+  res.json(result);
 });
 
 // ---------- official names and display names ----------

@@ -1250,6 +1250,59 @@ function namesDialog(u) {
   }).catch(function (e) { toast(e.message, true); });
 }
 
+// ---------- practice class ----------
+// Super admins: a made-up class so a teacher can try the student and parent
+// side of the apps. Everything it makes is undone by Remove.
+
+pages.practice = function () {
+  if (!state.tenantId) {
+    document.getElementById('main').innerHTML = head('Practice class', 'Choose a school first.');
+    return Promise.resolve();
+  }
+  return api('/practice?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
+    var members = (d.members || []).map(function (m) {
+      return '<tr><td>' + esc(m.display_name) + '</td><td class="small muted">' + esc(m.email) + '</td><td>' + esc(m.role) + '</td></tr>';
+    }).join('');
+    var field = function (id, label, value, hint) {
+      return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="email" value="' + esc(value || '') + '">' +
+        (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
+    };
+    document.getElementById('main').innerHTML =
+      head('Practice class', 'A class called “Practice — Demo class” at ' + d.tenant.name + ' with four made-up students (on practice.invalid addresses nobody can sign in with), ' +
+        'so a teacher can see what students and parents see. Remove takes away everything it made.') +
+      (d.active
+        ? '<div class="card" style="margin-bottom:1rem"><div class="card-head"><h2>' + esc(d.className || 'Practice class') + '</h2><div class="spacer"></div>' +
+            '<button class="btn btn-sm btn-danger" id="prRemove">Remove the practice class</button></div>' +
+          '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>In the class as</th></tr></thead><tbody>' + members + '</tbody></table></div>' +
+          '<p class="small muted" style="margin:.6rem .9rem">The parent ' + esc(d.parent) + ' is linked to ' + esc(d.student) + ' and to Pip Example.</p></div>'
+        : '') +
+      '<div class="card"><div class="card-body">' +
+        field('prTeacher', 'Teacher', d.teacher, 'Must already be at this school.') +
+        field('prStudent', 'Test student account', d.student, 'The Google account to sign in with as a student.') +
+        field('prParent', 'Test parent account', d.parent, 'The Google account to sign in with as a parent. It keeps its role if it has one.') +
+        '<label class="perm-row" style="cursor:pointer;margin:0 0 .75rem"><input type="checkbox" id="prMake"><span class="label">If the student account holds another role here, make it a student (Remove puts the old role back)</span></label>' +
+        '<button class="btn btn-primary btn-sm" id="prSetup">' + (d.active ? 'Bring up to date' : 'Make the practice class') + '</button>' +
+      '</div></div>';
+    document.getElementById('prSetup').onclick = function () {
+      api('/practice', { method: 'POST', body: {
+        tenant_id: state.tenantId,
+        teacher_email: document.getElementById('prTeacher').value,
+        student_email: document.getElementById('prStudent').value,
+        parent_email: document.getElementById('prParent').value,
+        make_student: document.getElementById('prMake').checked,
+      } }).then(function () { toast('Practice class ready.'); setPage('practice'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+    var rm = document.getElementById('prRemove');
+    if (rm) rm.onclick = function () {
+      if (!window.confirm('Remove the practice class, its made-up students and the parent links it made?')) return;
+      api('/practice?tenant_id=' + encodeURIComponent(state.tenantId), { method: 'DELETE' })
+        .then(function () { toast('Practice class removed.'); setPage('practice'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+  });
+};
+
 // ---------- places ----------
 // The school's rooms and places, offered wherever an app asks where
 // something is (a Help Desk request, for one). Just names, in order.

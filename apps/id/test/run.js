@@ -2861,6 +2861,56 @@ function section(title) { console.log(`\n${title}`); }
       ok('the record export carries name changes',
         (await (await pCall(placesAdmin, `/users/${bobUser.id}/export`)).json()).name_changes.length >= 3);
     }
+
+    section('Practice class');
+    {
+      const practice = require('../src/practice');
+      const guardians = require('../src/guardians');
+      eq('a local admin cannot make one', (await pCall(placesAdmin, `/practice?tenant_id=${tenant.id}`)).status, 403);
+      eq('the student must be a different account from the parent',
+        (await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu', studentEmail: 'x@gmail.com', parentEmail: 'x@gmail.com' })).ok, false);
+      eq('a teacher who is not at the school is refused',
+        (await practice.setup({ tenantId: tenant.id, teacherEmail: 'stranger@nowhere.edu', studentEmail: 'a@gmail.com', parentEmail: 'b@gmail.com' })).ok, false);
+      const refused = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-admin@school.edu', studentEmail: 'places-teacher@school.edu', parentEmail: 'pat.parent@gmail.com' });
+      ok('a test account holding another role is not made a student without being asked', !refused.ok && /make them a student/.test(refused.error));
+
+      const patBefore = await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'pat.parent@gmail.com'");
+      const made = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu',
+        studentEmail: 'Test.Student@gmail.com', parentEmail: 'pat.parent@gmail.com' });
+      ok('a super admin makes the practice class', made.ok, made.error);
+      const roster = await db.many(
+        'SELECT u.email, u.display_name, u.official_family_name, cm.role FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = $1', [made.classId]);
+      eq('teacher, four made-up students and the test student', roster.length, 6);
+      ok('the made-up students can never sign in (practice.invalid) and say they are practice',
+        roster.filter((r) => r.email.endsWith('@practice.invalid')).every((r) => /\(practice\)$/.test(r.display_name) && r.official_family_name));
+      const pat = await db.one("SELECT id FROM users WHERE email = 'pat.parent@gmail.com'");
+      const kids = await db.many('SELECT student_id FROM guardian_links WHERE guardian_id = $1 AND verified_at IS NOT NULL', [pat.id]);
+      eq('the parent is linked, verified, to the test student and one made-up student', kids.length, 2);
+      const children = await guardians.childrenOf(pat.id, tenant.id);
+      ok('so an app asking for the parent’s children finds the practice class', children.every((c) => c.classes.some((k) => k.id === made.classId)));
+      const again = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu', studentEmail: 'test.student@gmail.com', parentEmail: 'pat.parent@gmail.com' });
+      eq('running it again changes nothing', [again.classId, (await db.one('SELECT COUNT(*) AS n FROM class_members WHERE class_id = $1', [made.classId])).n,
+        (await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [pat.id])).n].map(String), [made.classId, '6', '2']);
+
+      const created = await db.one("SELECT id FROM users WHERE email = 'test.student@gmail.com'");
+      const removed = await practice.remove({ tenantId: tenant.id });
+      ok('remove takes it all away', removed.ok);
+      eq('the class is gone', await db.one('SELECT 1 FROM classes WHERE id = $1', [made.classId]), null);
+      eq('so are the made-up students', Number((await db.one("SELECT COUNT(*) AS n FROM users WHERE email LIKE '%@practice.invalid'")).n), 0);
+      eq('and the test account made for it, never signed in to', await db.one('SELECT 1 FROM users WHERE id = $1', [created.id]), null);
+      eq('the parent’s links go', Number((await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [pat.id])).n), 0);
+      eq('the parent keeps their account and role', (await db.one('SELECT m.role_id FROM memberships m WHERE m.user_id = $1', [pat.id])).role_id, patBefore.role_id);
+      eq('a second remove has nothing to do', (await practice.remove({ tenantId: tenant.id })).ok, false);
+
+      // A test account that is a teacher here, made a student on request, gets its role back.
+      const teacherRow = await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'");
+      const asked = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-admin@school.edu', studentEmail: 'places-teacher@school.edu', parentEmail: 'pat.parent@gmail.com', makeStudent: true });
+      ok('with make-student, a teacher account becomes the practice student', asked.ok, asked.error);
+      eq('as a student', (await db.one("SELECT r.key FROM memberships m JOIN roles r ON r.id = m.role_id JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'")).key, 'student');
+      await practice.remove({ tenantId: tenant.id });
+      eq('and remove gives the old role back', (await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'")).role_id, teacherRow.role_id);
+      eq('and keeps the account, which was not made here', !!(await db.one("SELECT 1 FROM users WHERE email = 'places-teacher@school.edu'")), true);
+    }
     placesSrv.close();
   }
 
