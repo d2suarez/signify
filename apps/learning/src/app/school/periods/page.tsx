@@ -51,7 +51,7 @@ export default async function PeriodsPage() {
             <form action={act} className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
               <div className="fieldset" style={{ flex: "1 1 160px" }}>
                 <label htmlFor="p-name">{d.name}</label>
-                <input id="p-name" name="name" className="field" placeholder="Quarter 1" maxLength={60} required />
+                <input id="p-name" name="name" className="field" placeholder={d.periodNamePlaceholder} maxLength={60} required />
               </div>
               <div className="fieldset" style={{ flex: "1 1 150px" }}>
                 <label htmlFor="p-start">{d.starts}</label>

@@ -11,6 +11,7 @@ import {
 } from "../src/lib/lti";
 import { pickables, placeItems, takeResponse, placements } from "../src/lib/lti-dl";
 import { queueGrades, sendDue, retryScores, scoreStatuses, scoreToSend, scoresUrl, setAgsFetch, BACKOFF_MIN } from "../src/lib/lti-ags";
+import { defaultSettings, normalizeSettings } from "../src/lib/standards-math";
 
 // A fake Schoology: its own keys, an OAuth token endpoint that checks our
 // signed client assertion against our published JWKS, a Names and Roles
@@ -405,4 +406,56 @@ test("ags: assignments not placed in Schoology queue nothing; another school's r
   assert.equal(await retryScores("school-b", essayId), 0);
   assert.equal(await queueGrades("school-b", { id: essayId, points: 20, gradesReleased: true },
     [{ studentId: "s1", email: "", grade: { score: 5, flag: null } }]), 0);
+});
+
+// ---------- standards-based courses ----------
+
+test("ags: a standards course sends levels-only work as its converted percent of the points; points courses never read levels", () => {
+  const settings = defaultSettings(); // 3.5+ → 95, 3.0+ → 85, 2.5+ → 75, 2.0+ → 65, else 55
+  const sbg = { settings, points: 20 };
+  assert.deepEqual(scoreToSend({ score: null, flag: null, levels: { a: 3, b: 4 } }, true, sbg), { score: 19 }, "average 3.5 → 95% of 20");
+  assert.deepEqual(scoreToSend({ score: null, flag: "late", levels: { a: 2 } }, true, sbg), { score: 13 }, "late is a mark only");
+  assert.deepEqual(scoreToSend({ score: null, flag: null, levels: { a: 1 } }, true, { settings, points: 7 }), { score: 3.85 }, "55% of 7, two decimals");
+  assert.deepEqual(scoreToSend({ score: 12, flag: null, levels: { a: 4 } }, true, sbg), { score: 12 }, "a score the teacher gave wins");
+  assert.deepEqual(scoreToSend({ score: null, flag: null, levels: { a: 4 } }, false, sbg), { skip: "notReleased" }, "only once released");
+  assert.deepEqual(scoreToSend({ score: null, flag: "exempt", levels: { a: 4 } }, true, sbg), { skip: "exempt" });
+  assert.deepEqual(scoreToSend({ score: null, flag: null, levels: {} }, true, sbg), { skip: "ungraded" });
+  assert.deepEqual(scoreToSend({ score: null, flag: null, levels: null }, true, sbg), { skip: "ungraded" });
+  assert.deepEqual(scoreToSend({ score: null, flag: "missing", levels: null }, true, sbg), { score: 0 });
+  // Points course: the same grades with leftover levels go exactly as without them.
+  const cases: [{ score: number | null; flag: "late" | "missing" | "exempt" | null }, boolean][] = [
+    [{ score: 18, flag: "late" }, true], [{ score: null, flag: "missing" }, true], [{ score: 20, flag: "exempt" }, true],
+    [{ score: null, flag: null }, true], [{ score: 18, flag: null }, false], [{ score: null, flag: null }, false],
+  ];
+  for (const [g, rel] of cases) {
+    assert.deepEqual(scoreToSend({ ...g, levels: { a: 4, b: 3 } }, rel), scoreToSend(g, rel));
+    assert.deepEqual(scoreToSend({ ...g, levels: { a: 4, b: 3 } }, rel, null), scoreToSend(g, rel));
+  }
+});
+
+test("ags: standards levels reach Schoology as a score out of the points, with the course's own table", async () => {
+  const settings = normalizeSettings({ labels: ["", "", "", ""], summary: "recent", conversion: [{ min: 3, percent: 90 }, { min: 0, percent: 50 }] });
+  const a = { id: essayId, points: 20, gradesReleased: false, standards: settings };
+  fake.scores = [];
+  fake.down = false;
+  fake.scoreStatus = 200;
+  await queueGrades("school-a", a, [{ studentId: "s1", email: "", grade: { score: null, flag: null, levels: { x: 3, y: 4 } } }]);
+  let [row] = await scoreStatuses("school-a", essayId);
+  assert.equal(row.error, "notReleased", "levels wait for release like scores");
+  a.gradesReleased = true;
+  assert.equal(await queueGrades("school-a", a, [
+    { studentId: "s1", email: "", grade: { score: null, flag: null, levels: { x: 3, y: 4 }, comment: "Strong" } },
+  ]), 1);
+  await sendDue();
+  const sent = fake.scores.at(-1)!;
+  assert.equal(sent.body.scoreGiven, 18, "average 3.5 → 90% of 20");
+  assert.equal(sent.body.scoreMaximum, 20);
+  assert.equal(sent.body.comment, "Strong");
+  [row] = await scoreStatuses("school-a", essayId);
+  assert.equal(row.status, "sent");
+  // The same levels again send nothing new; a lower level goes again.
+  assert.equal(await queueGrades("school-a", a, [{ studentId: "s1", email: "", grade: { score: null, flag: null, levels: { x: 3, y: 4 }, comment: "Strong" } }]), 0);
+  assert.equal(await queueGrades("school-a", a, [{ studentId: "s1", email: "", grade: { score: null, flag: null, levels: { x: 2 }, comment: "Strong" } }]), 1);
+  await sendDue();
+  assert.equal(fake.scores.at(-1)!.body.scoreGiven, 10);
 });

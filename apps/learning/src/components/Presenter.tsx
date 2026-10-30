@@ -113,7 +113,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
           <h1 style={{ fontSize: 24 }}>{lesson.title}</h1>
         </div>
         <span style={{ flex: 1 }} />
-        <div className="island" aria-label="Live status">
+        <div className="island" aria-label={d.liveStatus}>
           <div className="chip">{connected ? <span className="live-dot" style={{ alignSelf: "center" }} /> : null}<b>{students.length}</b><span>{d.studentsNow}</span></div>
           <div className="chip"><b>{blocks.length ? index + 1 : 0}</b><span>{d.of} {blocks.length}</span></div>
           {block?.type === "poll" && <div className="chip"><b>{answered}</b><span>{d.answered}</span></div>}

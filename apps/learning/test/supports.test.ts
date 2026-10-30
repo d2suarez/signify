@@ -63,14 +63,13 @@ test("read-aloud: text goes out a sentence at a time, never longer than Chrome w
   assert.ok(speechChunks("x".repeat(500)).every((p) => p.length <= MAX_CHUNK), "even with no spaces");
 });
 
-test("i18n: every new string has Spanish", () => {
+test("i18n: every string has Spanish", () => {
   const en = dict("en");
   const es = dict("es");
-  const keys = ["supports", "readAloud", "pause", "resume", "stop", "fontDyslexia", "textSize", "lineSpacing", "contrastHigh",
-    "readMyWriting", "blockPicker", "blockNoise", "blockBoard", "pickYou", "pickSomeone", "micOn", "micOff", "noiseOver", "openBoard", "boardHint",
-    "planner", "moveTo", "notScheduled", "pushBack", "planUnit", "plannerConflict", "cancel",
-    "pacing", "paceTeacher", "paceReview", "paceSelf", "paceSelfNote", "goToTeacher", "slide", "projectorOpen", "projectorWaiting", "fullScreen"] as const;
-  for (const k of keys) assert.notEqual(es[k], en[k], `${k} has no Spanish`);
+  // The same word in both languages, on purpose.
+  const same = new Set(["appName", "plan", "normalWord"]);
+  const missing = (Object.keys(en) as (keyof typeof en)[]).filter((k) => !same.has(k) && es[k] === en[k]);
+  assert.deepEqual(missing, [], `no Spanish for: ${missing.join(", ")}`);
 });
 
 // ---------- Desk tools and Boards as blocks ----------

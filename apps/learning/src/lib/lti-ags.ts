@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { getDb, type Queryable } from "./db";
 import { signAsTool, type Platform } from "./lti";
 import type { Flag } from "./grade-math";
+import { averageLevel, convert, round2, type StandardsSettings } from "./standards-math";
 
 /**
  * LTI Assignment and Grade Services: released Learning grades go to the
@@ -17,7 +18,10 @@ import type { Flag } from "./grade-math";
  *
  * What is sent follows the gradebook: a score counts as given (late is only a
  * mark), missing without a score is 0, exempt and ungraded send nothing.
- * Grades a student can't see yet (not released) aren't sent either.
+ * Grades a student can't see yet (not released) aren't sent either. In a
+ * standards course, work given levels and no score sends the course's
+ * conversion of those levels' average as a share of the points (Schoology
+ * only takes a number).
  */
 
 const SCOPE_SCORE = "https://purl.imsglobal.org/spec/lti-ags/scope/score";
@@ -33,12 +37,23 @@ export type SkipReason = "exempt" | "ungraded" | "notReleased";
 
 // ---------- what the gradebook says to send ----------
 
-/** The score to send, or why nothing is sent. Mirrors grade-math's `contribution`. */
-export function scoreToSend(g: { score: number | null; flag: Flag | null } | null, released: boolean):
-  { score: number } | { skip: SkipReason } {
+/**
+ * The score to send, or why nothing is sent. Mirrors grade-math's `contribution`.
+ * `standards` is the course's settings in a standards course only (null in a
+ * points course, whose levels, if any are left over, are never read).
+ */
+export function scoreToSend(
+  g: { score: number | null; flag: Flag | null; levels?: Record<string, number> | null } | null, released: boolean,
+  standards: { settings: StandardsSettings; points: number } | null = null,
+): { score: number } | { skip: SkipReason } {
   if (!released) return { skip: "notReleased" };
   if (!g || g.flag === "exempt") return { skip: g ? "exempt" : "ungraded" };
   if (g.score !== null) return { score: g.score };
+  const levels = standards && g.levels ? Object.values(g.levels) : [];
+  if (standards && levels.length) {
+    const percent = convert(averageLevel(levels), standards.settings);
+    if (percent !== null) return { score: round2((percent * standards.points) / 100) };
+  }
   if (g.flag === "missing") return { score: 0 };
   return { skip: "ungraded" };
 }
@@ -62,7 +77,7 @@ export type QueueGrade = {
   studentId: string;
   /** From Signify ID's class list (teachers get emails); kept only until the platform user is found. */
   email?: string | null;
-  grade: { score: number | null; flag: Flag | null; comment?: string } | null;
+  grade: { score: number | null; flag: Flag | null; comment?: string; levels?: Record<string, number> | null } | null;
 };
 
 /**
@@ -71,7 +86,8 @@ export type QueueGrade = {
  * many rows now wait to be sent.
  */
 export async function queueGrades(
-  tenantId: string, a: { id: string; points: number; gradesReleased: boolean }, grades: QueueGrade[],
+  tenantId: string, a: { id: string; points: number; gradesReleased: boolean; standards?: StandardsSettings | null },
+  grades: QueueGrade[],
 ): Promise<number> {
   const db = await getDb();
   const items = await db.query(
@@ -80,7 +96,7 @@ export async function queueGrades(
   let waiting = 0;
   await db.tx(async (t) => {
     for (const it of items) for (const g of grades) {
-      const want = scoreToSend(g.grade, a.gradesReleased);
+      const want = scoreToSend(g.grade, a.gradesReleased, a.standards ? { settings: a.standards, points: a.points } : null);
       const score = "score" in want ? want.score : null;
       const comment = "score" in want ? String(g.grade?.comment ?? "").slice(0, 1000) : "";
       const [cur] = await t.query(

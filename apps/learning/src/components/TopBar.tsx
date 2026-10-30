@@ -19,7 +19,8 @@ export function Marks() {
 export async function TopBar({ crumbs, right }: { crumbs?: ReactNode; right?: ReactNode }) {
   // Reading supports are on every signed-in page, so a student never has to hunt for them.
   const me = await readMe();
-  const supports = me ? <Supports initial={await myPrefs()} d={dict(await lang())} /> : null;
+  const d = dict(await lang());
+  const supports = me ? <Supports initial={await myPrefs()} d={d} /> : null;
   return (
     <header className="top">
       <div className="top-in">
@@ -27,7 +28,7 @@ export async function TopBar({ crumbs, right }: { crumbs?: ReactNode; right?: Re
           <Marks />
           <span className="brand-name">Signify Learning</span>
         </Link>
-        {crumbs ? <nav className="crumbs" aria-label="Where you are">{crumbs}</nav> : null}
+        {crumbs ? <nav className="crumbs" aria-label={d.whereYouAre}>{crumbs}</nav> : null}
         <span className="spacer" />
         {supports}
         {right}
