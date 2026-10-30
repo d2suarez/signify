@@ -9,7 +9,7 @@ import type { ConversionRow } from "@/lib/standards-math";
 
 type Std = { id: string; code: string; description: string };
 type R = {
-  id: string; name: string; factsName: string;
+  id: string; name: string; factsName: string; guessed?: boolean;
   summaries: Record<string, { level: number | null; scores: number }>;
   average: number | null; whole: number | null; letter: string; gpa: number | null;
 };
@@ -113,12 +113,18 @@ export default function StandardsGradebook(props: {
         <div className="card">
           <p className="label">{d.factsTitle}</p>
           <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>{d.factsHint}</p>
+          {rows.some((r) => r.guessed) && (
+            <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
+              {d.factsGuessed.replace("{n}", String(rows.filter((r) => r.guessed).length))}
+            </p>
+          )}
           <ol className="facts">
             {rows.map((r) => (
               <li key={r.id}>
                 <label>
                   <input type="checkbox" checked={!!ticked[r.id]} onChange={(e) => tick(r.id, e.target.checked)} />
                   <span className={ticked[r.id] ? "facts-done" : undefined}>{r.factsName}</span>
+                    {r.guessed && <span className="chip" title={d.factsGuessMarkLong} aria-label={d.factsGuessMarkLong} style={{ marginLeft: 6 }}>{d.factsGuessMark}</span>}
                 </label>
                 <b>{r.whole === null ? "—" : `${r.whole} · ${r.letter}${r.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(r.gpa))}`}`}</b>
               </li>

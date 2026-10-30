@@ -76,7 +76,7 @@ export default async function GradebookPage({ params, searchParams }: {
               labels={Array.from({ length: top }, (_, i) => levelLabel(sb.settings, top - i, levelWords(d)))}
               standards={sb.standards.map((s) => ({ id: s.id, code: s.code, description: s.description }))}
               rows={gb.rows.map((r) => ({
-                id: r.student.id, name: r.student.name, factsName: r.student.factsName,
+                id: r.student.id, name: r.student.name, factsName: r.student.factsName, guessed: !r.student.official,
                 summaries: r.standards!.summaries, average: r.standards!.average, whole: r.whole, letter: r.letter, gpa: r.gpa,
               }))}
               assignments={gb.assignments.map((a) => ({ id: a.id, title: a.title, aligned: sb.aligned[a.id].length, published: a.published }))}
@@ -101,7 +101,7 @@ export default async function GradebookPage({ params, searchParams }: {
             weighted={gb.weighted}
             categories={gb.categories}
             assignments={gb.assignments.map((a) => ({ id: a.id, title: a.title, points: a.points, categoryId: a.categoryId, dueOn: a.dueOn, published: a.published }))}
-            rows={gb.rows.map((r) => ({ id: r.student.id, name: r.student.name, factsName: r.student.factsName, cells: r.cells }))}
+            rows={gb.rows.map((r) => ({ id: r.student.id, name: r.student.name, factsName: r.student.factsName, guessed: !r.student.official, cells: r.cells }))}
             noDueDate={gb.checks.noDueDate}
             uncategorized={gb.checks.uncategorized}
             scale={gb.scale}

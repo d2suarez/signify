@@ -17,7 +17,12 @@ export type IdClass = {
 };
 
 /** `email` comes only to the class's staff (grade passback matches it to the platform's class list). */
-export type IdMember = { id: string; display_name: string; role: string; picture_url?: string | null; email?: string | null };
+export type IdMember = {
+  id: string; display_name: string; role: string; picture_url?: string | null; email?: string | null;
+  /** Staff only: the school's official name (FACTS), or null where it has none. Older ID versions leave it out. */
+  official_name?: OfficialName | null;
+};
+export type OfficialName = { given: string; middle?: string; family: string; suffix?: string };
 
 const ISSUER = (process.env.SIGNIFY_ISSUER || "").replace(/\/+$/, "");
 const CACHE_MS = 60_000;
@@ -30,16 +35,18 @@ export const DEV_CLASSES: Record<string, IdClass[]> = {
   teacher: [
     { id: "dev-class-apmicro", name: "AP Microeconomics", subject: "Economics", role: "teacher" },
     { id: "dev-class-rel09", name: "09 Religion", subject: "Bible", role: "teacher" },
+    { id: "dev-class-practice", name: "Practice — Demo class", subject: "Practice", role: "teacher" },
   ],
   student: [
     { id: "dev-class-apmicro", name: "AP Microeconomics", subject: "Economics", role: "student" },
+    { id: "dev-class-practice", name: "Practice — Demo class", subject: "Practice", role: "student" },
   ],
 };
 
 export const DEV_MEMBERS: IdMember[] = [
   { id: "dev-teacher-0000", display_name: "Dev Teacher", role: "teacher" },
   { id: "dev-student-0000", display_name: "Dev Student", role: "student" },
-  { id: "dev-student-0001", display_name: "Sample Student A", role: "student" },
+  { id: "dev-student-0001", display_name: "Sample Student A", role: "student", official_name: { given: "Samantha", middle: "Ann", family: "de la Cruz" } },
   { id: "dev-student-0002", display_name: "Sample Student B", role: "student" },
 ];
 

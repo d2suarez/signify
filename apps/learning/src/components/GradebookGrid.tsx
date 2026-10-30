@@ -12,7 +12,7 @@ type Cell = {
   autoDays: number | null; lateOverride: LateOverride | null;
 };
 type A = { id: string; title: string; points: number; categoryId: string | null; dueOn: string | null; published: boolean };
-type R = { id: string; name: string; factsName: string; cells: Record<string, Cell> };
+type R = { id: string; name: string; factsName: string; guessed?: boolean; cells: Record<string, Cell> };
 type Cat = { id: string; name: string; weight: number; dropLowest?: number };
 
 const key = (r: string, a: string) => `${r}:${a}`;
@@ -222,6 +222,11 @@ export default function GradebookGrid(props: {
         <div className="card">
           <p className="label">{d.factsTitle}</p>
           <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>{d.factsHint}</p>
+          {rows.some((r) => r.guessed) && (
+            <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
+              {d.factsGuessed.replace("{n}", String(rows.filter((r) => r.guessed).length))}
+            </p>
+          )}
           <ol className="facts">
             {rows.map((r) => {
               const t = totalBy.get(r.id)!;
@@ -230,6 +235,7 @@ export default function GradebookGrid(props: {
                   <label>
                     <input type="checkbox" checked={!!ticked[r.id]} onChange={(e) => tick(r.id, e.target.checked)} />
                     <span className={ticked[r.id] ? "facts-done" : undefined}>{r.factsName}</span>
+                    {r.guessed && <span className="chip" title={d.factsGuessMarkLong} aria-label={d.factsGuessMarkLong} style={{ marginLeft: 6 }}>{d.factsGuessMark}</span>}
                   </label>
                   <b>{t.whole === null ? "—" : `${t.whole} · ${t.letter}${t.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(t.gpa))}`}`}</b>
                 </li>

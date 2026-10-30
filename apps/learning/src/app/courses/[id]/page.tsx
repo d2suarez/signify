@@ -3,7 +3,8 @@ import { gpaText } from "@/lib/grade-scale";
 import { finalScore, type Penalty } from "@/lib/late-policy";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { courseAccess, ctx, lang } from "@/lib/access";
+import { courseAccess, ctx, lang, studentsOf } from "@/lib/access";
+import { isPracticeCourse, fillPractice, clearPractice } from "@/lib/practice";
 import { requireMe } from "@/lib/auth";
 import { listLessons, createLesson, type LessonSummary } from "@/lib/lessons";
 import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit } from "@/lib/units";
@@ -24,6 +25,20 @@ export const dynamic = "force-dynamic";
 async function teacherAccess(formData: FormData) {
   const access = await courseAccess(String(formData.get("courseId") || ""));
   return access && access.course.role === "teacher" ? access : null;
+}
+
+// Sample work, only ever in a course named "Practice …" (src/lib/practice.ts).
+async function practiceWork(formData: FormData) {
+  "use server";
+  const access = await teacherAccess(formData);
+  if (!access || !isPracticeCourse(access.course)) return;
+  if (formData.get("op") === "clear") await clearPractice(ctx(access.me), access.course.id);
+  else {
+    const { ok, students } = await studentsOf(access);
+    if (!ok) return;
+    await fillPractice(ctx(access.me), access.course.id, students.map((s) => s.id));
+  }
+  revalidatePath(`/courses/${access.course.id}`);
 }
 
 async function newLesson(formData: FormData) {
@@ -80,13 +95,27 @@ function itemDate(i: Item): string {
   return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
 }
 
-export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CoursePage({ params, searchParams }: {
+  params: Promise<{ id: string }>; searchParams: Promise<{ preview?: string }>;
+}) {
   await requireMe();
   const { id } = await params;
+  const { preview } = await searchParams;
   const L = await lang();
   const access = await courseAccess(id);
   if (!access) notFound();
   if (access.course.role === "student") return <StudentCourse access={access} L={L} />;
+
+  // A teacher looking at the course as one of its students sees: the same
+  // read-only page, built for that student, with no links into anything that
+  // acts. The session stays the teacher's; nothing is written. Logged.
+  const roster = await studentsOf(access);
+  if (preview) {
+    const who = roster.students.find((s) => s.id === preview);
+    if (!who) notFound();
+    console.info(`learning: preview ${access.me.id} viewed course ${access.course.id} as student ${who.id}`);
+    return <StudentCourse access={access} L={L} viewer={{ id: who.id, name: who.name }} />;
+  }
 
   const { me, course } = access;
   const d = dict(L);
@@ -156,6 +185,37 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
           )}
           <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
         </div>
+
+        {roster.ok && roster.students.length > 0 && (
+          <form method="get" className="card row" style={{ gap: 8 }} aria-labelledby="preview-title">
+            <h2 id="preview-title" className="label" style={{ flex: "0 0 auto", margin: 0 }}>{d.previewAs}</h2>
+            <label htmlFor="preview-who" className="sr-only">{d.student}</label>
+            <select id="preview-who" name="preview" className="field" style={{ width: "auto", flex: "1 1 200px" }}>
+              {roster.students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button className="btn" type="submit">{d.previewOpen}</button>
+            <p className="muted" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{d.previewHint}</p>
+          </form>
+        )}
+
+        {isPracticeCourse(course) && (
+          <section className="card stack" aria-labelledby="practice-title" style={{ gap: 8 }}>
+            <h2 id="practice-title" className="label">{d.practiceTitle}</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.practiceHint}</p>
+            <div className="row">
+              <form action={practiceWork}>
+                <input type="hidden" name="courseId" value={course.id} />
+                <input type="hidden" name="op" value="fill" />
+                <button className="btn btn-primary" type="submit">{d.practiceFill}</button>
+              </form>
+              <form action={practiceWork}>
+                <input type="hidden" name="courseId" value={course.id} />
+                <input type="hidden" name="op" value="clear" />
+                <button className="btn" type="submit">{d.practiceClear}</button>
+              </form>
+            </div>
+          </section>
+        )}
 
         <section className="card stack" aria-labelledby="ann-title" style={{ gap: 10 }}>
           <h2 id="ann-title" className="label">{d.announcements}</h2>
@@ -289,11 +349,17 @@ function AssignmentRow({ a, d, L }: { a: Assignment; d: Dict; L: Lang }) {
 
 // ---------- a student's view ----------
 
-async function StudentCourse({ access, L }: { access: NonNullable<Awaited<ReturnType<typeof courseAccess>>>; L: Lang }) {
-  const { me, course } = access;
+async function StudentCourse({ access, L, viewer }: {
+  access: NonNullable<Awaited<ReturnType<typeof courseAccess>>>; L: Lang;
+  /** A teacher's read-only preview as this student. */
+  viewer?: { id: string; name: string };
+}) {
+  const { course } = access;
+  const me = viewer ? { ...access.me, id: viewer.id, name: viewer.name } : access.me;
+  const previewing = !!viewer;
   const d = dict(L);
-  const c = ctx(me);
-  const live = liveLessonId(course.id);
+  const c = ctx(access.me);
+  const live = previewing ? null : liveLessonId(course.id);
   const [units, assignments, subs, announcements] = await Promise.all([
     listUnits(c, course.id),
     listAssignments(c, course.id, { publishedOnly: true }),
@@ -313,6 +379,12 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
     <>
       <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
       <main className="page stack">
+        {previewing && (
+          <div className="card row" role="status" style={{ background: "var(--desk)" }}>
+            <p className="grow" style={{ margin: 0 }}><b>{d.previewBanner.replace("{name}", me.name)}</b> <span className="muted">{d.previewBannerHint}</span></p>
+            <Link className="btn" href={`/courses/${course.id}`}>{d.previewExit}</Link>
+          </div>
+        )}
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div className="grow" style={{ flex: 1 }}>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
@@ -331,7 +403,7 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
         )}
         <div className="row">
           {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
-          <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
+          {!previewing && <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>}
         </div>
 
         {announcements.length > 0 && (
@@ -353,7 +425,7 @@ async function StudentCourse({ access, L }: { access: NonNullable<Awaited<Return
                   <li key={a.id}>
                     <span className="shape s-tri" aria-hidden="true" />
                     <div className="grow">
-                      <h3><Link href={`/assignments/${a.id}`} style={{ color: "inherit" }}>{a.title}</Link></h3>
+                      <h3>{previewing ? a.title : <Link href={`/assignments/${a.id}`} style={{ color: "inherit" }}>{a.title}</Link>}</h3>
                       <span className="muted" style={{ fontSize: 13 }}>
                         {a.dueAt ? <>{d.due} <When iso={a.dueAt} lang={L} /></> : d.noDue}
                       </span>

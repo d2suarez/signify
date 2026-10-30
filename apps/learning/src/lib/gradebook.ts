@@ -20,15 +20,16 @@ import {
 
 type Ctx = { tenantId: string; userId: string };
 
-export type Student = { id: string; name: string; sortKey: string; factsName: string };
+/** `official`: the FACTS name came from the school's official name in Signify ID, not a guess. */
+export type Student = { id: string; name: string; sortKey: string; factsName: string; official?: boolean };
 
 const SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv"]);
 
 /**
- * FACTS lists a class by last name, then first. Signify ID holds one display
- * name, so the last word (before a suffix like "Jr.") is taken as the last
- * name. Two-word last names may sort a little differently than in FACTS;
- * the list says so.
+ * The fallback for someone with no official name in Signify ID: the last
+ * word of the display name (before a suffix like "Jr.") is taken as the last
+ * name. Two-word last names may sort a little differently than in FACTS, so
+ * the list marks every name worked out this way.
  */
 export function splitName(display: string): { first: string; last: string } {
   const words = display.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
@@ -45,12 +46,20 @@ export function toStudents(members: IdMember[]): Student[] {
   return members
     .filter((m) => m.role === "student")
     .map((m) => {
-      const { first, last } = splitName(m.display_name || "");
+      // FACTS lists a class by last name, then first: the school's official
+      // name where Signify ID has one, else a guess from the display name.
+      const o = m.official_name;
+      const official = !!(o && o.family);
+      const { first, last } = official
+        ? { first: o!.given || "", last: [o!.family, o!.suffix].filter(Boolean).join(" ") }
+        : splitName(m.display_name || "");
+      const middle = official ? o!.middle || "" : "";
       return {
         id: m.id,
         name: m.display_name || "",
-        sortKey: `${last}\u0000${first}`.toLocaleLowerCase("en"),
+        sortKey: `${official ? o!.family : last}\u0000${first}\u0000${middle}`.toLocaleLowerCase("en"),
         factsName: first ? `${last}, ${first}` : last,
+        official,
       };
     })
     .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "en", { sensitivity: "base" }));

@@ -273,6 +273,23 @@ test("names: FACTS order is last name, then first", () => {
     { id: "4", display_name: "Dev Teacher", role: "teacher" },
   ]);
   assert.deepEqual(s.map((x) => x.factsName), ["Garcia, Sofia", "Kim, Ezra", "Rodriguez, Ana"]);
+  assert.ok(s.every((x) => !x.official), "with no official names, every one is a marked guess");
+});
+
+test("names: the official name from Signify ID decides FACTS order, the display name everything else", () => {
+  const s = toStudents([
+    // Shown as "Gina", officially Regina van der Berg: a guess would file her under G.
+    { id: "1", display_name: "Gina", role: "student", official_name: { given: "Regina", middle: "Louise", family: "van der Berg", suffix: "" } },
+    { id: "2", display_name: "Bobby Fielding", role: "student", official_name: { given: "Robert", family: "Fielding", suffix: "Jr." } },
+    // No official name yet: falls back to the guess, and is marked.
+    { id: "3", display_name: "Ana Maria Rodriguez", role: "student", official_name: null },
+    { id: "4", display_name: "Mia Santos", role: "student" },
+    { id: "5", display_name: "Ana Fielding", role: "student", official_name: { given: "Ana", family: "Fielding" } },
+  ]);
+  assert.deepEqual(s.map((x) => x.factsName),
+    ["Fielding, Ana", "Fielding Jr., Robert", "Rodriguez, Ana Maria", "Santos, Mia", "van der Berg, Regina"]);
+  assert.deepEqual(s.map((x) => x.name), ["Ana Fielding", "Bobby Fielding", "Ana Maria Rodriguez", "Mia Santos", "Gina"]);
+  assert.deepEqual(s.map((x) => !!x.official), [true, true, false, false, true]);
 });
 
 test("gradebook: rows, checks, released-only view and the FACTS file agree", async () => {
