@@ -89,6 +89,8 @@ textarea.field { resize: vertical; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--desk); font-size: 13px; font-weight: 600; }
 .live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 25%, transparent); }
 .notice { padding: 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--p3) 25%, var(--surface)); font-size: 14px; }
+.preview-band { background: color-mix(in srgb, var(--p3) 32%, var(--surface)); border-top: 1px solid var(--line); }
+.preview-band .top-in { padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
 .notice-bad { background: color-mix(in srgb, var(--p1) 14%, var(--surface)); }
 .empty { color: var(--muted); padding: 8px 0; }
 .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }

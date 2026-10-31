@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { gpaText } from "@/lib/grade-scale";
-import { finalScore, type Penalty } from "@/lib/late-policy";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { courseAccess, ctx, lang, studentsOf } from "@/lib/access";
@@ -8,15 +6,16 @@ import { isPracticeCourse, fillPractice, clearPractice } from "@/lib/practice";
 import { requireMe } from "@/lib/auth";
 import { listLessons, createLesson, type LessonSummary } from "@/lib/lessons";
 import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit } from "@/lib/units";
-import { listAssignments, createAssignment, courseSubmissions, isLate, isOverdue, type Assignment } from "@/lib/assignments";
-import { buildGradebook, standardsView } from "@/lib/gradebook";
+import { listAssignments, createAssignment, type Assignment } from "@/lib/assignments";
 import { liveLessonId } from "@/lib/live-ticket";
-import { listAnnouncements, postAnnouncement, archiveAnnouncement, ANNOUNCEMENT_LIMITS, type Announcement } from "@/lib/announcements";
+import { listAnnouncements, postAnnouncement, archiveAnnouncement, ANNOUNCEMENT_LIMITS } from "@/lib/announcements";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
+import { Announcements } from "@/components/Announcements";
+import { StudentCourse } from "@/components/StudentCourse";
+import { myPreviewPeople } from "@/lib/preview";
 import { CourseNav } from "@/components/CourseNav";
 import { When } from "@/components/When";
-import { StandardsList } from "@/components/Work";
 import ToolPicker from "@/components/ToolPicker";
 import { toolChoices } from "@/lib/lti-platform";
 
@@ -95,27 +94,28 @@ function itemDate(i: Item): string {
   return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
 }
 
-export default async function CoursePage({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ preview?: string }>;
-}) {
+export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
   await requireMe();
   const { id } = await params;
-  const { preview } = await searchParams;
   const L = await lang();
   const access = await courseAccess(id);
   if (!access) notFound();
-  if (access.course.role === "student") return <StudentCourse access={access} L={L} />;
-
-  // A teacher looking at the course as one of its students sees: the same
-  // read-only page, built for that student, with no links into anything that
-  // acts. The session stays the teacher's; nothing is written. Logged.
-  const roster = await studentsOf(access);
-  if (preview) {
-    const who = roster.students.find((s) => s.id === preview);
-    if (!who) notFound();
-    console.info(`learning: preview ${access.me.id} viewed course ${access.course.id} as student ${who.id}`);
-    return <StudentCourse access={access} L={L} viewer={{ id: who.id, name: who.name }} />;
+  if (access.course.role === "student") {
+    return (
+      <>
+        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} />
+        <main className="page stack">
+          <StudentCourse course={access.course} c={ctx(access.me)} person={{ id: access.me.id, name: access.me.name }} L={L} />
+        </main>
+      </>
+    );
   }
+
+  const roster = await studentsOf(access);
+  // Mock practice people in this class the teacher may preview (Signify ID decides).
+  const previews = await myPreviewPeople();
+  const inClass = new Set(roster.students.map((s) => s.id));
+  const previewable = previews.people.filter((p) => p.kind === "student" && inClass.has(p.id));
 
   const { me, course } = access;
   const d = dict(L);
@@ -186,16 +186,14 @@ export default async function CoursePage({ params, searchParams }: {
           <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
         </div>
 
-        {roster.ok && roster.students.length > 0 && (
-          <form method="get" className="card row" style={{ gap: 8 }} aria-labelledby="preview-title">
+        {previewable.length > 0 && (
+          <section className="card row" style={{ gap: 8 }} aria-labelledby="preview-title">
             <h2 id="preview-title" className="label" style={{ flex: "0 0 auto", margin: 0 }}>{d.previewAs}</h2>
-            <label htmlFor="preview-who" className="sr-only">{d.student}</label>
-            <select id="preview-who" name="preview" className="field" style={{ width: "auto", flex: "1 1 200px" }}>
-              {roster.students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <button className="btn" type="submit">{d.previewOpen}</button>
+            {previewable.map((p) => (
+              <Link key={p.id} className="btn btn-sm" href={`/preview/${p.id}/courses/${course.id}`}>{p.display_name}</Link>
+            ))}
             <p className="muted" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{d.previewHint}</p>
-          </form>
+          </section>
         )}
 
         {isPracticeCourse(course) && (
@@ -227,7 +225,7 @@ export default async function CoursePage({ params, searchParams }: {
             <textarea id="ann-new-body" name="body" className="field" rows={2} placeholder={d.announcementText} maxLength={ANNOUNCEMENT_LIMITS.body} required />
             <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-start" }}>{d.postAnnouncement}</button>
           </form>
-          <Announcements list={announcements} L={L} d={d} courseId={course.id} teacher />
+          <Announcements list={announcements} L={L} d={d} courseId={course.id} archive={announce} />
         </section>
 
         {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
@@ -287,31 +285,6 @@ export default async function CoursePage({ params, searchParams }: {
   );
 }
 
-function Announcements({ list, L, d, courseId, teacher }: { list: Announcement[]; L: Lang; d: Dict; courseId: string; teacher?: boolean }) {
-  if (!list.length) return teacher ? <p className="empty" style={{ margin: 0 }}>{d.noAnnouncements}</p> : null;
-  return (
-    <ul className="list announcements">
-      {list.map((a) => (
-        <li key={a.id} style={{ alignItems: "flex-start" }}>
-          <span className="shape s-square" aria-hidden="true" style={{ marginTop: 6 }} />
-          <div className="grow">
-            {a.title && <h3>{a.title}</h3>}
-            <p style={{ whiteSpace: "pre-wrap", margin: a.title ? "4px 0 0" : 0 }}>{a.body}</p>
-            <span className="muted" style={{ fontSize: 13 }}><When iso={a.createdAt} lang={L} /></span>
-          </div>
-          {teacher && (
-            <form action={announce}>
-              <input type="hidden" name="courseId" value={courseId} />
-              <input type="hidden" name="announcementId" value={a.id} />
-              <button className="btn btn-sm" name="op" value="archive" aria-label={`${d.takeDown}: ${a.title || a.body.slice(0, 40)}`}>{d.takeDown}</button>
-            </form>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function LessonRow({ l, live, d }: { l: LessonSummary; live: boolean; d: Dict }) {
   return (
     <li>
@@ -349,118 +322,3 @@ function AssignmentRow({ a, d, L }: { a: Assignment; d: Dict; L: Lang }) {
 
 // ---------- a student's view ----------
 
-async function StudentCourse({ access, L, viewer }: {
-  access: NonNullable<Awaited<ReturnType<typeof courseAccess>>>; L: Lang;
-  /** A teacher's read-only preview as this student. */
-  viewer?: { id: string; name: string };
-}) {
-  const { course } = access;
-  const me = viewer ? { ...access.me, id: viewer.id, name: viewer.name } : access.me;
-  const previewing = !!viewer;
-  const d = dict(L);
-  const c = ctx(access.me);
-  const live = previewing ? null : liveLessonId(course.id);
-  const [units, assignments, subs, announcements] = await Promise.all([
-    listUnits(c, course.id),
-    listAssignments(c, course.id, { publishedOnly: true }),
-    courseSubmissions(c, course.id, me.id),
-    listAnnouncements(c, course.id),
-  ]);
-  const self = { id: me.id, name: me.name, sortKey: "", factsName: me.name };
-  const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
-  const row = gb.rows[0];
-  const sv = standardsView(gb, row);
-  const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
-
-  const groups = [...units.map((u) => ({ title: u.title, id: u.id, items: [] as Assignment[] })), { title: d.noUnit, id: "", items: [] as Assignment[] }];
-  for (const a of assignments) (groups.find((g) => g.id && g.id === a.unitId) || groups[groups.length - 1]).items.push(a);
-
-  return (
-    <>
-      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
-      <main className="page stack">
-        {previewing && (
-          <div className="card row" role="status" style={{ background: "var(--desk)" }}>
-            <p className="grow" style={{ margin: 0 }}><b>{d.previewBanner.replace("{name}", me.name)}</b> <span className="muted">{d.previewBannerHint}</span></p>
-            <Link className="btn" href={`/courses/${course.id}`}>{d.previewExit}</Link>
-          </div>
-        )}
-        <div className="row" style={{ alignItems: "flex-end" }}>
-          <div className="grow" style={{ flex: 1 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-            <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-          </div>
-          <div className="card grade-badge">
-            <span className="label">{d.courseGrade}</span>
-            {row.whole === null ? <span className="muted">{d.noGradeYet}</span> : <b>{row.whole}% · {row.letter}{row.gpa === null ? "" : ` · ${d.gpaShort.replace("{n}", gpaText(row.gpa))}`}</b>}
-          </div>
-        </div>
-        {sv && (
-          <div className="card">
-            <p className="muted" style={{ fontSize: 13, margin: 0 }}>{d.convertedNote}</p>
-            <StandardsList view={sv} d={d} id="my-standards" />
-          </div>
-        )}
-        <div className="row">
-          {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
-          {!previewing && <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>}
-        </div>
-
-        {announcements.length > 0 && (
-          <section className="card" aria-labelledby="ann-title">
-            <h2 id="ann-title" className="label" style={{ marginBottom: 6 }}>{d.announcements}</h2>
-            <Announcements list={announcements} L={L} d={d} courseId={course.id} />
-          </section>
-        )}
-
-        {assignments.length === 0 && <p className="empty">{d.noAssignmentsStudent}</p>}
-        {groups.filter((g) => g.items.length > 0).map((g) => (
-          <section key={g.id || "loose"} className="card">
-            <div className="unit-head"><h2>{g.title}</h2></div>
-            <ul className="list">
-              {g.items.map((a) => {
-                const s = subBy.get(a.id) || null;
-                const cell = row.cells[a.id];
-                return (
-                  <li key={a.id}>
-                    <span className="shape s-tri" aria-hidden="true" />
-                    <div className="grow">
-                      <h3>{previewing ? a.title : <Link href={`/assignments/${a.id}`} style={{ color: "inherit" }}>{a.title}</Link>}</h3>
-                      <span className="muted" style={{ fontSize: 13 }}>
-                        {a.dueAt ? <>{d.due} <When iso={a.dueAt} lang={L} /></> : d.noDue}
-                      </span>
-                    </div>
-                    <StudentStatus a={a} handedIn={!!s?.submittedAt} started={!!s} late={isLate(a, s) || cell?.flag === "late"}
-                      overdue={isOverdue(a, s)} cell={cell} dropped={row.grade.dropped.includes(a.id)} d={d} />
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </main>
-    </>
-  );
-}
-
-function StudentStatus({ a, handedIn, started, late, overdue, cell, dropped, d }: {
-  a: Assignment; handedIn: boolean; started: boolean; late: boolean; overdue: boolean; dropped: boolean;
-  cell: { score: number | null; flag: string | null; leveled?: boolean; penalty?: Penalty | null } | undefined; d: Dict;
-}) {
-  // Only released grades reach here (cell is undefined otherwise).
-  if (cell && cell.flag === "exempt") return <span className="chip chip-exempt">{d.exempt}</span>;
-  if (cell && cell.score !== null) {
-    const p = cell.penalty && cell.penalty.points > 0 ? cell.penalty : null;
-    return (
-      <span className="chip chip-done">
-        {p ? finalScore(cell.score, p) : cell.score} / {a.points}{late ? ` · ${d.late}` : ""}{p ? ` (${cell.score} − ${p.percent}%)` : ""}{dropped ? ` · ${d.droppedGrade}` : ""}
-      </span>
-    );
-  }
-  if (cell?.leveled) return <span className="chip chip-done">{d.graded}{late ? ` · ${d.late}` : ""}</span>;
-  if (cell && cell.flag === "missing") return <span className="chip chip-missing">{d.missing}{dropped ? ` · ${d.droppedGrade}` : ""}</span>;
-  if (a.kind === "offline") return null;
-  if (handedIn) return <span className="chip chip-done">{d.handedIn}{late ? ` · ${d.late}` : ""}</span>;
-  if (overdue) return <span className="chip chip-missing">{d.overdue}</span>;
-  return <span className="chip">{started ? d.workingOn : d.notStarted}</span>;
-}

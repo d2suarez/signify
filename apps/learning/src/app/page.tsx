@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
 import { lang, isSchoolAdmin } from "@/lib/access";
+import { myPreviewPeople } from "@/lib/preview";
 import { t } from "@/lib/i18n";
 import { liveLessonId } from "@/lib/live-ticket";
 import { TopBar } from "@/components/TopBar";
@@ -18,6 +19,8 @@ export default async function Home() {
   const onlyParent = isParent && courses.length === 0;
   const teaching = courses.filter((c) => c.role === "teacher");
   const learning = courses.filter((c) => c.role === "student");
+  // Practice people from Signify ID this teacher or admin may preview.
+  const previews = teaching.length > 0 || isSchoolAdmin(me) ? (await myPreviewPeople()).people : [];
 
   return (
     <>
@@ -89,6 +92,20 @@ export default async function Home() {
                   </Link>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {previews.length > 0 && (
+          <section aria-labelledby="preview-title">
+            <div className="section-title"><span className="shape s-circle" /><h2 id="preview-title">{t("previewTitle", L)}</h2></div>
+            <div className="card row" style={{ gap: 8 }}>
+              {previews.map((p) => (
+                <Link key={p.id} className="btn btn-sm" href={`/preview/${p.id}`}>
+                  {p.display_name} <span className="muted">· {t(p.kind === "parent" ? "previewPracticeParent" : "previewPracticeStudent", L)}</span>
+                </Link>
+              ))}
+              <p className="muted" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{t("previewHint", L)}</p>
             </div>
           </section>
         )}

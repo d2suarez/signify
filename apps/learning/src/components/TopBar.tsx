@@ -16,7 +16,8 @@ export function Marks() {
   );
 }
 
-export async function TopBar({ crumbs, right }: { crumbs?: ReactNode; right?: ReactNode }) {
+/** `below` sits under the bar and stays with it (the preview banner). */
+export async function TopBar({ crumbs, right, below }: { crumbs?: ReactNode; right?: ReactNode; below?: ReactNode }) {
   // Reading supports are on every signed-in page, so a student never has to hunt for them.
   const me = await readMe();
   const d = dict(await lang());
@@ -33,6 +34,7 @@ export async function TopBar({ crumbs, right }: { crumbs?: ReactNode; right?: Re
         {supports}
         {right}
       </div>
+      {below}
     </header>
   );
 }

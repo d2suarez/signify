@@ -120,3 +120,37 @@ export async function childrenFor(who: Who, token: string): Promise<{ ok: boolea
   }));
   return { ok: true, children };
 }
+
+// ---------- preview: what a mock person sees ----------
+// Signify ID's practice people (mock students and a mock parent) have no
+// login, so nobody can ask ID as them. Staff ask with their OWN token and ID
+// answers with what the mock would get from /classes or /my-children, only
+// for mocks the caller may preview, and audits every call. Never cached:
+// each view is one audited question.
+
+export type PreviewPerson = { id: string; display_name: string; kind: "student" | "parent" };
+
+/** Local development: the made-up student and parent, for the made-up staff. */
+export const DEV_PREVIEW: PreviewPerson[] = [
+  { id: "dev-student-0000", display_name: "Dev Student", kind: "student" },
+  { id: "dev-guardian-0000", display_name: "Dev Parent", kind: "parent" },
+];
+
+export async function previewPeopleFor(who: Who, token: string): Promise<{ ok: boolean; people: PreviewPerson[] }> {
+  if (who.dev) return { ok: true, people: who.role === "teacher" || who.role === "admin" ? DEV_PREVIEW : [] };
+  const body = await ask<{ people: PreviewPerson[] }>(token, "/api/v1/preview/people");
+  return body ? { ok: true, people: body.people || [] } : { ok: false, people: [] };
+}
+
+export async function previewClassesOf(who: Who, token: string, personId: string): Promise<{ ok: boolean; classes: IdClass[] }> {
+  if (who.dev) return { ok: true, classes: personId === "dev-student-0000" ? DEV_CLASSES.student : [] };
+  const body = await ask<{ classes: IdClass[] }>(token, `/api/v1/preview/${encodeURIComponent(personId)}/classes`);
+  return body ? { ok: true, classes: body.classes || [] } : { ok: false, classes: [] };
+}
+
+export async function previewChildrenOf(who: Who, token: string, personId: string): Promise<{ ok: boolean; children: IdChild[] }> {
+  if (who.dev) return { ok: true, children: personId === "dev-guardian-0000" ? DEV_CHILDREN : [] };
+  const body = await ask<{ children: IdChild[] }>(token, `/api/v1/preview/${encodeURIComponent(personId)}/children`);
+  if (!body) return { ok: false, children: [] };
+  return { ok: true, children: (body.children || []).map((c) => ({ ...c, classes: (c.classes || []).map((k) => ({ ...k, role: "student" })) })) };
+}
