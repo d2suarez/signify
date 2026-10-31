@@ -41,13 +41,15 @@ async function act(formData: FormData) {
   redirect(back);
 }
 
-type Search = { f?: string; subject?: string; grade?: string; q?: string; course?: string; added?: string };
+type Search = { f?: string; subject?: string; grade?: string; q?: string; course?: string; added?: string; all?: string };
 
 /**
  * The standards library: published sets, the school's own and the
  * teacher's own. Browse a framework as a tree, or search by words, code,
  * subject and grade. With ?course=, standards are ticked and added to that
- * course.
+ * course. When the school follows sets (/school/standards), the page
+ * starts with those, the school's and the teacher's own; ?all=1 shows every
+ * set the viewer may see.
  */
 export default async function StandardsLibrary({ searchParams }: { searchParams: Promise<Search> }) {
   const me = await requireMe();
@@ -64,20 +66,37 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
   const grade = GRADE_LEVELS.includes(sp.grade as never) ? sp.grade! : "";
   const subject = (sp.subject ?? "").slice(0, 60);
   const searching = !!(fw || q || grade || subject);
-  const { hits, more } = searching ? await searchItems(v, { frameworkId: fw?.id, q, grade, subject, limit: 400 }) : { hits: [], more: false };
+  // Nothing followed = every set, as before.
+  const scoped = sp.all !== "1" && frameworks.some((f) => f.followed);
+  const inScope = scoped ? frameworks.filter((f) => f.ownerKind !== "library" || f.followed) : frameworks;
+  const { hits, more } = searching ? await searchItems(v, { frameworkId: fw?.id, q, grade, subject, limit: 400, followed: scoped }) : { hits: [], more: false };
   const canNew = await mayCreate(v, "teacher");
 
   const qs = (extra: Record<string, string>) => {
     const p = new URLSearchParams();
-    for (const [k, val] of Object.entries({ f: fw?.id ?? "", subject, grade, q, course: courseId ?? "", ...extra })) if (val) p.set(k, val);
+    for (const [k, val] of Object.entries({ f: fw?.id ?? "", subject, grade, q, course: courseId ?? "", all: sp.all === "1" ? "1" : "", ...extra })) if (val) p.set(k, val);
     return `/standards?${p}`;
   };
   const gradeWord = (g: string) => (g === "PK" ? d.gradePK : g === "KG" ? d.gradeK : String(Number(g)));
-  const groups: [string, Framework[]][] = [
+  const following = frameworks.some((f) => f.followed);
+  const groups: [string, Framework[]][] = following ? [
+    [d.stdFollowed, frameworks.filter((f) => f.followed)],
+    [d.stdSchoolSets, frameworks.filter((f) => f.ownerKind === "school")],
+    [d.stdYourSets, frameworks.filter((f) => f.ownerKind === "teacher")],
+    [d.stdOtherPublished, frameworks.filter((f) => f.ownerKind === "library" && !f.followed)],
+  ] : [
     [d.stdPublished, frameworks.filter((f) => f.ownerKind === "library")],
     [d.stdSchoolSets, frameworks.filter((f) => f.ownerKind === "school")],
     [d.stdYourSets, frameworks.filter((f) => f.ownerKind === "teacher")],
   ];
+  const card = (f: Framework) => (
+    <Link key={f.id} href={qs({ f: f.id })} className="card course-card">
+      <span className="muted" style={{ fontSize: 13 }}>{[f.subjects.join(", "), f.version, `${f.itemCount} ${d.stdItemsWord}`].filter(Boolean).join(" · ")}</span>
+      <h3 lang={f.language}>{f.title}</h3>
+      {f.licenseTitle && <span className="muted" style={{ fontSize: 12 }} lang="en">{f.licenseTitle}</span>}
+      {f.superseded && <span className="chip">{d.stdSuperseded}</span>}
+    </Link>
+  );
 
   return (
     <>
@@ -97,6 +116,15 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
 
         <form method="get" action="/standards" className="card row std-filters" role="search" aria-label={d.searchStandards}>
           {courseId && <input type="hidden" name="course" value={courseId} />}
+          {following && (
+            <div className="fieldset" style={{ flex: "1 1 180px" }}>
+              <label htmlFor="sa">{d.stdScope}</label>
+              <select id="sa" name="all" className="field" defaultValue={scoped ? "" : "1"}>
+                <option value="">{d.stdScopeFollowed}</option>
+                <option value="1">{d.stdScopeAll}</option>
+              </select>
+            </div>
+          )}
           <div className="fieldset" style={{ flex: "2 1 260px" }}>
             <label htmlFor="sf">{d.stdFramework}</label>
             <select id="sf" name="f" className="field" defaultValue={fw?.id ?? ""}>
@@ -112,7 +140,7 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
             <label htmlFor="ss">{d.stdSubject}</label>
             <select id="ss" name="subject" className="field" defaultValue={subject}>
               <option value="">{d.stdAnySubject}</option>
-              {subjectsOf(frameworks).map((s) => <option key={s} value={s}>{s}</option>)}
+              {subjectsOf(inScope).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div className="fieldset" style={{ flex: "1 1 110px" }}>
@@ -130,20 +158,19 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
           {searching && <Link className="btn" style={{ alignSelf: "flex-end" }} href={qs({ f: "", subject: "", grade: "", q: "" })}>{d.stdClear}</Link>}
         </form>
 
-        {!searching && groups.map(([label, list]) => (
+        {!searching && groups.map(([label, list]) => label === d.stdOtherPublished ? (
+          // Sets the school doesn't follow: one click away, open with "All sets".
+          list.length > 0 && (
+            <details key={label} open={!scoped}>
+              <summary className="label">{label} ({list.length})</summary>
+              <div className="grid-cards" style={{ marginTop: 8 }}>{list.map(card)}</div>
+            </details>
+          )
+        ) : (
           <section key={label} aria-label={label}>
             <h2 className="label">{label}</h2>
             {list.length === 0 && <p className="empty">{label === d.stdYourSets ? d.stdNoneYours : d.stdNoneSchool}</p>}
-            <div className="grid-cards">
-              {list.map((f) => (
-                <Link key={f.id} href={qs({ f: f.id })} className="card course-card">
-                  <span className="muted" style={{ fontSize: 13 }}>{[f.subjects.join(", "), f.version, `${f.itemCount} ${d.stdItemsWord}`].filter(Boolean).join(" · ")}</span>
-                  <h3 lang={f.language}>{f.title}</h3>
-                  {f.licenseTitle && <span className="muted" style={{ fontSize: 12 }} lang="en">{f.licenseTitle}</span>}
-                  {f.superseded && <span className="chip">{d.stdSuperseded}</span>}
-                </Link>
-              ))}
-            </div>
+            <div className="grid-cards">{list.map(card)}</div>
           </section>
         ))}
         {!searching && canNew && (

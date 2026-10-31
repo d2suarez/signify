@@ -58,6 +58,10 @@ export type Framework = {
   licenseText: string | null;
   notice: string | null;
   distribution: Distribution;
+  /** Library sets: a US state's postal code, 'NAD', or null (multi-state). */
+  jurisdiction: string | null;
+  /** A library set the viewer's school follows (school_followed_sets). */
+  followed: boolean;
   copiedFrom: string | null;
   archived: boolean;
   itemCount: number;
@@ -97,6 +101,7 @@ function toFramework(r: Record<string, unknown>): Framework {
     version: String(r.version ?? ""), officialSourceUrl: (r.official_source_url as string) ?? null, dataUrl: (r.data_url as string) ?? null,
     dataSource: (r.data_source as string) ?? null, licenseTitle: (r.license_title as string) ?? null, licenseUri: (r.license_uri as string) ?? null,
     licenseText: (r.license_text as string) ?? null, notice: (r.notice as string) ?? null, distribution: r.distribution === "school" ? "school" : "open",
+    jurisdiction: (r.jurisdiction as string) ?? null, followed: !!r.followed,
     copiedFrom: (r.copied_from as string) ?? null, archived: !!r.archived, itemCount: Number(r.item_count ?? 0), superseded: !!r.superseded,
     updatedAt: new Date(String(r.updated_at)).toISOString(),
   };
@@ -153,11 +158,11 @@ async function insertSeed(t: Queryable, seed: Seed) {
   const s = (k: string) => (typeof f[k] === "string" ? (f[k] as string) : null);
   const [fw] = await t.query<{ id: string }>(
     `INSERT INTO standard_frameworks (tenant_id, owner_kind, key, identifier, uri, title, creator, publisher, subjects, language, version,
-       adoption_status, official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, distribution, created_by)
-     VALUES ($1, 'library', $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'seed') RETURNING id`,
+       adoption_status, official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, distribution, jurisdiction, created_by)
+     VALUES ($1, 'library', $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'seed') RETURNING id`,
     [LIBRARY, f.key, f.identifier, s("uri"), f.title, s("creator") ?? "", s("publisher") ?? "", Array.isArray(f.subject) ? f.subject : [],
       s("language") ?? "en", f.version, s("adoptionStatus"), s("officialSourceURL"), s("dataURL"), s("dataSource"), s("licenseTitle"),
-      s("licenseURI"), s("licenseText"), s("notice"), f.distribution === "school" ? "school" : "open"],
+      s("licenseURI"), s("licenseText"), s("notice"), f.distribution === "school" ? "school" : "open", jurisdictionCode(f.jurisdiction)],
   );
   await insertItems(t, LIBRARY, fw.id, seed.items.map((i) => ({ ...i, parentIdentifier: i.parent })));
   const ids = new Map((await t.query<{ id: string; identifier: string }>("SELECT id, identifier FROM standard_items WHERE framework_id = $1", [fw.id])).map((r) => [r.identifier, r.id]));
@@ -226,13 +231,18 @@ export type SchoolStandards = {
   courseSettings: boolean;
   /** Keys of 'school' library sets this school turned on. */
   enabledSets: string[];
+  /** Keys of library sets the school follows: listed first, and the library's default view. */
+  followedSets: string[];
+  /** States (and 'NAD') the school picked on /school/standards. */
+  jurisdictions: string[];
 };
 
 export async function schoolStandards(tenantId: string, q?: Queryable): Promise<SchoolStandards> {
   const db = q ?? await getDb();
-  const [rows, sets] = await Promise.all([
+  const [rows, sets, followed] = await Promise.all([
     db.query("SELECT * FROM school_standards_settings WHERE tenant_id = $1", [tenantId]),
     db.query<{ framework_key: string }>("SELECT framework_key FROM school_standard_sets WHERE tenant_id = $1 ORDER BY framework_key", [tenantId]),
+    db.query<{ framework_key: string }>("SELECT framework_key FROM school_followed_sets WHERE tenant_id = $1 ORDER BY framework_key", [tenantId]),
   ]);
   const r = rows[0];
   const raw = r?.settings;
@@ -241,19 +251,23 @@ export async function schoolStandards(tenantId: string, q?: Queryable): Promise<
     teacherFrameworks: r ? !!r.teacher_frameworks : true,
     courseSettings: r ? !!r.course_settings : true,
     enabledSets: sets.map((s) => s.framework_key),
+    followedSets: followed.map((s) => s.framework_key),
+    jurisdictions: r ? arr(r.jurisdictions) : [],
   };
 }
 
 /** School admins only (the caller checks). `settings: null` = back to the built-in default. */
-export async function saveSchoolStandards(ctx: Ctx, input: { settings?: unknown; teacherFrameworks?: boolean; courseSettings?: boolean }): Promise<SchoolStandards> {
+export async function saveSchoolStandards(ctx: Ctx, input: { settings?: unknown; teacherFrameworks?: boolean; courseSettings?: boolean; jurisdictions?: unknown }): Promise<SchoolStandards> {
   const db = await getDb();
   const cur = await schoolStandards(ctx.tenantId, db);
   const settings = input.settings === undefined ? cur.settings : input.settings === null ? null : normalizeSettings(input.settings);
+  const places = input.jurisdictions === undefined ? cur.jurisdictions
+    : [...new Set((Array.isArray(input.jurisdictions) ? input.jurisdictions : []).map(jurisdictionCode).filter((j): j is string => !!j))].sort().slice(0, 20);
   await db.query(
-    `INSERT INTO school_standards_settings (tenant_id, settings, teacher_frameworks, course_settings, updated_by, updated_at)
-     VALUES ($1, $2::jsonb, $3, $4, $5, now())
-     ON CONFLICT (tenant_id) DO UPDATE SET settings = $2::jsonb, teacher_frameworks = $3, course_settings = $4, updated_by = $5, updated_at = now()`,
-    [ctx.tenantId, settings ? JSON.stringify(settings) : null, input.teacherFrameworks ?? cur.teacherFrameworks, input.courseSettings ?? cur.courseSettings, ctx.userId],
+    `INSERT INTO school_standards_settings (tenant_id, settings, teacher_frameworks, course_settings, jurisdictions, updated_by, updated_at)
+     VALUES ($1, $2::jsonb, $3, $4, $5::text[], $6, now())
+     ON CONFLICT (tenant_id) DO UPDATE SET settings = $2::jsonb, teacher_frameworks = $3, course_settings = $4, jurisdictions = $5::text[], updated_by = $6, updated_at = now()`,
+    [ctx.tenantId, settings ? JSON.stringify(settings) : null, input.teacherFrameworks ?? cur.teacherFrameworks, input.courseSettings ?? cur.courseSettings, places, ctx.userId],
   );
   return schoolStandards(ctx.tenantId, db);
 }
@@ -264,8 +278,68 @@ export async function setSchoolSet(ctx: Ctx, key: string, on: boolean): Promise<
   const known = await db.query("SELECT 1 FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 AND distribution = 'school' LIMIT 1", [LIBRARY, key]);
   if (!known.length) return false;
   if (on) await db.query("INSERT INTO school_standard_sets (tenant_id, framework_key, enabled_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, key, ctx.userId]);
-  else await db.query("DELETE FROM school_standard_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
+  else {
+    // A set teachers can't see can't be followed either.
+    await db.query("DELETE FROM school_standard_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
+    await db.query("DELETE FROM school_followed_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
+  }
   return true;
+}
+
+/**
+ * The school follows a library set, or stops. Following a 'school' set
+ * turns it on too, so it needs `accepted` (the admin accepted its terms)
+ * unless it is on already. Stopping leaves it on. School admins only (the
+ * caller checks).
+ */
+export async function followSet(ctx: Ctx, key: string, on: boolean, accepted = false): Promise<"ok" | "unknown" | "terms"> {
+  const db = await getDb();
+  const [f] = await db.query<{ distribution: string }>("SELECT distribution FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 ORDER BY created_at DESC LIMIT 1", [LIBRARY, key]);
+  if (!f) return "unknown";
+  if (!on) {
+    await db.query("DELETE FROM school_followed_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
+    return "ok";
+  }
+  return db.tx(async (t) => {
+    if (f.distribution === "school") {
+      const enabled = await t.query("SELECT 1 FROM school_standard_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
+      if (!enabled.length) {
+        if (!accepted) return "terms" as const;
+        await t.query("INSERT INTO school_standard_sets (tenant_id, framework_key, enabled_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, key, ctx.userId]);
+      }
+    }
+    await t.query("INSERT INTO school_followed_sets (tenant_id, framework_key, followed_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, key, ctx.userId]);
+    return "ok" as const;
+  });
+}
+
+// ---------- states ----------
+
+const STATES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware",
+  DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota",
+  MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon",
+  PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah",
+  VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+  NAD: "North American Division (Adventist)",
+};
+const STATES_ES: Record<string, string> = {
+  DC: "Distrito de Columbia", HI: "Hawái", LA: "Luisiana", MI: "Míchigan", MN: "Minesota", MS: "Misisipi", MO: "Misuri",
+  NH: "Nuevo Hampshire", NJ: "Nueva Jersey", NM: "Nuevo México", NY: "Nueva York", NC: "Carolina del Norte", ND: "Dakota del Norte",
+  OR: "Oregón", PA: "Pensilvania", SC: "Carolina del Sur", SD: "Dakota del Sur",
+  WV: "Virginia Occidental", NAD: "División Norteamericana (adventista)",
+};
+
+/** A known state's postal code ('va' → 'VA') or 'NAD'; anything else null. */
+export function jurisdictionCode(v: unknown): string | null {
+  const c = typeof v === "string" ? v.trim().toUpperCase() : "";
+  return c in STATES ? c : null;
+}
+
+export function jurisdictionName(code: string, lang: string = "en"): string {
+  return (lang === "es" ? STATES_ES[code] : undefined) ?? STATES[code] ?? code;
 }
 
 // ---------- who sees and edits what ----------
@@ -282,6 +356,10 @@ const VISIBLE = `(
   OR (f.tenant_id = $1 AND f.owner_kind = 'school')
   OR (f.tenant_id = $1 AND f.owner_kind = 'teacher' AND (f.owner_id = $2 OR f.course_id = ANY($3::uuid[])))
 )`;
+/** SQL: a library set (alias f) the school $1 follows. */
+const FOLLOWED = `(f.tenant_id = '${LIBRARY}' AND f.key IN (SELECT framework_key FROM school_followed_sets WHERE tenant_id = $1))`;
+/** Followed sets first; with none followed, library, school, teacher as before. */
+const RANK = `CASE WHEN ${FOLLOWED} THEN 0 WHEN f.owner_kind = 'library' THEN 1 WHEN f.owner_kind = 'school' THEN 2 ELSE 3 END`;
 const vparams = (v: Viewer) => [v.tenantId, v.userId, v.teaches.filter((id) => UUID.test(id))];
 
 export function canEdit(v: Viewer, f: Framework): boolean {
@@ -290,7 +368,8 @@ export function canEdit(v: Viewer, f: Framework): boolean {
   return f.ownerId === v.userId || (!!f.courseId && v.teaches.includes(f.courseId));
 }
 
-const FRAMEWORK_COLS = `f.*,
+/** Needs $1 = the viewer's school. */
+const FRAMEWORK_COLS = `f.*, ${FOLLOWED} AS followed,
   (SELECT count(*)::int FROM standard_items i WHERE i.framework_id = f.id AND NOT i.archived) AS item_count,
   (f.key IS NOT NULL AND EXISTS (SELECT 1 FROM standard_frameworks n WHERE n.tenant_id = f.tenant_id AND n.key = f.key AND n.created_at > f.created_at)) AS superseded`;
 
@@ -299,22 +378,32 @@ export async function listFrameworks(v: Viewer, opts: { withArchived?: boolean }
   const db = await getDb();
   const rows = await db.query(
     `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE} ${opts.withArchived ? "" : "AND NOT f.archived"}
-      ORDER BY CASE f.owner_kind WHEN 'library' THEN 0 WHEN 'school' THEN 1 ELSE 2 END, f.title, f.version DESC`,
+      ORDER BY ${RANK}, f.title, f.version DESC`,
     vparams(v),
   );
   return rows.map(toFramework);
 }
 
 /** The 'school' library sets a school admin may turn on, newest version of each. */
-export async function schoolSets(): Promise<Framework[]> {
+export async function schoolSets(tenantId: string): Promise<Framework[]> {
+  return (await librarySets(tenantId)).filter((f) => f.distribution === "school");
+}
+
+/** Every library set, newest version of each (for choosing what the school follows), by state then title. */
+export async function librarySets(tenantId: string): Promise<Framework[]> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE f.tenant_id = $1 AND f.distribution = 'school'
+    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE f.tenant_id = '${LIBRARY}'
        AND NOT EXISTS (SELECT 1 FROM standard_frameworks n WHERE n.tenant_id = f.tenant_id AND n.key = f.key AND n.created_at > f.created_at)
-     ORDER BY f.title`,
-    [LIBRARY],
+     ORDER BY f.jurisdiction NULLS FIRST, f.title`,
+    [tenantId],
   );
   return rows.map(toFramework);
+}
+
+/** The states (and 'NAD') that have sets in this list. */
+export function jurisdictionsOf(list: Framework[]): string[] {
+  return [...new Set(list.map((f) => f.jurisdiction).filter((j): j is string => !!j))].sort();
 }
 
 export async function getFramework(v: Viewer, id: string, q?: Queryable): Promise<Framework | null> {
@@ -327,7 +416,8 @@ export async function getFramework(v: Viewer, id: string, q?: Queryable): Promis
 // ---------- browsing and search ----------
 
 export type Hit = Item & { framework: Pick<Framework, "id" | "title" | "version" | "ownerKind" | "notice"> };
-export type SearchInput = { frameworkId?: string; subject?: string; grade?: string; q?: string; limit?: number; withArchived?: boolean };
+/** `followed`: only the sets the school follows plus school and teacher sets (ignored when one framework is asked for). */
+export type SearchInput = { frameworkId?: string; subject?: string; grade?: string; q?: string; limit?: number; withArchived?: boolean; followed?: boolean };
 
 /**
  * Items the viewer can see, in framework then tree order. Words in `q` must
@@ -341,6 +431,7 @@ export async function searchItems(v: Viewer, input: SearchInput): Promise<{ hits
   const where: string[] = [VISIBLE];
   if (!input.withArchived) where.push("NOT i.archived", "NOT f.archived");
   if (input.frameworkId && UUID.test(input.frameworkId)) { params.push(input.frameworkId); where.push(`f.id = $${params.length}`); }
+  else if (input.followed) where.push(`(f.owner_kind <> 'library' OR ${FOLLOWED})`);
   if (input.subject) { params.push(input.subject.slice(0, 60)); where.push(`$${params.length} = ANY(f.subjects)`); }
   const g = input.grade ? gradeList(input.grade)[0] : undefined;
   // Items with no grades of their own (headings, anchors) are kept: they apply to every grade.
@@ -357,7 +448,7 @@ export async function searchItems(v: Viewer, input: SearchInput): Promise<{ hits
     `SELECT i.*, f.title AS f_title, f.version AS f_version, f.owner_kind AS f_owner, f.notice AS f_notice
        FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id
       WHERE ${where.join(" AND ")}
-      ORDER BY CASE f.owner_kind WHEN 'library' THEN 0 WHEN 'school' THEN 1 ELSE 2 END, f.title, f.version DESC, i.position
+      ORDER BY ${RANK}, f.title, f.version DESC, i.position
       LIMIT $${params.length}`,
     params,
   );
@@ -635,21 +726,26 @@ export function subjectsOf(list: Framework[]): string[] {
 }
 
 /** Framework metadata of the items a course's standards point at (for badges and notices). */
-export async function courseStandardSources(tenantId: string, courseId: string): Promise<Map<string, Pick<Framework, "id" | "title" | "version" | "ownerKind" | "notice">>> {
+export async function courseStandardSources(tenantId: string, courseId: string): Promise<Map<string, Pick<Framework, "id" | "title" | "version" | "ownerKind" | "notice" | "followed">>> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT s.id AS standard_id, f.id, f.title, f.version, f.owner_kind, f.notice
+    `SELECT s.id AS standard_id, f.id, f.title, f.version, f.owner_kind, f.notice, ${FOLLOWED} AS followed
        FROM standards s JOIN standard_items i ON i.id = s.item_id JOIN standard_frameworks f ON f.id = i.framework_id
       WHERE s.tenant_id = $1 AND s.course_id = $2`,
     [tenantId, courseId],
   );
-  return new Map(rows.map((r) => [String(r.standard_id), { id: String(r.id), title: String(r.title), version: String(r.version ?? ""), ownerKind: r.owner_kind as OwnerKind, notice: (r.notice as string) ?? null }]));
+  return new Map(rows.map((r) => [String(r.standard_id), { id: String(r.id), title: String(r.title), version: String(r.version ?? ""), ownerKind: r.owner_kind as OwnerKind, notice: (r.notice as string) ?? null, followed: !!r.followed }]));
 }
 
-/** A course's live standards for the pickers: code, statement and the framework each came from. */
+/**
+ * A course's live standards for the pickers: code, statement and the
+ * framework each came from. Those from sets the school follows come first;
+ * otherwise the course's own order.
+ */
 export async function standardOptions(ctx: Ctx, courseId: string): Promise<{ id: string; name: string; description: string; source?: string }[]> {
   const { listStandards } = await import("./standards");
-  const [list, sources] = await Promise.all([listStandards(ctx, courseId), courseStandardSources(ctx.tenantId, courseId)]);
+  const [all, sources] = await Promise.all([listStandards(ctx, courseId), courseStandardSources(ctx.tenantId, courseId)]);
+  const list = [...all].sort((a, b) => Number(!sources.get(a.id)?.followed) - Number(!sources.get(b.id)?.followed));
   return list.map((s) => {
     const f = sources.get(s.id);
     return { id: s.id, name: s.code, description: s.description, ...(f && f.ownerKind !== "teacher" ? { source: f.version ? `${f.title} (${f.version})` : f.title } : {}) };

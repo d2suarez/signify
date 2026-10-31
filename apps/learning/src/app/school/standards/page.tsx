@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireMe, readMe } from "@/lib/auth";
 import { isSchoolAdmin, lang, standardsViewer } from "@/lib/access";
 import {
-  createFramework, ensureLibrary, listFrameworks, saveSchoolStandards, schoolSets, schoolStandards, setSchoolSet,
+  createFramework, ensureLibrary, followSet, jurisdictionName, jurisdictionsOf, librarySets, listFrameworks, saveSchoolStandards, schoolStandards, setSchoolSet,
 } from "@/lib/standards-library";
 import { defaultSettings } from "@/lib/standards-math";
 import { schoolScales } from "@/lib/school-grading";
@@ -32,6 +32,11 @@ async function act(formData: FormData) {
   if (op === "allow") {
     await saveSchoolStandards(v, { teacherFrameworks: formData.get("teacherFrameworks") === "on", courseSettings: formData.get("courseSettings") === "on" });
   }
+  if (op === "places") await saveSchoolStandards(v, { jurisdictions: formData.getAll("place").map(String) });
+  if (op === "follow" || op === "unfollow") {
+    const r = await followSet(v, String(formData.get("key") || ""), op === "follow", formData.get("accept") === "on");
+    if (r === "terms") redirect("/school/standards?terms=1#follow");
+  }
   if (op === "set-on" && formData.get("accept") === "on") await setSchoolSet(v, String(formData.get("key") || ""), true);
   if (op === "set-off") await setSchoolSet(v, String(formData.get("key") || ""), false);
   if (op === "new") {
@@ -46,9 +51,11 @@ async function act(formData: FormData) {
  * scale and conversion for standards-based courses, published sets that
  * need the school's agreement to their terms, and the school's own sets.
  */
-export default async function SchoolStandardsPage() {
+export default async function SchoolStandardsPage({ searchParams }: { searchParams: Promise<{ terms?: string }> }) {
   const me = await requireMe();
-  const d = dict(await lang());
+  const ln = await lang();
+  const d = dict(ln);
+  const sp = await searchParams;
   const admin = isSchoolAdmin(me);
   if (!admin) {
     return (
@@ -60,7 +67,12 @@ export default async function SchoolStandardsPage() {
   }
   await ensureLibrary();
   const v = (await standardsViewer(me))!;
-  const [school, sets, frameworks, scales] = await Promise.all([schoolStandards(me.tenantId), schoolSets(), listFrameworks(v), schoolScales(me.tenantId)]);
+  const [school, library, frameworks, scales] = await Promise.all([schoolStandards(me.tenantId), librarySets(me.tenantId), listFrameworks(v), schoolScales(me.tenantId)]);
+  const sets = library.filter((f) => f.distribution === "school");
+  const places = jurisdictionsOf(library);
+  // Sets to choose from: multi-state ones, the picked states' and any already followed.
+  const choices = library.filter((f) => !f.jurisdiction || school.jurisdictions.includes(f.jurisdiction) || f.followed);
+  const placeName = (j: string | null) => (j ? jurisdictionName(j, ln) : d.stdMultiState);
   // Letters in the conversion table follow the school's first grade band.
   const letters = scales.value.bands[0]?.rows ?? LEGACY_SCALE;
   const own = frameworks.filter((f) => f.ownerKind === "school");
@@ -74,6 +86,50 @@ export default async function SchoolStandardsPage() {
           <Link className="btn" href="/standards">{d.standardsLibrary}</Link>
         </div>
         <p className="muted" style={{ margin: 0 }}>{d.schoolStandardsHint}</p>
+
+        <section className="card stack" style={{ gap: 8 }} aria-labelledby="follow">
+          <h2 id="follow" className="label">{d.stdFollowTitle}</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.stdFollowHint}</p>
+          <form action={act} className="stack" style={{ gap: 6 }}>
+            <input type="hidden" name="op" value="places" />
+            <fieldset className="row" style={{ border: 0, padding: 0, margin: 0, gap: 12, flexWrap: "wrap" }}>
+              <legend className="muted" style={{ fontSize: 13, padding: 0 }}>{d.stdPlaces}</legend>
+              {places.map((j) => (
+                <label key={j} className="check"><input type="checkbox" name="place" value={j} defaultChecked={school.jurisdictions.includes(j)} /> {jurisdictionName(j, ln)}</label>
+              ))}
+            </fieldset>
+            <button className="btn btn-sm" style={{ alignSelf: "flex-start" }}>{d.save}</button>
+          </form>
+          {school.jurisdictions.length === 0 && <p className="empty" style={{ margin: 0 }}>{d.stdPlacesNone}</p>}
+          {sp.terms && <p className="notice" role="alert" style={{ margin: 0 }}>{d.stdFollowNeedsTerms}</p>}
+          <ul className="list" style={{ gap: 6 }}>
+            {choices.map((f, k) => {
+              const needsTerms = f.distribution === "school" && !(f.key && school.enabledSets.includes(f.key));
+              return (
+                <li key={f.id} className="stack" style={{ display: "block" }}>
+                  {(k === 0 || choices[k - 1].jurisdiction !== f.jurisdiction) && <p className="label" style={{ margin: "8px 0 4px" }}>{placeName(f.jurisdiction)}</p>}
+                  <form action={act} className="row" style={{ alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                    <input type="hidden" name="key" value={f.key ?? ""} />
+                    <div className="grow" style={{ minWidth: 220 }}>
+                      <b lang={f.language}>{f.title}</b>{f.version ? ` (${f.version})` : ""} {f.followed && <span className="chip">{d.stdFollowing}</span>}
+                      <details>
+                        <summary className="muted" style={{ fontSize: 13 }}>{d.stdLicense}: <span lang="en">{f.licenseTitle}</span></summary>
+                        <FrameworkInfo f={f} d={d} />
+                      </details>
+                      {!f.followed && needsTerms && (
+                        <label className="check" style={{ whiteSpace: "normal", fontSize: 14 }}><input type="checkbox" name="accept" required /> {d.stdAcceptTerms}</label>
+                      )}
+                    </div>
+                    {f.followed
+                      ? <button className="btn btn-sm" name="op" value="unfollow">{d.stdUnfollow}</button>
+                      : <button className="btn btn-primary btn-sm" name="op" value="follow">{needsTerms ? d.stdFollowTurnOn : d.stdFollow}</button>}
+                  </form>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.stdNadNote}</p>
+        </section>
 
         <form action={act} className="card stack" style={{ gap: 8 }}>
           <input type="hidden" name="op" value="allow" />

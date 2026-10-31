@@ -17,6 +17,9 @@ import path from "node:path";
 
 const OUT = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "standards");
 const OPENSALT = "https://opensalt.net/ims/case/v1p0/CFPackages/";
+// States' own CASE servers.
+const GEORGIA = "https://case.georgiastandards.org/ims/case/v1p0/CFPackages/";
+const CPALMS = "https://www.cpalms.org/Public/ims/case/v1p1/CFPackages/";
 const CSP = "https://api.commonstandardsproject.com/api/v1/standard_sets/";
 
 const CCSS_NOTICE = "© Copyright 2010. National Governors Association Center for Best Practices and Council of Chief State School Officers. All rights reserved.";
@@ -31,7 +34,36 @@ const CCSS_LICENSE = {
 const CSP_ELA_SETS = ["grade-k", "grade-01", "grade-02", "grade-03", "grade-04", "grade-05", "grade-06", "grade-07", "grade-08", "grades-09-10", "grades-11-12"]
   .map((g) => `67810E9EF6944F9383DCC602A3484C23_D10003FC_${g}`);
 
-/** Each library set. `raw` names the downloaded file(s) in rawDir. */
+// State sets whose files state no license: the agency's copyright, and no
+// clear permission for a product that is sold, so a school turns them on.
+const stateTerms = (agency, page) => ({
+  licenseTitle: `© ${agency}. No license stated with the published standards.`,
+  licenseURI: page,
+  licenseText: `Published by the ${agency} for its schools. Neither the CASE file nor the agency's standards pages state terms for other schools or for a product that is sold; ask the agency before using these outside that state's public schools.`,
+  notice: `© ${agency}.`,
+  distribution: "school",
+});
+const GEORGIA_TERMS = (licenseURI) => ({
+  licenseTitle: "Creative Commons Attribution-NonCommercial-ShareAlike (CC BY-NC-SA)",
+  licenseURI,
+  licenseText: "This license allows reusers to distribute, remix, adapt, and build upon the material in any medium or format for noncommercial purposes only, and only so long as attribution is given to the creator. If you remix, adapt, or build upon the material, you must license the modified material under identical terms. (The license named in the Georgia Department of Education's CASE file.)",
+  notice: "Georgia Standards © Georgia Department of Education, licensed CC BY-NC-SA.",
+  distribution: "school",
+});
+const CPALMS_TERMS = {
+  licenseTitle: "CPALMS License",
+  licenseURI: "https://www.cpalms.org/terms/terms.aspx",
+  licenseText: "CPALMS standards and course descriptions may be duplicated and reproduced in accordance with Florida's public records laws. © Florida State University; CPALMS is a trademark of Florida State University. (The license in CPALMS's CASE file; the full terms page did not state terms for a product that is sold.)",
+  notice: "Florida's B.E.S.T. Standards from CPALMS, the State of Florida's official source for standards. © Florida State University. CPALMS is a trademark of Florida State University.",
+  distribution: "school",
+};
+
+/**
+ * Each library set. `raw` names the downloaded file(s) in rawDir; `url` is
+ * where a CASE package comes from (default OpenSALT + raw). `jurisdiction`
+ * is the US state's postal code (or 'NAD' for the North American Division's
+ * Adventist standards); none for multi-state sets like Common Core.
+ */
 const SOURCES = [
   {
     key: "ccss-math", kind: "case", raw: "c6496676-d7cb-11e8-824f-0242ac160002",
@@ -60,7 +92,7 @@ const SOURCES = [
     distribution: "school",
   },
   {
-    key: "va-sol-math", kind: "case", raw: "aa7ab56a-276b-11ef-8aff-0242ac140003",
+    key: "va-sol-math", kind: "case", raw: "aa7ab56a-276b-11ef-8aff-0242ac140003", jurisdiction: "VA",
     title: "Mathematics Standards of Learning for Virginia Public Schools", version: "2023", subject: ["Mathematics"],
     publisher: "Virginia Department of Education", creator: "Virginia Board of Education",
     dataSource: "CASE package published on OpenSALT by Virtual Virginia",
@@ -71,7 +103,7 @@ const SOURCES = [
     distribution: "school",
   },
   {
-    key: "va-sol-english", kind: "case", raw: "5a36e172-2802-11ef-ae34-0242ac1d0003",
+    key: "va-sol-english", kind: "case", raw: "5a36e172-2802-11ef-ae34-0242ac1d0003", jurisdiction: "VA",
     title: "English Standards of Learning for Virginia Public Schools", version: "2024", subject: ["English Language Arts"],
     publisher: "Virginia Department of Education", creator: "Virginia Board of Education",
     dataSource: "CASE package published on OpenSALT by Virtual Virginia",
@@ -81,6 +113,82 @@ const SOURCES = [
     notice: "© 2024 Commonwealth of Virginia Department of Education.",
     distribution: "school",
   },
+  {
+    key: "ga-math", kind: "case", raw: "e9dd7229-3558-4df2-85c6-57b8938f6180", url: GEORGIA, jurisdiction: "GA",
+    title: "Georgia's K-12 Mathematics Standards", version: "2023", subject: ["Mathematics"],
+    publisher: "Georgia Department of Education", creator: "Georgia Department of Education",
+    officialSourceURL: "https://www.gadoe.org/Curriculum-Instruction-and-Assessment/Curriculum-and-Instruction/Pages/Mathematics.aspx",
+    dataSource: "CASE package from the Georgia Department of Education's CASE server (implemented 2023-2024)",
+    ...GEORGIA_TERMS("https://case.georgiastandards.org/uri/2f22abe2-eb0a-415f-8b45-a13859b35aca"),
+  },
+  {
+    key: "ga-ela", kind: "case", raw: "391c3abe-c1ec-4a4a-a942-c9e152b35102", url: GEORGIA, jurisdiction: "GA",
+    title: "Georgia's K-12 Standards for English Language Arts", version: "2025", subject: ["English Language Arts"],
+    publisher: "Georgia Department of Education", creator: "Georgia Department of Education",
+    dataSource: "CASE package from the Georgia Department of Education's CASE server (implemented 2025-2026)",
+    ...GEORGIA_TERMS("https://case.georgiastandards.org/ims/case/v1p0/CFLicenses/d882a8cd-deb9-41bc-8567-1df270735af6"),
+  },
+  {
+    key: "ga-science", kind: "case", raw: "27a08dc6-416e-11e7-ba71-02bd89fdd987", url: GEORGIA, jurisdiction: "GA",
+    title: "Georgia Standards of Excellence for Science", version: "2016", subject: ["Science"],
+    publisher: "Georgia Department of Education", creator: "Georgia Department of Education",
+    dataSource: "CASE package from the Georgia Department of Education's CASE server (K-12 approved 2016; more high school courses 2019)",
+    ...GEORGIA_TERMS("https://case.georgiastandards.org/uri/47df204e-0584-4a22-b8d7-2ff0b686d989"),
+  },
+  {
+    key: "ga-social-studies", kind: "case", raw: "a446e74c-463e-11e7-94f5-b49cee8b2d8c", url: GEORGIA, jurisdiction: "GA",
+    title: "Georgia Standards of Excellence for Social Studies", version: "2021", subject: ["Social Studies"],
+    publisher: "Georgia Department of Education", creator: "Georgia Department of Education",
+    dataSource: "CASE package from the Georgia Department of Education's CASE server (courses marked Deprecated left out)",
+    skipType: /^Deprecated$/i,
+    ...GEORGIA_TERMS("https://case.georgiastandards.org/uri/ee8eb90e-91df-414f-a247-6ab09d217031"),
+  },
+  {
+    key: "fl-best-math", kind: "case", raw: "56a98ac7-85fd-42d2-9756-ef5ce6a71de3", url: CPALMS, jurisdiction: "FL",
+    title: "Florida's B.E.S.T. Standards for Mathematics", version: "2020", subject: ["Mathematics"],
+    publisher: "Florida Department of Education", creator: "Florida Department of Education",
+    officialSourceURL: "https://www.cpalms.org/Public/search/Standard",
+    dataSource: "CASE package from CPALMS's CASE server (Florida State University for the Florida Department of Education)",
+    ...CPALMS_TERMS,
+  },
+  {
+    key: "fl-best-ela", kind: "case", raw: "57a98ac7-85fd-42d2-9756-ef5ce6a71de3", url: CPALMS, jurisdiction: "FL",
+    title: "Florida's B.E.S.T. Standards for English Language Arts", version: "2020", subject: ["English Language Arts"],
+    publisher: "Florida Department of Education", creator: "Florida Department of Education",
+    officialSourceURL: "https://www.cpalms.org/Public/search/Standard",
+    dataSource: "CASE package from CPALMS's CASE server (Florida State University for the Florida Department of Education)",
+    ...CPALMS_TERMS,
+  },
+  {
+    key: "ok-math", kind: "case", raw: "18f39bc2-ca90-11ed-998f-0242ac160003", jurisdiction: "OK",
+    title: "Oklahoma Academic Standards for Mathematics", version: "2022", subject: ["Mathematics"],
+    publisher: "Oklahoma State Department of Education",
+    dataSource: "CASE package published on OpenSALT by the Oklahoma State Department of Education (Adopted)",
+    ...stateTerms("Oklahoma State Department of Education", "https://sde.ok.gov/oklahoma-academic-standards"),
+  },
+  {
+    key: "md-math", kind: "case", raw: "5254fd3f-b10b-5aae-95b0-ce4cf3223874", jurisdiction: "MD",
+    title: "Maryland College and Career Ready Standards for Mathematics", version: "2025", subject: ["Mathematics"],
+    publisher: "Maryland State Department of Education",
+    dataSource: "CASE package published on OpenSALT for the Maryland State Department of Education by PCG (Adopted)",
+    ...stateTerms("Maryland State Department of Education", "https://marylandpublicschools.org/about/pages/dcaa/math/revised-standards.aspx"),
+  },
+  {
+    key: "in-math", kind: "case", raw: "76673c2e-5cb6-11ee-a3bc-0242c0a84002", jurisdiction: "IN",
+    title: "Indiana Academic Standards for Mathematics", version: "2023", subject: ["Mathematics"],
+    publisher: "Indiana Department of Education",
+    dataSource: "CASE package published on OpenSALT by the Indiana Department of Education (marked Draft there; the 2023 standards are Indiana's current ones)",
+    ...stateTerms("Indiana Department of Education", "https://www.in.gov/doe/students/indiana-academic-standards/mathematics/"),
+  },
+  // NAD (North American Division) Adventist standards: not added. The NAD's
+  // content is copyrighted and published only as PDFs. Once the NAD Office of
+  // Education gives written permission and a spreadsheet or CASE file, add one
+  // entry per subject here, e.g.
+  //   { key: "nad-math", kind: "case" | "csv", raw: "<file>", jurisdiction: "NAD",
+  //     title: "NAD Mathematics Standards", version: "<year>", subject: ["Mathematics"],
+  //     publisher: "North American Division Office of Education", licenseTitle: "<the permission>",
+  //     licenseURI, licenseText, notice, distribution: "school" }
+  // (a spreadsheet needs a small reader like fromCsp). See standards/README.md.
 ];
 
 const GRADES = ["PK", "KG", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
@@ -93,8 +201,10 @@ const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }
 /** Plain text: standards are stored and shown as text, never HTML. */
 const clean = (s) => (typeof s === "string"
   ? s.replace(/<[^>]*>/g, "").replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e) => (e[0] === "#" ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m))
-    .replace(/\s+/g, " ").trim()
+    .replace(/\*\*/g, "").replace(/\s+/g, " ").trim()
   : "");
+/** 'eng', 'en_US' → 'en'. */
+const lang = (l) => String(l || "en").toLowerCase().replace(/^eng$/, "en").split(/[-_]/)[0];
 const uuid = (hex) => {
   const h = String(hex).replace(/-/g, "").toLowerCase();
   return /^[0-9a-f]{32}$/.test(h) ? `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}` : null;
@@ -102,11 +212,13 @@ const uuid = (hex) => {
 
 // ---------- fetch ----------
 
+const caseUrl = (s) => (s.url ?? OPENSALT) + s.raw + (s.url === CPALMS ? ".json" : "");
+
 async function fetchAll(dir) {
   fs.mkdirSync(dir, { recursive: true });
   for (const s of SOURCES) {
     for (const r of [s.raw].flat()) {
-      const url = (s.kind === "case" ? OPENSALT : CSP) + r;
+      const url = s.kind === "case" ? caseUrl(s) : CSP + r;
       const res = await fetch(url, { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`${url}: ${res.status}`);
       fs.writeFileSync(path.join(dir, `${r}.json`), Buffer.from(await res.arrayBuffer()));
@@ -136,6 +248,7 @@ function fromCase(src, pkg) {
       const i = byId.get(k.id);
       if (!i || seen.has(i.identifier)) continue;
       seen.add(i.identifier);
+      if (src.skipType?.test(i.CFItemType ?? "")) continue;
       const statement = clean(i.fullStatement);
       // Connector nodes ("Students who demonstrate understanding can:") add nothing: their children move up.
       if (src.collapse && !i.humanCodingScheme && src.collapse.test(statement)) { walk(i.identifier, outParent); continue; }
@@ -155,9 +268,9 @@ function fromCase(src, pkg) {
   return {
     framework: {
       identifier: doc.identifier, uri: doc.uri ?? null, creator: src.creator ?? clean(doc.creator),
-      officialSourceURL: src.officialSourceURL ?? doc.officialSourceURL ?? null, language: doc.language || "en",
+      officialSourceURL: src.officialSourceURL ?? doc.officialSourceURL ?? null, language: lang(doc.language),
       adoptionStatus: doc.adoptionStatus ?? null, sourceUpdated: doc.lastChangeDateTime ?? null,
-      dataURL: OPENSALT + src.raw,
+      dataURL: caseUrl(src),
     },
     items, associations,
   };
@@ -237,7 +350,7 @@ function stableUuid(s) {
 
 function write(src, built) {
   const fw = {
-    key: src.key, title: src.title, version: src.version, subject: src.subject, publisher: src.publisher,
+    key: src.key, title: src.title, version: src.version, subject: src.subject, publisher: src.publisher, jurisdiction: src.jurisdiction ?? null,
     ...built.framework,
     dataSource: src.dataSource, licenseTitle: src.licenseTitle, licenseURI: src.licenseURI, licenseText: src.licenseText,
     notice: src.notice, distribution: src.distribution,
