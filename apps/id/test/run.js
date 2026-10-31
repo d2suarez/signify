@@ -2862,54 +2862,113 @@ function section(title) { console.log(`\n${title}`); }
         (await (await pCall(placesAdmin, `/users/${bobUser.id}/export`)).json()).name_changes.length >= 3);
     }
 
-    section('Practice class');
+    section('Practice class and mock people');
     {
       const practice = require('../src/practice');
       const guardians = require('../src/guardians');
       eq('a local admin cannot make one', (await pCall(placesAdmin, `/practice?tenant_id=${tenant.id}`)).status, 403);
-      eq('the student must be a different account from the parent',
-        (await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu', studentEmail: 'x@gmail.com', parentEmail: 'x@gmail.com' })).ok, false);
-      eq('a teacher who is not at the school is refused',
-        (await practice.setup({ tenantId: tenant.id, teacherEmail: 'stranger@nowhere.edu', studentEmail: 'a@gmail.com', parentEmail: 'b@gmail.com' })).ok, false);
-      const refused = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-admin@school.edu', studentEmail: 'places-teacher@school.edu', parentEmail: 'pat.parent@gmail.com' });
-      ok('a test account holding another role is not made a student without being asked', !refused.ok && /make them a student/.test(refused.error));
+      eq('a teacher who is not at any school is refused',
+        (await practice.setup({ teacherEmail: 'stranger@nowhere.edu' })).ok, false);
+      eq('nor at the school named', (await practice.setup({ teacherEmail: 'places-teacher@school.edu', tenantId: '00000000-0000-0000-0000-000000000000' })).ok, false);
+      eq('a practice address cannot be the teacher', (await practice.setup({ teacherEmail: 'pip.example@practice.invalid' })).ok, false);
+      ok('a parent cannot be the teacher', /guardian/.test((await practice.setup({ teacherEmail: 'pat.parent@gmail.com' })).error || ''));
 
-      const patBefore = await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'pat.parent@gmail.com'");
-      const made = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu',
-        studentEmail: 'Test.Student@gmail.com', parentEmail: 'pat.parent@gmail.com' });
-      ok('a super admin makes the practice class', made.ok, made.error);
+      const usersBefore = Number((await db.one('SELECT COUNT(*) AS n FROM users WHERE NOT is_mock')).n);
+      const made = await practice.setup({ teacherEmail: 'Places-Teacher@school.edu' });
+      ok('only the teacher’s address is needed: the school is theirs', made.ok && made.tenantId === tenant.id, made.error);
       const roster = await db.many(
-        'SELECT u.email, u.display_name, u.official_family_name, cm.role FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = $1', [made.classId]);
-      eq('teacher, four made-up students and the test student', roster.length, 6);
-      ok('the made-up students can never sign in (practice.invalid) and say they are practice',
-        roster.filter((r) => r.email.endsWith('@practice.invalid')).every((r) => /\(practice\)$/.test(r.display_name) && r.official_family_name));
-      const pat = await db.one("SELECT id FROM users WHERE email = 'pat.parent@gmail.com'");
-      const kids = await db.many('SELECT student_id FROM guardian_links WHERE guardian_id = $1 AND verified_at IS NOT NULL', [pat.id]);
-      eq('the parent is linked, verified, to the test student and one made-up student', kids.length, 2);
-      const children = await guardians.childrenOf(pat.id, tenant.id);
-      ok('so an app asking for the parent’s children finds the practice class', children.every((c) => c.classes.some((k) => k.id === made.classId)));
-      const again = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-teacher@school.edu', studentEmail: 'test.student@gmail.com', parentEmail: 'pat.parent@gmail.com' });
-      eq('running it again changes nothing', [again.classId, (await db.one('SELECT COUNT(*) AS n FROM class_members WHERE class_id = $1', [made.classId])).n,
-        (await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [pat.id])).n].map(String), [made.classId, '6', '2']);
+        'SELECT u.email, u.display_name, u.official_family_name, u.is_mock, cm.role FROM class_members cm JOIN users u ON u.id = cm.user_id WHERE cm.class_id = $1', [made.classId]);
+      eq('the teacher and four mock students', roster.length, 5);
+      ok('the students are mocks on practice.invalid with official names',
+        roster.filter((r) => r.role === 'student').every((r) => r.is_mock && r.email.endsWith('@practice.invalid') && /\(practice\)$/.test(r.display_name) && r.official_family_name));
+      const mockParent = await db.one('SELECT u.*, r.key AS role_key FROM users u JOIN memberships m ON m.user_id = u.id JOIN roles r ON r.id = m.role_id WHERE u.id = $1', [made.parentId]);
+      ok('a mock parent, a guardian at the school', mockParent.is_mock && mockParent.role_key === 'guardian' && mockParent.email.endsWith('@practice.invalid'));
+      const children = await guardians.childrenOf(made.parentId, tenant.id);
+      eq('linked and verified to two of the mock students, who are in the class',
+        [children.length, children.every((c) => c.classes.some((k) => k.id === made.classId))], [2, true]);
+      eq('no real account was made or changed', Number((await db.one('SELECT COUNT(*) AS n FROM users WHERE NOT is_mock')).n), usersBefore);
 
-      const created = await db.one("SELECT id FROM users WHERE email = 'test.student@gmail.com'");
+      // No mock can ever sign in, by any path.
+      const pip = await db.one("SELECT id FROM users WHERE email = 'pip.example@practice.invalid'");
+      const bySub = await identity.resolveUser({ provider: 'google', subject: 'sub-pip', email: 'pip.example@practice.invalid', name: 'Pip' });
+      eq('a Google sign-in on a mock’s address is refused', [bySub.ok, bySub.code], [false, 'mock']);
+      eq('and claims nothing', Number((await db.one('SELECT COUNT(*) AS n FROM identities WHERE user_id = $1', [pip.id])).n), 0);
+      await db.query("INSERT INTO identities (user_id, provider, subject, email_at_link) VALUES ($1, 'google', 'sub-planted', 'x')", [pip.id]);
+      eq('even with a login planted on it', (await identity.resolveUser({ provider: 'google', subject: 'sub-planted', email: 'pip.example@practice.invalid' })).code, 'mock');
+      await db.query("DELETE FROM identities WHERE subject = 'sub-planted'");
+      let noSession = false;
+      try { await sessions.create(pip.id, { ip: '10.0.0.50', userAgent: 'test', isStaff: false }); } catch { noSession = true; }
+      ok('and no session is ever made for one', noSession);
+      let refusedEmail = false;
+      try { await db.query("UPDATE users SET email = 'pip@gmail.com' WHERE id = $1", [pip.id]); } catch { refusedEmail = true; }
+      ok('a mock cannot be given a real address', refusedEmail);
+
+      const again = await practice.setup({ teacherEmail: 'places-teacher@school.edu', tenantId: tenant.id });
+      eq('running it again changes nothing', [again.classId, again.parentId,
+        (await db.one('SELECT COUNT(*) AS n FROM class_members WHERE class_id = $1', [made.classId])).n,
+        (await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [made.parentId])).n,
+        (await db.one('SELECT COUNT(*) AS n FROM users WHERE is_mock')).n].map(String),
+        [made.classId, made.parentId, '5', '2', '5']);
+      const st = await practice.status(tenant.id);
+      ok('status lists the class and the parent’s children', st.active && st.members.length === 5 && st.parent.children.length === 2);
+
+      // ---- preview: staff see what a mock sees, with their own token ----
+      const tokenFor = async (userId, isStaff) => {
+        const sess = await sessions.create(userId, { ip: '10.0.0.42', userAgent: 'test', isStaff });
+        const v = crypto.randomBytes(32).toString('base64url');
+        const ch = crypto.createHash('sha256').update(v).digest('base64url');
+        const a = await fetch(`${base}/authorize?response_type=code&client_id=atlas` +
+          `&redirect_uri=${encodeURIComponent('http://localhost:4000/auth/callback')}` +
+          `&scope=openid+profile+email+roles&state=p&code_challenge=${ch}&code_challenge_method=S256`,
+          { headers: { cookie: `${sessions.COOKIE}=${encodeURIComponent(sess.raw)}` }, redirect: 'manual' });
+        const code = new URL(a.headers.get('location')).searchParams.get('code');
+        return (await (await fetch(`${base}/token`, {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: basic },
+          body: form({ grant_type: 'authorization_code', code, redirect_uri: 'http://localhost:4000/auth/callback', code_verifier: v }),
+        })).json()).access_token;
+      };
+      const idOf = async (email) => (await db.one('SELECT id FROM users WHERE email = $1', [email])).id;
+      await placesPerson('other-teacher@school.edu', 'teacher');
+      const teacherTok = await tokenFor(await idOf('places-teacher@school.edu'), true);
+      const adminTok = await tokenFor(await idOf('places-admin@school.edu'), true);
+      const otherTok = await tokenFor(await idOf('other-teacher@school.edu'), true);
+      const parentTok = await tokenFor(await idOf('pat.parent@gmail.com'), false);
+      const pv = (tok, path) => fetch(`${base}/api/v1/preview${path}`, bearer(tok));
+      const auditCount = async (action) => Number((await db.one('SELECT COUNT(*) AS n FROM audit_log WHERE action = $1', [action])).n);
+
+      eq('signed out, nothing', (await fetch(`${base}/api/v1/preview/people`)).status, 401);
+      const listed = await (await pv(teacherTok, '/people')).json();
+      eq('the class’s teacher may preview the four students and the parent',
+        [listed.people.length, listed.people.filter((p) => p.kind === 'parent').length], [5, 1]);
+      eq('a school admin may too', (await (await pv(adminTok, '/people')).json()).people.length, 5);
+      eq('a teacher of other classes sees nobody', (await (await pv(otherTok, '/people')).json()).people.length, 0);
+      eq('nor does a parent', (await (await pv(parentTok, '/people')).json()).people.length, 0);
+
+      const before = await auditCount('preview.read');
+      const cls = await (await pv(teacherTok, `/${pip.id}/classes`)).json();
+      ok('a mock student’s classes, as /classes would give them', cls.classes.length === 1 && cls.classes[0].id === made.classId && cls.classes[0].role === 'student');
+      const kids = await (await pv(adminTok, `/${made.parentId}/children`)).json();
+      eq('a mock parent’s children, as /my-children would give them', kids.children.map((k) => k.classes[0].id), [made.classId, made.classId]);
+      eq('each call is audited, not as a disclosure', [await auditCount('preview.read') - before,
+        (await db.one("SELECT is_disclosure FROM audit_log WHERE action = 'preview.read' ORDER BY ts DESC LIMIT 1")).is_disclosure], [2, false]);
+
+      eq('a teacher of other classes is refused', (await pv(otherTok, `/${pip.id}/classes`)).status, 403);
+      eq('so is a parent', (await pv(parentTok, `/${made.parentId}/children`)).status, 403);
+      const real = await pv(adminTok, `/${await idOf('places-teacher@school.edu')}/classes`);
+      eq('real people are never previewed, even by an admin', [real.status, (await real.json()).error], [403, 'Only practice people can be previewed.']);
+      eq('an unknown id is not found', (await pv(adminTok, '/00000000-0000-0000-0000-000000000000/classes')).status, 404);
+      ok('refusals are audited too', (await auditCount('preview.refused')) >= 4);
+
+      // ---- remove ----
       const removed = await practice.remove({ tenantId: tenant.id });
-      ok('remove takes it all away', removed.ok);
+      ok('remove takes it all away', removed.ok && removed.removed.mockPeople === 5);
       eq('the class is gone', await db.one('SELECT 1 FROM classes WHERE id = $1', [made.classId]), null);
-      eq('so are the made-up students', Number((await db.one("SELECT COUNT(*) AS n FROM users WHERE email LIKE '%@practice.invalid'")).n), 0);
-      eq('and the test account made for it, never signed in to', await db.one('SELECT 1 FROM users WHERE id = $1', [created.id]), null);
-      eq('the parent’s links go', Number((await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [pat.id])).n), 0);
-      eq('the parent keeps their account and role', (await db.one('SELECT m.role_id FROM memberships m WHERE m.user_id = $1', [pat.id])).role_id, patBefore.role_id);
+      eq('so are the mock people', Number((await db.one('SELECT COUNT(*) AS n FROM users WHERE is_mock')).n), 0);
+      eq('and their links', Number((await db.one('SELECT COUNT(*) AS n FROM guardian_links WHERE guardian_id = $1', [made.parentId])).n), 0);
+      eq('every real account is still there', Number((await db.one('SELECT COUNT(*) AS n FROM users WHERE NOT is_mock')).n), usersBefore + 1);
       eq('a second remove has nothing to do', (await practice.remove({ tenantId: tenant.id })).ok, false);
-
-      // A test account that is a teacher here, made a student on request, gets its role back.
-      const teacherRow = await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'");
-      const asked = await practice.setup({ tenantId: tenant.id, teacherEmail: 'places-admin@school.edu', studentEmail: 'places-teacher@school.edu', parentEmail: 'pat.parent@gmail.com', makeStudent: true });
-      ok('with make-student, a teacher account becomes the practice student', asked.ok, asked.error);
-      eq('as a student', (await db.one("SELECT r.key FROM memberships m JOIN roles r ON r.id = m.role_id JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'")).key, 'student');
+      ok('and it can be made again afterwards', (await practice.setup({ teacherEmail: 'places-teacher@school.edu' })).ok);
       await practice.remove({ tenantId: tenant.id });
-      eq('and remove gives the old role back', (await db.one("SELECT m.role_id FROM memberships m JOIN users u ON u.id = m.user_id WHERE u.email = 'places-teacher@school.edu'")).role_id, teacherRow.role_id);
-      eq('and keeps the account, which was not made here', !!(await db.one("SELECT 1 FROM users WHERE email = 'places-teacher@school.edu'")), true);
     }
     placesSrv.close();
   }

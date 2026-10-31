@@ -235,6 +235,100 @@ router.get('/my-children', async (req, res) => {
   res.json({ children });
 });
 
+// ---------- preview: what a mock person sees ----------
+// A mock person (users.is_mock, migration 015: the practice class's made-up
+// students and parent) has no login, so an app cannot ask as them. Staff ask
+// instead, with their OWN token, and get exactly what /classes and
+// /my-children would give the mock. Nothing here signs anyone in or acts as
+// anyone: the caller stays the caller.
+//
+// Only mocks, only at the caller's school, and only for someone who teaches
+// one of the mock's classes (or one of a mock parent's children's classes)
+// or is a school admin (core:manage_users at school scope). Previewing real
+// students is an open question for the school, so it is refused. Every call,
+// allowed or refused, is audited.
+
+const PREVIEW_ADMIN = (c) => c.isSuper || rbac.allows(c.perms, 'core:manage_users', 'tenant');
+
+/** The mock people at the caller's school that the caller may preview. */
+async function previewable(c) {
+  if (!c.tenantId) return [];
+  const admin = PREVIEW_ADMIN(c);
+  return db.many(
+    `SELECT u.id, u.display_name, r.key AS role_key
+       FROM users u
+       JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $1 AND m.status = 'active'
+       JOIN roles r ON r.id = m.role_id
+      WHERE u.is_mock AND u.deleted_at IS NULL
+        AND ($3 OR EXISTS (
+              -- a class the caller teaches, with this mock (or a child of
+              -- this mock) in it as a student
+              SELECT 1 FROM class_access me
+                JOIN class_access them ON them.class_id = me.class_id AND them.role = 'student'
+                JOIN classes k ON k.id = me.class_id AND k.archived = false
+               WHERE me.user_id = $2 AND me.role = 'teacher'
+                 AND (them.user_id = u.id OR them.user_id IN (
+                       SELECT g.student_id FROM guardian_links g
+                        WHERE g.guardian_id = u.id AND g.tenant_id = $1 AND g.verified_at IS NOT NULL))))
+      ORDER BY (r.key = 'guardian'), u.display_name`, [c.tenantId, c.userId, admin]);
+}
+
+/** The mock the path names, if the caller may preview it; else answers. */
+async function previewTarget(req, res, c, what) {
+  const id = String(req.params.userId || '');
+  const target = /^[0-9a-f-]{36}$/i.test(id) ? await db.one('SELECT id, is_mock FROM users WHERE id = $1 AND deleted_at IS NULL', [id]) : null;
+  const allowed = target && target.is_mock && (await previewable(c)).find((p) => p.id === target.id);
+  await audit.record({
+    actorUserId: c.userId, tenantId: c.tenantId, appId: c.app.id,
+    action: allowed ? 'preview.read' : 'preview.refused', targetType: 'user', targetId: target ? target.id : null,
+    detail: { what, ...(allowed ? {} : { reason: !target ? 'not_found' : !target.is_mock ? 'not_mock' : 'not_allowed' }) },
+    ip: req.ip, disclosure: false,
+  });
+  if (!target) { res.status(404).json({ error: 'No such person.' }); return null; }
+  if (!target.is_mock) { res.status(403).json({ error: 'Only practice people can be previewed.' }); return null; }
+  if (!allowed) { res.status(403).json({ error: 'You may not preview that person.' }); return null; }
+  return allowed;
+}
+
+router.get('/preview/people', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const people = await previewable(c);
+  await audit.record({
+    actorUserId: c.userId, tenantId: c.tenantId, appId: c.app.id,
+    action: 'preview.list', detail: { count: people.length }, ip: req.ip, disclosure: false,
+  });
+  res.set('Cache-Control', 'no-store');
+  res.json({ people: people.map((p) => ({ id: p.id, display_name: p.display_name, kind: p.role_key === 'guardian' ? 'parent' : 'student' })) });
+});
+
+// The same rows /classes gives the person themself.
+router.get('/preview/:userId/classes', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const target = await previewTarget(req, res, c, 'classes');
+  if (!target) return;
+  const rows = await db.many(
+    `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year, cm.role,
+            (cm.coverage_id IS NOT NULL) AS covering
+       FROM class_access cm JOIN classes c ON c.id = cm.class_id
+      WHERE cm.user_id = $1 AND c.archived = false AND c.tenant_id = $2
+      ORDER BY c.name`, [target.id, c.tenantId]);
+  res.set('Cache-Control', 'no-store');
+  res.json({ person: { id: target.id, display_name: target.display_name }, classes: rows });
+});
+
+// The same answer /my-children gives the parent themself.
+router.get('/preview/:userId/children', async (req, res) => {
+  const c = await caller(req, res);
+  if (!c) return;
+  const target = await previewTarget(req, res, c, 'children');
+  if (!target) return;
+  const children = await guardians.childrenOf(target.id, c.tenantId);
+  res.set('Cache-Control', 'no-store');
+  res.json({ person: { id: target.id, display_name: target.display_name }, children });
+});
+
 /**
  * "Report a problem", from inside any app.
  *

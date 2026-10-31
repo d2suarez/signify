@@ -298,7 +298,8 @@ function userRows(users, canManage) {
     var flags = '';
     if (u.is_super) flags += ' <span class="chip chip-red">Super admin</span>';
     else if (u.is_admin) flags += ' <span class="chip chip-blue">Admin</span>';
-    if (Number(u.identity_count) === 0) flags += ' <span class="chip chip-grey" title="Created in advance; has not signed in yet">Not signed in</span>';
+    if (u.is_mock) flags += ' <span class="chip chip-grey" title="A mock person for the practice class: can never sign in">Mock</span>';
+    else if (Number(u.identity_count) === 0) flags += ' <span class="chip chip-grey" title="Created in advance; has not signed in yet">Not signed in</span>';
     if (u.is_minor) flags += ' <span class="chip chip-yellow" title="Treated as a minor: shorter sessions and stricter data handling">Minor</span>';
     if (u.outside_domain) flags += ' <span class="chip chip-grey" title="Signs in with an address that is not on one of ' +
       esc(u.tenant_name) + '’s domains. They are still a member of ' + esc(u.tenant_name) + '.">Outside address</span>';
@@ -1251,8 +1252,9 @@ function namesDialog(u) {
 }
 
 // ---------- practice class ----------
-// Super admins: a made-up class so a teacher can try the student and parent
-// side of the apps. Everything it makes is undone by Remove.
+// Super admins: a practice class with mock students and a mock parent, so a
+// teacher can see the student and parent side of the apps. Mock people can
+// never sign in; staff preview them from inside the apps. Remove undoes it.
 
 pages.practice = function () {
   if (!state.tenantId) {
@@ -1261,41 +1263,32 @@ pages.practice = function () {
   }
   return api('/practice?tenant_id=' + encodeURIComponent(state.tenantId)).then(function (d) {
     var members = (d.members || []).map(function (m) {
-      return '<tr><td>' + esc(m.display_name) + '</td><td class="small muted">' + esc(m.email) + '</td><td>' + esc(m.role) + '</td></tr>';
+      return '<tr><td>' + esc(m.display_name) + (m.is_mock ? ' <span class="chip chip-grey">mock</span>' : '') + '</td><td class="small muted">' + esc(m.email) + '</td><td>' + esc(m.role) + '</td></tr>';
     }).join('');
-    var field = function (id, label, value, hint) {
-      return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="email" value="' + esc(value || '') + '">' +
-        (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
-    };
     document.getElementById('main').innerHTML =
-      head('Practice class', 'A class called “Practice — Demo class” at ' + d.tenant.name + ' with four made-up students (on practice.invalid addresses nobody can sign in with), ' +
-        'so a teacher can see what students and parents see. Remove takes away everything it made.') +
+      head('Practice class', 'A class called “Practice — Demo class” at ' + d.tenant.name + ' with four mock students and a mock parent linked to two of them. ' +
+        'Mock people have no Google login and can never sign in: the teacher and school admins see what they see with “Preview as” inside the apps. Remove takes away everything it made.') +
       (d.active
         ? '<div class="card" style="margin-bottom:1rem"><div class="card-head"><h2>' + esc(d.className || 'Practice class') + '</h2><div class="spacer"></div>' +
             '<button class="btn btn-sm btn-danger" id="prRemove">Remove the practice class</button></div>' +
           '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>In the class as</th></tr></thead><tbody>' + members + '</tbody></table></div>' +
-          '<p class="small muted" style="margin:.6rem .9rem">The parent ' + esc(d.parent) + ' is linked to ' + esc(d.student) + ' and to Pip Example.</p></div>'
+          (d.parent ? '<p class="small muted" style="margin:.6rem .9rem">The mock parent ' + esc(d.parent.display_name) + ' is linked to ' + esc((d.parent.children || []).join(' and ')) + '.</p>' : '') + '</div>'
         : '') +
       '<div class="card"><div class="card-body">' +
-        field('prTeacher', 'Teacher', d.teacher, 'Must already be at this school.') +
-        field('prStudent', 'Test student account', d.student, 'The Google account to sign in with as a student.') +
-        field('prParent', 'Test parent account', d.parent, 'The Google account to sign in with as a parent. It keeps its role if it has one.') +
-        '<label class="perm-row" style="cursor:pointer;margin:0 0 .75rem"><input type="checkbox" id="prMake"><span class="label">If the student account holds another role here, make it a student (Remove puts the old role back)</span></label>' +
+        '<div class="field"><label for="prTeacher">Teacher</label><input id="prTeacher" type="email" value="' + esc(d.teacher || '') + '">' +
+          '<div class="hint">Must already be at this school. The only thing needed: no test accounts or logins.</div></div>' +
         '<button class="btn btn-primary btn-sm" id="prSetup">' + (d.active ? 'Bring up to date' : 'Make the practice class') + '</button>' +
       '</div></div>';
     document.getElementById('prSetup').onclick = function () {
       api('/practice', { method: 'POST', body: {
         tenant_id: state.tenantId,
         teacher_email: document.getElementById('prTeacher').value,
-        student_email: document.getElementById('prStudent').value,
-        parent_email: document.getElementById('prParent').value,
-        make_student: document.getElementById('prMake').checked,
       } }).then(function () { toast('Practice class ready.'); setPage('practice'); })
         .catch(function (e) { toast(e.message, true); });
     };
     var rm = document.getElementById('prRemove');
     if (rm) rm.onclick = function () {
-      if (!window.confirm('Remove the practice class, its made-up students and the parent links it made?')) return;
+      if (!window.confirm('Remove the practice class, its mock students and mock parent?')) return;
       api('/practice?tenant_id=' + encodeURIComponent(state.tenantId), { method: 'DELETE' })
         .then(function () { toast('Practice class removed.'); setPage('practice'); })
         .catch(function (e) { toast(e.message, true); });

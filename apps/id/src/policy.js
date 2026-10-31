@@ -42,8 +42,11 @@
 // can see that child's work.
 // 2026-10-30: a school may keep its official record of each name (from its
 // own records, entered by hand or uploaded), and every name change is kept.
-const VERSION = '2026-10-30';
-const EFFECTIVE = '30 October 2026';
+// 2026-10-31: a school may keep made-up practice people, which can never sign
+// in, so staff can see what a student or parent sees; whether an account is
+// one is listed.
+const VERSION = '2026-10-31';
+const EFFECTIVE = '31 October 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

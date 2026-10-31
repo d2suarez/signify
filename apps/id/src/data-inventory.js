@@ -35,6 +35,7 @@ const INVENTORY = {
     official_name_at:     { personal: true, category: 'technical', purpose: 'The date the school last changed its record of a person\u2019s name.', exposed: 'admin' },
     display_name_source:  { personal: true, category: 'identity', purpose: 'Whether the name shown in the apps follows the Google account, was set by the school, or was chosen by the person.', exposed: 'admin' },
     picture_url:  { personal: true, category: 'identity', purpose: 'Link to the Google profile picture, so an account is recognisable. The image itself is served by Google, not stored here.', exposed: 'staff' },
+    is_mock:      { personal: true, category: 'school', purpose: 'Whether an account is a made-up practice person, kept so staff can see the apps the way a student or parent would. Such an account can never sign in.', exposed: 'admin' },
     status:       { personal: true, category: 'school', purpose: 'Whether a person\u2019s account is active, awaiting approval, suspended or blocked.', exposed: 'admin' },
     is_minor:     { personal: true, category: 'school', purpose: 'A retired setting, kept only so older records still read correctly. Every account is for someone aged 13 or over, so it is no longer used.', exposed: 'apps' },
     minor_source: { personal: true, category: 'school', purpose: 'How that retired setting was originally decided. No longer used.', exposed: 'admin' },
@@ -469,6 +470,11 @@ const DISCLOSURES = [
     category: 'school',
     text: 'Whether a school has specifically allowed or blocked one person from one particular app.',
     covers: ['user_app_access.user_id', 'user_app_access.app_id', 'user_app_access.tenant_id', 'user_app_access.allowed'],
+  },
+  {
+    category: 'school',
+    text: 'Whether an account is a made-up practice person rather than a real one. A practice person can never sign in; staff use it to see an app the way a student or parent would.',
+    covers: ['users.is_mock'],
   },
   {
     category: 'school',

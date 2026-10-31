@@ -42,6 +42,10 @@ function isStaffAccess(access) {
 }
 
 async function create(userId, { ip, userAgent, isStaff }) {
+  // The last guard for practice people (migration 015): whatever path got
+  // here, dev sign-in included, no session is ever made for one.
+  const mock = await db.one('SELECT is_mock FROM users WHERE id = $1', [userId]);
+  if (mock && mock.is_mock) throw new Error('A practice account cannot have a session.');
   const raw = keys.randomToken(32);
   const idleMinutes = isStaff ? config.sessionIdleMinutesStaff : config.sessionIdleMinutes;
   const absoluteMs = config.sessionAbsoluteHours * 3600 * 1000;

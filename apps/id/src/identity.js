@@ -67,6 +67,8 @@ async function resolveUser({ provider, subject, email, name, givenName, familyNa
       if (user.deleted_at) {
         return { ok: false, code: 'deleted', message: 'That account has been removed. Ask an administrator to restore it.' };
       }
+      // A practice person is never anybody's login (migration 015).
+      if (user.is_mock) return { ok: false, code: 'mock', message: 'That is a practice account. Nobody can sign in to it.' };
 
       // The address on the account can legitimately change — a legal name
       // change, or a school moving domains. Follow it, unless the new address
@@ -116,6 +118,7 @@ async function resolveUser({ provider, subject, email, name, givenName, familyNa
 
     if (byEmail.rows.length) {
       const existing = byEmail.rows[0];
+      if (existing.is_mock) return { ok: false, code: 'mock', message: 'That is a practice account. Nobody can sign in to it.' };
       const others = await client.query(
         'SELECT provider, subject FROM identities WHERE user_id = $1 AND provider = $2',
         [existing.id, provider]

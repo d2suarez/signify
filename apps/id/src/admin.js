@@ -281,7 +281,7 @@ router.get('/users', async (req, res) => {
 
   const rows = await db.many(
     `SELECT u.id, u.email, u.display_name, u.picture_url, u.status AS user_status,
-            u.is_minor, u.created_at, u.last_seen_at,
+            u.is_minor, u.is_mock, u.created_at, u.last_seen_at,
             m.id AS membership_id, m.status, m.grade_level, m.graduation_year,
             m.suspend_until, m.tenant_id,
             r.id AS role_id, r.key AS role_key, r.label AS role_label, r.is_admin,
@@ -978,9 +978,9 @@ router.put('/places', async (req, res) => {
 });
 
 // ---------- practice class ----------
-// A made-up class with made-up students, so a teacher can see the student
-// and parent side of the apps before there is real data (src/practice.js).
-// Super admins only: it creates accounts and can change a test account's role.
+// A practice class with mock students and a mock parent, so a teacher can
+// see the student and parent side of the apps before there is real data
+// (src/practice.js). Super admins only: it creates people in a school.
 
 router.get('/practice', async (req, res) => {
   const actor = guards.requirePlatformAdmin(req, res, 'The practice class');
@@ -995,13 +995,10 @@ router.post('/practice', async (req, res) => {
   const actor = guards.requirePlatformAdmin(req, res, 'The practice class');
   if (!actor) return;
   const b = req.body || {};
-  const result = await practice.setup({
-    tenantId: b.tenant_id, teacherEmail: b.teacher_email, studentEmail: b.student_email,
-    parentEmail: b.parent_email, makeStudent: b.make_student === true, actorId: actor.userId,
-  });
+  const result = await practice.setup({ tenantId: b.tenant_id || null, teacherEmail: b.teacher_email, actorId: actor.userId });
   if (!result.ok) return fail(res, 400, result.error);
-  await audit.from(req, { tenantId: b.tenant_id, action: 'practice.setup', targetType: 'class', targetId: result.classId,
-    detail: { teacher: b.teacher_email, student: b.student_email, parent: b.parent_email } });
+  await audit.from(req, { tenantId: result.tenantId, action: 'practice.setup', targetType: 'class', targetId: result.classId,
+    detail: { teacher: b.teacher_email } });
   res.json(result);
 });
 
