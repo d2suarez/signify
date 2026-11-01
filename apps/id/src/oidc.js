@@ -21,6 +21,7 @@ const audit = require('./audit');
 const secrets = require('./secrets');
 const sessions = require('./sessions');
 const identity = require('./identity');
+const affiliations = require('./affiliations');
 const views = require('./views');
 const { config } = require('./config');
 
@@ -51,7 +52,7 @@ router.get('/.well-known/openid-configuration', (req, res) => {
     claims_supported: [
       'sub', 'iss', 'aud', 'exp', 'iat', 'nonce', 'sid',
       'email', 'email_verified', 'name', 'given_name', 'family_name', 'middle_name', 'official_name', 'picture',
-      'tenant', 'tenant_name', 'tenant_kind', 'role', 'role_label', 'perms', 'is_minor', 'grade_level',
+      'tenant', 'tenant_name', 'tenant_kind', 'tenant_affiliations', 'role', 'role_label', 'perms', 'is_minor', 'grade_level',
     ],
   });
 });
@@ -242,6 +243,9 @@ async function buildClaims(app, userId, tenantId, sessionId) {
     // 'independent' means no school: an app must not offer "share with my
     // school" to these people, since the rest of the tenant are strangers.
     tenant_kind: m ? m.tenant_kind : null,
+    // What the school belongs to (['nad'] for an NAD school), set only by a
+    // platform admin; apps gate things like the NAD's standards on it.
+    tenant_affiliations: m ? affiliations.clean(m.tenant_affiliations) : [],
     role: access.isSuper ? 'super_admin' : (m ? m.role_key : null),
     role_label: access.isSuper ? 'Super admin' : (m ? m.role_label : null),
     grade_level: m ? m.grade_level : null,

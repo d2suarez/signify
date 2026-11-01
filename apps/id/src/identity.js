@@ -269,7 +269,7 @@ async function accessFor(userId, tenantId = null) {
     `SELECT m.id, m.tenant_id, m.status, m.grade_level, m.suspend_until,
             r.id AS role_id, r.key AS role_key, r.label AS role_label, r.is_admin,
             t.name AS tenant_name, t.slug AS tenant_slug, t.status AS tenant_status,
-            t.kind AS tenant_kind
+            t.kind AS tenant_kind, t.settings->'affiliations' AS tenant_affiliations
        FROM memberships m
        JOIN roles r ON r.id = m.role_id
        JOIN tenants t ON t.id = m.tenant_id

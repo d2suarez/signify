@@ -70,6 +70,9 @@ const NAD_TERMS = (page) => ({
   licenseText: `Published by the NAD Office of Education for Seventh-day Adventist schools (${page}). The NAD's site says: "Distribution and use of these documents is subject to the terms outlined in our use and privacy policies. All content is copyrighted and may not be used without permission." A school that turns these on accepts those terms; ask the NAD Office of Education before using them outside NAD schools.`,
   notice: "Standards © North American Division Office of Education, Seventh-day Adventist Church. All content is copyrighted and may not be used without permission.",
   distribution: "school",
+  // Only schools Signify ID marks as NAD schools see these (Desmond,
+  // 2026-10-31). Delete this line to offer them to every school again.
+  audience: "NAD",
 });
 const NAD_ELEM = "https://adventisteducation.org/elementary-standards";
 const NAD_SEC = "https://adventisteducation.org/secondary-standards";
@@ -529,6 +532,8 @@ function write(src, built) {
     ...built.framework,
     dataSource: src.dataSource, licenseTitle: src.licenseTitle, licenseURI: src.licenseURI, licenseText: src.licenseText,
     notice: src.notice, distribution: src.distribution,
+    // Who may see the set at all, by what Signify ID says the school belongs to; none = every school.
+    ...(src.audience ? { audience: src.audience } : {}),
   };
   const ids = new Set();
   for (const i of built.items) {

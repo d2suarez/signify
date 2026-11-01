@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireMe, readMe } from "@/lib/auth";
-import { isSchoolAdmin, lang, standardsViewer } from "@/lib/access";
+import { ctx, isSchoolAdmin, lang, standardsViewer } from "@/lib/access";
 import {
   createFramework, ensureLibrary, followSet, jurisdictionName, jurisdictionsOf, librarySets, listFrameworks, saveSchoolStandards, schoolStandards, setSchoolSet,
 } from "@/lib/standards-library";
@@ -67,7 +67,7 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
   }
   await ensureLibrary();
   const v = (await standardsViewer(me))!;
-  const [school, library, frameworks, scales] = await Promise.all([schoolStandards(me.tenantId), librarySets(me.tenantId), listFrameworks(v), schoolScales(me.tenantId)]);
+  const [school, library, frameworks, scales] = await Promise.all([schoolStandards(me.tenantId), librarySets(ctx(me)), listFrameworks(v), schoolScales(me.tenantId)]);
   const sets = library.filter((f) => f.distribution === "school");
   const places = jurisdictionsOf(library);
   // Sets to choose from: multi-state ones, the picked states' and any already followed.
@@ -128,7 +128,8 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
               );
             })}
           </ul>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.stdNadNote}</p>
+          {/* NAD sets exist only for schools Signify ID marks as NAD schools (librarySets leaves them out for others). */}
+          {places.includes("NAD") && <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.stdNadNote} {d.stdNadOnly}</p>}
         </section>
 
         <form action={act} className="card stack" style={{ gap: 8 }}>

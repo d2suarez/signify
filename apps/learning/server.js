@@ -62,6 +62,8 @@ function devUser(cookieHeader) {
   return {
     ...DEV_PEOPLE[key], picture: '', isSuper: false, isMinor: false, perms: {},
     tenant: 'dev-school', tenantId: 'dev-school', tenantName: 'Development School', sessionId: 'dev-session',
+    // An NAD school, like Richmond; LEARNING_DEV_AFFILIATIONS= (empty) to try a school that isn't.
+    tenantAffiliations: String(process.env.LEARNING_DEV_AFFILIATIONS ?? 'nad').split(',').map((s) => s.trim()).filter(Boolean),
   };
 }
 

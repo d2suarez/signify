@@ -18,6 +18,7 @@ const merge = require('./merge');
 const sessions = require('./sessions');
 const identity = require('./identity');
 const guards = require('./guards');
+const affiliations = require('./affiliations');
 const directory = require('./directory');
 const reports = require('./reports');
 const survey = require('./access-survey');
@@ -880,6 +881,23 @@ router.patch('/tenants/:id', async (req, res) => {
   if (!t) return fail(res, 404, 'No such school.');
   await audit.from(req, { tenantId: t.id, action: 'tenant.updated', targetType: 'tenant', targetId: t.id, detail: b });
   res.json({ ok: true, tenant: t });
+});
+
+// What a school belongs to (the NAD) decides what apps offer it, so only a
+// platform admin records it; a school admin cannot claim it for their school.
+router.put('/tenants/:id/affiliations', async (req, res) => {
+  const actor = guards.requireActor(req, res);
+  if (!actor) return;
+  if (!actor.isSuper) return fail(res, 403, 'Only a super admin can say which bodies a school belongs to.');
+  const list = affiliations.clean((req.body || {}).affiliations);
+  const t = await db.one(
+    `UPDATE tenants SET settings = jsonb_set(settings, '{affiliations}', $2::jsonb), updated_at = now()
+      WHERE id = $1 AND kind = 'school' RETURNING id, settings`,
+    [req.params.id, JSON.stringify(list)]
+  ).catch(() => null);
+  if (!t) return fail(res, 404, 'No such school.');
+  await audit.from(req, { tenantId: t.id, action: 'tenant.affiliations_updated', targetType: 'tenant', targetId: t.id, detail: { affiliations: list } });
+  res.json({ ok: true, affiliations: list });
 });
 
 router.post('/tenants/:id/domains', async (req, res) => {

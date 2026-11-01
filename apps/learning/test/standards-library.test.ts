@@ -11,7 +11,7 @@ import { addStandard, courseGrading, listStandards, saveStandardsSettings, setGr
 import {
   addItem, addItemsToCourse, archiveFramework, canEdit, copyFramework, createFramework, frameworkItems, getFramework, getItem,
   importCsv, listFrameworks, loadLibrary, saveSchoolStandards, schoolSets, schoolStandards, searchItems, setSchoolSet, updateItem,
-  followSet, jurisdictionCode, jurisdictionName, jurisdictionsOf, librarySets, standardOptions,
+  followSet, jurisdictionCode, jurisdictionName, jurisdictionsOf, librarySets, standardOptions, audiencesOf, audienceAllows,
   LIBRARY, type Viewer,
 } from "../src/lib/standards-library";
 import { csvItems, gradeList, gradeSpan, parseCsv } from "../src/lib/standards-csv";
@@ -150,6 +150,8 @@ test("library: the real seed files are well formed (ids unique, parents first, l
     assert.ok(j === null || jurisdictionCode(j) === j, `${file}: jurisdiction ${j}`);
     // Only Common Core is open to every school; a state's set needs the school to accept its terms.
     if (j) assert.equal(s.framework.distribution, "school", file);
+    // Only NAD schools see NAD sets; every other set is for every school.
+    assert.equal(s.framework.audience, s.framework.key.startsWith("nad-") ? "NAD" : undefined, `${file}: audience`);
     if (s.framework.key.startsWith("nad-")) {
       assert.equal(j, "NAD", file);
       assert.match(s.framework.notice, /North American Division Office of Education.*may not be used without permission/, file);
@@ -179,9 +181,25 @@ test("library: the real seeds load into Postgres and can be searched", async () 
     const [{ open }] = await real.query<{ open: number }>("SELECT count(*)::int AS open FROM standard_frameworks WHERE distribution = 'open'");
     assert.equal(open, 2, "only Common Core is open to every school; the others need the school to turn them on");
     // NAD: the NAD's own codes, domain → strand → standard, grades from the code.
-    const nad = await real.query<{ key: string; distribution: string }>("SELECT key, distribution FROM standard_frameworks WHERE jurisdiction = 'NAD'");
+    const nad = await real.query<{ key: string; distribution: string; audience: string }>("SELECT key, distribution, audience FROM standard_frameworks WHERE jurisdiction = 'NAD'");
     assert.equal(nad.length, 18);
     assert.ok(nad.every((f) => f.distribution === "school"), "a school turns NAD sets on itself");
+    assert.ok(nad.every((f) => f.audience === "NAD"), "for NAD schools only");
+    const [{ others }] = await real.query<{ others: number }>("SELECT count(*)::int AS others FROM standard_frameworks WHERE audience IS NOT NULL AND key NOT LIKE 'nad-%'");
+    assert.equal(others, 0, "every other set is for every school");
+    // The real library as a school outside the NAD and an NAD school see it.
+    useDb(real);
+    try {
+      const outside = { tenantId: "school-x", userId: "admin-x", admin: true, teaches: [] as string[] };
+      const inside = { ...outside, tenantId: "school-n", audiences: ["NAD"] };
+      assert.ok(!(await librarySets(outside)).some((f) => f.key!.startsWith("nad-")), "no NAD set for a school outside the NAD");
+      assert.ok(!jurisdictionsOf(await librarySets(outside)).includes("NAD"), "nor the NAD among its places");
+      assert.equal((await librarySets(inside)).filter((f) => f.key!.startsWith("nad-")).length, 18);
+      assert.equal(await followSet(outside, "nad-bible-elementary", true, true), "unknown");
+      assert.equal(await followSet(inside, "nad-bible-elementary", true, true), "ok");
+      assert.equal((await searchItems(inside, { q: "B.1-4.BF.16" })).hits.length, 1);
+      assert.equal((await searchItems({ ...inside, audiences: [] }, { q: "B.1-4.BF.16" })).hits.length, 0, "the same school without the NAD flag sees nothing");
+    } finally { useDb(db); }
     const item = async (key: string, code: string) => (await real.query<{ statement: string; grades: string[]; parent: string; grand: string }>(
       `SELECT i.statement, i.grades, p.statement AS parent, g.statement AS grand FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id
        LEFT JOIN standard_items p ON p.id = i.parent_id LEFT JOIN standard_items g ON g.id = p.parent_id WHERE f.key = $1 AND i.code = $2`, [key, code]))[0];
@@ -242,7 +260,7 @@ test("library: search by code, words, grade and subject; 'school' sets only once
 
   assert.ok(!(await listFrameworks(v)).some((f) => f.key === "closed"));
   assert.ok(!(await searchItems(v, { q: "3.OA" })).hits.some((h) => h.framework.title === "Test closed"));
-  assert.deepEqual((await schoolSets("school-a")).map((f) => f.key), ["closed"]);
+  assert.deepEqual((await schoolSets({ tenantId: "school-a" })).map((f) => f.key), ["closed"]);
   assert.ok(await setSchoolSet(ADMIN, "closed", true));
   assert.ok((await listFrameworks(v)).some((f) => f.key === "closed"));
   assert.ok(!(await listFrameworks({ ...v, tenantId: "school-b" })).some((f) => f.key === "closed"), "only that school");
@@ -446,7 +464,7 @@ test("migration 015: Virginia sets get their state, Markdown marks leave loaded 
 });
 
 test("states: a seed's state is kept; codes are checked; names in English and Spanish; a school's picked states", async () => {
-  const lib = await librarySets("school-s");
+  const lib = await librarySets({ tenantId: "school-s" });
   assert.equal(lib.find((f) => f.key === "closed")!.jurisdiction, "VA", "lower case in a seed is stored as the code");
   assert.equal(lib.find((f) => f.key === "open")!.jurisdiction, null);
   assert.deepEqual(jurisdictionsOf(lib), ["VA"]);
@@ -524,6 +542,96 @@ test("followed sets: the course pickers list standards from followed sets first,
   assert.deepEqual((await standardOptions(ctx, c.id)).map((o) => o.name), ["4.NBT.A.1", "3.OA.A.1"], "nothing followed: the course's order");
   await followSet(admin, "closed", true);
   assert.deepEqual((await standardOptions(ctx, c.id)).map((o) => o.name), ["3.OA.A.1", "4.NBT.A.1"]);
+});
+
+// ---------- NAD sets only for NAD schools ----------
+
+test("audience: NAD sets exist only for schools Signify ID marks as NAD; another school is untouched", async () => {
+  assert.deepEqual(audiencesOf(["nad", "NAD", "x y", 3, ""]), ["NAD"]);
+  assert.deepEqual(audiencesOf(undefined), []);
+  assert.equal(audienceAllows({}, "NAD"), false);
+  assert.equal(audienceAllows({ audiences: ["nad"] }, "NAD"), true);
+  assert.equal(audienceAllows({}, null), true);
+
+  // A seed laid out as standards-seeds.mjs writes it (framework on line 3), audience in lower case.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stdnad-"));
+  const items = [
+    { identifier: "nadt-1", uri: null, code: "B.1-4.BF.16", statement: "Explore the cultural contexts of Bible passages", abbreviated: null, type: "Standard", grades: ["01", "02"], parent: null, list: null, notes: null },
+  ];
+  const writeNad = (audience?: string) => {
+    const fw = { key: "nadt", version: "2017", title: "Test NAD Bible", identifier: "doc-nadt", subject: ["Bible"], distribution: "school", notice: "© NAD", licenseTitle: "NAD", jurisdiction: "NAD", ...(audience ? { audience } : {}) };
+    fs.writeFileSync(path.join(dir, "nadt@2017.json"), ["{", `"format": "signify-standards/1",`, `"framework": ${JSON.stringify(fw)},`, `"items": [`, items.map((i) => JSON.stringify(i)).join(",\n"), `],`, `"associations": [`, ``, `]`, "}"].join("\n") + "\n");
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(["nadt@2017.json"]));
+  };
+  try {
+    writeNad("nad");
+    assert.deepEqual(await loadLibrary(db, dir), ["nadt@2017.json"]);
+    const [row] = await db.query<{ id: string; audience: string }>("SELECT id, audience FROM standard_frameworks WHERE key = 'nadt'");
+    assert.equal(row.audience, "NAD", "stored as the code");
+
+    const outside = "school-out";
+    const nadSchool = "school-nad";
+    const other = "school-nad2";
+    const cOut = await course(outside);
+    const cNad = await course(nadSchool);
+    const outAdmin = teacher({ tenantId: outside, userId: "admin-out", admin: true, teaches: [cOut.id] });
+    const nadAdmin = teacher({ tenantId: nadSchool, userId: "admin-nad", admin: true, teaches: [cNad.id], audiences: ["NAD"] });
+    const otherAdmin = teacher({ tenantId: other, userId: "admin-nad2", admin: true, audiences: ["NAD"] });
+
+    // Outside the NAD: not in the library, the places, search, a set's page, an item's page; can't be turned on or followed.
+    assert.ok(!(await librarySets(outAdmin)).some((f) => f.key === "nadt"));
+    assert.ok(!(await schoolSets(outAdmin)).some((f) => f.key === "nadt"));
+    assert.ok(!jurisdictionsOf(await librarySets(outAdmin)).includes("NAD"), "no NAD place checkbox");
+    assert.equal(await followSet(outAdmin, "nadt", true, true), "unknown", "following is refused, terms or not");
+    assert.equal(await setSchoolSet(outAdmin, "nadt", true), false, "turning it on is refused");
+    assert.deepEqual((await schoolStandards(outside)).enabledSets, []);
+    // Even if it were on (a row from before), nothing shows.
+    await db.query("INSERT INTO school_standard_sets (tenant_id, framework_key, enabled_by) VALUES ($1, 'nadt', 'old')", [outside]);
+    assert.ok(!(await listFrameworks(outAdmin)).some((f) => f.key === "nadt"));
+    assert.equal((await searchItems(outAdmin, { q: "B.1-4.BF.16" })).hits.length, 0);
+    assert.equal((await searchItems(outAdmin, { frameworkId: row.id })).hits.length, 0, "Find in library by set");
+    assert.equal(await getFramework(outAdmin, row.id), null);
+    const [nadItem] = await db.query<{ id: string }>("SELECT id FROM standard_items WHERE framework_id = $1", [row.id]);
+    assert.equal(await getItem(outAdmin, nadItem.id), null);
+    assert.deepEqual(await addItemsToCourse(outAdmin, cOut.id, [nadItem.id]), { added: 0, refused: 1 });
+    assert.equal((await listStandards(T, cOut.id)).length, 0);
+
+    // An NAD school: listed, its place offered, followed with its terms, searched, added to a course, offered in the pickers.
+    assert.ok((await librarySets(nadAdmin)).some((f) => f.key === "nadt"));
+    assert.ok(jurisdictionsOf(await librarySets(nadAdmin)).includes("NAD"));
+    assert.equal(await followSet(nadAdmin, "nadt", true), "terms");
+    assert.equal(await followSet(nadAdmin, "nadt", true, true), "ok");
+    const nadTeacher = teacher({ tenantId: nadSchool, userId: "t-nad", teaches: [cNad.id], audiences: ["NAD"] });
+    assert.equal((await listFrameworks(nadTeacher))[0].key, "nadt", "followed first");
+    const hit = (await searchItems(nadTeacher, { q: "B.1-4.BF.16", followed: true })).hits[0];
+    assert.equal(hit.code, "B.1-4.BF.16");
+    assert.ok(await getItem(nadTeacher, hit.id));
+    assert.equal((await addItemsToCourse(nadTeacher, cNad.id, [hit.id])).added, 1);
+    const nadCtx = { tenantId: nadSchool, userId: "t-nad", audiences: ["NAD"] };
+    assert.deepEqual((await standardOptions(nadCtx, cNad.id)).map((o) => o.name), ["B.1-4.BF.16"]);
+
+    // Another NAD school: untouched by the first one's choices.
+    assert.deepEqual((await schoolStandards(other)).followedSets, []);
+    assert.deepEqual((await schoolStandards(other)).enabledSets, []);
+    assert.ok(!(await listFrameworks(otherAdmin)).some((f) => f.key === "nadt"), "not on until it accepts the terms itself");
+    assert.ok((await librarySets(otherAdmin)).some((f) => f.key === "nadt"), "but offered");
+
+    // A course that already holds an NAD standard keeps it; a school outside the NAD isn't offered it in the pickers.
+    const [std] = await listStandards(nadCtx, cNad.id);
+    await db.query("UPDATE standards SET tenant_id = $1, course_id = $2 WHERE id = $3", [outside, cOut.id, std.id]);
+    assert.equal((await listStandards({ tenantId: outside, userId: "t-out" }, cOut.id)).length, 1, "kept in the course");
+    assert.deepEqual(await standardOptions({ tenantId: outside, userId: "t-out" }, cOut.id), [], "not offered");
+    await db.query("UPDATE standards SET tenant_id = $1, course_id = $2 WHERE id = $3", [nadSchool, cNad.id, std.id]);
+
+    // "Unless we decide otherwise": the seed's audience line decides, for sets already loaded too.
+    writeNad();
+    assert.deepEqual(await loadLibrary(db, dir), [], "no new version");
+    assert.equal((await db.query("SELECT audience FROM standard_frameworks WHERE id = $1", [row.id]))[0].audience, null);
+    assert.ok((await librarySets(outAdmin)).some((f) => f.key === "nadt"), "without it, every school is offered the set");
+    writeNad("NAD");
+    await loadLibrary(db, dir);
+    assert.ok(!(await librarySets(outAdmin)).some((f) => f.key === "nadt"), "and back");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("csv and grade helpers", () => {

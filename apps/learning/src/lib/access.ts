@@ -6,7 +6,7 @@ import { membersOf } from "./roster";
 import { getAssignment, type Assignment } from "./assignments";
 import { toStudents, type Student } from "./gradebook";
 import { courseFor, myCourses, type Course, type CourseRole } from "./courses";
-import type { Viewer } from "./standards-library";
+import { audiencesOf, type Viewer } from "./standards-library";
 import { getLesson, type Lesson } from "./lessons";
 import { pickLang, type Lang } from "./i18n";
 import { DEFAULT_PREFS, type Prefs } from "./prefs";
@@ -79,11 +79,12 @@ export async function standardsViewer(me: Me): Promise<Viewer | null> {
   const { classes } = await myClasses();
   const teaches = (await myCourses(me.tenantId, classes)).filter((c) => c.role === "teacher").map((c) => c.id);
   const admin = isSchoolAdmin(me);
-  return teaches.length || admin ? { tenantId: me.tenantId, userId: me.id, admin, teaches } : null;
+  return teaches.length || admin ? { ...ctx(me), admin, teaches } : null;
 }
 
+/** `audiences`: what the school belongs to ('NAD'), for the standards library's NAD-only sets. */
 export function ctx(me: Me) {
-  return { tenantId: me.tenantId, userId: me.id };
+  return { tenantId: me.tenantId, userId: me.id, audiences: audiencesOf(me.tenantAffiliations) };
 }
 
 export async function lang(): Promise<Lang> {

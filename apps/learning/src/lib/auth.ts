@@ -19,6 +19,8 @@ export type Me = {
   role: string | null;
   tenantId: string;
   tenantName: string;
+  /** What the school belongs to, from Signify ID (['nad'] = an NAD school); set only by ID's platform admins. */
+  tenantAffiliations: string[];
   isMinor: boolean;
   dev: boolean;
 };
@@ -42,6 +44,7 @@ export const readMe = cache(async (): Promise<Me | null> => {
       // own, so nothing they make lands in somebody's school.
       tenantId: c.tenantId || `user:${c.id}`,
       tenantName: c.tenantName || "",
+      tenantAffiliations: c.tenantId && Array.isArray(c.tenantAffiliations) ? c.tenantAffiliations.filter((a: unknown) => typeof a === "string") : [],
       isMinor: !!c.isMinor,
       dev: c.sessionId === "dev-session",
     };

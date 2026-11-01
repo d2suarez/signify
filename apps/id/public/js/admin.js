@@ -2067,8 +2067,21 @@ pages.tenants = function () {
         '<span class="muted">— for the School ID column of a roster import. The school\u2019s full ' +
         'name works there too, and leaving the column blank is usually simplest.</span></p>' +
         '<div style="margin-bottom:.6rem">' + domains + '</div>' +
-        '<button class="btn btn-sm" data-adddom="' + esc(t.id) + '">Add domain</button></div></div>';
+        '<button class="btn btn-sm" data-adddom="' + esc(t.id) + '">Add domain</button>' +
+        nadToggle(t) + '</div></div>';
     }).join('');
+
+    // What the school belongs to decides what apps offer it (Signify Learning
+    // shows the NAD's standards only to NAD schools), so only a super admin
+    // changes it; a school's own admin sees it but cannot.
+    function nadToggle(t) {
+      var on = ((t.settings && t.settings.affiliations) || []).indexOf('nad') >= 0;
+      return '<div class="field" style="margin:.8rem 0 0"><label style="display:flex;gap:.5rem;align-items:center;font-weight:500">' +
+        '<input type="checkbox" data-nad="' + esc(t.id) + '"' + (on ? ' checked' : '') + (state.actor.isSuper ? '' : ' disabled') + '> ' +
+        'NAD school (North American Division, Seventh-day Adventist)</label>' +
+        '<div class="hint">Apps offer NAD material, such as the NAD\u2019s standards in Signify Learning, only to NAD schools. ' +
+        (state.actor.isSuper ? 'Only a super admin can change this.' : 'Ask a super admin to change this.') + '</div></div>';
+    }
 
     document.getElementById('main').innerHTML =
       head('Schools', 'Each school is a separate world: its own people, roles, classes and audit trail. Nothing crosses between them.') +
@@ -2111,6 +2124,17 @@ pages.tenants = function () {
             } }).then(function () { toast('Domain added.'); setPage('tenants'); });
           },
         });
+      };
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-nad]'), function (b) {
+      b.onchange = function () {
+        var t = d.tenants.filter(function (x) { return x.id === b.dataset.nad; })[0];
+        var list = ((t.settings && t.settings.affiliations) || []).filter(function (k) { return k !== 'nad'; });
+        if (b.checked) list.push('nad');
+        api('/tenants/' + t.id + '/affiliations', { method: 'PUT', body: { affiliations: list } })
+          .then(function () { toast(b.checked ? t.name + ' is marked as an NAD school.' : t.name + ' is no longer marked as an NAD school.'); setPage('tenants'); })
+          .catch(function (e) { b.checked = !b.checked; toast(e.message, true); });
       };
     });
 

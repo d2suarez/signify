@@ -16,6 +16,8 @@ import { csvItems, gradeList, CSV_LIMITS, type CsvProblem } from "./standards-cs
  *   PLAN.md). tenant_id '_library', read by every school; never edited.
  *   'open' sets are seen by all; 'school' sets only once a school admin
  *   turns them on, accepting the publisher's terms (school_standard_sets).
+ *   A set with an `audience` ('NAD') is for schools Signify ID says belong
+ *   to it (the token's tenant_affiliations) and doesn't exist for any other.
  * - school: made by a school admin (by hand, CSV, or a copy of a library
  *   set to edit). Every teacher of the school sees them.
  * - teacher: made by a teacher when the school allows it; seen by its owner.
@@ -28,7 +30,8 @@ import { csvItems, gradeList, CSV_LIMITS, type CsvProblem } from "./standards-cs
  * updates those copies.
  */
 
-type Ctx = { tenantId: string; userId: string };
+/** `audiences`: what the school belongs to ('NAD'), from Signify ID; missing = nothing, so audience sets stay hidden. */
+type Ctx = { tenantId: string; userId: string; audiences?: string[] };
 export const LIBRARY = "_library";
 const UUID = /^[0-9a-f-]{36}$/i;
 const STANDARDS_DIR = path.join(process.cwd(), "standards");
@@ -58,6 +61,8 @@ export type Framework = {
   licenseText: string | null;
   notice: string | null;
   distribution: Distribution;
+  /** Only schools that belong to this ('NAD') see the set; null = every school. */
+  audience: string | null;
   /** Library sets: a US state's postal code, 'NAD', or null (multi-state). */
   jurisdiction: string | null;
   /** A library set the viewer's school follows (school_followed_sets). */
@@ -101,7 +106,7 @@ function toFramework(r: Record<string, unknown>): Framework {
     version: String(r.version ?? ""), officialSourceUrl: (r.official_source_url as string) ?? null, dataUrl: (r.data_url as string) ?? null,
     dataSource: (r.data_source as string) ?? null, licenseTitle: (r.license_title as string) ?? null, licenseUri: (r.license_uri as string) ?? null,
     licenseText: (r.license_text as string) ?? null, notice: (r.notice as string) ?? null, distribution: r.distribution === "school" ? "school" : "open",
-    jurisdiction: (r.jurisdiction as string) ?? null, followed: !!r.followed,
+    audience: (r.audience as string) ?? null, jurisdiction: (r.jurisdiction as string) ?? null, followed: !!r.followed,
     copiedFrom: (r.copied_from as string) ?? null, archived: !!r.archived, itemCount: Number(r.item_count ?? 0), superseded: !!r.superseded,
     updatedAt: new Date(String(r.updated_at)).toISOString(),
   };
@@ -140,10 +145,21 @@ export async function loadLibrary(db: { tx: (fn: (q: Queryable) => Promise<unkno
   const manifest = path.join(dir, "manifest.json");
   if (!fs.existsSync(manifest)) return [];
   const files: string[] = JSON.parse(fs.readFileSync(manifest, "utf8"));
-  const have = new Set((await db.query<{ k: string }>("SELECT key || '@' || version AS k FROM standard_frameworks WHERE tenant_id = $1 AND key IS NOT NULL", [LIBRARY])).map((r) => r.k));
+  const haveRows = await db.query<{ k: string; audience: string | null }>("SELECT key || '@' || version AS k, audience FROM standard_frameworks WHERE tenant_id = $1 AND key IS NOT NULL", [LIBRARY]);
+  const have = new Map(haveRows.map((r) => [r.k, r.audience ?? null]));
   const loaded: string[] = [];
   for (const file of files) {
-    if (have.has(file.replace(/\.json$/, ""))) continue;
+    const k = file.replace(/\.json$/, "");
+    if (have.has(k)) {
+      // Who may see a set can change without a new version (the seed's
+      // audience line), so loaded sets follow their seed.
+      const want = audienceCode(seedHeader(path.join(dir, file)).audience);
+      if (want !== have.get(k)) {
+        const at = k.lastIndexOf("@");
+        await db.query("UPDATE standard_frameworks SET audience = $3 WHERE tenant_id = $4 AND key = $1 AND version = $2", [k.slice(0, at), k.slice(at + 1), want, LIBRARY]);
+      }
+      continue;
+    }
     const seed: Seed = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
     if (seed.format !== "signify-standards/1") throw new Error(`${file}: unknown format`);
     if (`${seed.framework.key}@${seed.framework.version}.json` !== file) throw new Error(`${file}: key/version don't match the file name`);
@@ -153,16 +169,43 @@ export async function loadLibrary(db: { tx: (fn: (q: Queryable) => Promise<unkno
   return loaded;
 }
 
+/** A seed's framework without reading its items: write() puts it on line 3; anything else is parsed whole. */
+function seedHeader(file: string): Record<string, unknown> {
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(256 * 1024);
+    const head = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString("utf8").split("\n");
+    if (head.length > 3 && head[2].startsWith('"framework": ')) return JSON.parse(head[2].slice(13).replace(/,$/, ""));
+  } finally { fs.closeSync(fd); }
+  return (JSON.parse(fs.readFileSync(file, "utf8")) as Seed).framework;
+}
+
+/** 'nad' → 'NAD'; anything that isn't a short code → null (every school). */
+export function audienceCode(v: unknown): string | null {
+  const c = typeof v === "string" ? v.trim().toUpperCase() : "";
+  return /^[A-Z]{2,12}$/.test(c) ? c : null;
+}
+
+/** What a school belongs to as audiences, from Signify ID's tenant_affiliations (['nad'] → ['NAD']). */
+export function audiencesOf(affiliations: unknown): string[] {
+  return [...new Set((Array.isArray(affiliations) ? affiliations : []).map(audienceCode).filter((a): a is string => !!a))].sort();
+}
+
+/** May this school see a set with this audience? */
+export function audienceAllows(ctx: Pick<Ctx, "audiences">, audience: string | null): boolean {
+  return !audience || audiencesOf(ctx.audiences).includes(audience);
+}
+
 async function insertSeed(t: Queryable, seed: Seed) {
   const f = seed.framework;
   const s = (k: string) => (typeof f[k] === "string" ? (f[k] as string) : null);
   const [fw] = await t.query<{ id: string }>(
     `INSERT INTO standard_frameworks (tenant_id, owner_kind, key, identifier, uri, title, creator, publisher, subjects, language, version,
-       adoption_status, official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, distribution, jurisdiction, created_by)
-     VALUES ($1, 'library', $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'seed') RETURNING id`,
+       adoption_status, official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, distribution, jurisdiction, audience, created_by)
+     VALUES ($1, 'library', $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'seed') RETURNING id`,
     [LIBRARY, f.key, f.identifier, s("uri"), f.title, s("creator") ?? "", s("publisher") ?? "", Array.isArray(f.subject) ? f.subject : [],
       s("language") ?? "en", f.version, s("adoptionStatus"), s("officialSourceURL"), s("dataURL"), s("dataSource"), s("licenseTitle"),
-      s("licenseURI"), s("licenseText"), s("notice"), f.distribution === "school" ? "school" : "open", jurisdictionCode(f.jurisdiction)],
+      s("licenseURI"), s("licenseText"), s("notice"), f.distribution === "school" ? "school" : "open", jurisdictionCode(f.jurisdiction), audienceCode(f.audience)],
   );
   await insertItems(t, LIBRARY, fw.id, seed.items.map((i) => ({ ...i, parentIdentifier: i.parent })));
   const ids = new Map((await t.query<{ id: string; identifier: string }>("SELECT id, identifier FROM standard_items WHERE framework_id = $1", [fw.id])).map((r) => [r.identifier, r.id]));
@@ -275,8 +318,8 @@ export async function saveSchoolStandards(ctx: Ctx, input: { settings?: unknown;
 /** Turns a 'school' library set on (the admin accepted its terms) or off. Courses keep standards already added. */
 export async function setSchoolSet(ctx: Ctx, key: string, on: boolean): Promise<boolean> {
   const db = await getDb();
-  const known = await db.query("SELECT 1 FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 AND distribution = 'school' LIMIT 1", [LIBRARY, key]);
-  if (!known.length) return false;
+  const known = await db.query<{ audience: string | null }>("SELECT audience FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 AND distribution = 'school' ORDER BY created_at DESC LIMIT 1", [LIBRARY, key]);
+  if (!known.length || (on && !audienceAllows(ctx, known[0].audience))) return false;
   if (on) await db.query("INSERT INTO school_standard_sets (tenant_id, framework_key, enabled_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, key, ctx.userId]);
   else {
     // A set teachers can't see can't be followed either.
@@ -294,8 +337,9 @@ export async function setSchoolSet(ctx: Ctx, key: string, on: boolean): Promise<
  */
 export async function followSet(ctx: Ctx, key: string, on: boolean, accepted = false): Promise<"ok" | "unknown" | "terms"> {
   const db = await getDb();
-  const [f] = await db.query<{ distribution: string }>("SELECT distribution FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 ORDER BY created_at DESC LIMIT 1", [LIBRARY, key]);
-  if (!f) return "unknown";
+  const [f] = await db.query<{ distribution: string; audience: string | null }>("SELECT distribution, audience FROM standard_frameworks WHERE tenant_id = $1 AND key = $2 ORDER BY created_at DESC LIMIT 1", [LIBRARY, key]);
+  // A set for schools that belong to something this one doesn't isn't there for it.
+  if (!f || (on && !audienceAllows(ctx, f.audience))) return "unknown";
   if (!on) {
     await db.query("DELETE FROM school_followed_sets WHERE tenant_id = $1 AND framework_key = $2", [ctx.tenantId, key]);
     return "ok";
@@ -347,15 +391,20 @@ export function jurisdictionName(code: string, lang: string = "en"): string {
 /** Who is asking: their school role, and the courses they teach (for course frameworks). */
 export type Viewer = Ctx & { admin: boolean; teaches: string[] };
 
+/** SQL: a framework (alias f) with no audience, or one the school belongs to. audiencesOf allows only A–Z codes, so inlining them is safe. */
+const AUDIENCE = (ctx: Pick<Ctx, "audiences">) => {
+  const list = audiencesOf(ctx.audiences);
+  return list.length ? `(f.audience IS NULL OR f.audience IN (${list.map((a) => `'${a}'`).join(", ")}))` : "f.audience IS NULL";
+};
 /**
  * SQL that keeps only frameworks this viewer may see (alias f). Parameters
  * $1 = tenant, $2 = user, $3 = taught course ids.
  */
-const VISIBLE = `(
+const VISIBLE = (v: Viewer) => `((
   (f.tenant_id = '${LIBRARY}' AND (f.distribution = 'open' OR f.key IN (SELECT framework_key FROM school_standard_sets WHERE tenant_id = $1)))
   OR (f.tenant_id = $1 AND f.owner_kind = 'school')
   OR (f.tenant_id = $1 AND f.owner_kind = 'teacher' AND (f.owner_id = $2 OR f.course_id = ANY($3::uuid[])))
-)`;
+) AND ${AUDIENCE(v)})`;
 /** SQL: a library set (alias f) the school $1 follows. */
 const FOLLOWED = `(f.tenant_id = '${LIBRARY}' AND f.key IN (SELECT framework_key FROM school_followed_sets WHERE tenant_id = $1))`;
 /** Followed sets first; with none followed, library, school, teacher as before. */
@@ -377,7 +426,7 @@ const FRAMEWORK_COLS = `f.*, ${FOLLOWED} AS followed,
 export async function listFrameworks(v: Viewer, opts: { withArchived?: boolean } = {}): Promise<Framework[]> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE} ${opts.withArchived ? "" : "AND NOT f.archived"}
+    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE(v)} ${opts.withArchived ? "" : "AND NOT f.archived"}
       ORDER BY ${RANK}, f.title, f.version DESC`,
     vparams(v),
   );
@@ -385,18 +434,18 @@ export async function listFrameworks(v: Viewer, opts: { withArchived?: boolean }
 }
 
 /** The 'school' library sets a school admin may turn on, newest version of each. */
-export async function schoolSets(tenantId: string): Promise<Framework[]> {
-  return (await librarySets(tenantId)).filter((f) => f.distribution === "school");
+export async function schoolSets(ctx: Pick<Ctx, "tenantId" | "audiences">): Promise<Framework[]> {
+  return (await librarySets(ctx)).filter((f) => f.distribution === "school");
 }
 
-/** Every library set, newest version of each (for choosing what the school follows), by state then title. */
-export async function librarySets(tenantId: string): Promise<Framework[]> {
+/** Every library set the school may have, newest version of each (for choosing what the school follows), by state then title. */
+export async function librarySets(ctx: Pick<Ctx, "tenantId" | "audiences">): Promise<Framework[]> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE f.tenant_id = '${LIBRARY}'
+    `SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE f.tenant_id = '${LIBRARY}' AND ${AUDIENCE(ctx)}
        AND NOT EXISTS (SELECT 1 FROM standard_frameworks n WHERE n.tenant_id = f.tenant_id AND n.key = f.key AND n.created_at > f.created_at)
      ORDER BY f.jurisdiction NULLS FIRST, f.title`,
-    [tenantId],
+    [ctx.tenantId],
   );
   return rows.map(toFramework);
 }
@@ -409,7 +458,7 @@ export function jurisdictionsOf(list: Framework[]): string[] {
 export async function getFramework(v: Viewer, id: string, q?: Queryable): Promise<Framework | null> {
   if (!UUID.test(id)) return null;
   const db = q ?? await getDb();
-  const rows = await db.query(`SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE} AND f.id = $4`, [...vparams(v), id]);
+  const rows = await db.query(`SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE(v)} AND f.id = $4`, [...vparams(v), id]);
   return rows[0] ? toFramework(rows[0]) : null;
 }
 
@@ -428,7 +477,7 @@ export type SearchInput = { frameworkId?: string; subject?: string; grade?: stri
 export async function searchItems(v: Viewer, input: SearchInput): Promise<{ hits: Hit[]; more: boolean }> {
   const db = await getDb();
   const params: unknown[] = vparams(v);
-  const where: string[] = [VISIBLE];
+  const where: string[] = [VISIBLE(v)];
   if (!input.withArchived) where.push("NOT i.archived", "NOT f.archived");
   if (input.frameworkId && UUID.test(input.frameworkId)) { params.push(input.frameworkId); where.push(`f.id = $${params.length}`); }
   else if (input.followed) where.push(`(f.owner_kind <> 'library' OR ${FOLLOWED})`);
@@ -497,7 +546,7 @@ export async function addItemsToCourse(v: Viewer, courseId: string, itemIds: str
   return db.tx(async (t) => {
     const items = await t.query(
       `SELECT i.* FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id
-        WHERE ${VISIBLE} AND i.id = ANY($4::uuid[]) AND NOT i.archived`,
+        WHERE ${VISIBLE(v)} AND i.id = ANY($4::uuid[]) AND NOT i.archived`,
       [...vparams(v), want],
     );
     let added = 0;
@@ -588,7 +637,7 @@ export async function updateFramework(v: Viewer, id: string, input: FrameworkInp
 /** Archive (hidden from browsing; course standards already added stay) or bring back. */
 export async function archiveFramework(v: Viewer, id: string, archived: boolean): Promise<boolean> {
   const db = await getDb();
-  const rows = await db.query(`SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE} AND f.id = $4`, [...vparams(v), id]);
+  const rows = await db.query(`SELECT ${FRAMEWORK_COLS} FROM standard_frameworks f WHERE ${VISIBLE(v)} AND f.id = $4`, [...vparams(v), id]);
   const f = rows[0] ? toFramework(rows[0]) : null;
   if (!f || !canEdit(v, f)) return false;
   await db.query("UPDATE standard_frameworks SET archived = $3, updated_at = now() WHERE tenant_id = $1 AND id = $2", [v.tenantId, id, archived]);
@@ -684,9 +733,9 @@ export async function copyFramework(v: Viewer, sourceId: string, kind: "school" 
   const id = await db.tx(async (t) => {
     const [f] = await t.query<{ id: string }>(
       `INSERT INTO standard_frameworks (tenant_id, owner_kind, owner_id, identifier, title, creator, publisher, subjects, language, version,
-         official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, copied_from, created_by)
+         official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, audience, copied_from, created_by)
        SELECT $1, $2, $3, $4, title, creator, publisher, subjects, language, version,
-         official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, id, $5
+         official_source_url, data_url, data_source, license_title, license_uri, license_text, notice, audience, id, $5
          FROM standard_frameworks WHERE id = $6 RETURNING id`,
       [v.tenantId, kind, kind === "teacher" ? v.userId : null, crypto.randomUUID(), v.userId, src.id],
     );
@@ -726,15 +775,15 @@ export function subjectsOf(list: Framework[]): string[] {
 }
 
 /** Framework metadata of the items a course's standards point at (for badges and notices). */
-export async function courseStandardSources(tenantId: string, courseId: string): Promise<Map<string, Pick<Framework, "id" | "title" | "version" | "ownerKind" | "notice" | "followed">>> {
+export async function courseStandardSources(tenantId: string, courseId: string): Promise<Map<string, Pick<Framework, "id" | "title" | "version" | "ownerKind" | "notice" | "followed" | "audience">>> {
   const db = await getDb();
   const rows = await db.query(
-    `SELECT s.id AS standard_id, f.id, f.title, f.version, f.owner_kind, f.notice, ${FOLLOWED} AS followed
+    `SELECT s.id AS standard_id, f.id, f.title, f.version, f.owner_kind, f.notice, f.audience, ${FOLLOWED} AS followed
        FROM standards s JOIN standard_items i ON i.id = s.item_id JOIN standard_frameworks f ON f.id = i.framework_id
       WHERE s.tenant_id = $1 AND s.course_id = $2`,
     [tenantId, courseId],
   );
-  return new Map(rows.map((r) => [String(r.standard_id), { id: String(r.id), title: String(r.title), version: String(r.version ?? ""), ownerKind: r.owner_kind as OwnerKind, notice: (r.notice as string) ?? null, followed: !!r.followed }]));
+  return new Map(rows.map((r) => [String(r.standard_id), { id: String(r.id), title: String(r.title), version: String(r.version ?? ""), ownerKind: r.owner_kind as OwnerKind, notice: (r.notice as string) ?? null, followed: !!r.followed, audience: (r.audience as string) ?? null }]));
 }
 
 /**
@@ -745,7 +794,9 @@ export async function courseStandardSources(tenantId: string, courseId: string):
 export async function standardOptions(ctx: Ctx, courseId: string): Promise<{ id: string; name: string; description: string; source?: string }[]> {
   const { listStandards } = await import("./standards");
   const [all, sources] = await Promise.all([listStandards(ctx, courseId), courseStandardSources(ctx.tenantId, courseId)]);
-  const list = [...all].sort((a, b) => Number(!sources.get(a.id)?.followed) - Number(!sources.get(b.id)?.followed));
+  // A standard from a set the school may not have (NAD, for a school that isn't) stays in the course but isn't offered.
+  const list = all.filter((s) => audienceAllows(ctx, sources.get(s.id)?.audience ?? null))
+    .sort((a, b) => Number(!sources.get(a.id)?.followed) - Number(!sources.get(b.id)?.followed));
   return list.map((s) => {
     const f = sources.get(s.id);
     return { id: s.id, name: s.code, description: s.description, ...(f && f.ownerKind !== "teacher" ? { source: f.version ? `${f.title} (${f.version})` : f.title } : {}) };

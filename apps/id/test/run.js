@@ -2584,6 +2584,58 @@ function section(title) { console.log(`\n${title}`); }
         !(theirs.settings.locations || []).includes('Nope'));
     }
 
+    section('NAD schools');
+    {
+      const oidcNad = require('../src/oidc');
+      const fs = require('fs');
+      const path = require('path');
+      const nadSuper = await identity.resolveUser({ provider: 'google', subject: 'sub-nad-super', email: 'nad-super@signify.test', name: 'Nad Super' });
+      await db.query('INSERT INTO platform_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [nadSuper.user.id]);
+      const nadSess = await sessions.create(nadSuper.user.id, { ip: '10.0.0.31', userAgent: 'test', isStaff: true });
+      const superCookie = `${sessions.COOKIE}=${encodeURIComponent(nadSess.raw)}; csrf=t0k3n`;
+      const nadApp = { namespace: 'learning', client_id: 'learning' };
+      const placesAdminId = (await db.one("SELECT id FROM users WHERE email = 'places-admin@school.edu'")).id;
+      const claimsNow = async () => (await oidcNad.buildClaims(nadApp, placesAdminId, tenant.id, null)).tenant_affiliations;
+
+      eq('a school belongs to nothing until a super admin says so', await claimsNow(), []);
+      eq('its own local admin cannot mark it an NAD school',
+        (await pCall(placesAdmin, `/tenants/${tenant.id}/affiliations`, 'PUT', { affiliations: ['nad'] })).status, 403);
+      eq('so its tokens still say nothing', await claimsNow(), []);
+      await pCall(placesAdmin, `/tenants/${tenant.id}`, 'PATCH', { name: tenant.name, settings: { affiliations: ['nad'] }, affiliations: ['nad'] });
+      eq('nor through the school settings form',
+        (await db.one('SELECT settings FROM tenants WHERE id = $1', [tenant.id])).settings.affiliations, undefined);
+      const marked = await pCall(superCookie, `/tenants/${tenant.id}/affiliations`, 'PUT', { affiliations: ['NAD', 'made-up', 'nad'] });
+      eq('a super admin marks it, unknown keys dropped', [marked.status, (await marked.json()).affiliations], [200, ['nad']]);
+      eq('every token at the school now says so', await claimsNow(), ['nad']);
+      ok('and it is in the audit log',
+        !!(await db.one("SELECT 1 FROM audit_log WHERE action = 'tenant.affiliations_updated' AND target_id = $1", [tenant.id])));
+      const listed = (await (await pCall(superCookie, '/tenants')).json()).tenants.find((x) => x.id === tenant.id);
+      eq('the console’s Schools page shows it', listed.settings.affiliations, ['nad']);
+      if (elsewhere) {
+        const elseClaims = await db.one('SELECT settings FROM tenants WHERE id = $1', [elsewhere.id]);
+        eq('another school is untouched', elseClaims.settings.affiliations, undefined);
+      }
+      const indepT = await db.one("SELECT id FROM tenants WHERE kind = 'independent'");
+      eq('people with no school cannot be marked',
+        (await pCall(superCookie, `/tenants/${indepT.id}/affiliations`, 'PUT', { affiliations: ['nad'] })).status, 404);
+      eq('a super admin can take it off again',
+        (await (await pCall(superCookie, `/tenants/${tenant.id}/affiliations`, 'PUT', { affiliations: [] })).json()).affiliations, []);
+      eq('and the tokens follow', await claimsNow(), []);
+
+      // Migration 016 marks Richmond Academy, and only it, once.
+      const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '016_school_affiliations.sql'), 'utf8');
+      const richmond = await db.one("INSERT INTO tenants (slug, name) VALUES ('richmond-test', 'Richmond Academy') RETURNING id");
+      await db.query(sql);
+      const after = await db.one('SELECT settings FROM tenants WHERE id = $1', [richmond.id]);
+      eq('migration 016 marks Richmond Academy an NAD school', after.settings.affiliations, ['nad']);
+      eq('and no other school', (await db.one('SELECT settings FROM tenants WHERE id = $1', [tenant.id])).settings.affiliations, []);
+      await pCall(superCookie, `/tenants/${richmond.id}/affiliations`, 'PUT', { affiliations: [] });
+      await db.query(sql);
+      eq('rerunning it never undoes a super admin’s later choice',
+        (await db.one('SELECT settings FROM tenants WHERE id = $1', [richmond.id])).settings.affiliations, []);
+      await db.query('DELETE FROM tenants WHERE id = $1', [richmond.id]);
+    }
+
     section('Tools by role');
     {
       const features = require('../src/features');
