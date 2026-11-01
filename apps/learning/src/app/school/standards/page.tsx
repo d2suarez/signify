@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireMe, readMe } from "@/lib/auth";
 import { ctx, isSchoolAdmin, lang, standardsViewer } from "@/lib/access";
 import {
-  createFramework, ensureLibrary, followSet, jurisdictionName, jurisdictionsOf, librarySets, listFrameworks, saveSchoolStandards, schoolStandards, setSchoolSet,
+  createFramework, ensureLibrary, followAll, followSet, jurisdictionName, jurisdictionsOf, librarySets, listFrameworks, saveSchoolStandards, schoolStandards, setSchoolSet,
 } from "@/lib/standards-library";
 import { defaultSettings } from "@/lib/standards-math";
 import { schoolScales } from "@/lib/school-grading";
@@ -35,6 +35,10 @@ async function act(formData: FormData) {
   if (op === "places") await saveSchoolStandards(v, { jurisdictions: formData.getAll("place").map(String) });
   if (op === "follow" || op === "unfollow") {
     const r = await followSet(v, String(formData.get("key") || ""), op === "follow", formData.get("accept") === "on");
+    if (r === "terms") redirect("/school/standards?terms=1#follow");
+  }
+  if (op === "follow-all") {
+    const r = await followAll(v, formData.get("place"), formData.get("accept") === "on");
     if (r === "terms") redirect("/school/standards?terms=1#follow");
   }
   if (op === "set-on" && formData.get("accept") === "on") await setSchoolSet(v, String(formData.get("key") || ""), true);
@@ -105,9 +109,23 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
           <ul className="list" style={{ gap: 6 }}>
             {choices.map((f, k) => {
               const needsTerms = f.distribution === "school" && !(f.key && school.enabledSets.includes(f.key));
+              const firstOfPlace = k === 0 || choices[k - 1].jurisdiction !== f.jurisdiction;
+              // One click for every set from a state (or the NAD) not followed yet.
+              const rest = firstOfPlace && f.jurisdiction ? choices.filter((c) => c.jurisdiction === f.jurisdiction && !c.followed) : [];
+              const restNeedsTerms = rest.some((c) => c.distribution === "school" && !(c.key && school.enabledSets.includes(c.key)));
               return (
                 <li key={f.id} className="stack" style={{ display: "block" }}>
-                  {(k === 0 || choices[k - 1].jurisdiction !== f.jurisdiction) && <p className="label" style={{ margin: "8px 0 4px" }}>{placeName(f.jurisdiction)}</p>}
+                  {firstOfPlace && <p className="label" style={{ margin: "8px 0 4px" }}>{placeName(f.jurisdiction)}</p>}
+                  {rest.length > 1 && (
+                    <form action={act} className="row" style={{ alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 6px" }}>
+                      <input type="hidden" name="op" value="follow-all" />
+                      <input type="hidden" name="place" value={f.jurisdiction ?? ""} />
+                      {restNeedsTerms && (
+                        <label className="check" style={{ whiteSpace: "normal", fontSize: 14 }}><input type="checkbox" name="accept" required /> {d.stdAcceptAllTerms}</label>
+                      )}
+                      <button className="btn btn-sm">{d.stdFollowAll.replace("{n}", String(rest.length)).replace("{place}", placeName(f.jurisdiction))}</button>
+                    </form>
+                  )}
                   <form action={act} className="row" style={{ alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                     <input type="hidden" name="key" value={f.key ?? ""} />
                     <div className="grow" style={{ minWidth: 220 }}>

@@ -11,7 +11,7 @@ import { addStandard, courseGrading, listStandards, saveStandardsSettings, setGr
 import {
   addItem, addItemsToCourse, archiveFramework, canEdit, copyFramework, createFramework, frameworkItems, getFramework, getItem,
   importCsv, listFrameworks, loadLibrary, saveSchoolStandards, schoolSets, schoolStandards, searchItems, setSchoolSet, updateItem,
-  followSet, jurisdictionCode, jurisdictionName, jurisdictionsOf, librarySets, standardOptions, audiencesOf, audienceAllows,
+  followAll, followSet, jurisdictionCode, jurisdictionName, jurisdictionsOf, librarySets, standardOptions, audiencesOf, audienceAllows,
   LIBRARY, type Viewer,
 } from "../src/lib/standards-library";
 import { csvItems, gradeList, gradeSpan, parseCsv } from "../src/lib/standards-csv";
@@ -529,6 +529,20 @@ test("followed sets: none = the library as before; following a 'school' set need
   assert.equal((await listFrameworks(v)).filter((f) => f.key === "closed").length, 0);
 });
 
+test("followed sets: follow every set from a state at once, with one acceptance of their terms", async () => {
+  const school = "school-all";
+  const admin = { tenantId: school, userId: "admin-all" };
+  assert.equal(await followAll(admin, "XX"), "unknown");
+  assert.equal(await followAll(admin, "GA"), "unknown", "a state with no sets");
+  assert.equal(await followAll(admin, "va"), "terms", "a set that needs terms: refused without them");
+  assert.deepEqual([(await schoolStandards(school)).followedSets, (await schoolStandards(school)).enabledSets], [[], []], "nothing done");
+  assert.equal(await followAll(admin, "va", true), 1);
+  const st = await schoolStandards(school);
+  assert.deepEqual([st.followedSets, st.enabledSets], [["closed"], ["closed"]], "only Virginia's sets, turned on; the multi-state set isn't followed");
+  assert.equal(await followAll(admin, "VA"), 1, "all on already: no terms asked again");
+  assert.deepEqual((await schoolStandards("school-f2")).followedSets, [], "another school untouched");
+});
+
 test("followed sets: the course pickers list standards from followed sets first, the course's order otherwise", async () => {
   const school = "school-p";
   const c = await course(school);
@@ -583,6 +597,7 @@ test("audience: NAD sets exist only for schools Signify ID marks as NAD; another
     assert.ok(!(await schoolSets(outAdmin)).some((f) => f.key === "nadt"));
     assert.ok(!jurisdictionsOf(await librarySets(outAdmin)).includes("NAD"), "no NAD place checkbox");
     assert.equal(await followSet(outAdmin, "nadt", true, true), "unknown", "following is refused, terms or not");
+    assert.equal(await followAll(outAdmin, "NAD", true), "unknown", "and following all of the NAD's");
     assert.equal(await setSchoolSet(outAdmin, "nadt", true), false, "turning it on is refused");
     assert.deepEqual((await schoolStandards(outside)).enabledSets, []);
     // Even if it were on (a row from before), nothing shows.

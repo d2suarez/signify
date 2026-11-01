@@ -357,6 +357,33 @@ export async function followSet(ctx: Ctx, key: string, on: boolean, accepted = f
   });
 }
 
+/**
+ * The school follows every library set from one state (or the NAD) that it
+ * may have, newest version of each. Sets that need terms are turned on too,
+ * so `accepted` is needed unless they are all on already. All or nothing.
+ * Returns how many sets it now follows from there. School admins only (the
+ * caller checks).
+ */
+export async function followAll(ctx: Ctx, jurisdiction: unknown, accepted = false): Promise<number | "unknown" | "terms"> {
+  const place = jurisdictionCode(jurisdiction);
+  if (!place) return "unknown";
+  const sets = (await librarySets(ctx)).filter((f) => f.jurisdiction === place && f.key);
+  if (!sets.length) return "unknown";
+  const db = await getDb();
+  const { enabledSets } = await schoolStandards(ctx.tenantId, db);
+  const toTurnOn = sets.filter((f) => f.distribution === "school" && !enabledSets.includes(f.key!));
+  if (toTurnOn.length && !accepted) return "terms";
+  await db.tx(async (t) => {
+    for (const f of toTurnOn) {
+      await t.query("INSERT INTO school_standard_sets (tenant_id, framework_key, enabled_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, f.key, ctx.userId]);
+    }
+    for (const f of sets) {
+      await t.query("INSERT INTO school_followed_sets (tenant_id, framework_key, followed_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [ctx.tenantId, f.key, ctx.userId]);
+    }
+  });
+  return sets.length;
+}
+
 // ---------- states ----------
 
 const STATES: Record<string, string> = {
