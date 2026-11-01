@@ -304,6 +304,13 @@ const SOURCES = [
     code: /^T\.9-12\.[A-Z]{2}\.\d+/, defaultGrades: HS,
   }, NAD_SEC),
   nad("nad-business-secondary", "2018", "NAD Secondary Business Education Standards", ["Business"], "Secondary-Business-Education-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  // The NAD's grades 9-12 Bible course standards (BC.<grade>.<standard>.<indicator>), on the NAD's
+  // own hub though the secondary page doesn't link them; the Adventist Learning Community lists them
+  // as "NAD Standards for High School Bible Courses Grade 9-Grade 12".
+  nad("nad-bible-secondary", "2017", "NAD Secondary Religion Standards (High School Bible Courses)", ["Bible"], "Secondary-Religion-Standards-Complete-Set.pdf", "outline", {
+    code: NAD_OUTLINE, defaultGrades: HS,
+    grades: { "Bible Course - Grade Nine": ["09"], "Bible Course - Grade Ten": ["10"], "Bible Course - Grade Eleven": ["11"], "Bible Course - Grade Twelve": ["12"] },
+  }, NAD_SEC),
   nad("nad-world-languages-secondary", "2018", "NAD Secondary Foreign Language Standards", ["World Languages"], "Secondary-Foreign-Language-1-Standards.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
 ];
 

@@ -6,7 +6,7 @@ Each `<key>@<version>.json` is one published set, built by `scripts/standards-se
 
 ## NAD (Adventist) standards
 
-17 sets (`nad-*`), added 2026-10-31 on Desmond's go-ahead, `jurisdiction: "NAD"`, `distribution: "school"`, with the NAD's copyright line as the notice. The NAD publishes them only as PDFs, so `scripts/nad-standards.mjs` reads each PDF's own text by where it sits on the page (pdfjs-dist, not shipped with the app):
+18 sets (`nad-*`), added 2026-10-31 on Desmond's go-ahead (high school Bible, `nad-bible-secondary`, from the NAD hub's `Secondary-Religion-Standards-Complete-Set.pdf`, which the secondary page doesn't link), `jurisdiction: "NAD"`, `distribution: "school"`, with the NAD's copyright line as the notice. The NAD publishes them only as PDFs, so `scripts/nad-standards.mjs` reads each PDF's own text by where it sits on the page (pdfjs-dist, not shipped with the app):
 
 ```
 npm i --no-save pdfjs-dist@4.10.38

@@ -180,7 +180,7 @@ test("library: the real seeds load into Postgres and can be searched", async () 
     assert.equal(open, 2, "only Common Core is open to every school; the others need the school to turn them on");
     // NAD: the NAD's own codes, domain → strand → standard, grades from the code.
     const nad = await real.query<{ key: string; distribution: string }>("SELECT key, distribution FROM standard_frameworks WHERE jurisdiction = 'NAD'");
-    assert.equal(nad.length, 17);
+    assert.equal(nad.length, 18);
     assert.ok(nad.every((f) => f.distribution === "school"), "a school turns NAD sets on itself");
     const item = async (key: string, code: string) => (await real.query<{ statement: string; grades: string[]; parent: string; grand: string }>(
       `SELECT i.statement, i.grades, p.statement AS parent, g.statement AS grand FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id
@@ -202,6 +202,16 @@ test("library: the real seeds load into Postgres and can be searched", async () 
     assert.deepEqual(hs.grades, ["09", "10", "11", "12"]);
     assert.equal(hs.grand, "Course Focus");
     assert.deepEqual((await item("nad-ela-secondary", "LA.10.1.1")).grades, ["10"]);
+    // High school Bible (Secondary Religion Standards 2017): course → section → standard → indicator, one grade per course.
+    const bc = await item("nad-bible-secondary", "BC.10.5.3");
+    assert.equal(bc.statement, "Survey the history of Christianity from A.D. 70 through 1800s (key people, events, concepts, timelines, conflicts, doctrines, etc.).");
+    assert.deepEqual(bc.grades, ["10"]);
+    assert.equal(bc.parent, "Be able to understand history of Christianity.");
+    assert.equal(bc.grand, "COURSE CONTENT: Old Testament, Christian History, Seventh-day Adventism");
+    assert.deepEqual((await item("nad-bible-secondary", "BC.12.7.4")).grades, ["12"]);
+    const [{ bcCodes }] = await real.query<{ bcCodes: number }>(
+      `SELECT count(*)::int AS "bcCodes" FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id WHERE f.key = 'nad-bible-secondary' AND i.code <> ''`);
+    assert.equal(bcCodes, 133, "every BC code the PDF prints");
     const tech = await item("nad-technology-elementary", "T.DL.2.2");
     assert.equal(tech.parent, "Students establish and engage strategies for knowledge collection and determine ways that will guide the technology process to establish solutions. (Computational Thinker)");
   } finally { await real.close(); }
