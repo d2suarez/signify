@@ -12,5 +12,14 @@
   "fl-best-ela@2020.json",
   "ok-math@2022.json",
   "md-math@2025.json",
-  "in-math@2023.json"
+  "in-math@2023.json",
+  "fl-science@2008.json",
+  "fl-social-studies@2008.json",
+  "ga-dance@2017.json",
+  "ga-music@2017.json",
+  "ga-theatre@2017.json",
+  "ga-visual-art@2017.json",
+  "ga-health@2021.json",
+  "ga-pe@2018.json",
+  "ga-computer-science@2019.json"
 ]
