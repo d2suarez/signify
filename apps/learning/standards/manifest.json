@@ -21,5 +21,22 @@
   "ga-visual-art@2017.json",
   "ga-health@2021.json",
   "ga-pe@2018.json",
-  "ga-computer-science@2019.json"
+  "ga-computer-science@2019.json",
+  "nad-bible-elementary@2017.json",
+  "nad-ela-elementary@2013.json",
+  "nad-math-elementary@2012.json",
+  "nad-science-elementary@2015.json",
+  "nad-social-studies-elementary@2016.json",
+  "nad-fine-arts-elementary@2017.json",
+  "nad-pe-elementary@2016.json",
+  "nad-technology-elementary@2022.json",
+  "nad-ela-secondary@2017.json",
+  "nad-math-secondary@2018.json",
+  "nad-science-secondary@2019.json",
+  "nad-social-studies-secondary@2018.json",
+  "nad-fine-arts-secondary@2018.json",
+  "nad-health-pe-secondary@2019.json",
+  "nad-technology-secondary@2018.json",
+  "nad-business-secondary@2018.json",
+  "nad-world-languages-secondary@2018.json"
 ]

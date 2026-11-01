@@ -6,6 +6,7 @@
  *
  *   node scripts/standards-seeds.mjs --fetch <rawDir>   download the sources into rawDir
  *   node scripts/standards-seeds.mjs <rawDir>           write standards/*.json from rawDir
+ *   ... --only nad-                                      just the NAD sets (needs pdfjs-dist, see nad-standards.mjs)
  *
  * Every source, its license and why it may be used: PLAN.md ("Standards
  * library sources") and each seed's "framework" block. Only public files
@@ -14,6 +15,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { NAD_PDFS, codesIn, fetchNad, parseGrid, parseOutline, parseTech } from "./nad-standards.mjs";
 
 const OUT = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "standards");
 const OPENSALT = "https://opensalt.net/ims/case/v1p0/CFPackages/";
@@ -57,6 +59,37 @@ const CPALMS_TERMS = {
   notice: "Florida's B.E.S.T. Standards from CPALMS, the State of Florida's official source for standards. © Florida State University. CPALMS is a trademark of Florida State University.",
   distribution: "school",
 };
+
+// NAD (North American Division, Seventh-day Adventist) Office of Education
+// standards: published only as PDFs, read by scripts/nad-standards.mjs.
+// Added on Desmond's go-ahead (2026-10-31) for Richmond Academy, an NAD school;
+// each school turns them on itself and accepts the NAD's terms.
+const NAD_TERMS = (page) => ({
+  licenseTitle: "© North American Division Office of Education, Seventh-day Adventist Church. All content is copyrighted and may not be used without permission.",
+  licenseURI: "https://adventisteducation.org/use-and-privacy-policy",
+  licenseText: `Published by the NAD Office of Education for Seventh-day Adventist schools (${page}). The NAD's site says: "Distribution and use of these documents is subject to the terms outlined in our use and privacy policies. All content is copyrighted and may not be used without permission." A school that turns these on accepts those terms; ask the NAD Office of Education before using them outside NAD schools.`,
+  notice: "Standards © North American Division Office of Education, Seventh-day Adventist Church. All content is copyrighted and may not be used without permission.",
+  distribution: "school",
+});
+const NAD_ELEM = "https://adventisteducation.org/elementary-standards";
+const NAD_SEC = "https://adventisteducation.org/secondary-standards";
+const K8 = ["KG", "01", "02", "03", "04", "05", "06", "07", "08"];
+const HS = ["09", "10", "11", "12"];
+// Elementary codes: <prefix>.<grade or band>.<domain>.<n>, e.g. B.1-4.BF.16, LA.3.RI.2.
+const nadCode = (prefix) => new RegExp(`^${prefix}\\.\\s?(?:K|\\d{1,2})(?:\\s?[-–]\\s?\\d{1,2})?\\s?\\.\\s?[A-Z]{1,4}\\s?\\.\\s?\\d+`);
+const NAD_GRID = { grade: /^(?:[A-Z]+\.)?((?:K|\d+)(?:-\d+)?)\./, domain: /\.([A-Z]+)\.\d+$/ };
+// Secondary codes: ACCT.1, ACCT.1.1, BIO1.2.3, LA.9.1.1.
+const NAD_OUTLINE = /^[A-Z&]{1,5}\d?(?:\.(?:\d{1,2}-)?\d+){1,3}\b/;
+const nad = (key, version, title, subject, raw, layout, opts, page = NAD_ELEM) => ({
+  key, kind: "nad", raw: [raw], layout, opts, jurisdiction: "NAD", title, version, subject,
+  publisher: "North American Division Office of Education, Seventh-day Adventist Church",
+  creator: "North American Division Office of Education",
+  officialSourceURL: page,
+  dataSource: `Read from the NAD's PDF (${raw}) by scripts/nad-standards.mjs: codes and statements as printed, placed by their position on the page`,
+  ...NAD_TERMS(page),
+});
+// The grade-level PDFs reprint the elementary codes by grade; the build checks against them.
+const NAD_GRADE_PDFS = ["K", 1, 2, 3, 4, 5, 6, 7, 8].map((g) => `${g}-Elementary-Standards-by-Grade-Level-Grade-${g}.pdf`);
 
 /**
  * Each library set. `raw` names the downloaded file(s) in rawDir; `url` is
@@ -245,15 +278,33 @@ const SOURCES = [
     dataSource: "CASE package from the Georgia Department of Education's CASE server (K-8 adopted 2019, with the high school courses)",
     ...GEORGIA_TERMS("https://case.georgiastandards.org/uri/8f7703e4-8fb6-4ba8-a311-44de60e4d746"),
   },
-  // NAD (North American Division) Adventist standards: not added. The NAD's
-  // content is copyrighted and published only as PDFs. Once the NAD Office of
-  // Education gives written permission and a spreadsheet or CASE file, add one
-  // entry per subject here, e.g.
-  //   { key: "nad-math", kind: "case" | "csv", raw: "<file>", jurisdiction: "NAD",
-  //     title: "NAD Mathematics Standards", version: "<year>", subject: ["Mathematics"],
-  //     publisher: "North American Division Office of Education", licenseTitle: "<the permission>",
-  //     licenseURI, licenseText, notice, distribution: "school" }
-  // (a spreadsheet needs a small reader like fromCsp). See standards/README.md.
+  nad("nad-bible-elementary", "2017", "NAD Elementary Bible Standards", ["Bible"], "Elementary-Bible-Standards.pdf", "grid", { code: nadCode("B"), ...NAD_GRID }),
+  nad("nad-ela-elementary", "2013", "NAD Elementary English Language Arts Standards", ["English Language Arts"], "ElementaryLanguageArtsStandards.pdf", "grid", { code: nadCode("LA"), ...NAD_GRID }),
+  nad("nad-math-elementary", "2012", "NAD Elementary Mathematics Standards", ["Mathematics"], "Elementary-Math-Standards.pdf", "grid", {
+    code: /^(?:K|\d)\.\s?[A-Z](?:\s?[A-Z]){0,3}\.\s?\d+/, ...NAD_GRID, cutX: 455, corr: /^(Chapter|Section|Topic)\b/, skipRows: /^Assessments$/,
+    misprints: { "28.OAT.2": "8.OAT.2" },
+  }),
+  nad("nad-science-elementary", "2015", "NAD Elementary Science Standards", ["Science"], "Elementary-Science-Standards.pdf", "grid", { code: nadCode("S"), ...NAD_GRID, corr: /^(Level \d|Ch\.|These performance)/ }),
+  nad("nad-social-studies-elementary", "2016", "NAD Elementary Social Studies Standards", ["Social Studies"], "Elementary-Social-Studies-Standards.pdf", "grid", { code: nadCode("SS"), ...NAD_GRID, cutX: 280, align: "middle" }),
+  nad("nad-fine-arts-elementary", "2017", "NAD Elementary Fine Arts Standards", ["Fine Arts"], "Elementary-Fine-Arts-Standards.pdf", "grid", {
+    code: nadCode("FA"), ...NAD_GRID, misprints: { "FA.1.4.M.15": "FA.1-4.M.15" },
+  }),
+  nad("nad-pe-elementary", "2016", "NAD Elementary Physical Education Standards", ["Physical Education"], "Elementary-PE-Standards.pdf", "grid", { code: nadCode("PE"), ...NAD_GRID }),
+  nad("nad-technology-elementary", "2022", "NAD Elementary Technology Standards", ["Technology"], "2022NADElementaryTechnologyStandardsDocument_0823.pdf", "tech", { grades: K8 }),
+  nad("nad-ela-secondary", "2017", "NAD Secondary Language Arts Standards", ["English Language Arts"], "Secondary-Language-Arts-Standards-Complete-Set.pdf", "outline", {
+    code: NAD_OUTLINE, defaultGrades: HS, grades: { "Grade Nine": ["09"], "Grade Ten": ["10"], "Grade Eleven": ["11"], "Grade Twelve": ["12"] },
+    misprints: { "LA.10.1 1": "LA.10.1.1" },
+  }, NAD_SEC),
+  nad("nad-math-secondary", "2018", "NAD Secondary Mathematics Standards", ["Mathematics"], "Secondary-Mathematics-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-science-secondary", "2019", "NAD Secondary Science Standards", ["Science"], "Secondary-Science-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-social-studies-secondary", "2018", "NAD Secondary Social Studies Standards", ["Social Studies"], "Secondary-Social-Studies-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-fine-arts-secondary", "2018", "NAD Secondary Fine Arts Standards (Music, Visual Arts)", ["Fine Arts"], "Secondary-Fine-Arts-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-health-pe-secondary", "2019", "NAD Secondary Health and Physical Education Standards", ["Health", "Physical Education"], "Secondary-Health-and-PE-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-technology-secondary", "2018", "NAD Secondary Technology Standards (Cross-Curricular)", ["Technology"], "Secondary-Cross-Curricular-Technology-Education-Standards-Complete-Set.pdf", "outline", {
+    code: /^T\.9-12\.[A-Z]{2}\.\d+/, defaultGrades: HS,
+  }, NAD_SEC),
+  nad("nad-business-secondary", "2018", "NAD Secondary Business Education Standards", ["Business"], "Secondary-Business-Education-Standards-Complete-Set.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
+  nad("nad-world-languages-secondary", "2018", "NAD Secondary Foreign Language Standards", ["World Languages"], "Secondary-Foreign-Language-1-Standards.pdf", "outline", { code: NAD_OUTLINE, defaultGrades: HS }, NAD_SEC),
 ];
 
 const GRADES = ["PK", "KG", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
@@ -279,9 +330,11 @@ const uuid = (hex) => {
 
 const caseUrl = (s) => (s.url ?? OPENSALT) + s.raw + (s.url === CPALMS ? ".json" : "");
 
-async function fetchAll(dir) {
+async function fetchAll(dir, only) {
   fs.mkdirSync(dir, { recursive: true });
-  for (const s of SOURCES) {
+  const wanted = SOURCES.filter((s) => !only || s.key.startsWith(only));
+  for (const s of wanted) {
+    if (s.kind === "nad") { await fetchNad(dir, s.raw); continue; }
     for (const r of [s.raw].flat()) {
       const url = s.kind === "case" ? caseUrl(s) : CSP + r;
       const res = await fetch(url, { headers: { accept: "application/json" } });
@@ -290,6 +343,7 @@ async function fetchAll(dir) {
       console.log("fetched", url);
     }
   }
+  if (wanted.some((s) => s.kind === "nad")) await fetchNad(dir, NAD_GRADE_PDFS);
 }
 
 // ---------- CASE packages ----------
@@ -396,6 +450,55 @@ function fromCsp(src, sets) {
   };
 }
 
+// ---------- NAD PDFs ----------
+
+async function fromNad(src, dir) {
+  const file = path.join(dir, src.raw[0]);
+  const parsed = src.layout === "grid" ? await parseGrid(file, src.opts)
+    : src.layout === "outline" ? await parseOutline(file, src.opts)
+      : await parseTech(file, src.opts);
+  for (const p of parsed.problems) console.log(`  ${src.key}: ${p}`);
+  const coded = parsed.items.filter((i) => i.code && ["Standard", "Indicator", "Objective"].includes(i.type)).length;
+  if (src.layout !== "tech" && coded !== parsed.tokens) throw new Error(`${src.key}: ${parsed.tokens} codes on the pages but ${coded} standards read`);
+  const id = new Map(parsed.items.map((i) => [i.key, stableUuid(`${src.key}:${i.key}`)]));
+  const items = parsed.items.map((i) => {
+    const text = `${i.code} ${i.statement}`;
+    // Page furniture must never end up in a statement.
+    if (/OFFICE OF EDUCATION|North American Division Seventh-day|ESSENTIAL QUESTION|Essential Question:|Big Idea:/i.test(text)) throw new Error(`${src.key}: ${i.code || i.key} has page header text: ${text.slice(0, 80)}`);
+    if (!i.statement) throw new Error(`${src.key}: ${i.code || i.key} has no statement`);
+    return {
+      identifier: id.get(i.key), uri: null, code: i.code, statement: i.statement, abbreviated: i.abbreviated ?? null, type: i.type,
+      grades: i.grades, parent: i.parentKey ? id.get(i.parentKey) : null, list: null, notes: i.notes ?? null,
+    };
+  });
+  return {
+    framework: {
+      identifier: stableUuid(`${src.key}:document`), uri: null, creator: src.creator, officialSourceURL: src.officialSourceURL,
+      language: "en", adoptionStatus: "Adopted", sourceUpdated: null, dataURL: NAD_PDFS + src.raw[0],
+    },
+    items: sortTree(items), associations: [],
+  };
+}
+
+/**
+ * The elementary sets against the NAD's grade-level PDFs, which reprint them by
+ * grade: every code, and the statements word for word. Printed, not thrown:
+ * the two editions differ in places and have their own slips.
+ */
+async function checkNadGrades(dir, built) {
+  if (!NAD_GRADE_PDFS.every((f) => fs.existsSync(path.join(dir, f)))) return;
+  const ours = new Map(built.flatMap((b) => b.items.filter((i) => i.code.includes(".")).map((i) => [i.code, i.statement])));
+  const loose = /^(?:(?:B|LA|S|SS|FA|PE)\.\s?)?(?:K|\d{1,2})(?:\s?[-–]\s?\d{1,2})?\s?\.\s?[A-Z]{1,4}\s?\.\s?\d+/;
+  const theirs = new Map();
+  for (const f of NAD_GRADE_PDFS) for (const [c, t] of await codesIn(path.join(dir, f), loose)) theirs.set(c, t);
+  const missing = [...theirs.keys()].filter((c) => !ours.has(c));
+  const extra = [...ours.keys()].filter((c) => !theirs.has(c) && !c.startsWith("T."));
+  const letters = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const differ = [...ours].filter(([c, t]) => theirs.has(c) && letters(t) !== letters(theirs.get(c))).map(([c]) => c);
+  console.log(`NAD grade-level PDFs: ${theirs.size} codes; not in the subject sets: ${missing.join(" ") || "none"}; not in the grade PDFs: ${extra.join(" ") || "none"}`);
+  console.log(`  statements: ${ours.size - extra.length - differ.length} the same letter for letter; differ (check by eye): ${differ.join(" ") || "none"}`);
+}
+
 /** Parents before their children, siblings in their first order. */
 function sortTree(items) {
   const kids = new Map();
@@ -444,17 +547,25 @@ function write(src, built) {
   console.log(`${path.basename(file)}: ${built.items.length} items, ${built.associations.length} associations`);
 }
 
+// --only <key prefix> fetches or builds just those sets (e.g. --only nad-); the manifest always lists every set.
 const args = process.argv.slice(2);
+const onlyAt = args.indexOf("--only");
+const only = onlyAt >= 0 ? args.splice(onlyAt, 2)[1] : null;
 if (args[0] === "--fetch") {
-  await fetchAll(args[1]);
+  await fetchAll(args[1], only);
 } else if (args[0]) {
   fs.mkdirSync(OUT, { recursive: true });
   const read = (r) => JSON.parse(fs.readFileSync(path.join(args[0], `${r}.json`), "utf8"));
+  const nadBuilt = [];
   for (const s of SOURCES) {
-    write(s, s.kind === "case" ? fromCase(s, read(s.raw)) : fromCsp(s, s.raw.map((r) => read(r).data)));
+    if (only && !s.key.startsWith(only)) continue;
+    const built = s.kind === "case" ? fromCase(s, read(s.raw)) : s.kind === "nad" ? await fromNad(s, args[0]) : fromCsp(s, s.raw.map((r) => read(r).data));
+    if (s.kind === "nad" && s.key.endsWith("-elementary")) nadBuilt.push(built);
+    write(s, built);
   }
+  if (nadBuilt.length) await checkNadGrades(args[0], nadBuilt);
   fs.writeFileSync(path.join(OUT, "manifest.json"), JSON.stringify(SOURCES.map((s) => `${s.key}@${s.version}.json`), null, 2) + "\n");
 } else {
-  console.error("usage: standards-seeds.mjs --fetch <rawDir> | <rawDir>");
+  console.error("usage: standards-seeds.mjs --fetch <rawDir> [--only <key prefix>] | <rawDir> [--only <key prefix>]");
   process.exit(1);
 }

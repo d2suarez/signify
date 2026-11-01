@@ -143,16 +143,24 @@ test("library: the real seed files are well formed (ids unique, parents first, l
       assert.ok(!/<[a-z/][^>]*>/i.test(i.statement), `${file}: HTML in ${i.code}`);
       seen.add(i.identifier);
     }
-    assert.ok(s.items.length > 300, `${file}: ${s.items.length} items`);
+    // NAD sets are one PDF each (elementary technology has 31 items); the others are whole CASE packages.
+    assert.ok(s.items.length > (s.framework.jurisdiction === "NAD" ? 25 : 300), `${file}: ${s.items.length} items`);
     assert.ok(!s.items.some((i: { statement: string }) => i.statement.includes("**")), `${file}: Markdown marks`);
     const j = s.framework.jurisdiction;
     assert.ok(j === null || jurisdictionCode(j) === j, `${file}: jurisdiction ${j}`);
     // Only Common Core is open to every school; a state's set needs the school to accept its terms.
     if (j) assert.equal(s.framework.distribution, "school", file);
-    assert.ok(!s.framework.key.startsWith("nad"), "no NAD content without the NAD's permission and file");
+    if (s.framework.key.startsWith("nad-")) {
+      assert.equal(j, "NAD", file);
+      assert.match(s.framework.notice, /North American Division Office of Education.*may not be used without permission/, file);
+      for (const i of s.items) {
+        assert.ok(!/OFFICE OF EDUCATION|Essential Question|Big Idea:/i.test(i.statement), `${file}: page text in ${i.code}`);
+        assert.ok(i.grades.length > 0, `${file}: ${i.code || i.statement} has no grades`);
+      }
+    }
   }
   const states = new Set(files.map((file) => JSON.parse(fs.readFileSync(path.join(SEEDS, file), "utf8")).framework.jurisdiction).filter(Boolean));
-  for (const st of ["VA", "GA", "FL", "OK", "MD", "IN"]) assert.ok(states.has(st), st);
+  for (const st of ["VA", "GA", "FL", "OK", "MD", "IN", "NAD"]) assert.ok(states.has(st), st);
   const ccss = JSON.parse(fs.readFileSync(path.join(SEEDS, "ccss-math@2010.json"), "utf8"));
   assert.equal(ccss.framework.notice, "© Copyright 2010. National Governors Association Center for Best Practices and Council of Chief State School Officers. All rights reserved.");
   assert.ok(ccss.items.some((i: { code: string }) => i.code === "3.OA.A.1"));
@@ -170,7 +178,44 @@ test("library: the real seeds load into Postgres and can be searched", async () 
     assert.deepEqual(rl[0].grades, ["03"]);
     const [{ open }] = await real.query<{ open: number }>("SELECT count(*)::int AS open FROM standard_frameworks WHERE distribution = 'open'");
     assert.equal(open, 2, "only Common Core is open to every school; the others need the school to turn them on");
+    // NAD: the NAD's own codes, domain → strand → standard, grades from the code.
+    const nad = await real.query<{ key: string; distribution: string }>("SELECT key, distribution FROM standard_frameworks WHERE jurisdiction = 'NAD'");
+    assert.equal(nad.length, 17);
+    assert.ok(nad.every((f) => f.distribution === "school"), "a school turns NAD sets on itself");
+    const item = async (key: string, code: string) => (await real.query<{ statement: string; grades: string[]; parent: string; grand: string }>(
+      `SELECT i.statement, i.grades, p.statement AS parent, g.statement AS grand FROM standard_items i JOIN standard_frameworks f ON f.id = i.framework_id
+       LEFT JOIN standard_items p ON p.id = i.parent_id LEFT JOIN standard_items g ON g.id = p.parent_id WHERE f.key = $1 AND i.code = $2`, [key, code]))[0];
+    const bf16 = await item("nad-bible-elementary", "B.1-4.BF.16");
+    assert.equal(bf16.statement, "Explore the cultural and geographical contexts of Bible passages. (1)");
+    assert.deepEqual(bf16.grades, ["01", "02", "03", "04"]);
+    assert.equal(bf16.parent, "Bible Study Skills");
+    assert.equal(bf16.grand, "Biblical Foundations");
+    const bk1 = await item("nad-bible-elementary", "B.K.BK.1");
+    assert.deepEqual(bk1.grades, ["KG"]);
+    // Misprints in the subject PDFs, read as the grade-level PDFs print them; their text not merged into the code above.
+    assert.match((await item("nad-math-elementary", "8.OAT.2")).statement, /^Understand and graph the connections between proportional relationships/);
+    assert.equal((await item("nad-math-elementary", "8.OAT.1")).statement, "Work with radicals and integer exponents (8.E.E.1,2,3,4)");
+    assert.match((await item("nad-fine-arts-elementary", "FA.1-4.M.15")).statement, /rehearse, identify, and apply strategies/);
+    const ss = await item("nad-social-studies-elementary", "SS.K-4.C.1");
+    assert.match(ss.statement, /^Define culture as referring to the behaviors/, "text above a centred code is its own");
+    const hs = await item("nad-science-secondary", "BIO1.1.1");
+    assert.deepEqual(hs.grades, ["09", "10", "11", "12"]);
+    assert.equal(hs.grand, "Course Focus");
+    assert.deepEqual((await item("nad-ela-secondary", "LA.10.1.1")).grades, ["10"]);
+    const tech = await item("nad-technology-elementary", "T.DL.2.2");
+    assert.equal(tech.parent, "Students establish and engage strategies for knowledge collection and determine ways that will guide the technology process to establish solutions. (Computational Thinker)");
   } finally { await real.close(); }
+});
+
+test("NAD reader: grade bands and headings", async () => {
+  const { gradeRange, titleCase } = await import("../scripts/nad-standards.mjs");
+  assert.deepEqual(gradeRange("K"), ["KG"]);
+  assert.deepEqual(gradeRange("1-4"), ["01", "02", "03", "04"]);
+  assert.deepEqual(gradeRange("K-2"), ["KG", "01", "02"]);
+  assert.deepEqual(gradeRange("9-12"), ["09", "10", "11", "12"]);
+  assert.deepEqual(gradeRange("4-1"), []);
+  assert.equal(titleCase("TIME, CONTINUITY, AND CHANGE"), "Time, Continuity, and Change");
+  assert.equal(titleCase("Bible Study Skills"), "Bible Study Skills");
 });
 
 // ---------- browsing, search, visibility ----------
