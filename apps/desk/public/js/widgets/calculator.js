@@ -669,7 +669,13 @@
         caretToEnd();
 
         const screen = el('div.calc-screen', {
-          onclick: (e) => { if (e.target !== sum) { sum.focus(); caretToEnd(); } },
+          onclick: (e) => {
+            // Clicking the answer selects it for copying; don't yank focus (and the selection) away.
+            if (e.target === sum || out.contains(e.target)) return;
+            const sel = window.getSelection && window.getSelection();
+            if (sel && !sel.isCollapsed && screen.contains(sel.anchorNode)) return;
+            sum.focus(); caretToEnd();
+          },
         }, [mode, sum, out]);
 
         const main = el('div.calc-main', {}, [screen]);

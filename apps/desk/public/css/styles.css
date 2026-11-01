@@ -1867,6 +1867,8 @@ body.is-seating-drag { user-select: none; }
   font-family: var(--display); font-weight: 700; line-height: 1.1;
   font-size: clamp(1.4rem, 11cqw, 3rem); color: var(--accent);
   min-height: 0; max-height: 0; opacity: 0; transition: max-height .14s, opacity .14s;
+  /* One click selects the whole answer, ready to copy. */
+  user-select: all; -webkit-user-select: all; cursor: text;
 }
 .calc-answer.is-shown { max-height: 4em; opacity: 1; }
 
