@@ -235,34 +235,40 @@ router.get('/my-children', async (req, res) => {
   res.json({ children });
 });
 
-// ---------- preview: what a mock person sees ----------
-// A mock person (users.is_mock, migration 015: the practice class's made-up
-// students and parent) has no login, so an app cannot ask as them. Staff ask
-// instead, with their OWN token, and get exactly what /classes and
-// /my-children would give the mock. Nothing here signs anyone in or acts as
-// anyone: the caller stays the caller.
+// ---------- preview: what a student or parent sees ----------
+// Staff see an app the way one student or parent sees it. The person may be
+// a mock (users.is_mock, migration 015: the practice class's made-up
+// students and parent, who have no login) or real. Either way the app asks
+// with the STAFF member's own token and gets what /classes and /my-children
+// would give that person. Nothing here signs anyone in or acts as anyone:
+// the caller stays the caller.
 //
-// Only mocks, only at the caller's school, and only for someone who teaches
-// one of the mock's classes (or one of a mock parent's children's classes)
-// or is a school admin (core:manage_users at school scope). Previewing real
-// students is an open question for the school, so it is refused. Every call,
-// allowed or refused, is audited.
+// Who may preview whom, at the caller's school only, and only students and
+// parents (never staff):
+//   - a school admin (core:manage_users at school scope, or a super admin):
+//     any of them, seeing everything the person would;
+//   - a teacher of a class (not an aide): its students and their confirmed
+//     parents, seeing ONLY the classes the caller teaches. A real student's
+//     other courses, or a child's other classes, belong to other teachers,
+//     so they are left out.
+// Real students became previewable on 2026-11-01 (Desmond; PLAN.md
+// q-preview-real). Every call, allowed or refused, is audited.
 
 const PREVIEW_ADMIN = (c) => c.isSuper || rbac.allows(c.perms, 'core:manage_users', 'tenant');
 
-/** The mock people at the caller's school that the caller may preview. */
+/** The students and parents at the caller's school that the caller may preview. */
 async function previewable(c) {
   if (!c.tenantId) return [];
   const admin = PREVIEW_ADMIN(c);
   return db.many(
-    `SELECT u.id, u.display_name, r.key AS role_key
+    `SELECT u.id, u.display_name, u.is_mock, r.key AS role_key
        FROM users u
        JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $1 AND m.status = 'active'
        JOIN roles r ON r.id = m.role_id
-      WHERE u.is_mock AND u.deleted_at IS NULL
+      WHERE u.deleted_at IS NULL AND u.id <> $2 AND r.key IN ('student', 'guardian')
         AND ($3 OR EXISTS (
-              -- a class the caller teaches, with this mock (or a child of
-              -- this mock) in it as a student
+              -- a class the caller teaches, with this person (or a child of
+              -- this person) in it as a student
               SELECT 1 FROM class_access me
                 JOIN class_access them ON them.class_id = me.class_id AND them.role = 'student'
                 JOIN classes k ON k.id = me.class_id AND k.archived = false
@@ -270,25 +276,34 @@ async function previewable(c) {
                  AND (them.user_id = u.id OR them.user_id IN (
                        SELECT g.student_id FROM guardian_links g
                         WHERE g.guardian_id = u.id AND g.tenant_id = $1 AND g.verified_at IS NOT NULL))))
-      ORDER BY (r.key = 'guardian'), u.display_name`, [c.tenantId, c.userId, admin]);
+      ORDER BY NOT u.is_mock, (r.key = 'guardian'), u.display_name`, [c.tenantId, c.userId, admin]);
 }
 
-/** The mock the path names, if the caller may preview it; else answers. */
+/** The classes a preview may show: null for all (an admin), else the ones the caller teaches. */
+async function previewScope(c) {
+  if (PREVIEW_ADMIN(c)) return null;
+  return (await db.many(
+    `SELECT DISTINCT ca.class_id FROM class_access ca JOIN classes k ON k.id = ca.class_id AND k.archived = false
+      WHERE ca.user_id = $1 AND ca.role = 'teacher'`, [c.userId])).map((r) => r.class_id);
+}
+
+/** The person the path names, if the caller may preview them; else answers. */
 async function previewTarget(req, res, c, what) {
   const id = String(req.params.userId || '');
   const target = /^[0-9a-f-]{36}$/i.test(id) ? await db.one('SELECT id, is_mock FROM users WHERE id = $1 AND deleted_at IS NULL', [id]) : null;
-  const allowed = target && target.is_mock && (await previewable(c)).find((p) => p.id === target.id);
+  const allowed = target && (await previewable(c)).find((p) => p.id === target.id);
   await audit.record({
     actorUserId: c.userId, tenantId: c.tenantId, appId: c.app.id,
     action: allowed ? 'preview.read' : 'preview.refused', targetType: 'user', targetId: target ? target.id : null,
-    detail: { what, ...(allowed ? {} : { reason: !target ? 'not_found' : !target.is_mock ? 'not_mock' : 'not_allowed' }) },
+    detail: { what, ...(target ? { mock: !!target.is_mock } : {}), ...(allowed ? {} : { reason: !target ? 'not_found' : 'not_allowed' }) },
     ip: req.ip, disclosure: false,
   });
   if (!target) { res.status(404).json({ error: 'No such person.' }); return null; }
-  if (!target.is_mock) { res.status(403).json({ error: 'Only practice people can be previewed.' }); return null; }
   if (!allowed) { res.status(403).json({ error: 'You may not preview that person.' }); return null; }
   return allowed;
 }
+
+const previewed = (p) => ({ id: p.id, display_name: p.display_name, kind: p.role_key === 'guardian' ? 'parent' : 'student', mock: !!p.is_mock });
 
 router.get('/preview/people', async (req, res) => {
   const c = await caller(req, res);
@@ -299,34 +314,43 @@ router.get('/preview/people', async (req, res) => {
     action: 'preview.list', detail: { count: people.length }, ip: req.ip, disclosure: false,
   });
   res.set('Cache-Control', 'no-store');
-  res.json({ people: people.map((p) => ({ id: p.id, display_name: p.display_name, kind: p.role_key === 'guardian' ? 'parent' : 'student' })) });
+  res.json({ people: people.map(previewed) });
 });
 
-// The same rows /classes gives the person themself.
+// The rows /classes gives the person themself, limited to the classes the
+// caller may see.
 router.get('/preview/:userId/classes', async (req, res) => {
   const c = await caller(req, res);
   if (!c) return;
   const target = await previewTarget(req, res, c, 'classes');
   if (!target) return;
+  const scope = await previewScope(c);
   const rows = await db.many(
     `SELECT c.id, c.name, c.subject, c.grade_levels, c.school_year, cm.role,
             (cm.coverage_id IS NOT NULL) AS covering
        FROM class_access cm JOIN classes c ON c.id = cm.class_id
       WHERE cm.user_id = $1 AND c.archived = false AND c.tenant_id = $2
-      ORDER BY c.name`, [target.id, c.tenantId]);
+        AND ($3::uuid[] IS NULL OR c.id = ANY($3::uuid[]))
+      ORDER BY c.name`, [target.id, c.tenantId, scope]);
   res.set('Cache-Control', 'no-store');
-  res.json({ person: { id: target.id, display_name: target.display_name }, classes: rows });
+  res.json({ person: previewed(target), classes: rows });
 });
 
-// The same answer /my-children gives the parent themself.
+// The answer /my-children gives the parent themself, limited to the classes
+// the caller may see; a child with none of them is left out.
 router.get('/preview/:userId/children', async (req, res) => {
   const c = await caller(req, res);
   if (!c) return;
   const target = await previewTarget(req, res, c, 'children');
   if (!target) return;
-  const children = await guardians.childrenOf(target.id, c.tenantId);
+  const scope = await previewScope(c);
+  let children = await guardians.childrenOf(target.id, c.tenantId);
+  if (scope) {
+    children = children.map((k) => ({ ...k, classes: k.classes.filter((x) => scope.includes(x.id)) }))
+      .filter((k) => k.classes.length);
+  }
   res.set('Cache-Control', 'no-store');
-  res.json({ person: { id: target.id, display_name: target.display_name }, children });
+  res.json({ person: previewed(target), children });
 });
 
 /**

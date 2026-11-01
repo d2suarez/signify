@@ -112,7 +112,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   }
 
   const roster = await studentsOf(access);
-  // Mock practice people in this class the teacher may preview (Signify ID decides).
+  // Students in this class the teacher may preview, practice or real (Signify ID decides).
   const previews = await myPreviewPeople();
   const inClass = new Set(roster.students.map((s) => s.id));
   const previewable = previews.people.filter((p) => p.kind === "student" && inClass.has(p.id));

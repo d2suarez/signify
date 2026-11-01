@@ -19,8 +19,11 @@ export default async function Home() {
   const onlyParent = isParent && courses.length === 0;
   const teaching = courses.filter((c) => c.role === "teacher");
   const learning = courses.filter((c) => c.role === "student");
-  // Practice people from Signify ID this teacher or admin may preview.
+  // Whom this teacher or admin may preview (Signify ID decides). Only the
+  // practice people get a button here; real students are on /preview, where
+  // there may be a whole school of them.
   const previews = teaching.length > 0 || isSchoolAdmin(me) ? (await myPreviewPeople()).people : [];
+  const practice = previews.filter((p) => p.mock);
 
   return (
     <>
@@ -100,11 +103,12 @@ export default async function Home() {
           <section aria-labelledby="preview-title">
             <div className="section-title"><span className="shape s-circle" /><h2 id="preview-title">{t("previewTitle", L)}</h2></div>
             <div className="card row" style={{ gap: 8 }}>
-              {previews.map((p) => (
+              {practice.map((p) => (
                 <Link key={p.id} className="btn btn-sm" href={`/preview/${p.id}`}>
                   {p.display_name} <span className="muted">· {t(p.kind === "parent" ? "previewPracticeParent" : "previewPracticeStudent", L)}</span>
                 </Link>
               ))}
+              {previews.length > practice.length && <Link className="btn btn-sm" href="/preview">{t("previewEveryone", L)} ({previews.length}) →</Link>}
               <p className="muted" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{t("previewHint", L)}</p>
             </div>
           </section>

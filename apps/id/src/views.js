@@ -365,6 +365,11 @@ function privacyPolicyPage({ retentionDays }) {
       about what they will do, and no rating of anyone for any purpose outside the lessons they
       are taking.</li>
       <li>No selling, renting or trading anyone's information, to anyone, ever.</li>
+      <li>Nobody is ever signed in as somebody else. A teacher can look at an app the way one of
+      their students, or that student's parent, would see it, to check what they will see: only
+      for the classes that teacher teaches, read-only, and as themselves, so nothing can be handed
+      in or changed. A school administrator can do the same for any student or parent at the school. Every look
+      is recorded with who looked, at whom and when.</li>
       <li>No app can see another app's work. The map app cannot see what someone did on the
       whiteboard, and never receives it. Signing in is logged centrally, including which app was
       opened, because that is the record of who reached what — but it is kept for security and

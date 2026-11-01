@@ -6,7 +6,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 
 // A stand-in for Signify ID's preview API: it answers only for the viewer's
-// own token and only about the mock it was told the viewer may preview.
+// own token and only about the people it was told the viewer may preview.
 const calls: { path: string; auth: string }[] = [];
 let down = false;
 const server = http.createServer((req, res) => {
@@ -17,10 +17,11 @@ const server = http.createServer((req, res) => {
   if (req.url === "/api/v1/preview/people") return send(200, { people: [
     { id: "mock-pip", display_name: "Pip Example (practice)", kind: "student" },
     { id: "mock-pat", display_name: "Pat Example (practice parent)", kind: "parent" },
+    { id: "real-ana", display_name: "Ana Real", kind: "student", mock: false },
   ] });
   if (req.url === "/api/v1/preview/mock-pip/classes") return send(200, { classes: [{ id: "cls-1", name: "Practice — Demo class", role: "student" }] });
   if (req.url === "/api/v1/preview/mock-pat/children") return send(200, { children: [{ id: "mock-pip", display_name: "Pip", relationship: "parent", classes: [{ id: "cls-1", name: "Practice — Demo class" }] }] });
-  if (req.url === "/api/v1/preview/real-kid/classes") return send(403, { error: "Only practice people can be previewed." });
+  if (req.url === "/api/v1/preview/real-kid/classes") return send(403, { error: "You may not preview that person." });
   send(404, { error: "no" });
 });
 
@@ -34,9 +35,11 @@ after(() => server.close());
 
 const T = { id: "teacher-1", role: "teacher" };
 
-test("preview: asks Signify ID with the viewer's own token, about the mock only", async () => {
+test("preview: asks Signify ID with the viewer's own token, about that person only", async () => {
   const people = await roster.previewPeopleFor(T, "teacher-token");
-  assert.deepEqual(people.people.map((p) => [p.id, p.kind]), [["mock-pip", "student"], ["mock-pat", "parent"]]);
+  assert.deepEqual(people.people.map((p) => [p.id, p.kind, p.mock]),
+    [["mock-pip", "student", true], ["mock-pat", "parent", true], ["real-ana", "student", false]],
+    "a real person is marked; an older ID's people (no flag) were all practice people");
   const cls = await roster.previewClassesOf(T, "teacher-token", "mock-pip");
   assert.deepEqual(cls, { ok: true, classes: [{ id: "cls-1", name: "Practice — Demo class", role: "student" }] });
   const kids = await roster.previewChildrenOf(T, "teacher-token", "mock-pat");
@@ -87,7 +90,9 @@ test("preview: the pages are read-only", () => {
     if (rel.endsWith("StudentCourse.tsx")) assert.match(src, /const live = previewing \? null/);
     else assert.doesNotMatch(src, /\/live["`]/, `${rel}: no live join`);
     assert.doesNotMatch(src, /method:\s*["'](POST|PUT|PATCH|DELETE)/i, `${rel}: no writes`);
-    if (!rel.endsWith("Announcements.tsx")) assert.doesNotMatch(src, /<form/, `${rel}: no forms`);
+    // The list's name search is a GET form, which sends nothing anywhere.
+    if (rel === path.join("app", "preview", "page.tsx")) assert.ok((src.match(/<form/g) || []).length === (src.match(/<form method="get"/g) || []).length, `${rel}: only a GET search`);
+    else if (!rel.endsWith("Announcements.tsx")) assert.doesNotMatch(src, /<form/, `${rel}: no forms`);
     assert.doesNotMatch(src, /\b(setGrade|saveDraft|setHandedIn|closeExpired|syncGrade|syncMyToolScore|passBack|startAttempt|INSERT|UPDATE)\b/, `${rel}: writes nothing`);
   }
   // A preview never asks Signify ID as anyone but the viewer: the token is always the signed-in person's.

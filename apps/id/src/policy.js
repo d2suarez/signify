@@ -45,8 +45,11 @@
 // 2026-10-31: a school may keep made-up practice people, which can never sign
 // in, so staff can see what a student or parent sees; whether an account is
 // one is listed.
-const VERSION = '2026-10-31';
-const EFFECTIVE = '31 October 2026';
+// 2026-11-01: staff may look at an app the way a real student or parent sees
+// it (a teacher for their own classes, an administrator for the school),
+// read-only, and every look is recorded.
+const VERSION = '2026-11-01';
+const EFFECTIVE = '1 November 2026';
 
 const POSTURE = process.env.POLICY_POSTURE || 'school-staff';
 

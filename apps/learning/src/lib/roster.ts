@@ -121,25 +121,28 @@ export async function childrenFor(who: Who, token: string): Promise<{ ok: boolea
   return { ok: true, children };
 }
 
-// ---------- preview: what a mock person sees ----------
-// Signify ID's practice people (mock students and a mock parent) have no
-// login, so nobody can ask ID as them. Staff ask with their OWN token and ID
-// answers with what the mock would get from /classes or /my-children, only
-// for mocks the caller may preview, and audits every call. Never cached:
-// each view is one audited question.
+// ---------- preview: what a student or parent sees ----------
+// Staff ask with their OWN token (nobody can ask ID as the person: a mock
+// practice person has no login, and a real one is not the viewer). ID answers
+// with what the person would get from /classes or /my-children, only for
+// people the caller may preview, cut down to the classes the caller teaches
+// unless they are a school admin, and audits every call. Never cached: each
+// view is one audited question.
 
-export type PreviewPerson = { id: string; display_name: string; kind: "student" | "parent" };
+/** `mock`: one of ID's made-up practice people. An older ID sent only mocks, without the flag. */
+export type PreviewPerson = { id: string; display_name: string; kind: "student" | "parent"; mock: boolean };
 
 /** Local development: the made-up student and parent, for the made-up staff. */
 export const DEV_PREVIEW: PreviewPerson[] = [
-  { id: "dev-student-0000", display_name: "Dev Student", kind: "student" },
-  { id: "dev-guardian-0000", display_name: "Dev Parent", kind: "parent" },
+  { id: "dev-student-0000", display_name: "Dev Student", kind: "student", mock: false },
+  { id: "dev-guardian-0000", display_name: "Dev Parent", kind: "parent", mock: false },
 ];
 
 export async function previewPeopleFor(who: Who, token: string): Promise<{ ok: boolean; people: PreviewPerson[] }> {
   if (who.dev) return { ok: true, people: who.role === "teacher" || who.role === "admin" ? DEV_PREVIEW : [] };
   const body = await ask<{ people: PreviewPerson[] }>(token, "/api/v1/preview/people");
-  return body ? { ok: true, people: body.people || [] } : { ok: false, people: [] };
+  if (!body) return { ok: false, people: [] };
+  return { ok: true, people: (body.people || []).map((p) => ({ ...p, mock: p.mock !== false })) };
 }
 
 export async function previewClassesOf(who: Who, token: string, personId: string): Promise<{ ok: boolean; classes: IdClass[] }> {

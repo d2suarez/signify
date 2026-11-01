@@ -2940,7 +2940,8 @@ function section(title) { console.log(`\n${title}`); }
       const listed = await (await pv(teacherTok, '/people')).json();
       eq('the class’s teacher may preview the four students and the parent',
         [listed.people.length, listed.people.filter((p) => p.kind === 'parent').length], [5, 1]);
-      eq('a school admin may too', (await (await pv(adminTok, '/people')).json()).people.length, 5);
+      ok('they are marked as practice people, listed first', listed.people.every((p) => p.mock));
+      eq('a school admin may too', (await (await pv(adminTok, '/people')).json()).people.filter((p) => p.mock).length, 5);
       eq('a teacher of other classes sees nobody', (await (await pv(otherTok, '/people')).json()).people.length, 0);
       eq('nor does a parent', (await (await pv(parentTok, '/people')).json()).people.length, 0);
 
@@ -2954,8 +2955,8 @@ function section(title) { console.log(`\n${title}`); }
 
       eq('a teacher of other classes is refused', (await pv(otherTok, `/${pip.id}/classes`)).status, 403);
       eq('so is a parent', (await pv(parentTok, `/${made.parentId}/children`)).status, 403);
-      const real = await pv(adminTok, `/${await idOf('places-teacher@school.edu')}/classes`);
-      eq('real people are never previewed, even by an admin', [real.status, (await real.json()).error], [403, 'Only practice people can be previewed.']);
+      const staff = await pv(adminTok, `/${await idOf('places-teacher@school.edu')}/classes`);
+      eq('staff are never previewed, even by an admin', [staff.status, (await staff.json()).error], [403, 'You may not preview that person.']);
       eq('an unknown id is not found', (await pv(adminTok, '/00000000-0000-0000-0000-000000000000/classes')).status, 404);
       ok('refusals are audited too', (await auditCount('preview.refused')) >= 4);
 
@@ -2969,6 +2970,41 @@ function section(title) { console.log(`\n${title}`); }
       eq('a second remove has nothing to do', (await practice.remove({ tenantId: tenant.id })).ok, false);
       ok('and it can be made again afterwards', (await practice.setup({ teacherEmail: 'places-teacher@school.edu' })).ok);
       await practice.remove({ tenantId: tenant.id });
+
+      // ---- preview a REAL student or parent (2026-11-01) ----
+      // A teacher sees only the classes they teach; an admin sees everything.
+      await placesPerson('real-kid@school.edu', 'student');
+      await placesPerson('real-parent@school.edu', 'guardian');
+      const kidId = await idOf('real-kid@school.edu');
+      const realParentId = await idOf('real-parent@school.edu');
+      const realClass = async (name, teacherEmail) => {
+        const k = await db.one("INSERT INTO classes (tenant_id, name, school_year) VALUES ($1,$2,'2026') RETURNING id", [tenant.id, name]);
+        await db.query("INSERT INTO class_members (class_id, user_id, role) VALUES ($1,$2,'teacher'), ($1,$3,'student')",
+          [k.id, await idOf(teacherEmail), kidId]);
+        return k.id;
+      };
+      const mine = await realClass('Real A', 'places-teacher@school.edu');
+      const theirs = await realClass('Real B', 'other-teacher@school.edu');
+      await db.query(`INSERT INTO guardian_links (guardian_id, student_id, tenant_id, relationship, verified_at)
+                      VALUES ($1,$2,$3,'parent', now())`, [realParentId, kidId, tenant.id]);
+      const ids = (r) => r.map((x) => x.id).sort();
+
+      const realList = (await (await pv(teacherTok, '/people')).json()).people;
+      eq('a teacher may preview a real student in their class, and the confirmed parent',
+        realList.map((p) => [p.display_name, p.kind, p.mock]), [['real-kid@school.edu', 'student', false], ['real-parent@school.edu', 'parent', false]]);
+      eq('the teacher sees only the class they teach', ids((await (await pv(teacherTok, `/${kidId}/classes`)).json()).classes), [mine]);
+      eq('the other teacher, only theirs', ids((await (await pv(otherTok, `/${kidId}/classes`)).json()).classes), [theirs]);
+      eq('an admin, both', ids((await (await pv(adminTok, `/${kidId}/classes`)).json()).classes), [mine, theirs].sort());
+      const realKids = (await (await pv(teacherTok, `/${realParentId}/children`)).json()).children;
+      eq('the parent view, as the teacher: only the teacher’s class', realKids.map((k) => [k.id, ids(k.classes)]), [[kidId, [mine]]]);
+      eq('as an admin: every class', ids((await (await pv(adminTok, `/${realParentId}/children`)).json()).children[0].classes), [mine, theirs].sort());
+      const read = await db.one("SELECT detail FROM audit_log WHERE action = 'preview.read' ORDER BY ts DESC LIMIT 1");
+      eq('a look at a real person is audited as one', read.detail.mock, false);
+      eq('a real student in none of the teacher’s classes is refused', (await pv(teacherTok, `/${bobUser.id}/classes`)).status, 403);
+      eq('so is a parent who is not confirmed', (await db.query('UPDATE guardian_links SET verified_at = NULL WHERE guardian_id = $1', [realParentId]),
+        (await pv(teacherTok, `/${realParentId}/children`)).status), 403);
+      eq('a parent previews nobody', (await (await pv(parentTok, '/people')).json()).people.length, 0);
+      await db.query('DELETE FROM classes WHERE id = ANY($1::uuid[])', [[mine, theirs]]);
     }
     placesSrv.close();
   }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Dict } from "@/lib/i18n";
 import type { Preview } from "@/lib/preview";
+import { isSchoolAdmin } from "@/lib/access";
 import { TopBar } from "./TopBar";
 
 /**
@@ -14,7 +15,7 @@ export function PreviewFrame({ p, d, crumbs, children }: { p: Preview; d: Dict; 
     <div className="preview-band" role="status">
       <div className="top-in">
         <b>{d.previewBanner.replace("{name}", who.display_name)}</b>
-        <span className="muted">{who.kind === "parent" ? d.previewParentHint : d.previewStudentHint}</span>
+        <span className="muted">{who.kind === "parent" ? d.previewParentHint : d.previewStudentHint}{!isSchoolAdmin(p.me) && <> {d.previewScopeNote}</>}</span>
         <span className="spacer" />
         <nav className="row" style={{ gap: 6 }} aria-label={d.previewAs}>
           <Link className="btn btn-sm" href={base}>{d.previewHome}</Link>

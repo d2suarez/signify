@@ -5,34 +5,36 @@ import { requireMe, token, type Me } from "./auth";
 import { previewPeopleFor, previewClassesOf, previewChildrenOf, type IdClass, type IdChild, type PreviewPerson } from "./roster";
 
 /**
- * "Preview as": a teacher or school admin sees what one of Signify ID's mock
- * practice people (a made-up student or parent) sees, read-only.
+ * "Preview as": a teacher or school admin sees what one student or parent
+ * sees, read-only: one of Signify ID's mock practice people, or a real
+ * student in a class the teacher teaches (or their confirmed parent).
  *
  * A preview never acts as the person. The signed-in person stays who they
  * are on every request (server.js never changes it, and every API and server
  * action re-checks them as before); preview pages only READ, rendering with
  * the mock's classes and children that ID gives the viewer. They hold no
  * forms, no server actions and no live join. Signify ID decides who may
- * preview whom (mocks only, the class's teacher or a school admin) and
- * audits every lookup; every page view is also logged here.
+ * preview whom (the class's teacher, or a school admin), cuts a teacher's view
+ * down to the classes they teach, and audits every lookup; every page view is
+ * also logged here.
  */
 
 export type PreviewSubject = PreviewPerson & { classes: IdClass[]; children: IdChild[] };
 export type Preview = { me: Me; who: PreviewSubject; base: string };
 
-/** The mock people the signed-in person may preview (empty for most people). */
+/** The people the signed-in person may preview (empty for most people). */
 export const myPreviewPeople = cache(async (): Promise<{ ok: boolean; people: PreviewPerson[] }> => {
   const me = await requireMe();
   return previewPeopleFor({ id: me.id, role: me.role, dev: me.dev }, await token());
 });
 
 export function previewLog(me: Me, who: PreviewPerson, what: string): void {
-  console.info(`learning: preview ${me.id} viewed ${what} as ${who.kind} ${who.id}`);
+  console.info(`learning: preview ${me.id} viewed ${what} as ${who.mock ? "practice " : ""}${who.kind} ${who.id}`);
 }
 
 /**
  * The person a /preview/[personId]/… page shows, or 404 when the viewer may
- * not preview them (ID names only mocks the viewer may see). `failed` when
+ * not preview them (ID names only the people the viewer may see). `failed` when
  * Signify ID couldn't be asked: the page says so rather than showing nothing.
  */
 export async function previewFor(personId: string, what: string): Promise<Preview | "failed"> {
