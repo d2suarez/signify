@@ -1449,6 +1449,85 @@ describe('copying the groups', () => {
 });
 
 // ===================================================================
+describe('flashcards', () => {
+  const fc = loadWidget('flashcards');
+  const node = (id, parent, cards = 0) => ({ id, name: id, parent, cards: Array.from({ length: cards }, (_, i) => ({ id: `${id}${i}`, f: 'a', b: 'b', k: 0 })) });
+  const tree = () => [node('class', null, 1), node('unit', 'class', 2), node('ch1', 'unit', 3), node('ch2', 'unit', 4), node('other', null, 5)];
+
+  it('studying a set includes everything inside it', () => {
+    equal(fc._treeIds(tree(), 'unit').sort(), ['ch1', 'ch2', 'unit']);
+    equal(fc._cardsUnder(tree(), 'class').length, 1 + 2 + 3 + 4);
+    equal(fc._cardsUnder(tree(), 'ch1').length, 3);
+    equal(fc._cardsUnder(tree(), null).length, 15);
+  });
+  it('a set cannot move inside itself', () => {
+    assert(!fc._canMove(tree(), 'class', 'ch1'));
+    assert(!fc._canMove(tree(), 'unit', 'unit'));
+    assert(fc._canMove(tree(), 'ch1', 'other'));
+    assert(fc._canMove(tree(), 'ch1', null));
+  });
+  it('deleting a set takes what is inside it and nothing else', () => {
+    equal(fc._removeTree(tree(), 'unit').map((n) => n.id), ['class', 'other']);
+  });
+  it('breadcrumbs run from the top down', () => {
+    equal(fc._pathTo(tree(), 'ch2').map((n) => n.id), ['class', 'unit', 'ch2']);
+  });
+  it('pasted text: tab, comma and semicolon all split front from back', () => {
+    equal(fc._parseCards('cat\tgato\ndog\tperro').cards, [{ f: 'cat', b: 'gato' }, { f: 'dog', b: 'perro' }]);
+    equal(fc._parseCards('cat,gato\ndog,perro').cards.length, 2);
+    equal(fc._parseCards('cat;gato\ndog;perro').sep, 'semi');
+  });
+  it('CSV quoting: commas, quotes and line breaks inside a cell survive', () => {
+    const r = fc._parseCards('"Hello, world","He said ""hi""\nthen left"\nx,y');
+    equal(r.cards[0], { f: 'Hello, world', b: 'He said "hi"\nthen left' });
+    equal(r.cards.length, 2);
+  });
+  it('extra columns are joined back onto the back; one-sided lines are skipped and counted', () => {
+    const r = fc._parseCards('mitosis, cell division, in body cells\njust one side\n\n');
+    equal(r.cards, [{ f: 'mitosis', b: 'cell division, in body cells' }]);
+    equal(r.skipped, 1);
+  });
+  it('a header row is recognised and left out', () => {
+    const r = fc._parseCards('Term,Definition\na,b');
+    assert(r.header);
+    equal(r.cards.length, 1);
+  });
+  it('export then import returns the same cards', () => {
+    const cards = [{ f: 'a, b', b: 'say "x"' }, { f: 'two\nlines', b: 'ok' }];
+    equal(fc._parseCards(fc._toCsv(cards)).cards, cards);
+  });
+  it('a saved state is repaired: orphans go to the top, loops are cut, bad cards dropped', () => {
+    const s = { nodes: [
+      { id: 'a', name: 'A', parent: 'ghost', cards: [{ id: 'c1', f: 'x', b: 'y', k: 9 }, null, { id: 'c1', f: 'dup', b: 'dup' }] },
+      { id: 'b', name: 'B', parent: 'c', cards: [] },
+      { id: 'c', name: 'C', parent: 'b', cards: [] },
+    ], at: 'gone' };
+    fc._tidy(s);
+    equal(s.nodes[0].parent, null);
+    equal(s.nodes[0].cards.length, 1);
+    equal(s.nodes[0].cards[0].k, 3);
+    assert(s.nodes.some((n) => n.parent == null && (n.id === 'b' || n.id === 'c')), 'the loop was cut');
+    equal(s.at, null);
+    equal(s.opts.side, 'front');
+  });
+  it('the study queue honours shuffle off, only-learning and mixed sides', () => {
+    const cards = [{ id: '1', k: 0 }, { id: '2', k: 3 }, { id: '3', k: 1 }];
+    equal(fc._buildQueue(cards, { shuffle: false, side: 'front', weak: false }).map((q) => q.id), ['1', '2', '3']);
+    equal(fc._buildQueue(cards, { shuffle: false, side: 'back', weak: true }).map((q) => `${q.id}${q.side}`), ['1back', '3back']);
+    equal(new Set(fc._buildQueue(cards, { shuffle: true, side: 'mixed', weak: false }).map((q) => q.id)).size, 3);
+  });
+  it('a missed card comes back a few cards on, not straight away and not never', () => {
+    equal(fc._reinsertAt(10), 3);
+    equal(fc._reinsertAt(1), 1);
+    equal(fc._reinsertAt(0), 0);
+  });
+  it('is on the student list and is open to visitors', () => {
+    assert(fc.students === true);
+    assert(fc.guest === true);
+  });
+});
+
+// ===================================================================
 describe('the word count', () => {
   const count = loadWidget('wordcount')._count;
   it('counts words, sentences and paragraphs', () => {
@@ -2726,7 +2805,7 @@ describe('tools by role', () => {
   it('students get exactly these tools by default', () => {
     equal(tools.TOOLS.filter((t) => t.students).map((t) => t.type).sort(), [
       'alarms', 'atlas', 'breathing', 'calculator', 'calendar', 'clock', 'convert', 'countdown', 'econgraphs',
-      'emoji', 'helpdesk', 'links', 'message', 'music', 'noise', 'notes', 'picture', 'qr', 'random',
+      'emoji', 'flashcards', 'helpdesk', 'links', 'message', 'music', 'noise', 'notes', 'picture', 'qr', 'random',
       'scoreboard', 'slides', 'soundboard', 'stopwatch', 'timer', 'video', 'weather', 'whiteboard', 'wordcount',
     ]);
   });
