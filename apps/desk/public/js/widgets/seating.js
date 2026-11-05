@@ -536,6 +536,17 @@
   const KEEP_HISTORY = 12;
 
   const samePlan = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const hasSeated = (plan) => Object.keys((plan && plan.seats) || {}).length > 0;
+
+  /** Takes out rows kept before empty ones stopped being saved. */
+  function dropEmptyHistory(history) {
+    for (const [classKey, list] of Object.entries(history)) {
+      const kept = Array.isArray(list) ? list.filter((snap) => hasSeated(snap && snap.plan)) : [];
+      if (kept.length) history[classKey] = kept;
+      else delete history[classKey];
+    }
+    return history;
+  }
 
   /**
    * Puts a copy of a plan on the front of its class's history.
@@ -545,12 +556,14 @@
    * snapshot per click, and a plan that is about to be shuffled, emptied or
    * cleared is the one somebody will want back.
    *
-   * A plan with no desks and nobody in it is not worth keeping, and neither
-   * is one identical to the snapshot already at the front — restoring twice
-   * in a row should not fill the list with copies of the same room.
+   * A plan with nobody seated is not an arrangement, whatever furniture it
+   * has: a "0 seated" row in the list is only a way to empty the room by
+   * accident while trying to get one back. Neither is one identical to the
+   * snapshot already at the front worth keeping — restoring twice in a row
+   * should not fill the list with copies of the same room.
    */
   function keepHistory(history, classKey, plan, why) {
-    if (!plan || (!plan.desks.length && !Object.keys(plan.seats).length)) return history;
+    if (!plan || !hasSeated(plan)) return history;
     const list = history[classKey] || (history[classKey] = []);
     const copy = JSON.parse(JSON.stringify(plan));
     if (list.length && samePlan(list[0].plan, copy)) return history;
@@ -589,6 +602,7 @@
     _seatAvoiding: seatAvoiding,
     _prunePlan: prunePlan,
     _keepHistory: keepHistory,
+    _dropEmptyHistory: dropEmptyHistory,
     _KEEP_HISTORY: KEEP_HISTORY,
 
     init(s) {
@@ -599,6 +613,7 @@
       if (!['small', 'medium', 'large'].includes(s.room)) s.room = 'medium';
       // classKey -> [{ at, why, plan }], newest first. See keep() below.
       if (!s.history || typeof s.history !== 'object') s.history = {};
+      dropEmptyHistory(s.history);
     },
 
     holdsContent(s) {
@@ -1363,7 +1378,7 @@
           ]));
         });
         inspector.append(host);
-        inspector.append(el('p.hint', { text: `The last ${KEEP_HISTORY} are kept, and putting one back keeps the current one too.` }));
+        inspector.append(el('p.hint', { text: `The last ${KEEP_HISTORY} with pupils seated are kept, and putting one back keeps the current one too.` }));
       }
 
       async function restore(i) {
@@ -1373,7 +1388,7 @@
         const seated = Object.keys(snap.plan.seats || {}).length;
         if (!await Desk.ask({
           title: `Put back the arrangement from ${Desk.when(snap.at)}?`,
-          body: `${seated} pupil${seated === 1 ? '' : 's'} seated. What is in the room now is kept, so you can change your mind.`,
+          body: `${seated} pupil${seated === 1 ? '' : 's'} seated.${hasSeated(plan()) ? ' Who is seated now is kept, so you can change your mind.' : ''}`,
           confirmLabel: 'Put it back',
         })) return;
 
@@ -1586,7 +1601,9 @@
       async function clearRoom() {
         if (!await Desk.ask({
           title: 'Clear the room?',
-          body: 'Every desk and where everyone sits goes, for this class only. Your other classes keep their plans, and this arrangement is kept so you can put it back.',
+          body: hasSeated(plan())
+            ? 'Every desk and where everyone sits goes, for this class only. Your other classes keep their plans, and this arrangement is kept so you can put it back.'
+            : 'Every desk goes, for this class only. Your other classes keep their plans. Nobody is seated, so this room is not kept: save it first if you want it again.',
           confirmLabel: 'Clear', danger: true,
         })) return;
         keep('before clearing the room');

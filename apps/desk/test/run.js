@@ -730,6 +730,22 @@ describe('seating a class at random', () => {
     equal(h['9REL'], undefined, 'there is nothing there to want back');
   });
 
+  it('does not keep a room with desks and nobody seated', () => {
+    const h = {};
+    keepHistory(h, '9REL', { desks: fullPlan().desks, seats: {}, objects: [], front: 'top' }, 'before seating at random');
+    equal(h['9REL'], undefined, 'putting that back would only empty the room');
+  });
+
+  it('clears out empty rows saved before that rule', () => {
+    const full = { at: 2, why: '', plan: fullPlan() };
+    const empty = { at: 1, why: '', plan: { desks: fullPlan().desks, seats: {}, objects: [], front: 'top' } };
+    const h = { '9REL': [empty, full], '11REL': [empty] };
+    seatingDef._dropEmptyHistory(h);
+    equal(h['9REL'].length, 1, 'the empty row goes');
+    equal(h['9REL'][0], full, 'the real one stays');
+    equal(h['11REL'], undefined, 'a class left with nothing has no list');
+  });
+
   it('keeps the newest and lets the oldest go', () => {
     const h = {};
     for (let i = 0; i < KEEP + 6; i += 1) {
