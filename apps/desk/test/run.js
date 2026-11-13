@@ -678,6 +678,53 @@ describe('how the desk looks', () => {
 });
 
 // ===================================================================
+describe('a colour for every pupil', () => {
+  const def = loadWidget('seating');
+  const give = def._giveColours;
+  const set = def._setColour;
+  const N = def._COLOURS.length;
+  const ids = (n) => Array.from({ length: n }, (_, i) => `p${i}`);
+
+  it('gives a class of 23 a different colour each', () => {
+    const m = {};
+    equal(give(m, ids(23)), 23);
+    equal(new Set(Object.values(m)).size, 23);
+  });
+  it('keeps colours once given, and a newcomer takes a free one', () => {
+    const m = {};
+    give(m, ids(10));
+    const before = { ...m };
+    equal(give(m, [...ids(10), 'new']), 1);
+    for (const id of ids(10)) equal(m[id], before[id], id);
+    assert(!ids(10).some((id) => m[id] === m.new), 'newcomer has a colour of their own');
+  });
+  it('shares only the least-used colours once the palette runs out', () => {
+    const m = {};
+    give(m, ids(N + 3));
+    const counts = {};
+    for (const hex of Object.values(m)) counts[hex] = (counts[hex] || 0) + 1;
+    assert(Math.max(...Object.values(counts)) === 2 && Object.keys(counts).length === N, 'spread evenly');
+  });
+  it('reuses the colour a pupil has in another class when it is free', () => {
+    const other = { p0: '#2563eb' };
+    const m = { p1: '#dc2626' };
+    give(m, ['p0', 'p1'], [other]);
+    equal(m.p0, '#2563eb');
+    const clash = { p1: '#2563eb' };
+    give(clash, ['p0', 'p1'], [other]);
+    assert(clash.p0 !== '#2563eb', 'not when a classmate already has it');
+  });
+  it('the teacher picking a classmate’s colour swaps the two', () => {
+    const m = { a: '#dc2626', b: '#2563eb' };
+    equal(set(m, ['a', 'b'], 'a', '#2563EB'), 'b');
+    equal(m, { a: '#2563eb', b: '#dc2626' });
+    equal(set(m, ['a', 'b'], 'a', '#123456'), null);
+    equal(m.a, '#123456');
+    equal(set(m, ['a', 'b'], 'a', 'red'), null, 'nonsense is ignored');
+    equal(m.a, '#123456');
+  });
+});
+
 describe('seating a class at random', () => {
   const shareOut = loadWidget('seating')._shareOut;
 

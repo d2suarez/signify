@@ -2181,6 +2181,33 @@ body.is-seating-drag { user-select: none; }
 .tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
 .tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
 
+/* Every pupil's own colour: a tint of it across the chair and a solid band
+   along the bottom, so a child can find themselves from the door. Mixed into
+   the surface, so it reads in both themes with ordinary ink on top. */
+.seat.is-taken.has-colour:not(.is-selected) {
+  background: color-mix(in srgb, var(--pupil) 30%, var(--surface));
+  box-shadow: inset 0 calc(var(--cell, 8px) * -0.45) 0 var(--pupil), var(--shadow-2);
+}
+.seat.is-taken.has-colour.is-selected { box-shadow: inset 0 calc(var(--cell, 8px) * -0.45) 0 var(--pupil), var(--shadow-3); }
+.tray-chip.has-colour { box-shadow: inset .35rem 0 0 var(--pupil), var(--shadow-1); padding-left: .65rem; }
+.tray-chip.has-colour.is-selected { box-shadow: inset .35rem 0 0 var(--pupil), 0 0 0 2px var(--surface) inset; }
+.colour-head { justify-content: flex-start; gap: .4rem; margin-top: .3rem; }
+.colour-dot { width: .9rem; height: .9rem; border-radius: 50%; background: var(--swatch); flex: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); }
+.colour-grid { display: grid; grid-template-columns: repeat(auto-fill, 1.55rem); gap: .3rem; }
+.colour-swatch {
+  width: 1.55rem; height: 1.55rem; border: 0; border-radius: 50%; background: var(--swatch); cursor: pointer; padding: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+/* Already somebody else's: still pickable (the two swap), just quieter. */
+.colour-swatch.is-taken { opacity: .45; }
+.colour-swatch.is-on { opacity: 1; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.colour-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.colour-other { display: flex; align-items: center; gap: .4rem; cursor: pointer; }
+.colour-custom { width: 1.8rem; height: 1.4rem; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: none; cursor: pointer; }
+/* Paper stays black and white: every name is black, as before. */
+html.is-printing .seat.is-taken.has-colour { background: #fff; box-shadow: none; }
+
 /* Below 1100px the panel goes above the room rather than beside it, and the
    page scrolls — a side panel squeezed to nothing helps nobody. */
 @media (max-width: 1100px) {
