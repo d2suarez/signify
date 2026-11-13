@@ -705,23 +705,48 @@ describe('a colour for every pupil', () => {
     for (const hex of Object.values(m)) counts[hex] = (counts[hex] || 0) + 1;
     assert(Math.max(...Object.values(counts)) === 2 && Object.keys(counts).length === N, 'spread evenly');
   });
+  it('starting up keeps the colours and drops the first, off-palette set', () => {
+    const s = { pupilColours: { k: { a: 'red' } }, colours: { k: { a: '#dc2626' } } };
+    def.init(s);
+    equal(s.pupilColours, { k: { a: 'red' } });
+    assert(!('colours' in s), 'old set gone');
+    const fresh = {};
+    def.init(fresh);
+    equal(fresh.pupilColours, {});
+  });
+  it('hands out every solid colour before any soft one', () => {
+    const m = {};
+    give(m, ids(N / 2));
+    assert(Object.values(m).every((k) => !k.endsWith('-soft')), 'first dozen all solid');
+    give(m, ids(N / 2 + 1));
+    assert(m[`p${N / 2}`].endsWith('-soft'), 'the next one is soft');
+  });
+  it('uses only the desk’s own palette colours', () => {
+    for (const c of def._COLOURS) assert(/^#[0-9a-f]{6}$/.test(c.hex), c.key);
+    equal(new Set(def._COLOURS.map((c) => c.key)).size, N);
+  });
+  it('drops anything that is not one of its colours, and deals again', () => {
+    const m = { p0: '#dc2626' };
+    equal(give(m, ['p0']), 1);
+    assert(def._COLOURS.some((c) => c.key === m.p0), 'a real colour now');
+  });
   it('reuses the colour a pupil has in another class when it is free', () => {
-    const other = { p0: '#2563eb' };
-    const m = { p1: '#dc2626' };
+    const other = { p0: 'blue' };
+    const m = { p1: 'red' };
     give(m, ['p0', 'p1'], [other]);
-    equal(m.p0, '#2563eb');
-    const clash = { p1: '#2563eb' };
+    equal(m.p0, 'blue');
+    const clash = { p1: 'blue' };
     give(clash, ['p0', 'p1'], [other]);
-    assert(clash.p0 !== '#2563eb', 'not when a classmate already has it');
+    assert(clash.p0 !== 'blue', 'not when a classmate already has it');
   });
   it('the teacher picking a classmate’s colour swaps the two', () => {
-    const m = { a: '#dc2626', b: '#2563eb' };
-    equal(set(m, ['a', 'b'], 'a', '#2563EB'), 'b');
-    equal(m, { a: '#2563eb', b: '#dc2626' });
-    equal(set(m, ['a', 'b'], 'a', '#123456'), null);
-    equal(m.a, '#123456');
-    equal(set(m, ['a', 'b'], 'a', 'red'), null, 'nonsense is ignored');
-    equal(m.a, '#123456');
+    const m = { a: 'red', b: 'blue' };
+    equal(set(m, ['a', 'b'], 'a', 'blue'), 'b');
+    equal(m, { a: 'blue', b: 'red' });
+    equal(set(m, ['a', 'b'], 'a', 'teal-soft'), null);
+    equal(m.a, 'teal-soft');
+    equal(set(m, ['a', 'b'], 'a', '#123456'), null, 'nothing off the palette');
+    equal(m.a, 'teal-soft');
   });
 });
 

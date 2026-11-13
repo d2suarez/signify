@@ -2181,32 +2181,46 @@ body.is-seating-drag { user-select: none; }
 .tray-chip { border-radius: var(--r-sm); box-shadow: var(--shadow-1); border: 0; background: var(--surface); }
 .tray-chip.is-on { background: var(--p2); color: var(--p2-ink); }
 
-/* Every pupil's own colour: a tint of it across the chair and a solid band
-   along the bottom, so a child can find themselves from the door. Mixed into
-   the surface, so it reads in both themes with ordinary ink on top. */
-.seat.is-taken.has-colour:not(.is-selected) {
-  background: color-mix(in srgb, var(--pupil) 30%, var(--surface));
+/* Every pupil's own colour, drawn the way the desk draws everything else: a
+   solid block in one of its palette colours, with that colour's own ink on
+   it. The soft ones (the second dozen) are a tint of the same hue with a band
+   of it along the bottom. A pupil in hand gets a ring, not the class blue, so
+   their colour stays visible while they are being moved.
+   Like every block on the desk, none of this changes on the dark ground: the
+   tints are mixed into white, not into the surface, so they stay pale with
+   dark ink in both themes. A hairline keeps Black visible on a dark room. */
+.seat.is-taken.has-colour, .seat.is-taken.has-colour.is-selected {
+  background: var(--pupil); color: var(--pupil-ink);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent), var(--shadow-2);
+}
+.seat.is-taken.has-colour.is-soft, .seat.is-taken.has-colour.is-soft.is-selected {
+  background: color-mix(in srgb, var(--pupil) 26%, #fff); color: #201e1d;
   box-shadow: inset 0 calc(var(--cell, 8px) * -0.45) 0 var(--pupil), var(--shadow-2);
 }
-.seat.is-taken.has-colour.is-selected { box-shadow: inset 0 calc(var(--cell, 8px) * -0.45) 0 var(--pupil), var(--shadow-3); }
-.tray-chip.has-colour { box-shadow: inset .35rem 0 0 var(--pupil), var(--shadow-1); padding-left: .65rem; }
-.tray-chip.has-colour.is-selected { box-shadow: inset .35rem 0 0 var(--pupil), 0 0 0 2px var(--surface) inset; }
+.seat.is-taken.has-colour.is-selected { outline: 3px solid var(--ink); outline-offset: 2px; }
+.tray-chip.has-colour, .tray-chip.has-colour.is-selected { background: var(--pupil); color: var(--pupil-ink); }
+.tray-chip.has-colour.is-soft, .tray-chip.has-colour.is-soft.is-selected {
+  background: color-mix(in srgb, var(--pupil) 26%, #fff); color: #201e1d;
+  box-shadow: inset 0 -3px 0 var(--pupil), var(--shadow-1);
+}
+.tray-chip.has-colour.is-selected { outline: 2px solid var(--ink); outline-offset: 2px; }
 .colour-head { justify-content: flex-start; gap: .4rem; margin-top: .3rem; }
-.colour-dot { width: .9rem; height: .9rem; border-radius: 50%; background: var(--swatch); flex: none;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); }
 .colour-grid { display: grid; grid-template-columns: repeat(auto-fill, 1.55rem); gap: .3rem; }
 .colour-swatch {
-  width: 1.55rem; height: 1.55rem; border: 0; border-radius: 50%; background: var(--swatch); cursor: pointer; padding: 0;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent);
+  width: 1.55rem; height: 1.55rem; border: 0; border-radius: var(--r-sm); background: var(--swatch); cursor: pointer; padding: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent), var(--shadow-1);
 }
+.colour-swatch.is-soft {
+  background: color-mix(in srgb, var(--swatch) 26%, #fff);
+  box-shadow: inset 0 -4px 0 var(--swatch), var(--shadow-1);
+}
+.colour-dot { width: 1rem; height: 1rem; border-radius: 4px; cursor: default; flex: none; }
 /* Already somebody else's: still pickable (the two swap), just quieter. */
-.colour-swatch.is-taken { opacity: .45; }
-.colour-swatch.is-on { opacity: 1; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.colour-swatch.is-taken { opacity: .35; }
+.colour-swatch.is-on { opacity: 1; outline: 2px solid var(--ink); outline-offset: 2px; }
 .colour-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.colour-other { display: flex; align-items: center; gap: .4rem; cursor: pointer; }
-.colour-custom { width: 1.8rem; height: 1.4rem; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: none; cursor: pointer; }
 /* Paper stays black and white: every name is black, as before. */
-html.is-printing .seat.is-taken.has-colour { background: #fff; box-shadow: none; }
+html.is-printing .seat.is-taken.has-colour { background: #fff; color: #000; box-shadow: none; }
 
 /* Below 1100px the panel goes above the room rather than beside it, and the
    page scrolls — a side panel squeezed to nothing helps nobody. */

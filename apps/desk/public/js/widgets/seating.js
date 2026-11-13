@@ -580,68 +580,76 @@
   // their class is opened, and keeps it — it is stored, not worked out, so a
   // new pupil joining never shuffles everyone else's.
   //
-  // Unique within a class while the palette lasts (24 colours; past that the
-  // least-used colours are shared). Kept per class, because a pupil who is
-  // in two of the teacher's classes may have to give way to somebody else in
-  // one of them — but they are given the colour they already have in another
-  // class whenever it is free, so most children have one colour everywhere.
+  // The colours are the desk's own: the block colours of its five palettes,
+  // each with the ink the palette already puts on it, drawn as solid blocks
+  // like the cards. A soft tint of each makes the second dozen, handed out
+  // only once the solid ones are taken. They are fixed rather than following
+  // the teacher's palette, because a child's colour must not change when the
+  // teacher repaints the board. No free colour picker, on purpose: anything
+  // off this list would not belong on the desk.
+  //
+  // Unique within a class while the list lasts (24; past that the least-used
+  // are shared). Kept per class, because a pupil in two of the teacher's
+  // classes may have to give way to somebody in one of them — but they are
+  // given the colour they already have in another class whenever it is free.
 
+  const HUES = [
+    ['red', 'Red', '#ec3013', '#fff'], ['blue', 'Blue', '#1f4fd1', '#fff'],
+    ['yellow', 'Yellow', '#f5c400', '#201e1d'], ['teal', 'Teal', '#0e7f89', '#fff'],
+    ['green', 'Green', '#1f8a4c', '#fff'], ['purple', 'Purple', '#7a3fd1', '#fff'],
+    ['pink', 'Pink', '#d63c72', '#fff'], ['orange', 'Orange', '#f28c28', '#201e1d'],
+    ['coral', 'Coral', '#ef6f5c', '#201e1d'], ['maroon', 'Maroon', '#7c1405', '#fff'],
+    ['blush', 'Blush', '#ffc4b8', '#201e1d'], ['ink', 'Black', '#201e1d', '#fff'],
+  ];
   const COLOURS = [
-    ['#dc2626', 'Red'], ['#f97316', 'Orange'], ['#f59e0b', 'Amber'], ['#eab308', 'Yellow'],
-    ['#84cc16', 'Lime'], ['#16a34a', 'Green'], ['#34d399', 'Mint'], ['#0d9488', 'Teal'],
-    ['#06b6d4', 'Cyan'], ['#38bdf8', 'Sky'], ['#2563eb', 'Blue'], ['#1e3a8a', 'Navy'],
-    ['#4f46e5', 'Indigo'], ['#8b5cf6', 'Violet'], ['#a21caf', 'Purple'], ['#d946ef', 'Magenta'],
-    ['#ec4899', 'Pink'], ['#fb7185', 'Rose'], ['#9f1239', 'Maroon'], ['#92400e', 'Brown'],
-    ['#d6a36a', 'Tan'], ['#6b7a1f', 'Olive'], ['#64748b', 'Slate'], ['#3f3f46', 'Charcoal'],
-  ].map(([hex, name]) => ({ hex, name }));
-  const isColour = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
-  const colourName = (hex) => {
-    const c = COLOURS.find((x) => x.hex === String(hex).toLowerCase());
-    return c ? c.name : 'Your own colour';
-  };
+    ...HUES.map(([key, name, hex, ink]) => ({ key, name, hex, ink, soft: false })),
+    ...HUES.map(([key, name, hex]) => ({ key: `${key}-soft`, name: `Light ${name.toLowerCase()}`, hex, ink: '', soft: true })),
+  ];
+  const colourByKey = new Map(COLOURS.map((c) => [c.key, c]));
+  const isColour = (v) => typeof v === 'string' && colourByKey.has(v);
 
   /**
    * Gives every pupil in `ids` who has no colour yet one that nobody else in
-   * the class has. `mine` is this class's map (pupil id -> hex) and is
+   * the class has. `mine` is this class's map (pupil id -> colour key) and is
    * changed in place; `elsewhere` is the same map for the teacher's other
    * classes. Returns how many were given one. `rand` is there for the tests.
    */
   function giveColours(mine, ids, elsewhere = [], rand = Math.random) {
     const here = new Set(ids);
-    const uses = new Map(COLOURS.map((c) => [c.hex, 0]));
-    for (const [id, hex] of Object.entries(mine)) {
-      if (!isColour(hex)) { delete mine[id]; continue; }
-      if (here.has(id)) uses.set(hex, (uses.get(hex) || 0) + 1);
+    const uses = new Map(COLOURS.map((c) => [c.key, 0]));
+    for (const [id, key] of Object.entries(mine)) {
+      if (!isColour(key)) { delete mine[id]; continue; }
+      if (here.has(id)) uses.set(key, uses.get(key) + 1);
     }
     let given = 0;
     for (const id of ids) {
       if (mine[id]) continue;
       // The colour this pupil already has in another class, if it is free here.
-      const theirs = elsewhere.map((m) => m && m[id]).find((hex) => isColour(hex) && !uses.get(hex));
-      let pick = theirs;
+      let pick = elsewhere.map((m) => m && m[id]).find((key) => isColour(key) && !uses.get(key));
       if (!pick) {
-        const least = Math.min(...COLOURS.map((c) => uses.get(c.hex)));
-        const free = COLOURS.filter((c) => uses.get(c.hex) === least);
-        pick = free[Math.floor(rand() * free.length)].hex;
+        // Least used first; among those, a solid block before a soft one.
+        const rank = (c) => uses.get(c.key) * 2 + (c.soft ? 1 : 0);
+        const best = Math.min(...COLOURS.map(rank));
+        const free = COLOURS.filter((c) => rank(c) === best);
+        pick = free[Math.floor(rand() * free.length)].key;
       }
       mine[id] = pick;
-      uses.set(pick, (uses.get(pick) || 0) + 1);
+      uses.set(pick, uses.get(pick) + 1);
       given += 1;
     }
     return given;
   }
 
   /**
-   * The teacher gives `id` the colour `hex`. If a classmate already had it,
+   * The teacher gives `id` the colour `key`. If a classmate already had it,
    * the two swap, so the class stays one-colour-each. Returns the classmate
    * who swapped, or null.
    */
-  function setColour(mine, ids, id, hex) {
-    if (!isColour(hex)) return null;
-    hex = hex.toLowerCase();
+  function setColour(mine, ids, id, key) {
+    if (!isColour(key)) return null;
     const old = mine[id];
-    const other = ids.find((x) => x !== id && mine[x] === hex) || null;
-    mine[id] = hex;
+    const other = ids.find((x) => x !== id && mine[x] === key) || null;
+    mine[id] = key;
     if (other) { if (old) mine[other] = old; else delete mine[other]; }
     return other;
   }
@@ -683,8 +691,11 @@
     _COLOURS: COLOURS,
 
     init(s) {
-      // classKey -> { pupil id -> '#rrggbb' }. See giveColours.
-      if (!s.colours || typeof s.colours !== 'object') s.colours = {};
+      // classKey -> { pupil id -> colour key }. See giveColours. Named
+      // pupilColours because `colours` held a first, off-palette set for one
+      // morning (13 Nov 2026); that is dropped and everyone is dealt afresh.
+      if (!s.pupilColours || typeof s.pupilColours !== 'object') s.pupilColours = {};
+      delete s.colours;
       if (typeof s.classKey !== 'string') s.classKey = '';
       if (!s.plans || typeof s.plans !== 'object') s.plans = {};
       if (typeof s.flipped !== 'boolean') s.flipped = false;
@@ -877,7 +888,7 @@
         // Only against a roster we actually got: colours are handed out to
         // the pupils who are here, and never taken from anybody.
         if (rosterKnown && s.classKey && giveColours(classColours(), students.map((x) => x.id),
-          Object.entries(s.colours).filter(([k]) => k !== s.classKey).map(([, m]) => m))) ctx.save();
+          Object.entries(s.pupilColours).filter(([k]) => k !== s.classKey).map(([, m]) => m))) ctx.save();
         draw();
       }
 
@@ -888,12 +899,18 @@
       const unseated = () => { const taken = seatedIds(); return students.filter((x) => !taken.has(x.id)); };
       const studentById = (id) => students.find((x) => x.id === id) || null;
       const classColours = () => {
-        if (!s.colours[s.classKey] || typeof s.colours[s.classKey] !== 'object') s.colours[s.classKey] = {};
-        return s.colours[s.classKey];
+        if (!s.pupilColours[s.classKey] || typeof s.pupilColours[s.classKey] !== 'object') s.pupilColours[s.classKey] = {};
+        return s.pupilColours[s.classKey];
       };
       const colourOf = (id) => {
-        const hex = s.classKey && s.colours[s.classKey] && s.colours[s.classKey][id];
-        return isColour(hex) ? hex : '';
+        const key = s.classKey && s.pupilColours[s.classKey] && s.pupilColours[s.classKey][id];
+        return isColour(key) ? colourByKey.get(key) : null;
+      };
+      /** The class and custom properties that paint a seat or chip in a pupil's colour. */
+      const paint = (id) => {
+        const c = id ? colourOf(id) : null;
+        if (!c) return { cls: '', style: {} };
+        return { cls: c.soft ? 'has-colour is-soft' : 'has-colour', style: { '--pupil': c.hex, '--pupil-ink': c.ink || 'var(--ink)' } };
       };
 
       function allSeats() {
@@ -1045,10 +1062,10 @@
             const seat = el('div.seat', {
               'data-seat': id,
               class: [who ? 'is-taken' : 'is-free', who && who.id === selectedStudent ? 'is-selected' : '',
-                who && colourOf(who.id) ? 'has-colour' : '',
+                who ? paint(who.id).cls : '',
                 who && arriving && arriving.has(who.id) ? 'is-arriving' : ''].filter(Boolean).join(' '),
               style: { '--arrive': who && arriving && arriving.has(who.id) ? arriving.get(who.id) : 0, '--bx': rect.x, '--by': rect.y, '--bw': rect.w, '--bh': rect.h,
-                '--pupil': who ? colourOf(who.id) || 'transparent' : 'transparent' },
+                ...(who ? paint(who.id).style : {}) },
             }, [
               el('span.seat-name', { text: who ? (short.get(who.id) || who.name) : '', title: who ? who.name : '' }),
               el('span.seat-initials', { text: who ? initials(who.name) : '' }),
@@ -1209,8 +1226,8 @@
         for (const st of waiting) {
           list.append(el('button.tray-chip', {
             text: st.name,
-            class: [selectedStudent === st.id ? 'is-selected' : '', colourOf(st.id) ? 'has-colour' : ''].filter(Boolean).join(' '),
-            style: { '--pupil': colourOf(st.id) || 'transparent' },
+            class: [selectedStudent === st.id ? 'is-selected' : '', paint(st.id).cls].filter(Boolean).join(' '),
+            style: paint(st.id).style,
             onpointerdown: (e) => onChipDown(e, st.id),
             onclick: () => {
               selectedStudent = selectedStudent === st.id ? null : st.id;
@@ -1246,8 +1263,8 @@
         const mine = classColours();
         const current = colourOf(who.id);
         const holder = new Map(ids.filter((x) => x !== who.id && isColour(mine[x])).map((x) => [mine[x], x]));
-        const choose = (hex) => {
-          const other = setColour(mine, ids, who.id, hex);
+        const choose = (key) => {
+          const other = setColour(mine, ids, who.id, key);
           ctx.save(); draw();
           if (other) {
             const them = studentById(other);
@@ -1257,29 +1274,24 @@
 
         const grid = el('div.colour-grid', { role: 'group', 'aria-label': `${first}’s colour` });
         for (const c of COLOURS) {
-          const taken = holder.get(c.hex);
+          const taken = holder.get(c.key);
           const them = taken && studentById(taken);
           grid.append(el('button.colour-swatch', {
-            class: [c.hex === current ? 'is-on' : '', taken ? 'is-taken' : ''].filter(Boolean).join(' '),
+            class: [c.soft ? 'is-soft' : '', current && c.key === current.key ? 'is-on' : '', taken ? 'is-taken' : ''].filter(Boolean).join(' '),
             style: { '--swatch': c.hex },
             title: them ? `${c.name} — ${them.name} has it; they would swap` : c.name,
             'aria-label': them ? `${c.name}, swaps with ${them.name}` : c.name,
-            'aria-pressed': c.hex === current ? 'true' : 'false',
-            onclick: () => choose(c.hex),
+            'aria-pressed': current && c.key === current.key ? 'true' : 'false',
+            onclick: () => choose(c.key),
           }));
         }
-        const custom = el('input.colour-custom', {
-          type: 'color', value: current || '#888888', title: 'Any other colour', 'aria-label': 'Any other colour',
-          onchange: (e) => choose(e.target.value),
-        });
 
         tray.append(
           el('div.plan-row.colour-head', {}, [
-            el('span.colour-dot', { style: { '--swatch': current || 'transparent' } }),
-            el('span.hint', { text: `${first}’s colour: ${current ? colourName(current) : 'none yet'}` }),
+            el('span.colour-swatch.colour-dot', { class: current && current.soft ? 'is-soft' : '', style: { '--swatch': current ? current.hex : 'transparent' } }),
+            el('span.hint', { text: `${first}’s colour: ${current ? current.name : 'none yet'}` }),
           ]),
           grid,
-          el('label.colour-other.hint', {}, [custom, ' Another colour']),
         );
       }
 
