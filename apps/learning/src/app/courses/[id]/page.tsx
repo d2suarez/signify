@@ -18,6 +18,8 @@ import { CourseNav } from "@/components/CourseNav";
 import { When } from "@/components/When";
 import ToolPicker from "@/components/ToolPicker";
 import { toolChoices } from "@/lib/lti-platform";
+import { catalogOf, suggestedCatalog, schoolCatalog, noteTeacher } from "@/lib/sections";
+import { moveToCourse } from "./section-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +135,9 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   for (const g of groups) g.items.sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
 
   const tools = await toolChoices(me.tenantId);
+  await noteTeacher(c, course.id);
+  const [catalog, suggested, allCourses] = await Promise.all([catalogOf(c, course.id), suggestedCatalog(c, course.id), schoolCatalog(c)]);
+  const fillName = (s: string, name: string) => s.replace("{name}", name);
   const unitSelect = (idFor: string) => (
     // Keyed by the newest unit so a unit just made becomes the choice.
     <select key={units.at(-1)?.id || "none"} id={idFor} name="unitId" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.unit} defaultValue={units.at(-1)?.id || ""}>
@@ -148,7 +153,25 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         <div>
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
           <h1 style={{ fontSize: 34 }}>{course.name}</h1>
+          {catalog && (
+            <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
+              <span className="muted">{d.secOf}</span>
+              <Link href={`/catalog/${catalog.id}`}>{catalog.name}</Link>
+              <span className="muted">· {course.schoolYear || d.secNoYear}</span>
+              <Link href={`/courses/${course.id}/copy`} className="btn btn-sm">{d.secCopy}</Link>
+            </p>
+          )}
         </div>
+        {suggested && (
+          <div className="notice row" role="status" style={{ gap: 10 }}>
+            <span className="grow">{fillName(d.secSuggest, suggested.name)}</span>
+            <form action={moveToCourse}>
+              <input type="hidden" name="courseId" value={course.id} />
+              <input type="hidden" name="catalogId" value={suggested.id} />
+              <button className="btn btn-sm btn-primary" type="submit">{fillName(d.secSuggestYes, suggested.name)}</button>
+            </form>
+          </div>
+        )}
         <CourseNav courseId={course.id} current="plan" d={d} />
 
         <div className="card stack" style={{ padding: "14px 16px", gap: 10 }}>
@@ -184,6 +207,19 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             </div>
           )}
           <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
+          <details>
+            <summary className="label" style={{ cursor: "pointer", minHeight: 44, display: "flex", alignItems: "center" }}>{d.secMoveTitle}</summary>
+            <form action={moveToCourse} className="row" style={{ marginTop: 6 }}>
+              <input type="hidden" name="courseId" value={course.id} />
+              <label className="sr-only" htmlFor="move-course">{d.secMoveTitle}</label>
+              <select id="move-course" name="catalogId" className="field" style={{ width: "auto", flex: "1 1 240px" }} defaultValue={catalog?.id || "new"}>
+                {allCourses.map((k) => <option key={k.id} value={k.id}>{k.name}{k.subject ? ` · ${k.subject}` : ""}</option>)}
+                <option value="new">{d.secMoveNew}</option>
+              </select>
+              <button className="btn" type="submit">{d.secMoveGo}</button>
+            </form>
+            <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.secMoveHint}</p>
+          </details>
         </div>
 
         {previewable.length > 0 && (

@@ -13,7 +13,15 @@ export type Course = {
   idClassId: string;
   name: string;
   subject: string;
+  /** The lasting course this class is a section of (catalog_courses; migration 017). */
+  catalogId: string;
+  /** The school year Signify ID gives the class ('' = not said). */
+  schoolYear: string;
+  /** 'class' (academic) or 'club' (a group with no academics; migration 020). */
+  kind: CourseKind;
 };
+
+export type CourseKind = "class" | "club";
 
 /** How this person relates to a course, from their live Signify ID classes. */
 export type CourseRole = "teacher" | "student";
@@ -36,6 +44,9 @@ function toCourse(r: Record<string, unknown>): Course {
     idClassId: String(r.id_class_id),
     name: String(r.name),
     subject: String(r.subject ?? ""),
+    catalogId: r.catalog_id ? String(r.catalog_id) : "",
+    schoolYear: String(r.school_year ?? ""),
+    kind: r.kind === "club" ? "club" : "class",
   };
 }
 
@@ -45,7 +56,7 @@ function toCourse(r: Record<string, unknown>): Course {
  * grade levels); a student only sees a course its teacher has already
  * opened.
  */
-export async function myCourses(tenantId: string, classes: IdClass[]): Promise<MyCourse[]> {
+export async function myCourses(tenantId: string, classes: IdClass[], userId = ""): Promise<MyCourse[]> {
   const db = await getDb();
   const out: MyCourse[] = [];
   for (const c of classes) {
@@ -54,13 +65,23 @@ export async function myCourses(tenantId: string, classes: IdClass[]): Promise<M
     let rows;
     if (role === "teacher") {
       rows = await db.query(
-        `INSERT INTO courses (tenant_id, id_class_id, name, subject, grade_levels)
-         VALUES ($1, $2, $3, $4, $5::jsonb)
+        `INSERT INTO courses (tenant_id, id_class_id, name, subject, grade_levels, school_year)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
          ON CONFLICT (tenant_id, id_class_id)
-         DO UPDATE SET name = EXCLUDED.name, subject = EXCLUDED.subject, grade_levels = EXCLUDED.grade_levels
+         DO UPDATE SET name = EXCLUDED.name, subject = EXCLUDED.subject, grade_levels = EXCLUDED.grade_levels,
+                       school_year = EXCLUDED.school_year
          RETURNING *`,
-        [tenantId, c.id, c.name, c.subject || "", Array.isArray(c.grade_levels) ? JSON.stringify(c.grade_levels.map(String).slice(0, 20)) : null],
+        [tenantId, c.id, c.name, c.subject || "", Array.isArray(c.grade_levels) ? JSON.stringify(c.grade_levels.map(String).slice(0, 20)) : null,
+          String(c.school_year ?? "").slice(0, 20)],
       );
+      if (rows[0] && !rows[0].catalog_id) rows = [await giveCatalog(tenantId, rows[0], userId)];
+      if (rows[0] && userId) {
+        await db.query(
+          `INSERT INTO section_teachers (tenant_id, course_id, user_id) VALUES ($1, $2, $3)
+           ON CONFLICT (course_id, user_id) DO UPDATE SET last_seen = now()`,
+          [tenantId, rows[0].id, userId],
+        );
+      }
     } else {
       rows = await db.query("SELECT * FROM courses WHERE tenant_id = $1 AND id_class_id = $2", [tenantId, c.id]);
     }
@@ -74,6 +95,27 @@ export async function myCourses(tenantId: string, classes: IdClass[]): Promise<M
   }
   out.sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === "teacher" ? -1 : 1));
   return out;
+}
+
+/**
+ * A new section gets a lasting course of its own, named like the class. The
+ * teacher can later put it in another course (sections.ts); nothing is
+ * copied either way.
+ */
+async function giveCatalog(tenantId: string, row: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+  const db = await getDb();
+  return db.tx(async (q) => {
+    const [cat] = await q.query(
+      "INSERT INTO catalog_courses (tenant_id, name, subject, created_by) VALUES ($1, $2, $3, $4) RETURNING id",
+      [tenantId, String(row.name), String(row.subject ?? ""), userId || "learning"],
+    );
+    const [r] = await q.query(
+      "UPDATE courses SET catalog_id = COALESCE(catalog_id, $3) WHERE tenant_id = $1 AND id = $2 RETURNING *",
+      [tenantId, row.id, cat.id],
+    );
+    if (r.catalog_id !== cat.id) await q.query("DELETE FROM catalog_courses WHERE id = $1", [cat.id]);
+    return r;
+  });
 }
 
 /**

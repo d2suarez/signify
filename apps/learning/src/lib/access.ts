@@ -77,7 +77,7 @@ export function isSchoolAdmin(me: Me): boolean {
  */
 export async function standardsViewer(me: Me): Promise<Viewer | null> {
   const { classes } = await myClasses();
-  const teaches = (await myCourses(me.tenantId, classes)).filter((c) => c.role === "teacher").map((c) => c.id);
+  const teaches = (await myCourses(me.tenantId, classes, me.id)).filter((c) => c.role === "teacher").map((c) => c.id);
   const admin = isSchoolAdmin(me);
   return teaches.length || admin ? { ...ctx(me), admin, teaches } : null;
 }

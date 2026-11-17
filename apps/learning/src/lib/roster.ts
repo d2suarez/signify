@@ -14,6 +14,8 @@ export type IdClass = {
   covering?: boolean;
   /** Signify ID year groups the class covers ("9", "10", …); decides its grade scale band. */
   grade_levels?: string[] | null;
+  /** The school year the class runs in, as Signify ID keeps it ('2026', '2026-27'). */
+  school_year?: string | null;
 };
 
 /** `email` comes only to the class's staff (grade passback matches it to the platform's class list). */
@@ -33,7 +35,7 @@ const cache: Cache = ((globalThis as unknown as { __learningRoster?: Cache }).__
 /** Local development: made-up classes, chosen by the made-up person's role. */
 export const DEV_CLASSES: Record<string, IdClass[]> = {
   teacher: [
-    { id: "dev-class-apmicro", name: "AP Microeconomics", subject: "Economics", role: "teacher" },
+    { id: "dev-class-apmicro", name: "AP Microeconomics", subject: "Economics", role: "teacher", school_year: "2026" },
     { id: "dev-class-rel09", name: "09 Religion", subject: "Bible", role: "teacher" },
     { id: "dev-class-practice", name: "Practice — Demo class", subject: "Practice", role: "teacher" },
   ],

@@ -47,7 +47,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
   const today = todayIn(SCHOOL_TZ);
   const days = schoolWeek(parseDay(week) ?? today);
   const { ok, classes } = await myClasses();
-  const teaching = (await myCourses(me.tenantId, classes)).filter((c) => c.role === "teacher");
+  const teaching = (await myCourses(me.tenantId, classes, me.id)).filter((c) => c.role === "teacher");
   const c = ctx(me);
 
   const courses: PlannerCourse[] = await Promise.all(teaching.map(async (course) => {

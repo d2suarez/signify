@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { requireMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
-import { lang, isSchoolAdmin } from "@/lib/access";
+import { lang, isSchoolAdmin, ctx } from "@/lib/access";
 import { myPreviewPeople } from "@/lib/preview";
 import { t } from "@/lib/i18n";
 import { liveLessonId } from "@/lib/live-ticket";
 import { TopBar } from "@/components/TopBar";
+import { ShareRequests } from "@/components/ShareRequests";
+import { requestsToAnswer } from "@/lib/sections";
+import { dict } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +18,7 @@ export default async function Home() {
   const [{ ok, classes }, family] = await Promise.all([myClasses(), myChildren()]);
   const children = family.children;
   const isParent = me.role === "guardian" || children.length > 0;
-  const courses = await myCourses(me.tenantId, classes);
+  const courses = await myCourses(me.tenantId, classes, me.id);
   const onlyParent = isParent && courses.length === 0;
   const teaching = courses.filter((c) => c.role === "teacher");
   const learning = courses.filter((c) => c.role === "student");
@@ -24,6 +27,7 @@ export default async function Home() {
   // there may be a whole school of them.
   const previews = teaching.length > 0 || isSchoolAdmin(me) ? (await myPreviewPeople()).people : [];
   const practice = previews.filter((p) => p.mock);
+  const toAnswer = teaching.length > 0 || isSchoolAdmin(me) ? await requestsToAnswer({ ...ctx(me), admin: isSchoolAdmin(me) }) : [];
 
   return (
     <>
@@ -33,6 +37,7 @@ export default async function Home() {
           <h1 style={{ fontSize: 34 }} className="grow">{t(onlyParent ? "yourChildren" : "myCourses", L)}</h1>
           {(learning.length > 0 || isParent) && <Link className="btn" href="/week">{t("thisWeek", L)}</Link>}
           {teaching.length > 0 && <Link className="btn" href="/planner">{t("planner", L)}</Link>}
+          {(teaching.length > 0 || isSchoolAdmin(me)) && <Link className="btn" href="/catalog">{t("secCatalogTitle", L)}</Link>}
           {(teaching.length > 0 || isSchoolAdmin(me)) && <Link className="btn" href="/standards">{t("standardsLibrary", L)}</Link>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/periods">{t("periods", L)}</a>}
           {isSchoolAdmin(me) && <a className="btn" href="/school/grading">{t("gradingSetupLink", L)}</a>}
@@ -42,6 +47,13 @@ export default async function Home() {
           <div className="notice notice-bad" role="alert">
             {t("classesFailed", L)} <a href="/">{t("tryAgain", L)}</a>
           </div>
+        )}
+
+        {toAnswer.length > 0 && (
+          <section className="card stack" aria-labelledby="share-title" style={{ gap: 8 }}>
+            <h2 id="share-title" className="label">{t("secToAnswerHome", L)}</h2>
+            <ShareRequests list={toAnswer} back="/" d={dict(L)} />
+          </section>
         )}
 
         {isParent && (
@@ -72,6 +84,7 @@ export default async function Home() {
                   <h3>{c.name}</h3>
                   <span className="row" style={{ fontSize: 14 }}>
                     <span className="muted">{c.lessonCount} {c.lessonCount === 1 ? t("lesson", L) : t("lessons", L)}</span>
+                    {c.schoolYear && <span className="muted">· {c.schoolYear}</span>}
                     {c.covering && <span className="pill">{t("covering", L)}</span>}
                     {liveLessonId(c.id) && <span className="pill"><span className="live-dot" />{t("liveNow", L)}</span>}
                   </span>
