@@ -101,6 +101,7 @@ test("preview: the pages are read-only", () => {
 
 test("preview: the course page's ?preview= is gone", () => {
   const src = fs.readFileSync(path.join(SRC, "app", "courses", "[id]", "page.tsx"), "utf8");
-  assert.doesNotMatch(src, /searchParams|name="preview"/);
+  // (searchParams is used for Updates' error note; only a preview one is banned.)
+  assert.doesNotMatch(src, /\.preview\b|\["preview"\]|name="preview"/);
   assert.match(src, /\/preview\/\$\{p\.id\}\/courses\//);
 });

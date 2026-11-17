@@ -498,3 +498,7 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 /* A tick box with its words, a whole 44px row to press (copy from another class). */
 .check-row { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; flex-wrap: wrap; }
 .check-row input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 auto; }
+
+/* Updates: an unread post carries the word "New" (never colour alone) and a bar. */
+.pill-new { background: var(--ink); color: var(--surface); font-weight: 600; }
+.list li.is-unread { box-shadow: inset 4px 0 0 var(--ink); padding-left: 10px; }

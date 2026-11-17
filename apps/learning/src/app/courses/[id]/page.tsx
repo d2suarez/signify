@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { courseAccess, ctx, lang, studentsOf } from "@/lib/access";
+import { courseAccess, ctx, lang, studentsOf, updatesViewer } from "@/lib/access";
 import { isPracticeCourse, fillPractice, clearPractice } from "@/lib/practice";
 import { requireMe } from "@/lib/auth";
 import { listLessons, createLesson, type LessonSummary } from "@/lib/lessons";
 import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit } from "@/lib/units";
 import { listAssignments, createAssignment, type Assignment } from "@/lib/assignments";
 import { liveLessonId } from "@/lib/live-ticket";
-import { listAnnouncements, postAnnouncement, archiveAnnouncement, ANNOUNCEMENT_LIMITS } from "@/lib/announcements";
+import { feed, mayPost, courseRules } from "@/lib/updates";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { Announcements } from "@/components/Announcements";
+import { Feed, Composer, CourseRulesForm, UpdateErrorNote } from "@/components/Updates";
 import { StudentCourse } from "@/components/StudentCourse";
 import { myPreviewPeople } from "@/lib/preview";
 import { CourseNav } from "@/components/CourseNav";
@@ -80,34 +80,40 @@ async function unitAction(formData: FormData) {
   revalidatePath(`/courses/${courseId}`);
 }
 
-async function announce(formData: FormData) {
-  "use server";
-  const access = await teacherAccess(formData);
-  if (!access) return;
-  const c = ctx(access.me), courseId = access.course.id;
-  if (formData.get("op") === "archive") await archiveAnnouncement(c, courseId, String(formData.get("announcementId") || ""));
-  else await postAnnouncement(c, courseId, { title: formData.get("title"), body: formData.get("body") });
-  revalidatePath(`/courses/${courseId}`);
-}
-
 type Item = { kind: "lesson"; lesson: LessonSummary } | { kind: "assignment"; assignment: Assignment };
 
 function itemDate(i: Item): string {
   return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
 }
 
-export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string }> }) {
   await requireMe();
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
   const L = await lang();
   const access = await courseAccess(id);
   if (!access) notFound();
+  const viewer = (await updatesViewer())!;
+  const here = `/courses/${access.course.id}`;
+  const updatesSection = async (teacher: boolean) => {
+    const dd = dict(L);
+    const [posts, canPost, rules] = await Promise.all([feed(viewer, { courseId: access.course.id }), mayPost(viewer, access.course.id), courseRules(viewer, access.course.id)]);
+    return (
+      <section className="card stack" aria-labelledby="upd-title" style={{ gap: 10 }}>
+        <div className="row"><h2 id="upd-title" className="label grow">{dd.updTitle}</h2><Link href="/updates" className="btn btn-sm">{dd.updAll}</Link></div>
+        <UpdateErrorNote code={sp.updateError} d={dd} />
+        {canPost && <Composer courseId={access.course.id} back={here} d={dd} label={teacher ? dd.updWriteClass : dd.updWriteStudent} />}
+        {!canPost && !teacher && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{dd.updPostsOff}</p>}
+        {teacher && <CourseRulesForm courseId={access.course.id} rules={rules} d={dd} />}
+        <Feed posts={posts} back={here} L={L} d={dd} showWhere={false} />
+      </section>
+    );
+  };
   if (access.course.role === "student") {
     return (
       <>
         <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} />
         <main className="page stack">
-          <StudentCourse course={access.course} c={ctx(access.me)} person={{ id: access.me.id, name: access.me.name }} L={L} />
+          <StudentCourse course={access.course} c={ctx(access.me)} person={{ id: access.me.id, name: access.me.name }} L={L} updates={await updatesSection(false)} />
         </main>
       </>
     );
@@ -123,8 +129,8 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
   const d = dict(L);
   const c = ctx(me);
   const live = liveLessonId(course.id);
-  const [units, lessons, assignments, announcements] = await Promise.all([
-    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), listAnnouncements(c, course.id),
+  const [units, lessons, assignments, updates] = await Promise.all([
+    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), updatesSection(true),
   ]);
 
   const groups = [...units.map((u) => ({ unit: u, items: [] as Item[] })), { unit: null, items: [] as Item[] }];
@@ -251,18 +257,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
           </section>
         )}
 
-        <section className="card stack" aria-labelledby="ann-title" style={{ gap: 10 }}>
-          <h2 id="ann-title" className="label">{d.announcements}</h2>
-          <form action={announce} className="stack" style={{ gap: 8 }}>
-            <input type="hidden" name="courseId" value={course.id} />
-            <label htmlFor="ann-new-title" className="sr-only">{d.title}</label>
-            <input id="ann-new-title" name="title" className="field" placeholder={`${d.title} (${d.optional})`} maxLength={ANNOUNCEMENT_LIMITS.title} />
-            <label htmlFor="ann-new-body" className="sr-only">{d.announcementText}</label>
-            <textarea id="ann-new-body" name="body" className="field" rows={2} placeholder={d.announcementText} maxLength={ANNOUNCEMENT_LIMITS.body} required />
-            <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-start" }}>{d.postAnnouncement}</button>
-          </form>
-          <Announcements list={announcements} L={L} d={d} courseId={course.id} archive={announce} />
-        </section>
+        {updates}
 
         {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
 

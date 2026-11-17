@@ -25,8 +25,10 @@ type Ctx = { tenantId: string; userId: string };
  * the page only reads: no live join, no calendar, assignment links stay
  * inside the preview.
  */
-export async function StudentCourse({ course, c, person, L, previewBase }: {
+export async function StudentCourse({ course, c, person, L, previewBase, updates }: {
   course: Course; c: Ctx; person: { id: string; name: string }; L: Lang; previewBase?: string;
+  /** The student's own page: the class's Updates (read, post, comment). A preview shows the teachers' posts only, read-only. */
+  updates?: React.ReactNode;
 }) {
   const d = dict(L);
   const previewing = !!previewBase;
@@ -75,7 +77,8 @@ export async function StudentCourse({ course, c, person, L, previewBase }: {
         </div>
       )}
 
-      {announcements.length > 0 && (
+      {updates}
+      {!updates && announcements.length > 0 && (
         <section className="card" aria-labelledby="ann-title">
           <h2 id="ann-title" className="label" style={{ marginBottom: 6 }}>{d.announcements}</h2>
           <Announcements list={announcements} L={L} d={d} courseId={course.id} />

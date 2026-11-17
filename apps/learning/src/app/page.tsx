@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { requireMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
-import { lang, isSchoolAdmin, ctx } from "@/lib/access";
+import { lang, isSchoolAdmin, ctx, updatesViewer } from "@/lib/access";
+import { feed } from "@/lib/updates";
+import { Feed } from "@/components/Updates";
 import { myPreviewPeople } from "@/lib/preview";
 import { t } from "@/lib/i18n";
 import { liveLessonId } from "@/lib/live-ticket";
@@ -27,6 +29,8 @@ export default async function Home() {
   // there may be a whole school of them.
   const previews = teaching.length > 0 || isSchoolAdmin(me) ? (await myPreviewPeople()).people : [];
   const practice = previews.filter((p) => p.mock);
+  const viewer = await updatesViewer();
+  const updates = viewer ? await feed(viewer, {}, 6) : [];
   const toAnswer = teaching.length > 0 || isSchoolAdmin(me) ? await requestsToAnswer({ ...ctx(me), admin: isSchoolAdmin(me) }) : [];
 
   return (
@@ -55,6 +59,14 @@ export default async function Home() {
             <ShareRequests list={toAnswer} back="/" d={dict(L)} />
           </section>
         )}
+
+        <section aria-labelledby="home-updates">
+          <div className="section-title row">
+            <span className="shape s-circle" /><h2 id="home-updates" className="grow">{t("updTitle", L)}</h2>
+            <Link className="btn btn-sm" href="/updates">{t("updAll", L)}</Link>
+          </div>
+          <div className="card"><Feed posts={updates} back="/" L={L} d={dict(L)} /></div>
+        </section>
 
         {isParent && (
           <section>

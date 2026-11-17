@@ -1,7 +1,10 @@
 import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
-import { readMe, myClasses, token, type Me } from "./auth";
+import { readMe, myClasses, myChildren, token, type Me } from "./auth";
+import { studentCourses } from "./family";
+import { hasFeature } from "./features";
+import type { Viewer as UpdatesViewer } from "./updates";
 import { membersOf } from "./roster";
 import { getAssignment, type Assignment } from "./assignments";
 import { toStudents, type Student } from "./gradebook";
@@ -101,4 +104,32 @@ export const myPrefs = cache(async (): Promise<Prefs> => {
   const me = await readMe();
   if (!me) return DEFAULT_PREFS;
   try { return await getPrefs(ctx(me)); } catch { return DEFAULT_PREFS; }
+});
+
+/** Roles that never post to the whole school, whatever Tools by role says (ID gives guardians every feature by default). */
+const NOT_STAFF = new Set(["student", "guardian", "substitute"]);
+
+/**
+ * Who is reading or writing Updates, from live Signify ID this request: the
+ * classes and clubs they are in, a parent's children's classes, and whether
+ * the school lets their role post to everyone. Built once per request.
+ */
+export const updatesViewer = cache(async (): Promise<UpdatesViewer | null> => {
+  const me = await readMe();
+  if (!me) return null;
+  const [{ classes }, family] = await Promise.all([myClasses(), myChildren()]);
+  const mine = await myCourses(me.tenantId, classes, me.id);
+  const childCourses = new Set<string>();
+  for (const child of family.children) for (const c of await studentCourses(me.tenantId, child.classes)) childCourses.add(c.id);
+  const role = me.role || "";
+  const teaches = mine.some((c) => c.role === "teacher");
+  const staff = !!role && !NOT_STAFF.has(role);
+  const kind: UpdatesViewer["kind"] = staff || teaches ? "staff" : mine.length > 0 ? "student" : childCourses.size > 0 || role === "guardian" ? "parent" : "student";
+  return {
+    tenantId: me.tenantId, userId: me.id, name: me.name, kind,
+    schoolAdmin: isSchoolAdmin(me),
+    canPostSchool: kind === "staff" && staff && (await hasFeature("post_school_updates", { tenantId: me.tenantId, role: me.role, dev: me.dev })),
+    courses: new Map(mine.map((c) => [c.id, c.role])),
+    childCourses,
+  };
 });

@@ -30,7 +30,7 @@ export function isPracticeCourse(c: { name: string }): boolean {
 export async function clearPractice(ctx: Ctx, courseId: string): Promise<void> {
   const db = await getDb();
   await db.tx(async (t) => {
-    for (const table of ["assignments", "lessons", "units", "announcements", "grade_categories", "standards"]) {
+    for (const table of ["assignments", "lessons", "units", "posts", "grade_categories", "standards"]) {
       await t.query(`DELETE FROM ${table} WHERE tenant_id = $1 AND course_id = $2`, [ctx.tenantId, courseId]);
     }
   });
