@@ -43,10 +43,19 @@
       return;
     }
 
+    const lti = !!window.DESK_LTI;
+    if (lti && !window.DESK_LTI.token) {
+      shell.replaceChildren(message('Open this desk from Schoology', 'This page only works when it is opened from a link in a Schoology course.'));
+      return;
+    }
     try {
       me = (await Desk.api.me()).user;
     } catch (e) {
       if (e.status !== 401) throw e;
+      if (lti) {
+        shell.replaceChildren(message('This desk has closed', 'Open it again from Schoology. Everything on it is saved.'));
+        return;
+      }
       // Not signed in. If this server can sign people in at all, they get a
       // working desk with the tools that need no account, and the rest shown
       // but locked. If it cannot, there is nothing to offer beyond saying so.
@@ -54,7 +63,13 @@
       return config.authEnabled ? guestDesk(shell) : signInScreen(shell);
     }
 
-    if (!me.can.desk) return closedScreen(shell);
+    if (!me.can.desk) {
+      if (lti) {
+        shell.replaceChildren(message('No tools here yet', 'Your teacher has not turned on any tools for this course.'));
+        return;
+      }
+      return closedScreen(shell);
+    }
 
     const data = await Desk.api.board();
     // Paint before the board is drawn, so nothing flashes in the wrong colour.
@@ -63,7 +78,9 @@
     Desk.board.init({ root: document.getElementById('board'), data, me });
     app.signedIn = true;
     if (location.hash === '#versions') openHistory();
-    offerVisitorDesk();
+    // Never on a desk opened from Schoology: on a shared Chromebook, what a
+    // visitor left in this browser may be somebody else's.
+    if (!lti) offerVisitorDesk();
     announceNew();
   }
 
@@ -404,9 +421,9 @@
     const menu = el('div.menu', { hidden: true }, [
       el('div.menu-head', {}, [
         el('strong', { text: me.name }),
-        el('span.hint', { text: me.email }),
+        el('span.hint', { text: me.lti ? 'Opened from Schoology' : me.email }),
         me.school ? el('span.tag', { text: me.school }) : null,
-        me.role ? el('span.hint', { text: me.role }) : null,
+        me.role && !me.lti ? el('span.hint', { text: me.role }) : null,
       ]),
       el('button.menu-item', { svg: icon('palette', 16), onclick: () => { hideMenu(); Desk.theme.open(); } }, ' Appearance'),
       // Only ever shrinks and closes gaps, so it is safe to offer without a
@@ -421,8 +438,9 @@
       // A link rather than a dialog, so it can be sent to somebody who does
       // not have an account here — which is usually who is asking.
       el('a.menu-item', { href: '/what-is-held', target: '_blank', rel: 'noreferrer', svg: icon('lock', 16) }, ' What this holds about pupils'),
-      config.identityUrl ? el('a.menu-item', { href: config.identityUrl, rel: 'noreferrer', svg: icon('person', 16) }, ' My account') : null,
-      el('a.menu-item.menu-item--danger', { href: config.signOutUrl, svg: icon('close', 16) }, ' Sign out'),
+      // A desk opened from Schoology has no account here and nothing to sign out of.
+      config.identityUrl && !me.lti ? el('a.menu-item', { href: config.identityUrl, rel: 'noreferrer', svg: icon('person', 16) }, ' My account') : null,
+      me.lti ? null : el('a.menu-item.menu-item--danger', { href: config.signOutUrl, svg: icon('close', 16) }, ' Sign out'),
     ]);
 
     const userBtn = el('button.user-btn', { 'aria-haspopup': 'menu', onclick: toggleMenu }, [avatar, el('span.user-name', { text: me.name })]);

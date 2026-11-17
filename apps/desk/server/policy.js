@@ -108,4 +108,4 @@ function attach({ canBehaviour }) {
   };
 }
 
-module.exports = { declare, resolve, attach, byDefault, STUDENT_ROLE, _cache: cache };
+module.exports = { declare, resolve, attach, rolesFor: (tenantId) => (ENABLED ? rolesAt(tenantId) : Promise.resolve(null)), byDefault, STUDENT_ROLE, _cache: cache };

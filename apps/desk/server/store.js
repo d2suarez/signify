@@ -33,6 +33,10 @@ const EMPTY = {
   // Previous versions of a board, kept so that work which disappears can be
   // got back. See server/board.js — this exists because it twice was not.
   boardHistory: {},// uid -> [ { rev, at, why, items } ]  newest first
+  // Schoology (LTI 1.3): see server/lti.js. A Schoology person's desk lives in
+  // `boards` under a hashed id ("lti_…"); these two hold only the plumbing.
+  ltiSessions: {}, // sha256(token) -> { uid, course, teacher, courseTitle, until }
+  ltiCourses: {},  // course hash -> { off: [tool types], updatedAt }
 };
 
 let db = null;

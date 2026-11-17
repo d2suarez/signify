@@ -54,6 +54,12 @@ export default defineRailway(() => {
       R2_SECRET_ACCESS_KEY: preserve(),
       BACKUP_DAYS: preserve(),
       BACKUP_ENCRYPTION_KEY: preserve(),
+      // Schoology (LTI 1.3), server/lti.js. Off until LTI_CLIENT_ID is set.
+      // Set by hand in Railway after registering the tool in Schoology.
+      LTI_CLIENT_ID: preserve(),
+      LTI_DEPLOYMENT_IDS: preserve(),
+      LTI_FRAME_ORIGINS: preserve(),
+      LTI_TENANT_ID: preserve(),
     },
   });
 

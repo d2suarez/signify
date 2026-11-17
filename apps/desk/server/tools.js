@@ -46,6 +46,7 @@ function load() {
     blurb: d.blurb || '',
     category: GROUPS[d.category] ? d.category : 'other',
     students: d.students === true,
+    guest: d.guest === true,
     readsRoster: !!d.needsRoster || readsRoster.has(d.type),
     permission: d.permission || null,
   }));

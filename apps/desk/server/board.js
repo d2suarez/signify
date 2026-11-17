@@ -240,10 +240,10 @@ function saveBoard(user, incoming, allowed = null) {
   return { ok: true, rev: current.rev, updatedAt: current.updatedAt };
 }
 
-function resetBoard(user, allowed = null) {
+function resetBoard(user, allowed = null, { blank = false } = {}) {
   const db = store.load();
   const current = boardFor(user, allowed);
-  current.items = starterFor(allowed);
+  current.items = blank ? [] : starterFor(allowed);
   // Colours are not "tools on the desk" — resetting the board should not
   // repaint the room the teacher set up.
   current.rev += 1;

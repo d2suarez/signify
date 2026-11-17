@@ -887,6 +887,84 @@ Recording behaviour is its own permission (`desk:behaviour`), separate from
 using the desk (`desk:use`). A classroom aide or a student teacher can have
 the timers without it, and the widget simply does not appear for them.
 
+## Schoology (LTI 1.3)
+
+Students under 13 do not sign in to Signify. They open the desk from a link in
+a Schoology course, and Schoology, under the school's own agreement, is
+where the school knows who they are. Signify ID sign-in for teachers is
+unchanged. Code: `server/lti.js`, `public/lti/`, `public/js/lti-boot.js`;
+tests: `test/lti.js` (a fake platform, run by `npm test`).
+
+**What each person sees.** The link opens a small page inside Schoology's
+frame, with a button that opens the desk in a **new window** (Google sign-in
+refuses to run in a frame, and a desk wants the whole screen anyway).
+
+- **A student** gets a desk of their own, **blank** to start, saved on the
+  server so it follows them from one Chromebook to the next. It is kept under
+  a scrambled form of Schoology's anonymous id: no name, no email, no Signify
+  account, and not even Schoology's id in plain form. Names Schoology sends
+  are ignored (a test reads the data file to check). The same student has one
+  desk across courses; the course decides which tools show.
+- **A teacher** gets *Open my Teacher's Desk* (their usual desk, normal
+  sign-in), *Try the student desk* (a preview desk of their own), and the
+  list of **tools students get in this course**, to tick on or off.
+
+**Which tools a student gets.** Each step can only take tools away:
+1. tools that work with no account (`guest: true`), minus the whiteboard,
+   which sends you on to Boards' own sign-in. So: never class lists,
+   behaviour, seating, groups, jobs, passage grader, uploads or help desk;
+2. the school's **Student** column in Signify ID, *Tools by role*, when
+   `LTI_TENANT_ID` names the school;
+3. the teacher's ticks for that Schoology course.
+
+A tool switched off later is hidden from the student's desk, not deleted.
+Only the board, its history, weather and video titles are open to an LTI
+desk on the API; every other route answers 403 whatever the tools say.
+
+**Sessions** live 12 hours (header `x-desk-lti`, token kept in the window's
+sessionStorage, never a cookie). A Schoology desk not opened for
+`LTI_RETENTION_DAYS` (365) is erased with its history.
+
+### Registering it in Schoology
+
+As a Schoology admin: **System Settings → Integration → External Tools**
+(LTI 1.3 / Developer apps), **Manual configuration**:
+
+| Field | Value |
+|---|---|
+| Tool name | Teacher's Desk |
+| Privacy | **Do not send any user information** |
+| Login initiation URL (OIDC) | `https://desk.signify.one/lti/login` |
+| Redirect / launch URL | `https://desk.signify.one/lti/launch` |
+| Domain | `desk.signify.one` |
+| JWKS URL (public keyset) | `https://desk.signify.one/lti/jwks` |
+| Deep Linking | **Off** (not used; Atlas's deep links failed in Schoology anyway) |
+| Assignment and Grade Services | Off (the desk sends no grades) |
+
+Schoology then shows a **Client ID** and, once installed for the school, a
+**Deployment ID**. In a course, add it with **Add Materials → Add File/Link/
+External Tool → External Tool**, tool provider *Teacher's Desk*, URL
+`https://desk.signify.one/lti/launch`.
+
+Railway variables (also listed as `preserve()` in `.railway/railway.ts`):
+
+| Variable | Value |
+|---|---|
+| `LTI_CLIENT_ID` | Schoology's Client ID. Nothing LTI works until this is set. |
+| `LTI_DEPLOYMENT_IDS` | Schoology's Deployment ID (comma list; empty = any). |
+| `LTI_FRAME_ORIGINS` | `https://class.rasda.org,https://*.schoology.com` (the school runs Schoology on its own domain). |
+| `LTI_TENANT_ID` | The school in Signify ID, so its Student *Tools by role* applies. Richmond Academy: `4e539a84-531d-4492-b2a9-ad1863db0502`. |
+| `LTI_RETENTION_DAYS` | Optional, 365. |
+
+Schoology's issuer and its auth and JWKS URLs are the defaults in
+`server/lti.js`; `LTI_ISSUER`, `LTI_AUTH_URL`, `LTI_JWKS_URL` override
+them (the tests and the local mock do). Our signing key is made on first use
+at `$DATA_DIR/lti-key.json`.
+
+**Trying it locally:** the `desk-lti-dev` launch config starts a pretend
+Schoology on port 8798 and the desk on 8776; open
+`http://localhost:8798/course?role=teacher` or `?role=student&sub=anyone`.
+
 ## Running it locally
 
 ```bash

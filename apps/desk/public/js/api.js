@@ -8,9 +8,13 @@ window.Desk = window.Desk || {};
   'use strict';
 
   async function request(method, path, body) {
+    const headers = body ? { 'content-type': 'application/json' } : {};
+    // A desk opened from Schoology carries its session in a header, not a
+    // cookie (js/lti-boot.js).
+    if (window.DESK_LTI && window.DESK_LTI.token) headers[window.DESK_LTI.header] = window.DESK_LTI.token;
     const res = await fetch(path, {
       method,
-      headers: body ? { 'content-type': 'application/json' } : {},
+      headers,
       body: body ? JSON.stringify(body) : undefined,
       credentials: 'same-origin',
     });
@@ -40,6 +44,18 @@ window.Desk = window.Desk || {};
    */
   function sessionEnded() {
     if (!Desk.app || !Desk.app.signedIn || document.querySelector('.session-gate')) return;
+    if (window.DESK_LTI) {
+      // Nothing to log in to: Schoology is where this desk is opened from.
+      const gate = document.createElement('div');
+      gate.className = 'guest-gate session-gate';
+      gate.innerHTML =
+        '<aside class="guest-prompt" role="alertdialog" aria-modal="true" aria-label="Session ended">' +
+          '<div class="guest-prompt-text"><strong>This desk has closed.</strong>' +
+          '<span>Open it again from Schoology. Everything on it is saved.</span></div></aside>';
+      document.documentElement.classList.add('session-ended');
+      document.body.append(gate);
+      return;
+    }
     const href = (Desk.config && Desk.config.signInUrl) || '/auth/login';
     const gate = document.createElement('div');
     gate.className = 'guest-gate session-gate';

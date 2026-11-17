@@ -26,6 +26,7 @@ const visitors = require('./server/visitors');
 const tools = require('./server/tools');
 const policy = require('./server/policy');
 const createBackups = require('./server/backup');
+const lti = require('./server/lti');
 
 const PORT = process.env.PORT || 8770;
 const CANONICAL_HOST = process.env.CANONICAL_HOST || '';
@@ -134,12 +135,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Schoology (LTI 1.3): its routes, and a desk opened from it. A request that
+// carries an LTI session header is that Schoology person's desk, whatever
+// Signify cookie the browser also has (server/lti.js).
+const ltiTool = lti.mount(app, { canonicalHost: CANONICAL_HOST, indexFile: path.join(__dirname, 'public', 'index.html') });
+app.use(ltiTool.identify);
+
 app.use(auth.devMiddleware);
 
 // Which tools this person may have (server/policy.js): their school's Tools
 // by role setting in Signify ID, or its defaults. Every /api route after this
 // can read req.deskTools.
 app.use('/api', policy.attach({ canBehaviour: (req) => auth.can(req, 'desk:behaviour', 'class') }));
+app.use('/api', ltiTool.narrow);
 
 const ok = (res, data) => res.json(data);
 
@@ -184,6 +192,7 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 app.get('/api/config', (req, res) => ok(res, {
   authEnabled: auth.ENABLED,
+  lti: !!req.lti,
   devUser: auth.DEV,
   signInUrl: '/auth/login',
   signOutUrl: '/auth/logout',
@@ -201,6 +210,7 @@ app.get('/api/me', (req, res) => {
     user: {
       name: u.name, email: u.email, picture: u.picture,
       role: u.roleLabel || u.role, school: u.tenantName, isSuper: u.isSuper,
+      lti: !!req.lti,
       can: {
         desk: auth.canOpen(req),
         behaviour: auth.can(req, 'desk:behaviour', 'class'),
@@ -250,7 +260,8 @@ app.post('/api/board/history/:rev/restore', (req, res) => {
 
 app.post('/api/board/reset', (req, res) => {
   const u = auth.requireDesk(req, res); if (!u) return;
-  ok(res, board.visibleTo(board.resetBoard(u, req.deskTools), req.deskTools));
+  // A desk opened from Schoology starts blank, and resets to blank.
+  ok(res, board.visibleTo(board.resetBoard(u, req.deskTools, { blank: !!req.lti }), req.deskTools));
 });
 
 // ---------------- class lists ----------------

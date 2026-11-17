@@ -85,6 +85,20 @@ function sections() {
       pupils: 'Only what you upload. If you put a photograph of a class on the board, that photograph is here — so think before you do.',
       kept: 'Until you delete it. Files are served back only to the person who uploaded them.',
     },
+    {
+      key: 'ltiSessions',
+      title: 'Desks opened from Schoology',
+      holds: 'A student who opens the desk from a Schoology course gets a desk of their own, kept with the others above under an id made by **scrambling** Schoology’s anonymous id for them (it cannot be turned back into Schoology’s id). This is the short-lived session that says which desk a window belongs to: that scrambled id, a scrambled id for the course, whether Schoology said this is a teacher, and the course’s title.',
+      pupils: '**No name, no email, no Signify account.** Names Schoology may send are ignored and never written down. Schoology is where the school knows who each student is.',
+      kept: `Sessions end after 12 hours. A Schoology desk nobody opens for ${Math.max(30, Math.min(730, Number(process.env.LTI_RETENTION_DAYS) || 365))} days is erased, with its earlier versions.`,
+    },
+    {
+      key: 'ltiCourses',
+      title: 'Tools a teacher chose for a Schoology course',
+      holds: 'Which tools students get when they open the desk from one Schoology course, under a scrambled id for the course.',
+      pupils: 'Nothing.',
+      kept: 'Until the teacher changes it.',
+    },
   ];
 }
 

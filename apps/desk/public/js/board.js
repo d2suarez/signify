@@ -155,6 +155,16 @@ window.Desk = window.Desk || {};
 
   window.addEventListener('pagehide', () => {
     if (!dirty || board.guest) return;
+    const payload = JSON.stringify({ rev: board.rev, items: board.items, prefs: board.prefs || undefined });
+    // A desk opened from Schoology needs its session header, which a beacon
+    // cannot carry; a keepalive fetch can, and also survives the page going.
+    if (window.DESK_LTI && window.DESK_LTI.token) {
+      try {
+        fetch('/api/board', { method: 'PUT', keepalive: true, body: payload,
+          headers: { 'content-type': 'application/json', [window.DESK_LTI.header]: window.DESK_LTI.token } });
+      } catch { /* the debounced save has usually already gone */ }
+      return;
+    }
     // A beacon survives the page going away; a fetch does not.
     navigator.sendBeacon?.('/api/board', new Blob(
       [JSON.stringify({ rev: board.rev, items: board.items, prefs: board.prefs || undefined })], { type: 'application/json' }));
