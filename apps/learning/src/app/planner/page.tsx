@@ -6,6 +6,7 @@ import { courseAccess, ctx, lang } from "@/lib/access";
 import { listLessons, createLesson, saveLesson } from "@/lib/lessons";
 import { listAssignments } from "@/lib/assignments";
 import { listUnits } from "@/lib/units";
+import { listResources, blocksFromResources } from "@/lib/resources";
 import { addDays, isSchoolDay, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
@@ -24,7 +25,10 @@ async function addLesson(formData: FormData) {
   const day = parseDay(formData.get("day"));
   if (!day || !isSchoolDay(day)) return;
   const c = ctx(access.me);
-  const lesson = await createLesson(c, access.course.id, String(formData.get("title") || ""));
+  // "Start from" a class resource: its block(s) copied in, as the editor's "Add from class resources" does.
+  const resource = String(formData.get("resource") || "");
+  const blocks = resource ? await blocksFromResources({ ...c, role: "teacher" }, access.course.id, [resource]) : [];
+  const lesson = await createLesson(c, access.course.id, String(formData.get("title") || ""), blocks);
   await saveLesson(c, lesson.id, { baseVersion: lesson.version, plannedFor: day });
   revalidatePath("/planner");
 }
@@ -47,8 +51,8 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
   const c = ctx(me);
 
   const courses: PlannerCourse[] = await Promise.all(teaching.map(async (course) => {
-    const [lessons, assignments, units] = await Promise.all([
-      listLessons(c, course.id), listAssignments(c, course.id), listUnits(c, course.id),
+    const [lessons, assignments, units, resources] = await Promise.all([
+      listLessons(c, course.id), listAssignments(c, course.id), listUnits(c, course.id), listResources({ ...c, role: "teacher" }, course.id),
     ]);
     return {
       id: course.id,
@@ -57,6 +61,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
       due: assignments.filter((a) => a.dueOn && days.includes(a.dueOn))
         .map((a) => ({ id: a.id, title: a.title, dueOn: a.dueOn!, dueAt: a.dueAt, draft: !a.published })),
       units: units.map((u) => ({ id: u.id, title: u.title })),
+      resources: resources.map((r) => ({ id: r.id, title: r.title })),
     };
   }));
 

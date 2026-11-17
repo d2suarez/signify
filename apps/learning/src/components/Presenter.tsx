@@ -99,11 +99,58 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
     roll();
   };
 
+  // ---------- full screen ----------
+  // The slide alone fills the screen (no names, no controls but back/next),
+  // for a teacher whose laptop IS the classroom screen. Arrow keys still move it.
+  const fullRef = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(document.fullscreenElement === fullRef.current && !!fullRef.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  const toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else fullRef.current?.requestFullscreen?.().catch(() => {});
+  };
+
   // ---------- noise meter ----------
   const noise = useNoiseMeter((level) => emit("live:noise", { level }));
   const stopNoise = noise.stop;
   // Leaving the block turns the microphone off.
   useEffect(() => { stopNoise(); }, [block?.id, stopNoise]);
+
+  // What the current block's own buttons do (reveal, timer, pick, microphone): under the slide, and in the full-screen bar.
+  const blockActions = (
+    <>
+      {block?.type === "poll" && block.results !== "never" && (
+        <button type="button" className="btn" aria-pressed={!!state.revealed} onClick={() => emit("live:reveal", { revealed: !state.revealed })}>
+          {state.revealed ? d.hideResults : d.showToClass}
+        </button>
+      )}
+      {block?.type === "timer" && (
+        <>
+          {state.timer?.endsAt
+            ? <button type="button" className="btn" onClick={() => emit("live:timer", { action: "pause", remaining: timerLeft })}>{d.pause}</button>
+            : <button type="button" className="btn btn-primary" onClick={() => emit("live:timer", { action: "run", remaining: timerLeft ?? block.seconds })}>{d.start}</button>}
+          <button type="button" className="btn" onClick={() => emit("live:timer", { action: "reset" })}>{d.reset}</button>
+        </>
+      )}
+      {block?.type === "picker" && (
+        <>
+          <button type="button" className="btn btn-primary" disabled={!pool.length || !!rolling} onClick={pick}>{d.pickName}</button>
+          {block.repeat === "turns" && picked.length > 0 && (
+            <button type="button" className="btn" onClick={() => emit("live:pick-reset", { blockId: block.id })}>{d.pickReset}</button>
+          )}
+        </>
+      )}
+      {block?.type === "noise" && (
+        <button type="button" className="btn btn-primary" aria-pressed={noise.listening} onClick={() => (noise.listening ? noise.stop() : noise.start())}>
+          {noise.listening ? d.micOff : d.micOn}
+        </button>
+      )}
+    </>
+  );
 
   return (
     <div className="stack">
@@ -126,44 +173,31 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
 
       <div className="editor">
         <section className="editor-main">
-          <div className="card" style={{ padding: 12 }}>
+          <div ref={fullRef} className={`card${full ? " present-full" : ""}`} style={{ padding: 12 }}>
             {block
               ? <Stage block={block} teacherView tally={tally} timerLeft={timerLeft} d={d}
                   pickName={pickedName} rolling={!!rolling} turnsLeft={block.type === "picker" && block.repeat === "turns" ? turnsLeft(pool, picked) : null}
                   noise={noise.listening ? noise.level : null} />
               : <div className="stage"><h1>{d.emptyLesson}</h1></div>}
+            {full && (
+              <div className="present-full-bar">
+                <button type="button" className="btn btn-sm" onClick={() => go(index - 1)} disabled={index <= 0} aria-label={d.back}>←</button>
+                <span aria-live="polite">{blocks.length ? index + 1 : 0} {d.of} {blocks.length}</span>
+                <button type="button" className="btn btn-sm" onClick={() => go(index + 1)} disabled={index >= blocks.length - 1} aria-label={d.next}>→</button>
+                {blockActions}
+                <span style={{ flex: 1 }} />
+                <span className="present-full-hint">{d.resFullHint}</span>
+                <button type="button" className="btn btn-sm" onClick={toggleFull}>{d.resExitFull}</button>
+              </div>
+            )}
           </div>
 
           <div className="row">
             <button type="button" className="btn" onClick={() => go(index - 1)} disabled={index <= 0}>← {d.back}</button>
             <button type="button" className="btn btn-primary" onClick={() => go(index + 1)} disabled={index >= blocks.length - 1}>{d.next} →</button>
+            <button type="button" className="btn" onClick={toggleFull} title={d.resFullHint}>{d.fullScreen}</button>
             <span style={{ flex: 1 }} />
-            {block?.type === "poll" && block.results !== "never" && (
-              <button type="button" className="btn" aria-pressed={!!state.revealed} onClick={() => emit("live:reveal", { revealed: !state.revealed })}>
-                {state.revealed ? d.hideResults : d.showToClass}
-              </button>
-            )}
-            {block?.type === "timer" && (
-              <>
-                {state.timer?.endsAt
-                  ? <button type="button" className="btn" onClick={() => emit("live:timer", { action: "pause", remaining: timerLeft })}>{d.pause}</button>
-                  : <button type="button" className="btn btn-primary" onClick={() => emit("live:timer", { action: "run", remaining: timerLeft ?? block.seconds })}>{d.start}</button>}
-                <button type="button" className="btn" onClick={() => emit("live:timer", { action: "reset" })}>{d.reset}</button>
-              </>
-            )}
-            {block?.type === "picker" && (
-              <>
-                <button type="button" className="btn btn-primary" disabled={!pool.length || !!rolling} onClick={pick}>{d.pickName}</button>
-                {block.repeat === "turns" && picked.length > 0 && (
-                  <button type="button" className="btn" onClick={() => emit("live:pick-reset", { blockId: block.id })}>{d.pickReset}</button>
-                )}
-              </>
-            )}
-            {block?.type === "noise" && (
-              <button type="button" className="btn btn-primary" aria-pressed={noise.listening} onClick={() => (noise.listening ? noise.stop() : noise.start())}>
-                {noise.listening ? d.micOff : d.micOn}
-              </button>
-            )}
+            {blockActions}
           </div>
           <fieldset className="choice pace" disabled={!ours}>
             <legend>{d.pacing}</legend>

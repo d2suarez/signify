@@ -479,3 +479,19 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 @media (max-width: 560px) { .std-info { grid-template-columns: 1fr; } .std-info dd { margin-bottom: 6px; } }
 .std-tree li.std-heading { color: var(--muted); font-weight: 600; }
 .std-notices { border-top: 1px solid var(--line, #ddd); padding-top: 8px; margin-top: 8px; }
+
+/* presenter full screen: the slide alone, centred, with a thin back/next bar */
+.present-full { display: flex; flex-direction: column; justify-content: center; background: #111; border-radius: 0; padding: 2vh 2vw !important; }
+.present-full > .stage, .present-full > .stack { width: min(100%, calc((100vh - 90px) * 16 / 9)); margin: 0 auto; }
+.present-full .stage { max-height: calc(100vh - 90px); }
+.present-full-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: #fff; font-weight: 600; font-size: 14px; }
+.present-full-hint { opacity: .75; }
+@media (max-width: 640px) { .present-full-hint { display: none; } }
+
+/* class resources */
+.res-row { align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.res-pick { min-width: 44px; min-height: 44px; justify-content: center; }
+.res-row > .shape { margin-top: 14px; }
+.res-actions { flex-wrap: wrap; }
+.res-actions .btn-sm, .res-actions .icon-btn, .present-full-bar .btn { min-height: 44px; min-width: 44px; }
+.res-row summary { display: inline-flex; align-items: center; min-height: 44px; }

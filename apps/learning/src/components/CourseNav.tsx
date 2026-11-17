@@ -2,10 +2,11 @@ import Link from "next/link";
 import type { Dict } from "@/lib/i18n";
 
 /** The teacher's tabs for one course. */
-export function CourseNav({ courseId, current, d }: { courseId: string; current: "plan" | "calendar" | "gradebook" | "settings"; d: Pick<Dict, "plan" | "calendar" | "gradebook" | "settings" | "courseSections"> }) {
+export function CourseNav({ courseId, current, d }: { courseId: string; current: "plan" | "calendar" | "resources" | "gradebook" | "settings"; d: Pick<Dict, "plan" | "calendar" | "resources" | "gradebook" | "settings" | "courseSections"> }) {
   const tabs = [
     { key: "plan", href: `/courses/${courseId}`, label: d.plan },
     { key: "calendar", href: `/courses/${courseId}/calendar`, label: d.calendar },
+    { key: "resources", href: `/courses/${courseId}/resources`, label: d.resources },
     { key: "gradebook", href: `/courses/${courseId}/gradebook`, label: d.gradebook },
     { key: "settings", href: `/courses/${courseId}/settings`, label: d.settings },
   ] as const;

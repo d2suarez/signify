@@ -11,6 +11,7 @@ import type { Course } from "@/lib/courses";
 import { When } from "./When";
 import { StandardsList } from "./Work";
 import { Announcements } from "./Announcements";
+import { listResources } from "@/lib/resources";
 
 type Ctx = { tenantId: string; userId: string };
 
@@ -38,6 +39,8 @@ export async function StudentCourse({ course, c, person, L, previewBase }: {
   ]);
   const self = { id: person.id, name: person.name, sortKey: "", factsName: person.name };
   const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
+  // Class resources the teacher chose to show (never in a preview: that page isn't one of the preview's).
+  const shared = previewing ? 0 : (await listResources({ ...c, role: "student" }, course.id)).length;
   const row = gb.rows[0];
   const sv = standardsView(gb, row);
   const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
@@ -68,6 +71,7 @@ export async function StudentCourse({ course, c, person, L, previewBase }: {
         <div className="row">
           {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
           <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
+          {shared > 0 && <Link className="btn" href={`/courses/${course.id}/resources`}>{d.resTitle} ({shared})</Link>}
         </div>
       )}
 

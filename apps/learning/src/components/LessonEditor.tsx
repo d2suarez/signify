@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type Block, type BlockType, newBlock, newId, webLink, LIMITS } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
+import { BLOCK_NAME, BLOCK_SHAPE } from "@/lib/block-kinds";
 import type { Dict } from "@/lib/i18n";
 import ToolPicker, { type PlacedItem, type ToolChoice } from "./ToolPicker";
 
@@ -13,17 +14,16 @@ type Version = { version: number; title: string; blockCount: number; savedAt: st
 
 const SAVE_DELAY = 800;
 
-const SHAPE: Record<BlockType, string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square",
-};
-const NAME: Record<BlockType, "blockText" | "blockPoll" | "blockTimer" | "blockPicker" | "blockNoise" | "blockBoard" | "blockLink" | "blockTool"> = {
-  text: "blockText", poll: "blockPoll", timer: "blockTimer", picker: "blockPicker", noise: "blockNoise", board: "blockBoard", link: "blockLink", tool: "blockTool",
-};
+const SHAPE = BLOCK_SHAPE;
+const NAME = BLOCK_NAME;
 /** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
 const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
 
-export default function LessonEditor({ initial, courseId, units = [], tools = [], d }: {
-  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; d: Dict;
+/** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
+export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
+
+export default function LessonEditor({ initial, courseId, units = [], tools = [], resources = [], d }: {
+  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; resources?: ResourceChoice[]; d: Dict;
 }) {
   const [title, setTitle] = useState(initial.title);
   const [blocks, setBlocks] = useState<Block[]>(initial.blocks);
@@ -33,6 +33,8 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
   const [version, setVersion] = useState(initial.version);
   const [status, setStatus] = useState<Status>("saved");
   const [versions, setVersions] = useState<Version[] | null>(null);
+  const [resPick, setResPick] = useState(resources[0]?.id ?? "");
+  const [resNote, setResNote] = useState("");
 
   // What the next save sends, read at save time so a slow save never sends stale text.
   const latest = useRef({ title, blocks, plannedFor, durationMin, unitId, version });
@@ -120,6 +122,26 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
     touch();
   };
 
+  // A class resource comes in as a copy with fresh ids (adding one twice gives two).
+  const addResource = () => {
+    const r = resources.find((x) => x.id === resPick);
+    if (!r || !r.blocks.length) return;
+    setBlocks((bs) => [...bs, ...r.blocks.map((b) => ({ ...b, id: newId() }) as Block)].slice(0, LIMITS.blocks));
+    setResNote(`${d.resAdded}: ${r.title}`);
+    touch();
+  };
+  const saveToResources = async (b: Block) => {
+    setResNote("");
+    try {
+      const res = await fetch(`/api/courses/${courseId}/resources`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ block: b }),
+      });
+      setResNote(res.ok ? d.resSavedBlock : d.resSaveFailed);
+    } catch {
+      setResNote(d.resSaveFailed);
+    }
+  };
+
   const loadVersions = async () => {
     const res = await fetch(`/api/lessons/${initial.id}/versions`, { cache: "no-store" });
     if (res.ok) setVersions((await res.json()).versions);
@@ -181,6 +203,9 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
                 <button type="button" className="icon-btn" aria-label={d.moveDown} disabled={i === blocks.length - 1} onClick={() => move(i, 1)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
                 </button>
+                <button type="button" className="icon-btn" aria-label={`${d.resSaveBlock}: ${i + 1}`} title={d.resSaveBlock} onClick={() => saveToResources(b)}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
+                </button>
                 <button type="button" className="icon-btn" aria-label={d.remove} onClick={() => remove(i)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                 </button>
@@ -195,6 +220,23 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
               {ADD.map((type) => (
                 <button key={type} type="button" className="btn" onClick={() => add(type)}><span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}</button>
               ))}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <label className="label" htmlFor="res-pick">{d.resFromResources}</label>
+              {resources.length === 0
+                ? <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>{d.resNoneInEditor} <Link href={`/courses/${courseId}/resources`}>{d.resTitle}</Link></p>
+                : (
+                  <div className="row" style={{ marginTop: 8 }}>
+                    <select id="res-pick" className="field" style={{ flex: "1 1 220px", width: "auto" }} value={resPick} onChange={(e) => setResPick(e.target.value)}>
+                      {resources.map((r) => (
+                        <option key={r.id} value={r.id}>{r.title} · {r.kind === "lesson" ? `${d.lesson} (${r.blocks.length} ${d.blocks})` : d[NAME[r.kind]]}</option>
+                      ))}
+                    </select>
+                    <button type="button" className="btn" onClick={addResource} disabled={!resPick}>{d.add}</button>
+                  </div>
+                )}
+              <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.resFromHint}</p>
+              <p role="status" aria-live="polite" style={{ margin: "6px 0 0", fontSize: 14 }}>{resNote}</p>
             </div>
             {tools.length > 0 && (
               <div style={{ marginTop: 14 }}>
@@ -254,7 +296,7 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
   );
 }
 
-function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string }) {
+export function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string }) {
   if (b.type === "text") {
     return (
       <>

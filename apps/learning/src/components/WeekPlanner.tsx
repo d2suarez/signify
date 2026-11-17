@@ -15,6 +15,8 @@ export type PlannerCourse = {
   lessons: PlannerLesson[];
   due: { id: string; title: string; dueOn: Day; dueAt: string | null; draft: boolean }[];
   units: { id: string; title: string }[];
+  /** The class's resources, for "Start from" in quick-add (optional so older callers still fit). */
+  resources?: { id: string; title: string }[];
 };
 
 const NONE = "none";
@@ -154,6 +156,12 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson }: {
                         <input type="hidden" name="courseId" value={course.id} />
                         <input type="hidden" name="day" value={day} />
                         <input name="title" required maxLength={200} autoFocus aria-label={`${d.lessonTitle}, ${dayName(day, "long")}`} placeholder={d.lessonTitle} />
+                        {!!course.resources?.length && (
+                          <select name="resource" aria-label={`${d.resStartFrom}, ${dayName(day, "long")}`} defaultValue="">
+                            <option value="">{d.resStartEmpty}</option>
+                            {course.resources.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
+                          </select>
+                        )}
                         <div className="row" style={{ gap: 6 }}>
                           <button className="btn btn-sm btn-primary">{d.add}</button>
                           <button type="button" className="btn btn-sm" onClick={() => setAdding(null)}>{d.cancel}</button>
