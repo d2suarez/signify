@@ -1,9 +1,12 @@
 // ===================================================================
 // Daily backups of an app's data directory — on the volume, and off it
 //
-// Once a day (and a minute after every start, because these apps sleep when
-// nobody is using them and a start is often the only chance there is), the
-// whole data directory is packed into backup-YYYY-MM-DD.tar.gz.
+// Once a day (checked a minute after every start, because these apps sleep
+// when nobody is using them and a start is often the only chance there is),
+// the whole data directory is packed into backup-YYYY-MM-DD.tar.gz. A start
+// on a day that already has its backup does nothing: internet scanners wake
+// a sleeping app many times a day, and each wake used to upload the whole
+// archive again.
 //
 // With R2 configured (see offsite.js) the archive is copied off the volume,
 // old ones there are pruned, and the volume keeps just one local copy. A
@@ -39,7 +42,18 @@ const day = (t) => new Date(t).toISOString().slice(0, 10);
 function createBackups({ dataDir, prefix, keep = 30, maxAgeDays = null, keepLocal = 3, now = () => Date.now(), log = console }) {
   offsite.configure({ prefix });
   const dir = path.join(dataDir, 'backups');
+  // The date of the last run that finished completely (written, and mirrored
+  // when there is a bucket). Not matched by NAME, so pruning leaves it alone.
+  const doneFile = path.join(dir, 'last-done');
   let running = null;
+
+  function doneToday() {
+    try { return fs.readFileSync(doneFile, 'utf8').trim() === day(now()); }
+    catch { return false; }
+  }
+  function markDone() {
+    try { fs.writeFileSync(doneFile, day(now())); } catch { /* next start just tries again */ }
+  }
 
   function localNames() {
     try { return fs.readdirSync(dir).filter((f) => NAME.test(f)).sort(); }
@@ -110,6 +124,7 @@ function createBackups({ dataDir, prefix, keep = 30, maxAgeDays = null, keepLoca
 
     if (!offsite.enabled()) {
       pruneLocal(keepLocal);
+      markDone();
       log.log('Backup written:', name);
       return { ok: true, name, offsite: false };
     }
@@ -117,6 +132,7 @@ function createBackups({ dataDir, prefix, keep = 30, maxAgeDays = null, keepLoca
       await offsite.upload(finalPath, name);
       const pruned = await offsite.prune(keep, { maxAgeDays, now: now() });
       pruneLocal(1);
+      markDone();
       log.log(`Backup mirrored off-site: ${name}${pruned ? ` (${pruned} older removed)` : ''}`);
       return { ok: true, name, offsite: true, pruned };
     } catch (e) {
@@ -132,13 +148,20 @@ function createBackups({ dataDir, prefix, keep = 30, maxAgeDays = null, keepLoca
     return running;
   }
 
-  function start() {
-    if (offsite.enabled()) log.log('Off-site backups:', offsite.describe());
-    setTimeout(run, 60 * 1000).unref();
-    setInterval(run, DAY_MS).unref();
+  // What the timers call: today's backup, unless it is already done. A failed
+  // run leaves no mark, so the next start tries again.
+  function runIfDue() {
+    if (doneToday()) return Promise.resolve({ ok: true, skipped: true });
+    return run();
   }
 
-  return { run, start, dir, localNames };
+  function start() {
+    if (offsite.enabled()) log.log('Off-site backups:', offsite.describe());
+    setTimeout(runIfDue, 60 * 1000).unref();
+    setInterval(runIfDue, DAY_MS).unref();
+  }
+
+  return { run, runIfDue, start, dir, localNames };
 }
 
 module.exports = createBackups;

@@ -79,6 +79,15 @@ const listing = (file) => execFileSync('tar', ['-tzf', file]).toString().split('
     await check('an age limit clears anything older than it, locally too', () =>
       assert.deepStrictEqual(b.localNames(), [`backup-${iso(30)}.tar.gz`]));
 
+    // A sleeping app is woken many times a day; only the first start backs up.
+    b = load()({ dataDir, prefix: 'desk/', now: at(30), log: quiet });
+    const again = await b.runIfDue();
+    await check('a second start on the same day does not back up again', () =>
+      assert.ok(again.skipped));
+    const next = await load()({ dataDir, prefix: 'desk/', now: at(31), log: quiet }).runIfDue();
+    await check('but the first start of the next day does', () =>
+      assert.ok(next.ok && !next.skipped && next.name === `backup-${iso(31)}.tar.gz`));
+
     fs.writeFileSync(path.join(b.dir, `backup-${iso(31)}.tar.gz.tmp`), 'interrupted');
     b = load()({ dataDir, prefix: 'desk/', now: at(31), log: quiet });
     await b.run();
@@ -191,6 +200,14 @@ const listing = (file) => execFileSync('tar', ['-tzf', file]).toString().split('
       assert.ok(!bad.ok && bad.offsite && /500/.test(bad.error)));
     await check('and the volume keeps its full set rather than one copy', () =>
       assert.strictEqual(down.localNames().length, 3));
+    const retry = await load()({ dataDir, prefix: 'desk/', keepLocal: 3, now: at(43), log: quiet }).runIfDue();
+    await check('a failed upload is tried again at the next start that day', () =>
+      assert.ok(!retry.skipped && !retry.ok));
+    failPuts = false;
+    const fixed = await load()({ dataDir, prefix: 'desk/', keepLocal: 3, now: at(43), log: quiet }).runIfDue();
+    const after = await load()({ dataDir, prefix: 'desk/', keepLocal: 3, now: at(43), log: quiet }).runIfDue();
+    await check('and once it goes through, later starts that day leave it be', () =>
+      assert.ok(fixed.ok && !fixed.skipped && after.skipped));
   }
 
   server.close();

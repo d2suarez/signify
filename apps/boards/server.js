@@ -3262,7 +3262,21 @@ setInterval(checkDisk, 60 * 60 * 1000); // hourly
   }
 })();
 
+// The date of the last backup that finished completely (written, and mirrored
+// off-site when that is on). The app sleeps, and internet scanners wake it many
+// times a day; without this, every wake packed and uploaded the whole volume
+// again. A failed run leaves no mark, so the next start tries again.
+const BACKUP_DONE_FILE = path.join(BACKUP_DIR, 'last-done');
+const backupDay = () => new Date().toISOString().slice(0, 10);
+function backupDoneToday() {
+  try { return fs.readFileSync(BACKUP_DONE_FILE, 'utf8').trim() === backupDay(); } catch { return false; }
+}
+function markBackupDone() {
+  try { fs.writeFileSync(BACKUP_DONE_FILE, backupDay()); } catch { /* next start just tries again */ }
+}
+
 function runBackup() {
+  if (backupDoneToday()) return;
   try {
     if (freeSpaceBytes() < DISK_MIN_FREE) {
       console.warn('Skipping backup — low disk space; pruning old copies instead.');
@@ -3295,10 +3309,11 @@ function runBackup() {
             // mirror must never leave FEWER copies than having no mirror.
             offsite.upload(finalPath, name)
               .then(() => offsite.prune(OFFSITE_KEEP, { maxAgeDays: OFFSITE_MAX_AGE_DAYS }))
-              .then(() => { pruneBackups(1); console.log('Backup mirrored off-site:', name); })
+              .then(() => { pruneBackups(1); markBackupDone(); console.log('Backup mirrored off-site:', name); })
               .catch((e) => { console.error('Off-site backup failed (kept local copies):', e.message); pruneBackups(BACKUP_KEEP); });
           } else {
             pruneBackups(BACKUP_KEEP);
+            markBackupDone();
             console.log('Backup written:', name);
           }
         } catch (e) { console.error('Backup finalize failed:', e.message); fs.unlink(tmp, () => {}); }
