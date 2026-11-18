@@ -506,3 +506,6 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 /* file blocks: a picture or video fills the slide without cropping */
 .stage-media { padding: 0; background: #111; overflow: hidden; align-items: center; justify-content: center; }
 .stage-media img, .stage-media video { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* a file input hidden behind its styled label, still focusable by keyboard */
+.visually-hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.visually-hidden-input:focus-visible + *, label:has(+ .visually-hidden-input:focus-visible) { outline: 3px solid var(--p3); outline-offset: 2px; }

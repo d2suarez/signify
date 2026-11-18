@@ -15,6 +15,7 @@ import { TopBar } from "@/components/TopBar";
 import { CourseNav } from "@/components/CourseNav";
 import { BLOCK_NAME as NAME, BLOCK_SHAPE as SHAPE } from "@/lib/block-kinds";
 import ResourceForm from "@/components/ResourceForm";
+import UploadFiles from "@/components/UploadFiles";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +122,7 @@ export default async function ResourcesPage({ params, searchParams }: {
         <section className="card stack" aria-labelledby="res-title" style={{ gap: 12 }}>
           <h2 id="res-title" style={{ fontSize: 24 }}>{d.resTitle}</h2>
           <p className="muted" style={{ margin: 0 }}>{d.resIntro}</p>
+          <UploadFiles courseId={course.id} d={d} />
           {none && <p className="notice" role="alert" style={{ margin: 0 }}>{d.resNoneTicked}</p>}
           {list.length === 0 ? <p className="empty">{d.resEmpty}</p> : (
             <>

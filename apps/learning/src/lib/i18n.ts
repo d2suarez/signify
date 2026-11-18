@@ -344,6 +344,9 @@ const en = {
   projectorWaiting: "The lesson will show here when your teacher starts it.",
   fullScreen: "Full screen",
   // files (migration 021)
+  fileUploadBtn: "Upload files",
+  fileUploadHint: "Each file becomes a resource, hidden from students until you show it.",
+  fileAdded: "added",
   blockFile: "File",
   fileChoose: "Choose a file",
   fileReplace: "Replace the file",
@@ -361,7 +364,7 @@ const en = {
   // class resources (migration 019)
   resources: "Resources",
   resTitle: "Class resources",
-  resIntro: "Your library for this class: links, Signify Boards, slides, polls, Desk tools and lessons. Add any of them to a lesson, start a planner lesson from one, or tick a few and present them now.",
+  resIntro: "Your library for this class: files, links, Signify Boards, slides, polls, Desk tools and lessons. Add any of them to a lesson, start a planner lesson from one, or tick a few and present them now.",
   resIntroStudent: "Links and pages your teacher shared with this class.",
   resEmpty: "No resources yet. Add a link, a Board, a slide or a Desk tool below, or save a block from any lesson.",
   resEmptyStudent: "Nothing shared yet.",
@@ -1490,6 +1493,9 @@ const es: Partial<Record<Key, string>> = {
   projectorWaiting: "La lección aparecerá aquí cuando tu maestro la empiece.",
   fullScreen: "Pantalla completa",
   // files (migration 021)
+  fileUploadBtn: "Subir archivos",
+  fileUploadHint: "Cada archivo se vuelve un recurso, oculto a los estudiantes hasta que lo muestre.",
+  fileAdded: "añadido",
   blockFile: "Archivo",
   fileChoose: "Elija un archivo",
   fileReplace: "Cambiar el archivo",
@@ -1507,7 +1513,7 @@ const es: Partial<Record<Key, string>> = {
   // class resources (migration 019)
   resources: "Recursos",
   resTitle: "Recursos de la clase",
-  resIntro: "Su biblioteca para esta clase: enlaces, pizarras de Signify, diapositivas, encuestas, herramientas del escritorio y lecciones. Añada cualquiera a una lección, empiece una lección del planificador con uno, o marque varios y preséntelos ahora.",
+  resIntro: "Su biblioteca para esta clase: archivos, enlaces, pizarras de Signify, diapositivas, encuestas, herramientas del escritorio y lecciones. Añada cualquiera a una lección, empiece una lección del planificador con uno, o marque varios y preséntelos ahora.",
   resIntroStudent: "Enlaces y páginas que su maestro compartió con esta clase.",
   resEmpty: "Todavía no hay recursos. Añada abajo un enlace, una pizarra, una diapositiva o una herramienta, o guarde un bloque de cualquier lección.",
   resEmptyStudent: "Todavía no se ha compartido nada.",
