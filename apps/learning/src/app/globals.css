@@ -502,3 +502,7 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 /* Updates: an unread post carries the word "New" (never colour alone) and a bar. */
 .pill-new { background: var(--ink); color: var(--surface); font-weight: 600; }
 .list li.is-unread { box-shadow: inset 4px 0 0 var(--ink); padding-left: 10px; }
+
+/* file blocks: a picture or video fills the slide without cropping */
+.stage-media { padding: 0; background: #111; overflow: hidden; align-items: center; justify-content: center; }
+.stage-media img, .stage-media video { width: 100%; height: 100%; object-fit: contain; display: block; }

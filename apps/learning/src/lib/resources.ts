@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { type Block, type BlockType, forStudent, newId, normalizeBlocks, LIMITS } from "./blocks";
 import { getLesson } from "./lessons";
 import type { CourseRole } from "./courses";
+import { fileInSchool } from "./files";
 
 /**
  * Class resources: a teacher's library for one course (= one Signify ID
@@ -13,7 +14,7 @@ import type { CourseRole } from "./courses";
  * Adding a resource to a lesson copies its block(s) in with new ids
  * (`resourceBlocks`); the resource never changes and the lesson never points
  * back. Students see only resources a teacher marked visible, and only the
- * kinds a student can use on their own (text, link, board). Every write needs
+ * kinds a student can use on their own (text, link, board, file). Every write needs
  * the course's teacher role, re-derived from Signify ID by the caller.
  */
 
@@ -41,9 +42,9 @@ export class ResourceError extends Error {}
 
 export const RESOURCE_LIMITS = { title: 200, note: 1_000, perCourse: 300 };
 /** What a student may be shown. Polls carry answer keys; Desk tools and outside tools only make sense live. */
-export const STUDENT_KINDS: BlockType[] = ["text", "link", "board"];
+export const STUDENT_KINDS: BlockType[] = ["text", "link", "board", "file"];
 /** What a teacher can make on the resources page (tools come from a lesson's block, "Save to class resources"). */
-export const RESOURCE_BLOCK_TYPES: BlockType[] = ["link", "board", "text", "timer", "picker", "noise", "poll"];
+export const RESOURCE_BLOCK_TYPES: BlockType[] = ["link", "board", "file", "text", "timer", "picker", "noise", "poll"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,6 +77,7 @@ export function defaultTitle(b: Block): string {
     case "poll": return b.question.split("\n")[0].slice(0, 80);
     case "timer": case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
+    case "file": return b.title || b.name;
   }
 }
 
@@ -113,7 +115,7 @@ const SELECT = `SELECT r.*, l.title AS lesson_title, jsonb_array_length(l.blocks
 
 /**
  * A course's resources in the teacher's order. A teacher gets everything
- * (archived too when asked); anyone else only visible text/link/board
+ * (archived too when asked); anyone else only visible text/link/board/file
  * resources, with nothing a student shouldn't receive.
  */
 export async function listResources(who: Who, courseId: string, opts: { archived?: boolean } = {}): Promise<Resource[]> {
@@ -162,6 +164,9 @@ async function courseBlock(who: Who, courseId: string, raw: unknown): Promise<Bl
     const db = await getDb();
     const ok = await db.query("SELECT 1 FROM lti_tool_links WHERE tenant_id = $1 AND course_id = $2 AND id = $3", [who.tenantId, courseId, b.linkId]);
     if (!ok.length) b.linkId = "";
+  }
+  if (b.type === "file" && b.fileId && !(await fileInSchool(who.tenantId, b.fileId))) {
+    Object.assign(b, { fileId: "", name: "", kind: "" });
   }
   return b;
 }

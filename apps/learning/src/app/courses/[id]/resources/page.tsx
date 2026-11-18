@@ -8,7 +8,7 @@ import {
   listResources, archiveResource, moveResource, updateResource, createResource, blocksFromResources,
   studentCanSee, type Resource, type Who,
 } from "@/lib/resources";
-import { blockSummary, webLink } from "@/lib/blocks";
+import { blockSummary, fileUrl, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import { dict, type Dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
@@ -246,8 +246,16 @@ function StudentResource({ r, d }: { r: Resource; d: Dict }) {
         <h2 style={{ fontSize: 20, margin: 0 }} className="grow">{r.title}</h2>
         {b.type === "link" && webLink(b.url) && <a className="btn btn-sm" href={webLink(b.url)} target="_blank" rel="noopener noreferrer">{d.openLink} ↗</a>}
         {b.type === "board" && boardLink(b.url) && <a className="btn btn-sm" href={boardLink(b.url)!.url} target="_blank" rel="noopener noreferrer">{d.openBoard} ↗</a>}
+        {b.type === "file" && b.fileId && b.kind !== "doc" && <a className="btn btn-sm" href={fileUrl(b.fileId)} target="_blank" rel="noopener">{d.fileOpen} ↗</a>}
+        {b.type === "file" && b.fileId && <a className="btn btn-sm" href={fileUrl(b.fileId, true)}>{d.fileDownload}</a>}
       </div>
       {r.note && <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{r.note}</p>}
+      {b.type === "file" && b.fileId && b.kind === "image" && (
+        // eslint-disable-next-line @next/next/no-img-element -- our own checked file
+        <img src={fileUrl(b.fileId)} alt={b.alt || r.title} style={{ maxWidth: "100%", maxHeight: 360, objectFit: "contain", alignSelf: "flex-start", borderRadius: 8 }} />
+      )}
+      {b.type === "file" && b.fileId && b.kind === "audio" && <audio src={fileUrl(b.fileId)} controls preload="metadata" aria-label={r.title} style={{ width: "100%", maxWidth: 480 }} />}
+      {b.type === "file" && b.fileId && b.kind === "video" && <video src={fileUrl(b.fileId)} controls preload="metadata" aria-label={r.title} style={{ width: "100%", maxHeight: 400 }} />}
       {b.type === "text" && (
         <div>
           {b.title && b.title !== r.title && <h3 style={{ margin: "0 0 4px" }}>{b.title}</h3>}

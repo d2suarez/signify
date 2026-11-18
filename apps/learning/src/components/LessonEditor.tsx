@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Block, type BlockType, newBlock, newId, webLink, LIMITS } from "@/lib/blocks";
+import { type Block, type BlockType, type FileBlock, newBlock, newId, webLink, fileUrl, LIMITS } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
 import { BLOCK_NAME, BLOCK_SHAPE } from "@/lib/block-kinds";
@@ -17,7 +17,7 @@ const SAVE_DELAY = 800;
 const SHAPE = BLOCK_SHAPE;
 const NAME = BLOCK_NAME;
 /** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
-const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link"];
+const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "file"];
 
 /** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
 export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
@@ -210,7 +210,7 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                 </button>
               </div>
-              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} />
+              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} courseId={courseId} />
             </section>
           ))}
 
@@ -296,7 +296,12 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
   );
 }
 
-export function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string }) {
+export function BlockFields({ block: b, d, onChange, idBase, courseId }: {
+  block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string;
+  /** Where an uploaded file belongs (file blocks). */
+  courseId?: string;
+}) {
+  if (b.type === "file") return <FileFields block={b} d={d} onChange={onChange} idBase={idBase} courseId={courseId} />;
   if (b.type === "text") {
     return (
       <>
@@ -456,5 +461,68 @@ export function BlockFields({ block: b, d, onChange, idBase }: { block: Block; d
           onChange={(e) => onChange({ seconds: Math.round((Number(e.target.value) || 3) * 60) } as Partial<Block>)} />
       </div>
     </div>
+  );
+}
+
+const ACCEPT = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.pptx,.xlsx,.txt,.csv,.mp3,.m4a,.mp4";
+const MAX_MB = 25;
+
+/** A file block: upload (POST /api/courses/[id]/files checks what it is), then its title and, for a picture, its description. */
+function FileFields({ block: b, d, onChange, idBase, courseId }: {
+  block: FileBlock; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string; courseId?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const upload = async (file: File | undefined) => {
+    if (!file || !courseId) return;
+    setError("");
+    if (file.size > MAX_MB * 1024 * 1024) { setError(d.fileTooBig); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/courses/${courseId}/files`, {
+        method: "POST", headers: { "x-file-name": encodeURIComponent(file.name), "content-type": "application/octet-stream" }, body: file,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error === "type" ? d.fileRefused : body.error === "too-large" ? d.fileTooBig : body.error === "off" ? d.fileOff : d.fileFailed);
+        return;
+      }
+      const f = body.file;
+      onChange({ fileId: f.id, name: f.name, kind: f.kind, title: b.title || f.name.replace(/\.[^.]+$/, "") } as Partial<Block>);
+    } catch {
+      setError(d.fileFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="fieldset">
+        <label htmlFor={`${idBase}-f`}>{b.fileId ? d.fileReplace : d.fileChoose}</label>
+        {b.fileId && (
+          <p style={{ margin: 0, fontSize: 14, overflowWrap: "anywhere" }}>
+            <b>{b.name}</b> · <a href={fileUrl(b.fileId)} target="_blank" rel="noopener">{d.fileOpen} ↗</a>
+          </p>
+        )}
+        <input id={`${idBase}-f`} className="field" type="file" accept={ACCEPT} disabled={busy || !courseId}
+          aria-describedby={`${idBase}-fh`} onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} />
+        <p id={`${idBase}-fh`} className="muted" style={{ margin: 0, fontSize: 13 }}>{d.fileHint}</p>
+        <p role="status" aria-live="polite" className={error ? "notice notice-bad" : "muted"} style={{ margin: 0, fontSize: 13 }}>
+          {busy ? d.fileUploading : error}
+        </p>
+      </div>
+      <div className="fieldset">
+        <label htmlFor={`${idBase}-t`}>{d.title}</label>
+        <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+      </div>
+      {b.kind === "image" && (
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-a`}>{d.fileAlt}</label>
+          <input id={`${idBase}-a`} className="field" value={b.alt} maxLength={LIMITS.alt} aria-describedby={`${idBase}-ah`}
+            onChange={(e) => onChange({ alt: e.target.value } as Partial<Block>)} />
+          <p id={`${idBase}-ah`} className="muted" style={{ margin: 0, fontSize: 13 }}>{d.fileAltHint}</p>
+        </div>
+      )}
+    </>
   );
 }

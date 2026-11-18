@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { type Block, blockSummary, formatSeconds, webLink } from "@/lib/blocks";
+import { type Block, type FileBlock, blockSummary, fileUrl, formatSeconds, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import type { Dict } from "@/lib/i18n";
 import { noiseColour, noiseWord } from "@/lib/noise";
@@ -21,7 +21,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -361,6 +361,7 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
       </div>
     );
   }
+  if (block.type === "file") return <FileStage block={block} d={d} />;
   if (block.type === "board") {
     const link = boardLink(block.url);
     const title = block.title || d.blockBoard;
@@ -431,6 +432,51 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** A file on the slide: a picture or PDF shown, sound and video played on each screen, anything else to download. */
+export function FileStage({ block: b, d }: { block: FileBlock; d: Dict }) {
+  const title = b.title || b.name || d.blockFile;
+  if (!b.fileId) return <div className="stage" style={{ background: "var(--p4)" }}><h1>{title}</h1><p className="body">{d.fileNone}</p></div>;
+  const src = fileUrl(b.fileId);
+  const open = <a className="btn btn-sm" href={src} target="_blank" rel="noopener">{d.fileOpen} ↗</a>;
+  const download = <a className="btn btn-sm" href={fileUrl(b.fileId, true)}>{d.fileDownload}</a>;
+  if (b.kind === "image") {
+    return (
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="stage stage-media">
+          {/* eslint-disable-next-line @next/next/no-img-element -- our own checked file, any size */}
+          <img src={src} alt={b.alt || title} />
+        </div>
+        <div className="row"><b style={{ minWidth: 0 }}>{title}</b><span style={{ flex: 1 }} />{open}</div>
+      </div>
+    );
+  }
+  if (b.kind === "pdf") {
+    return (
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="stage stage-board"><iframe src={src} title={title} loading="lazy" /></div>
+        <div className="row"><b style={{ minWidth: 0 }}>{title}</b><span style={{ flex: 1 }} />{open}{download}</div>
+      </div>
+    );
+  }
+  if (b.kind === "video") {
+    return (
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="stage stage-media"><video src={src} controls preload="metadata" aria-label={title} /></div>
+        <div className="row"><b style={{ minWidth: 0 }}>{title}</b><span style={{ flex: 1 }} />{download}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="stage" style={{ background: "var(--p4)" }}>
+      <h1>{title}</h1>
+      {b.kind === "audio"
+        ? <audio src={src} controls preload="metadata" aria-label={title} style={{ width: "100%", maxWidth: 560 }} />
+        : <p className="body" style={{ overflowWrap: "anywhere" }}>{b.name}</p>}
+      <p className="row" style={{ gap: 8 }}>{b.kind === "audio" ? download : <>{open}{download}</>}</p>
     </div>
   );
 }

@@ -54,10 +54,22 @@ export type LinkBlock = { id: string; type: "link"; title: string; url: string }
  */
 export type ToolBlock = { id: string; type: "tool"; title: string; linkId: string; display: "tab" | "frame" };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock;
+/**
+ * A file a teacher uploaded to the course (src/lib/files.ts, migration 021):
+ * a picture, PDF, sound, video or document, opened through /files/<fileId>,
+ * which checks who may see it. `name` and `kind` are copied from the upload so
+ * the slide can show it without asking; `alt` describes a picture.
+ */
+export type FileBlock = {
+  id: string; type: "file"; title: string; fileId: string; name: string;
+  kind: "image" | "pdf" | "audio" | "video" | "doc" | ""; alt: string;
+};
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file"];
+const FILE_KINDS = ["image", "pdf", "audio", "video", "doc"] as const;
 
 export const LIMITS = {
   blocks: 200,
@@ -73,6 +85,7 @@ export const LIMITS = {
   minNoise: 10,
   maxNoise: 95,
   url: 2_000,
+  alt: 300,
 };
 
 export class BlockError extends Error {}
@@ -135,6 +148,8 @@ export function newBlock(type: BlockType): Block {
       return { id: newId(), type, title: "", url: "" };
     case "tool":
       return { id: newId(), type, title: "", linkId: "", display: "tab" };
+    case "file":
+      return { id: newId(), type, title: "", fileId: "", name: "", kind: "", alt: "" };
   }
 }
 
@@ -201,6 +216,17 @@ export function normalizeBlocks(input: unknown): Block[] {
         out.push({ id: uniqueId(b.id, used), type: "tool", title: line(b.title, LIMITS.title), linkId, display: b.display === "frame" ? "frame" : "tab" });
         break;
       }
+      case "file": {
+        // Only an id's shape is checked here; /files/<id> decides who may open it.
+        const fileId = typeof b.fileId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.fileId)
+          ? b.fileId.toLowerCase() : "";
+        const kind = FILE_KINDS.find((k) => k === b.kind) ?? "";
+        out.push({
+          id: uniqueId(b.id, used), type: "file", title: line(b.title, LIMITS.title), fileId,
+          name: fileId ? line(b.name, LIMITS.title) : "", kind: fileId ? kind : "", alt: line(b.alt, LIMITS.alt),
+        });
+        break;
+      }
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -227,6 +253,7 @@ export function blockSummary(b: Block): string {
     case "timer": return b.label || formatSeconds(b.seconds);
     case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
+    case "file": return b.title || b.name;
   }
 }
 
@@ -237,7 +264,13 @@ export function blockSpeech(b: Block): string {
     case "poll": return [b.question, ...b.choices.map((c, i) => `${String.fromCharCode(65 + i)}. ${c.text}`)].join("\n");
     case "timer": case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
+    case "file": return [b.title || b.name, b.alt].filter(Boolean).join(".\n");
   }
+}
+
+/** Where a file block's file opens (the route checks who may). */
+export function fileUrl(fileId: string, download = false): string {
+  return `/files/${fileId}${download ? "?download=1" : ""}`;
 }
 
 export function formatSeconds(s: number): string {

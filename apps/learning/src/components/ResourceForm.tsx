@@ -8,8 +8,8 @@ import { BlockFields } from "./LessonEditor";
 import { BLOCK_NAME as NAME, BLOCK_SHAPE as SHAPE } from "@/lib/block-kinds";
 
 /** The kinds a teacher can make here; outside tools are saved from a lesson's block. */
-const KINDS: BlockType[] = ["link", "board", "text", "timer", "picker", "noise", "poll"];
-const STUDENT_KINDS: BlockType[] = ["text", "link", "board"];
+const KINDS: BlockType[] = ["link", "board", "file", "text", "timer", "picker", "noise", "poll"];
+const STUDENT_KINDS: BlockType[] = ["text", "link", "board", "file"];
 
 /**
  * Adds a resource (no `initial`) or edits one. The block is edited with the
@@ -68,7 +68,7 @@ export default function ResourceForm({ courseId, initial, d, idBase = "res" }: {
       )}
       {block && (
         <>
-          <BlockFields block={block} d={d} idBase={`${idBase}-b`} onChange={(p) => setBlock({ ...block, ...p } as Block)} />
+          <BlockFields block={block} d={d} idBase={`${idBase}-b`} onChange={(p) => setBlock({ ...block, ...p } as Block)} courseId={courseId} />
           <div className="fieldset">
             <label htmlFor={`${idBase}-title`}>{d.resListTitle}</label>
             <input id={`${idBase}-title`} className="field" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)}

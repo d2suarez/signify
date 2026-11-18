@@ -35,7 +35,9 @@ const nextConfig: NextConfig = {
         // Everything but /lti/: those responses set their own headers, because a
         // launch may be framed by the registered platform's origins (and only
         // those), which this static list can't know (src/app/lti/respond.ts).
-        source: "/:path((?!lti/).*)",
+        // And /files/: an uploaded file sets its own (src/app/files/[id]/route.ts),
+        // because this page CSP's object-src 'none' stops the browser's PDF viewer.
+        source: "/:path((?!lti/|files/).*)",
         headers: [
           { key: "Content-Security-Policy", value: CSP },
           { key: "X-Content-Type-Options", value: "nosniff" },
