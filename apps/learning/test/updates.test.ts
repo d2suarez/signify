@@ -164,3 +164,9 @@ test("updates: moderation: teachers hide and delete in their class; students onl
   assert.equal(await moderatePost(admin, school.id, "hide"), true, "a school admin does");
   assert.equal(await moderatePost({ ...admin, tenantId: "school-b" }, school.id, "delete"), false);
 });
+
+test("roles: Signify ID's local_admin is a school admin in Learning, as are admin and super_admin; others aren't", async () => {
+  const { isSchoolAdminRole } = await import("../src/lib/roles");
+  for (const r of ["local_admin", "admin", "super_admin"]) assert.equal(isSchoolAdminRole(r), true, r);
+  for (const r of ["teacher", "staff", "student", "guardian", "substitute", "", null, undefined]) assert.equal(isSchoolAdminRole(r), false, String(r));
+});

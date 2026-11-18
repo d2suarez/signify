@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { readMe, myClasses, myChildren, token, type Me } from "./auth";
 import { studentCourses } from "./family";
 import { hasFeature } from "./features";
+import { isSchoolAdminRole } from "./roles";
 import type { Viewer as UpdatesViewer } from "./updates";
 import { membersOf } from "./roster";
 import { getAssignment, type Assignment } from "./assignments";
@@ -70,7 +71,7 @@ export async function studentsOf(access: CourseAccess): Promise<{ ok: boolean; s
 
 /** Sets the school's grading periods: its admins. */
 export function isSchoolAdmin(me: Me): boolean {
-  return me.role === "admin" || me.role === "super_admin";
+  return isSchoolAdminRole(me.role);
 }
 
 /**
