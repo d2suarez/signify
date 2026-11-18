@@ -113,7 +113,8 @@ export async function courseWork(ctx: Ctx, course: MyCourse, studentId: string, 
 
 /** Every course's work for one student. */
 export async function studentWork(ctx: Ctx, classes: IdClass[], studentId: string, now = new Date()): Promise<CourseWork[]> {
-  const courses = await studentCourses(ctx.tenantId, classes);
+  // Clubs have no work or grades (migration 020).
+  const courses = (await studentCourses(ctx.tenantId, classes)).filter((c) => c.kind !== "club");
   return Promise.all(courses.map((c) => courseWork(ctx, c, studentId, now)));
 }
 

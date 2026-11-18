@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { courseAccess, ctx, studentsOf } from "@/lib/access";
+import { academicAccess as courseAccess, ctx, studentsOf } from "@/lib/access";
 import { setAccommodation } from "@/lib/quiz-store";
 
 export const dynamic = "force-dynamic";

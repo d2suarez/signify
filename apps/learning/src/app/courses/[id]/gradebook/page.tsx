@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
-import { courseAccess, ctx, isSchoolAdmin, lang, studentsOf } from "@/lib/access";
+import { academicAccess as courseAccess, ctx, isSchoolAdmin, lang, studentsOf } from "@/lib/access";
 import { buildGradebook, periodOn } from "@/lib/gradebook";
 import { listPeriods } from "@/lib/grades";
 import { listAssignments } from "@/lib/assignments";

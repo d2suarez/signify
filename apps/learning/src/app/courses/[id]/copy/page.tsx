@@ -60,7 +60,7 @@ export default async function CopyPage({ params, searchParams }: {
         {from && contents && (
           <section className="stack" aria-labelledby="pick-title" style={{ gap: 10 }}>
             <h2 id="pick-title" style={{ fontSize: 22 }}>{d.secPick}: {from.name} <span className="muted">· {year(from.schoolYear)}</span></h2>
-            {contents.units.length + contents.lessons.length + contents.assignments.length === 0
+            {contents.units.length + contents.lessons.length + contents.assignments.length + contents.resources.length === 0
               ? <p className="empty">{d.secEmptySource}</p>
               : <CopyForm courseId={course.id} from={from.id} contents={contents} action={copyInto} d={d} />}
           </section>

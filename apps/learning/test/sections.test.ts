@@ -112,7 +112,7 @@ test("sections: a teacher copies a unit from last year's class, as drafts, with 
   const contents = await sourceContents(ana, bible25);
   assert.equal(contents?.units.length, 1);
   const r = await copyContent(ana, bible25, bible26, { units: [unit.id] });
-  assert.deepEqual(r, { units: 1, lessons: 1, assignments: 1, standards: 1, categories: 1, tools: 1 });
+  assert.deepEqual(r, { units: 1, lessons: 1, assignments: 1, resources: 0, standards: 1, categories: 1, tools: 1 });
 
   const [a] = await db.query("SELECT * FROM assignments WHERE course_id = $1", [bible26]);
   assert.equal(a.published, false);
@@ -198,4 +198,30 @@ test("sections: renaming a course needs a teacher of one of its sections or an a
   assert.equal((await catalogOf(ana, bible26))!.name, "Bible 9: Foundations");
   assert.equal(await renameCatalog(admin, cat.id, "Bible 9"), true);
   assert.equal(await renameCatalog({ ...other, admin: true }, cat.id, "x"), false);
+});
+
+test("sections: class resources copy too, hidden from students; a lesson resource brings its lesson; a club gets no assignments", async () => {
+  const [lesson] = await db.query("SELECT id FROM lessons WHERE course_id = $1 LIMIT 1", [bible25]);
+  const [link] = await db.query(
+    `INSERT INTO class_resources (tenant_id, course_id, kind, title, block, visible, created_by, updated_by)
+     VALUES ($1, $2, 'block', 'Bible Project video', $3::jsonb, true, $4, $4) RETURNING id`,
+    [T, bible25, JSON.stringify({ id: "r1", type: "link", title: "Video", url: "https://example.org/v" }), ana.userId]);
+  const [pointer] = await db.query(
+    "INSERT INTO class_resources (tenant_id, course_id, kind, lesson_id, created_by, updated_by) VALUES ($1, $2, 'lesson', $3, $4, $4) RETURNING id",
+    [T, bible25, lesson.id, ana.userId]);
+  const listed = await sourceContents(ana, bible25);
+  assert.equal(listed?.resources.length, 2);
+  const [fresh] = await myCourses(T, [cls("id-bible-27", "Bible 9", "2027")], ana.userId);
+  const r = await copyContent(ana, bible25, fresh.id, { resources: [link.id, pointer.id] });
+  assert.equal(r.resources, 2);
+  assert.equal(r.lessons, 1, "the pointed-at lesson came along");
+  const copied = await db.query("SELECT * FROM class_resources WHERE course_id = $1 ORDER BY position", [fresh.id]);
+  assert.ok(copied.every((c) => c.visible === false), "hidden until the teacher shows them");
+  const [newLesson] = await db.query("SELECT id FROM lessons WHERE course_id = $1", [fresh.id]);
+  assert.equal(copied.find((c) => c.kind === "lesson")!.lesson_id, newLesson.id);
+
+  await db.query("UPDATE courses SET kind = 'club' WHERE id = $1", [fresh.id]);
+  const clubCopy = await copyContent(ana, bible25, fresh.id, { units: [(await db.query("SELECT id FROM units WHERE course_id = $1", [bible25]))[0].id] });
+  assert.equal(clubCopy.assignments, 0, "assignments never go into a club");
+  assert.ok(clubCopy.lessons > 0);
 });

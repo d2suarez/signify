@@ -1,4 +1,4 @@
-import { courseAccess, ctx, studentsOf } from "@/lib/access";
+import { academicAccess as courseAccess, ctx, studentsOf } from "@/lib/access";
 import { buildGradebook, factsCsv } from "@/lib/gradebook";
 import { listPeriods } from "@/lib/grades";
 

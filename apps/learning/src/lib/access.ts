@@ -133,3 +133,12 @@ export const updatesViewer = cache(async (): Promise<UpdatesViewer | null> => {
     childCourses,
   };
 });
+
+/**
+ * courseAccess for the academic parts (gradebook, grading settings, FACTS,
+ * import, accommodations): null for a club, which has none.
+ */
+export async function academicAccess(courseId: string): Promise<CourseAccess | null> {
+  const access = await courseAccess(courseId);
+  return access && access.course.kind !== "club" ? access : null;
+}

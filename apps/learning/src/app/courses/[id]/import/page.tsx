@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
-import { courseAccess, lang } from "@/lib/access";
+import { academicAccess as courseAccess, lang } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { MAX_UPLOAD } from "@/lib/cc-import";
 import { TopBar } from "@/components/TopBar";

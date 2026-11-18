@@ -48,6 +48,16 @@ export function CopyForm({ courseId, from, contents, action, d }: {
           </fieldset>
         );
       })}
+      {contents.resources.length > 0 && (
+        <fieldset className="card stack" style={{ gap: 6, margin: 0 }}>
+          <legend className="label" style={{ padding: "0 4px" }}>{d.resources}</legend>
+          {contents.resources.map((r) => (
+            <label key={r.id} className="check-row">
+              <input type="checkbox" name="resource" value={r.id} /> {r.title || d.resources}
+            </label>
+          ))}
+        </fieldset>
+      )}
       <button className="btn btn-primary" type="submit" disabled={pending} style={{ alignSelf: "flex-start" }}>{d.secCopyGo}</button>
       <div aria-live="polite">
         {state?.ok && (

@@ -116,7 +116,7 @@ export default async function ResourcesPage({ params, searchParams }: {
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
           <h1 style={{ fontSize: 34 }}>{course.name}</h1>
         </div>
-        <CourseNav courseId={course.id} current="resources" d={d} />
+        <CourseNav courseId={course.id} current="resources" d={d} club={course.kind === "club"} />
 
         <section className="card stack" aria-labelledby="res-title" style={{ gap: 12 }}>
           <h2 id="res-title" style={{ fontSize: 24 }}>{d.resTitle}</h2>

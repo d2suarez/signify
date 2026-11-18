@@ -150,6 +150,9 @@ export async function createAssignment(
   ctx: Ctx, courseId: string, input: { title: unknown; unitId?: unknown; kind?: unknown },
 ): Promise<Assignment> {
   const db = await getDb();
+  // Clubs have no academics (migration 020).
+  const [course] = await db.query("SELECT kind FROM courses WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId]);
+  if (course?.kind === "club") throw new Error("A club has no assignments.");
   const unit = await unitInCourse(ctx, courseId, input.unitId);
   const kind = cleanKind(input.kind);
   const rows = await db.query(

@@ -22,8 +22,9 @@ export default async function Home() {
   const isParent = me.role === "guardian" || children.length > 0;
   const courses = await myCourses(me.tenantId, classes, me.id);
   const onlyParent = isParent && courses.length === 0;
-  const teaching = courses.filter((c) => c.role === "teacher");
-  const learning = courses.filter((c) => c.role === "student");
+  const clubs = courses.filter((c) => c.kind === "club");
+  const teaching = courses.filter((c) => c.role === "teacher" && c.kind !== "club");
+  const learning = courses.filter((c) => c.role === "student" && c.kind !== "club");
   // Whom this teacher or admin may preview (Signify ID decides). Only the
   // practice people get a button here; real students are on /preview, where
   // there may be a whole school of them.
@@ -120,6 +121,20 @@ export default async function Home() {
                   </Link>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {clubs.length > 0 && (
+          <section>
+            <div className="section-title"><span className="shape s-circle" /><h2>{t("clubsTitle", L)}</h2></div>
+            <div className="grid-cards">
+              {clubs.map((c) => (
+                <Link key={c.id} href={`/courses/${c.id}`} className="card course-card">
+                  <span className="muted" style={{ fontSize: 13 }}>{c.role === "teacher" ? t("clubSponsors", L) : t("clubLabel", L)}</span>
+                  <h3>{c.name}</h3>
+                </Link>
+              ))}
             </div>
           </section>
         )}

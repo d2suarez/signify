@@ -16,7 +16,7 @@ import { getDb, type Queryable, type Row } from "./db";
  *   content until it is taken back.
  *
  * Copying takes content only (units, lessons, assignments, quizzes,
- * rubrics, the standards and grade categories they use, outside-tool
+ * class resources (hidden from students until the teacher shows them), rubrics, the standards and grade categories they use, outside-tool
  * placements). Never students, submissions, grades or dates: copies are
  * drafts, lessons unscheduled, assignments unpublished with no due date.
  */
@@ -232,28 +232,34 @@ export type SourceContents = {
   units: { id: string; title: string }[];
   lessons: { id: string; title: string; unitId: string | null }[];
   assignments: { id: string; title: string; kind: string; unitId: string | null }[];
+  /** Class resources (migration 019). */
+  resources: { id: string; title: string; kind: string }[];
 };
 
 /** What a class holds, for ticking what to copy. Null when the person may not copy from it. */
 export async function sourceContents(ctx: Ctx, sourceId: string): Promise<SourceContents | null> {
   if (!(await canCopyFrom(ctx, sourceId))) return null;
   const db = await getDb();
-  const [units, lessons, assignments] = await Promise.all([
+  const [units, lessons, assignments, resources] = await Promise.all([
     db.query("SELECT id, title FROM units WHERE tenant_id = $1 AND course_id = $2 ORDER BY position, created_at", [ctx.tenantId, sourceId]),
     db.query(`SELECT id, title, unit_id FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
                ORDER BY planned_for NULLS LAST, created_at`, [ctx.tenantId, sourceId]),
     db.query(`SELECT id, title, kind, unit_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
                ORDER BY due_on NULLS LAST, created_at`, [ctx.tenantId, sourceId]),
+    db.query(`SELECT r.id, r.kind, COALESCE(NULLIF(r.title, ''), l.title, '') AS title FROM class_resources r
+               LEFT JOIN lessons l ON l.id = r.lesson_id
+               WHERE r.tenant_id = $1 AND r.course_id = $2 AND r.archived = false ORDER BY r.position, r.created_at`, [ctx.tenantId, sourceId]),
   ]);
   return {
     units: units.map((u) => ({ id: String(u.id), title: String(u.title) })),
     lessons: lessons.map((l) => ({ id: String(l.id), title: String(l.title), unitId: l.unit_id ? String(l.unit_id) : null })),
     assignments: assignments.map((a) => ({ id: String(a.id), title: String(a.title), kind: String(a.kind), unitId: a.unit_id ? String(a.unit_id) : null })),
+    resources: resources.map((r) => ({ id: String(r.id), title: String(r.title), kind: String(r.kind) })),
   };
 }
 
-export type CopyPicks = { units?: unknown; lessons?: unknown; assignments?: unknown };
-export type CopyResult = { units: number; lessons: number; assignments: number; standards: number; categories: number; tools: number };
+export type CopyPicks = { units?: unknown; lessons?: unknown; assignments?: unknown; resources?: unknown };
+export type CopyResult = { units: number; lessons: number; assignments: number; resources: number; standards: number; categories: number; tools: number };
 export class CopyError extends Error {}
 
 const ids = (x: unknown): string[] => (Array.isArray(x) ? [...new Set(x.filter(isId).map((s) => s.toLowerCase()))].slice(0, SECTION_LIMITS.picks) : []);
@@ -279,14 +285,24 @@ function uuidsIn(value: unknown): string[] {
  */
 export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, picks: CopyPicks): Promise<CopyResult> {
   if (!isId(sourceId) || !isId(targetId) || sourceId === targetId) throw new CopyError("bad");
-  const pickUnits = ids(picks.units), pickLessons = ids(picks.lessons), pickAssignments = ids(picks.assignments);
-  if (!pickUnits.length && !pickLessons.length && !pickAssignments.length) throw new CopyError("nothing");
+  const pickUnits = ids(picks.units), pickAssignments = ids(picks.assignments), pickResources = ids(picks.resources);
+  let pickLessons = ids(picks.lessons);
+  if (!pickUnits.length && !pickLessons.length && !pickAssignments.length && !pickResources.length) throw new CopyError("nothing");
   const db = await getDb();
   return db.tx(async (q) => {
     const T = ctx.tenantId;
     if (!(await canCopyFrom(ctx, sourceId, q))) throw new CopyError("forbidden");
-    const [target] = await q.query("SELECT id FROM courses WHERE tenant_id = $1 AND id = $2", [T, targetId]);
+    const [target] = await q.query("SELECT id, kind FROM courses WHERE tenant_id = $1 AND id = $2", [T, targetId]);
     if (!target) throw new CopyError("forbidden");
+    // A club has no academics: assignments stay behind.
+    const club = target.kind === "club";
+
+    // A resource that points at a lesson brings the lesson with it.
+    const resources = pickResources.length
+      ? await q.query("SELECT * FROM class_resources WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND id = ANY($3::uuid[]) ORDER BY position, created_at",
+        [T, sourceId, pickResources])
+      : [];
+    pickLessons = [...new Set([...pickLessons, ...resources.filter((r) => r.lesson_id).map((r) => String(r.lesson_id))])];
 
     const units = pickUnits.length
       ? await q.query("SELECT * FROM units WHERE tenant_id = $1 AND course_id = $2 AND id = ANY($3::uuid[]) ORDER BY position, created_at", [T, sourceId, pickUnits])
@@ -297,7 +313,7 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
          AND (id = ANY($3::uuid[]) OR unit_id = ANY($4::uuid[])) ORDER BY planned_for NULLS LAST, created_at`,
       [T, sourceId, pickLessons, unitIds],
     );
-    const assignments = await q.query(
+    const assignments = club ? [] : await q.query(
       `SELECT * FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
          AND (id = ANY($3::uuid[]) OR unit_id = ANY($4::uuid[])) ORDER BY due_on NULLS LAST, created_at`,
       [T, sourceId, pickAssignments, unitIds],
@@ -331,6 +347,7 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
     const sourceStandards = await q.query("SELECT * FROM standards WHERE tenant_id = $1 AND course_id = $2", [T, sourceId]);
     const named = new Set([
       ...lessons.flatMap((l) => uuidsIn(l.standards)),
+      ...resources.flatMap((r) => uuidsIn(r.block)),
       ...assignments.flatMap((a) => [...uuidsIn(a.standards), ...uuidsIn(a.rubric), ...uuidsIn(a.quiz)]),
     ]);
     const stdMap = new Map<string, string>();
@@ -390,6 +407,7 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
       return String(n.id);
     };
 
+    const lessonMap = new Map<string, string>();
     for (const l of lessons) {
       const [n] = await q.query(
         `INSERT INTO lessons (tenant_id, course_id, title, duration_min, blocks, unit_id, standards, created_by, updated_by)
@@ -398,6 +416,7 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
           l.standards == null ? null : JSON.stringify(remap(l.standards, stdMap)), ctx.userId],
       );
       const newId = String(n.id);
+      lessonMap.set(String(l.id), newId);
       const linkMap = new Map<string, string>();
       for (const linkId of uuidsIn(l.blocks)) {
         const link = links.find((k) => String(k.id) === linkId);
@@ -421,8 +440,27 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
       for (const link of links.filter((k) => String(k.assignment_id) === String(a.id))) await copyLink(link, null, String(n.id));
     }
 
+    const [{ rpos }] = await q.query("SELECT COALESCE(max(position) + 1, 0)::int AS rpos FROM class_resources WHERE tenant_id = $1 AND course_id = $2", [T, targetId]);
+    for (const [i, r] of resources.entries()) {
+      let block = r.block;
+      if (block != null) {
+        const linkMap = new Map<string, string>();
+        for (const linkId of uuidsIn(block)) {
+          const link = links.find((k) => String(k.id) === linkId);
+          if (link) linkMap.set(linkId, await copyLink(link, null, null));
+        }
+        block = remap(remap(block, linkMap), stdMap);
+      }
+      await q.query(
+        `INSERT INTO class_resources (tenant_id, course_id, kind, title, note, block, lesson_id, visible, position, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, false, $8, $9, $9)`,
+        [T, targetId, r.kind, r.title, r.note, block == null ? null : JSON.stringify(block),
+          r.lesson_id ? lessonMap.get(String(r.lesson_id)) ?? null : null, Number(rpos) + i, ctx.userId],
+      );
+    }
+
     const result: CopyResult = {
-      units: units.length, lessons: lessons.length, assignments: assignments.length,
+      units: units.length, lessons: lessons.length, assignments: assignments.length, resources: resources.length,
       standards: standardsAdded, categories: categoriesAdded, tools,
     };
     await q.query("INSERT INTO content_copies (tenant_id, from_course, to_course, copied_by, counts) VALUES ($1, $2, $3, $4, $5::jsonb)",

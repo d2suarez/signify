@@ -20,6 +20,12 @@ import ToolPicker from "@/components/ToolPicker";
 import { toolChoices } from "@/lib/lti-platform";
 import { catalogOf, suggestedCatalog, schoolCatalog, noteTeacher } from "@/lib/sections";
 import { moveToCourse } from "./section-actions";
+import { listEvents } from "@/lib/clubs";
+import { membersOf } from "@/lib/roster";
+import { token } from "@/lib/auth";
+import { todayIn } from "@/lib/planner";
+import { SCHOOL_TZ } from "@/lib/school-grading";
+import { ClubEvents, ClubMembers, ClubSwitch } from "@/components/Club";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +92,7 @@ function itemDate(i: Item): string {
   return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
 }
 
-export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string }> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string }> }) {
   await requireMe();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const L = await lang();
@@ -108,6 +114,25 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       </section>
     );
   };
+  const isClub = access.course.kind === "club";
+  const events = isClub ? await listEvents(access.me, access.course.id, todayIn(SCHOOL_TZ)) : null;
+  if (access.course.role === "student" && isClub) {
+    // A club as a member sees it: its updates and dates. No grades, no work.
+    return (
+      <>
+        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} />
+        <main className="page stack">
+          <div>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{dict(L).clubLabel}</p>
+            <h1 style={{ fontSize: 34 }}>{access.course.name}</h1>
+          </div>
+          {await updatesSection(false)}
+          <ClubEvents courseId={access.course.id} events={events!} sponsor={false} L={L} d={dict(L)} />
+          <p><Link className="btn" href={`/courses/${access.course.id}/resources`}>{dict(L).resources}</Link></p>
+        </main>
+      </>
+    );
+  }
   if (access.course.role === "student") {
     return (
       <>
@@ -141,6 +166,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   for (const g of groups) g.items.sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
 
   const tools = await toolChoices(me.tenantId);
+  const clubRoster = isClub ? await membersOf({ id: me.id, role: me.role, dev: me.dev }, await token(), course.idClassId) : null;
   await noteTeacher(c, course.id);
   const [catalog, suggested, allCourses] = await Promise.all([catalogOf(c, course.id), suggestedCatalog(c, course.id), schoolCatalog(c)]);
   const fillName = (s: string, name: string) => s.replace("{name}", name);
@@ -157,7 +183,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
       <main className="page stack">
         <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{isClub ? d.clubLabel : course.subject}</p>
           <h1 style={{ fontSize: 34 }}>{course.name}</h1>
           {catalog && (
             <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
@@ -178,7 +204,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             </form>
           </div>
         )}
-        <CourseNav courseId={course.id} current="plan" d={d} />
+        <CourseNav courseId={course.id} current="plan" d={d} club={course.kind === "club"} />
 
         <div className="card stack" style={{ padding: "14px 16px", gap: 10 }}>
           <form action={newLesson} className="row">
@@ -188,7 +214,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             {unitSelect("new-lesson-unit")}
             <button className="btn btn-primary" type="submit">{d.create}</button>
           </form>
-          <form action={newAssignment} className="row">
+          {!isClub && <form action={newAssignment} className="row">
             <input type="hidden" name="courseId" value={course.id} />
             <label htmlFor="new-assignment" className="label" style={{ flex: "0 0 130px" }}><span className="shape s-tri" style={{ marginRight: 8 }} />{d.newAssignment}</label>
             <input id="new-assignment" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.assignmentTitle} maxLength={200} required />
@@ -199,20 +225,21 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <option value="quiz">{d.kindQuiz}</option>
             </select>
             <button className="btn btn-primary" type="submit">{d.create}</button>
-          </form>
+          </form>}
           <form action={newUnit} className="row">
             <input type="hidden" name="courseId" value={course.id} />
             <label htmlFor="new-unit" className="label" style={{ flex: "0 0 130px" }}><span className="shape s-square" style={{ marginRight: 8 }} />{d.newUnit}</label>
             <input id="new-unit" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.unitTitle} maxLength={200} required />
             <button className="btn" type="submit">{d.create}</button>
           </form>
-          {tools.length > 0 && (
+          {!isClub && tools.length > 0 && (
             <div>
               <p className="label"><span className="shape s-tri" style={{ marginRight: 8 }} />{d.toolAddAssignment}</p>
               <ToolPicker tools={tools} courseId={course.id} d={d} />
             </div>
           )}
-          <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>
+          {!isClub && <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>}
+          <ClubSwitch courseId={course.id} club={isClub} d={d} />
           <details>
             <summary className="label" style={{ cursor: "pointer", minHeight: 44, display: "flex", alignItems: "center" }}>{d.secMoveTitle}</summary>
             <form action={moveToCourse} className="row" style={{ marginTop: 6 }}>
@@ -258,6 +285,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
         )}
 
         {updates}
+        {isClub && <ClubEvents courseId={course.id} events={events!} sponsor L={L} d={d} error={sp.eventError} />}
+        {isClub && <ClubMembers ok={clubRoster!.ok} members={clubRoster!.members} d={d} />}
 
         {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
 

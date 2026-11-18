@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { courseAccess, ctx } from "@/lib/access";
+import { academicAccess as courseAccess, ctx } from "@/lib/access";
 import { CartridgeError } from "@/lib/cartridge";
 import { previewImport, commitImport, MAX_UPLOAD } from "@/lib/cc-import";
 

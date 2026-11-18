@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireMe } from "@/lib/auth";
-import { courseAccess, ctx, lang } from "@/lib/access";
+import { academicAccess as courseAccess, ctx, lang } from "@/lib/access";
 import { addCategory, deleteCategory, isWeighted, listCategories, setWeighted, updateCategory, MAX_DROP } from "@/lib/grades";
 import {
   addStandard, archiveStandard, courseGrading, listStandards, moveStandard, saveStandardsSettings, setGradingMode, teachersMayAdd, updateStandard, STANDARD_LIMITS,

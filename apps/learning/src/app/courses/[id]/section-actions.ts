@@ -31,7 +31,7 @@ export async function copyInto(_prev: CopyState, formData: FormData): Promise<Co
   if (!access) return { ok: false, error: "forbidden" };
   try {
     const result = await copyContent(ctx(access.me), String(formData.get("from") || ""), access.course.id, {
-      units: formData.getAll("unit"), lessons: formData.getAll("lesson"), assignments: formData.getAll("assignment"),
+      units: formData.getAll("unit"), lessons: formData.getAll("lesson"), assignments: formData.getAll("assignment"), resources: formData.getAll("resource"),
     });
     revalidatePath(`/courses/${access.course.id}`);
     return { ok: true, result };

@@ -44,7 +44,7 @@ export default async function CalendarPage({ params }: { params: Promise<{ id: s
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
           <h1 style={{ fontSize: 34 }}>{course.name}</h1>
         </div>
-        {teacher && <CourseNav courseId={course.id} current="calendar" d={d} />}
+        {teacher && <CourseNav courseId={course.id} current="calendar" d={d} club={course.kind === "club"} />}
         <CourseCalendar items={items} teacher={teacher} L={L} d={d} />
       </main>
     </>
