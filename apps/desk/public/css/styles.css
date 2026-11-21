@@ -2986,3 +2986,96 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 .fc-summary { text-align: center; padding: 1.2rem 0; }
 .fc-big { font-family: var(--display); font-weight: 700; font-size: 2.4rem; }
 @media (max-width: 520px) { .fc-new, .fc-sides { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------
+   Bible (widgets/bible.js)
+   One reader for the card, the big view and the whole screen; only the
+   type grows. --bib-scale is the teacher's A−/A+.
+   --------------------------------------------------------------- */
+.bib { display: flex; flex-direction: column; gap: .45rem; height: 100%; min-height: 0; flex: 1 1 0; --bib-scale: 1; --bib-type: 1.02rem; }
+.stage .bib { --bib-type: 1.4rem; }
+.bib-bar { display: flex; gap: .35rem; align-items: center; }
+.bib-q { flex: 1 1 8rem; min-width: 0; }
+.bib-ver { flex: 0 0 auto; width: auto; max-width: 7.5rem; }
+.bib-tools { display: flex; flex-wrap: wrap; gap: .3rem .55rem; align-items: center; }
+.bib-group { display: inline-flex; align-items: center; gap: .15rem; }
+.bib-tbtn { width: 32px; height: 32px; }
+.bib-tbtn[disabled] { opacity: .35; cursor: default; }
+.bib-prev svg { transform: rotate(180deg); }
+.bib-size { font: 700 .85rem/1 var(--body); }
+.bib-books span, .bib-blb span { display: inline-flex; }
+.bib .btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.bib-pen { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; margin: 0 1px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
+.bib-pen[aria-pressed="true"], .bib-erase[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.bib-erase[aria-pressed="true"] { background: var(--desk); color: var(--ink); }
+.bib-pen--y, .hl-y { background: #ffe066; }
+.bib-pen--g, .hl-g { background: #9be8a6; }
+.bib-pen--b, .hl-b { background: #a9d6ff; }
+.bib-pen--p, .hl-p { background: #ffc2dc; }
+.bib-status:empty { display: none; }
+.bib-status { margin: 0; font-size: .82rem; color: var(--red-dark, #b8220c); }
+.bib-recent { display: flex; flex-wrap: wrap; gap: .3rem; }
+.bib-recent[hidden] { display: none; }
+.bib-chip { cursor: pointer; font-size: .8rem; }
+
+.bib-picker { overflow: auto; flex: 1 1 0; min-height: 0; }
+.bib-picker[hidden], .bib-read[hidden] { display: none; }
+.bib-pick-head { margin: .4rem 0 .3rem; font: 800 .74rem/1.2 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.bib-pick-top { display: flex; align-items: center; gap: .6rem; }
+.bib-pick-top .bib-pick-head { margin: 0; font-size: .95rem; letter-spacing: 0; text-transform: none; color: var(--ink); font-family: var(--display); }
+.bib-grid { display: grid; gap: .3rem; }
+.bib-grid--books { grid-template-columns: repeat(auto-fill, minmax(4.4rem, 1fr)); }
+.bib-grid--chapters { grid-template-columns: repeat(auto-fill, minmax(2.8rem, 1fr)); margin-top: .5rem; }
+.bib-cell { padding: .45rem .2rem; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 .82rem/1.1 var(--body); cursor: pointer; }
+.bib-cell:hover, .bib-cell:focus-visible { border-color: var(--ink); }
+.bib-cell--num { font-family: var(--mono); font-size: .9rem; }
+
+.bib-read {
+  flex: 1 1 0; min-height: 0; overflow: auto; border-radius: var(--r-sm);
+  padding: .2rem .35rem 1rem; outline: none;
+  font: 400 calc(var(--bib-type) * var(--bib-scale))/1.62 var(--body); color: var(--ink);
+}
+.bib[data-theme="paper"] .bib-read { background: #f7f1e3; color: #2b2520; padding: .6rem .9rem 1rem; }
+.bib[data-theme="night"] .bib-read { background: #121110; color: #efebe6; padding: .6rem .9rem 1rem; }
+.bib-pass { max-width: 44em; margin: 0 auto 1.1em; }
+.bib-pass-head { display: flex; align-items: baseline; gap: .5em; border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent); padding-bottom: .15em; margin-bottom: .35em; }
+.bib-ref { margin: 0; font: 700 1.05em/1.2 var(--display); letter-spacing: -.01em; }
+.bib-ver-tag { font: 600 .62em/1 var(--mono); opacity: .65; }
+.bib-pass-blb { margin-left: auto; color: inherit; opacity: .55; display: inline-flex; }
+.bib-pass-blb:hover, .bib-pass-blb:focus-visible { opacity: 1; }
+.bib-h { margin: .9em 0 .25em; font: 700 .78em/1.3 var(--body); text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+.bib-chap { margin: 1em 0 .3em; font: 700 .95em/1.2 var(--display); }
+.bib-p { margin: 0 0 .55em; }
+.bib-poem { padding-left: calc(1.2em * var(--indent, 1)); text-indent: -.6em; }
+.bib-vn { font: 700 .58em/1 var(--mono); vertical-align: super; margin: 0 .2em 0 .1em; color: inherit; opacity: .55; text-decoration: none; }
+.bib-vn:hover, .bib-vn:focus-visible { opacity: 1; text-decoration: underline; }
+.bib-w { border-radius: .18em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.bib-w[class*="hl-"], .bib-sp[class*="hl-"] { color: #1d1a18; border-radius: 0; }
+.bib.is-pen .bib-read { cursor: text; user-select: none; -webkit-user-select: none; touch-action: none; }
+.bib.is-pen .bib-vn { cursor: pointer; }
+.bib-w.is-pending { outline: 2px solid color-mix(in srgb, var(--ink) 45%, transparent); background: color-mix(in srgb, #ffe066 45%, transparent); }
+.bib[data-pen="g"] .bib-w.is-pending { background: color-mix(in srgb, #9be8a6 55%, transparent); }
+.bib[data-pen="b"] .bib-w.is-pending { background: color-mix(in srgb, #a9d6ff 55%, transparent); }
+.bib[data-pen="p"] .bib-w.is-pending { background: color-mix(in srgb, #ffc2dc 55%, transparent); }
+.bib[data-pen="erase"] .bib-w.is-pending { background: transparent; text-decoration: line-through; }
+.bib-error { margin: .2em 0; font-size: .85em; color: var(--red-dark, #b8220c); }
+.bib-wait { margin: .5em 0; opacity: .6; }
+.bib-copy { text-align: center; margin: 1.2em auto 0; font-size: max(.62em, .68rem); opacity: .6; line-height: 1.4; }
+.bib-copy p { margin: 0 0 .3em; }
+
+/* Reading mode: just the words, big, with the controls kept to a strip.
+   Fills the window by itself; the browser's full screen goes on top when
+   it is allowed. */
+.bib.is-full { position: fixed; inset: 0; z-index: 90; height: auto; background: var(--bg); padding: 1.2vh 3vw 1.5vh; gap: .6vh; --bib-type: clamp(1.4rem, 2.6vw, 3.4rem); }
+.bib.is-full[data-theme="paper"], .bib.is-full[data-theme="paper"] .bib-read { background: #f7f1e3; }
+.bib.is-full[data-theme="night"], .bib.is-full[data-theme="night"] .bib-read { background: #121110; }
+.bib.is-full[data-theme="night"] .bib-bar, .bib.is-full[data-theme="night"] .bib-tools { color: #efebe6; }
+.bib.is-full[data-theme="night"] .bib-tools .icon-btn { color: #c9c4be; }
+.bib.is-full .bib-read { padding: 1vh 2vw 4vh; }
+.bib.is-full .bib-pass { max-width: 36em; }
+.bib.is-full .bib-bar, .bib.is-full .bib-tools { max-width: 1100px; width: 100%; margin: 0 auto; }
+.bib.is-full .bib-recent { display: none; }
+.bib.is-full[data-theme="night"] .btn[aria-pressed="true"] { background: #efebe6; color: #121110; }
+/* Poetry arrives a line per paragraph (API.Bible's q1/q2): lines sit together. */
+.bib-poem { margin-bottom: .05em; }
+.bib-poem + .bib-p:not(.bib-poem), .bib-p:not(.bib-poem) + .bib-poem { margin-top: .55em; }

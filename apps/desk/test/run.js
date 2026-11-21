@@ -2479,6 +2479,242 @@ describe('the converter', () => {
   });
 });
 
+// ===================================================================
+describe('Bible references', () => {
+  const B = require('../public/js/bible-books');
+  const ids = (q) => B.parse(q).refs.map(B.toId);
+
+  it('reads several references at once, separated by commas or semicolons', () => {
+    equal(ids('John 3:16, Rom 8:28-30; Ps 23'), ['JHN.3.16', 'ROM.8.28-ROM.8.30', 'PSA.23']);
+  });
+
+  it('carries the book and chapter on after a comma', () => {
+    equal(ids('John 3:16, 18, 20-21'), ['JHN.3.16', 'JHN.3.18', 'JHN.3.20-JHN.3.21']);
+    equal(ids('Rom 8:28, 12:1-2'), ['ROM.8.28', 'ROM.12.1-ROM.12.2']);
+  });
+
+  it('knows the usual abbreviations, numbered books and one-chapter books', () => {
+    equal(ids('jn 3:16'), ['JHN.3.16']);
+    equal(ids('1 Cor 13'), ['1CO.13']);
+    equal(ids('I John 4:8'), ['1JN.4.8']);
+    equal(ids('1jn 1:9'), ['1JN.1.9']);
+    equal(ids('Phil 4:13'), ['PHP.4.13']);
+    equal(ids('Philem 1:6'), ['PHM.1.6']);
+    equal(ids('Jude 5'), ['JUD.1.5']);
+    equal(ids('Song of Solomon 2:4'), ['SNG.2.4']);
+    equal(ids('Psalm 119:105'), ['PSA.119.105']);
+    equal(ids('Gen'), ['GEN.1']);
+    equal(ids('Matt 5:3–12'), ['MAT.5.3-MAT.5.12'], 'an en dash is a hyphen');
+    equal(ids('John 3:16b'), ['JHN.3.16'], 'half a verse is the verse');
+    equal(ids('Rev 21-22'), ['REV.21-REV.22']);
+    equal(ids('John 3:16-4:2'), ['JHN.3.16-JHN.4.2']);
+  });
+
+  it('says what it could not read, and still reads the rest', () => {
+    const r = B.parse('Hezekiah 3:1, John 3:16, Ps 151');
+    equal(r.refs.map(B.toId), ['JHN.3.16']);
+    equal(r.errors.length, 2);
+    assert(/Psalms has 150 chapters/.test(r.errors[1]), r.errors[1]);
+    assert(B.parse('16').errors.length === 1, 'a number with no book');
+    assert(B.parse('Gen 1-10').errors.length === 1, 'too many chapters at once');
+  });
+
+  it('labels a reference the way a teacher writes it', () => {
+    const label = (q) => B.label(B.parse(q).refs[0]);
+    equal(label('jn 3:16-18'), 'John 3:16–18');
+    equal(label('ps 23'), 'Psalms 23');
+    equal(label('jude 3'), 'Jude 3');
+    equal(label('rom 8:28-9:1'), 'Romans 8:28–9:1');
+  });
+
+  it('the server only accepts ids it could have made itself', () => {
+    for (const q of ['John 3:16', 'John 3', 'John 3:16-18', 'Rev 21-22', 'John 3:16-4:2']) {
+      const ref = B.parse(q).refs[0];
+      equal(B.fromId(B.toId(ref)), ref, `${q} round-trips`);
+    }
+    for (const bad of ['', 'JHN', 'XYZ.1', 'JHN.22', 'JHN.3.16-ROM.1.1', 'JHN.3.0', 'GEN.1-GEN.9', 'JHN.3.18-JHN.3.16',
+      'JHN.3.16&x=1', '../JHN.3', 'JHN.3.16-JHN.4', 'jhn.3.16']) {
+      equal(B.fromId(bad), null, `refused ${bad}`);
+    }
+  });
+
+  it('links to Blue Letter Bible in the same translation, or the KJV', () => {
+    const ref = B.parse('John 3:16-18').refs[0];
+    equal(B.blbUrl(ref, 'ESV'), 'https://www.blueletterbible.org/esv/jhn/3/16/');
+    equal(B.blbUrl(ref, 'NIV', 3, 17), 'https://www.blueletterbible.org/niv/jhn/3/17/');
+    equal(B.blbUrl(B.parse('Song 1').refs[0], 'XYZ'), 'https://www.blueletterbible.org/kjv/sng/1/1/');
+    equal(B.blbUrl(B.parse('Phil 4:13').refs[0], 'nkjv'), 'https://www.blueletterbible.org/nkjv/phl/4/13/');
+    equal(new Set(B.BOOKS.map((b) => b.blb)).size, 66, 'every book has its own code');
+  });
+
+  it('steps chapter by chapter across books, and stops at the ends', () => {
+    equal(B.toId(B.adjacent('GEN', 50, 1)), 'EXO.1');
+    equal(B.toId(B.adjacent('EXO', 1, -1)), 'GEN.50');
+    equal(B.toId(B.adjacent('JHN', 3, 1)), 'JHN.4');
+    equal(B.adjacent('GEN', 1, -1), null);
+    equal(B.adjacent('REV', 22, 1), null);
+  });
+});
+
+// ===================================================================
+describe('the Bible widget', () => {
+  const bible = loadWidget('bible');
+  const plain = (x) => JSON.parse(JSON.stringify(x));
+
+  it('is for signed-in teachers only, and not given to students', () => {
+    equal(bible.guest, undefined, 'not a visitor tool: it uses the desk’s own keys');
+    equal(bible.students, undefined, 'students get it only once somebody decides they should');
+  });
+
+  it('merges, recolours and rubs out highlights by word', () => {
+    let r = bible._mark([], 2, 5, 'y');
+    equal(plain(r), [[2, 5, 'y']]);
+    r = bible._mark(r, 6, 8, 'y');
+    equal(plain(r), [[2, 8, 'y']], 'touching ranges of one colour join up');
+    r = bible._mark(r, 4, 5, 'g');
+    equal(plain(r), [[2, 3, 'y'], [4, 5, 'g'], [6, 8, 'y']]);
+    r = bible._mark(r, 3, 6, null);
+    equal(plain(r), [[2, 2, 'y'], [7, 8, 'y']], 'the eraser takes out the middle');
+    r = bible._mark(r, 9, 7, 'b');
+    equal(plain(r), [[2, 2, 'y'], [7, 9, 'b']], 'a drag backwards is the same drag');
+  });
+
+  it('a saved highlight with a colour it does not know is dropped, not drawn', () => {
+    const s = { marks: { 'esv|JHN.3.16': [[0, 3, 'y'], [5, 6, 'zz']], 'nonsense': [[0, 1, 'y']], 'esv|JHN.3.17': [[0, 1, 'q']] } };
+    bible.init(s);
+    equal(plain(s.marks), { 'esv|JHN.3.16': [[0, 3, 'y']] });
+  });
+
+  it('builds a reader from plain verses, a paragraph per chapter', () => {
+    const blocks = bible._fromVerses([{ c: 3, v: 16, text: ' For God  so loved ' }, { c: 3, v: 17, text: 'For God sent' }, { c: 4, v: 1, text: 'Now when' }]);
+    equal(blocks.length, 2);
+    equal(blocks[0].pieces.map((p) => `${p.c}:${p.v}`), ['3:16', '3:17']);
+    equal(blocks[0].pieces[0].text, 'For God so loved');
+    equal(blocks[1].pieces[0].c, 4);
+  });
+});
+
+// ===================================================================
+describe('Bible text from the server', () => {
+  const bibleSrv = require('../server/bible');
+  const env = { ...process.env };
+  const restore = () => { bibleSrv._setFetch(null); process.env.ESV_API_KEY = env.ESV_API_KEY || ''; process.env.API_BIBLE_KEY = env.API_BIBLE_KEY || ''; bibleSrv._reset(); };
+  // These share the module's keys and cache, so they take turns.
+  let turn = Promise.resolve();
+  const inTurn = (name, fn) => it(name, () => (turn = turn.catch(() => {}).then(fn)));
+  const mock = (fn) => bibleSrv._setFetch(fn);
+  const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
+
+  inTurn('with no keys offers the free KJV and WEB, and fetches from bible-api.com', async () => {
+    process.env.ESV_API_KEY = ''; process.env.API_BIBLE_KEY = '';
+    const asked = [];
+    mock(async (url) => { asked.push(String(url)); return reply(200, { verses: [{ chapter: 3, verse: 16, text: 'For God so loved\n' }], translation_name: 'King James Version', translation_note: 'Public Domain' }); });
+    try {
+      const v = await bibleSrv.versions();
+      equal(v.versions.map((x) => x.id), ['kjv', 'web']);
+      equal(v.keys, { esv: false, apiBible: false });
+      const p = await bibleSrv.passage('kjv', 'JHN.3.16');
+      equal(p.kind, 'verses');
+      equal(p.verses, [{ c: 3, v: 16, text: 'For God so loved' }]);
+      equal(p.label, 'John 3:16');
+      equal(asked, ['https://bible-api.com/John%203%3A16?translation=kjv']);
+      await bibleSrv.passage('kjv', 'JHN.3.16');
+      equal(asked.length, 1, 'the second came from the cache');
+    } finally { restore(); }
+  });
+
+  inTurn('refuses a reference or translation it does not know, before asking anyone', async () => {
+    let asked = 0;
+    mock(async () => { asked += 1; return reply(200, {}); });
+    try {
+      for (const [v, r] of [['kjv', 'JHN.3.16;DROP'], ['kjv', 'https://evil.test/'], ['esv', 'JHN.3.16'], ['ab-nope', 'JHN.3.16'], ['../x', 'JHN.3']]) {
+        let status = 0;
+        try { await bibleSrv.passage(v, r); } catch (e) { status = e.status; }
+        equal(status, 400, `${v} ${r} refused`);
+      }
+      equal(asked, 0, 'nothing reached the network');
+    } finally { restore(); }
+  });
+
+  inTurn('sends the ESV key to Crossway only, as a header, and hands back the HTML', async () => {
+    process.env.ESV_API_KEY = 'esv-test-key'; process.env.API_BIBLE_KEY = '';
+    const seen = [];
+    mock(async (url, opts) => { seen.push({ url: String(url), auth: opts.headers.authorization }); return reply(200, { passages: ['<p><b class="verse-num" id="v43003016-1">16 </b>For God</p>'] }); });
+    try {
+      const v = await bibleSrv.versions();
+      equal(v.default, 'esv', 'the ESV comes first when there is a key');
+      const p = await bibleSrv.passage('esv', 'JHN.3.16-JHN.3.18');
+      equal(p.kind, 'html');
+      assert(/verse-num/.test(p.html));
+      assert(/Crossway/.test(p.copyright), 'the ESV notice travels with the text');
+      equal(seen.length, 1);
+      assert(seen[0].url.startsWith('https://api.esv.org/v3/passage/html/?q=John+3%3A16-18&'), seen[0].url);
+      assert(!seen[0].url.includes('esv-test-key'), 'the key is never in the URL');
+      equal(seen[0].auth, 'Token esv-test-key');
+    } finally { restore(); }
+  });
+
+  inTurn('lists API.Bible’s translations with the familiar ones first, and reads a passage', async () => {
+    process.env.ESV_API_KEY = ''; process.env.API_BIBLE_KEY = 'ab-test-key';
+    const seen = [];
+    mock(async (url, opts) => {
+      const u = String(url);
+      seen.push({ u, key: opts.headers['api-key'] });
+      if (u.includes('/bibles?')) {
+        return reply(200, { data: [
+          { id: 'aaaaaaaaaaaaaaaa-01', abbreviationLocal: 'TPT', nameLocal: 'The Passion Translation' },
+          { id: '78a9f6124f344018-01', abbreviationLocal: 'NIV', nameLocal: 'New International Version' },
+          { id: '78a9f6124f344018-02', abbreviationLocal: 'NIV', nameLocal: 'New International Version' },
+          { id: 'de4e12af7f28f599-02', abbreviationLocal: 'KJV', nameLocal: 'King James (Authorised) Version' },
+          { id: 'bad id!', abbreviationLocal: 'X', nameLocal: 'Broken' },
+        ] });
+      }
+      return reply(200, { data: { content: '<p class="p"><span data-number="16" data-sid="JHN 3:16" class="v">16</span>For God</p>', copyright: 'NIV® ©' } });
+    });
+    try {
+      const v = await bibleSrv.versions();
+      equal(v.versions.map((x) => x.abbrev), ['NIV', 'KJV', 'WEB', 'TPT'], 'one NIV, the free KJV not repeated, the familiar ones first');
+      const niv = v.versions[0].id;
+      equal(niv, 'ab-78a9f6124f344018-01');
+      const p = await bibleSrv.passage(niv, 'JHN.3.16');
+      equal(p.kind, 'html');
+      equal(p.copyright, 'NIV® ©');
+      const last = seen[seen.length - 1];
+      assert(last.u.startsWith('https://rest.api.bible/v1/bibles/78a9f6124f344018-01/passages/JHN.3.16?'), last.u);
+      equal(last.key, 'ab-test-key');
+    } finally { restore(); }
+  });
+
+  inTurn('keeps to Crossway’s terms: no stored ESV text, and no more than half a book', async () => {
+    process.env.ESV_API_KEY = 'esv-test-key'; process.env.API_BIBLE_KEY = '';
+    let asked = 0;
+    mock(async () => { asked += 1; return reply(200, { passages: ['<p><b class="verse-num" id="v50001001-1">1 </b>Paul</p>'] }); });
+    try {
+      const p = await bibleSrv.passage('esv', 'PHP.1');
+      await bibleSrv.passage('esv', 'PHP.1');
+      equal(asked, 2, 'asked Crossway both times: the ESV is never cached');
+      equal(p.link, 'https://www.esv.org/', 'with the link Crossway asks for');
+      let status = 0;
+      try { await bibleSrv.passage('esv', 'PHP.1-PHP.3'); } catch (e) { status = e.status; }
+      equal(status, 400, 'three of Philippians’ four chapters is more than half');
+      await bibleSrv.passage('esv', 'PHP.1-PHP.2');
+      await bibleSrv.passage('esv', '2JN.1');
+      equal(asked, 4, 'half a book, and a one-chapter book, are fine');
+    } finally { restore(); }
+  });
+
+  inTurn('says plainly when a service refuses the key', async () => {
+    process.env.ESV_API_KEY = 'wrong'; process.env.API_BIBLE_KEY = '';
+    mock(async () => reply(403, { detail: 'Invalid token.' }));
+    const err = console.error; console.error = () => {};
+    try {
+      let msg = '';
+      try { await bibleSrv.passage('esv', 'PSA.23'); } catch (e) { msg = e.message; }
+      assert(/refused this desk/.test(msg), msg);
+    } finally { console.error = err; restore(); }
+  });
+});
+
 /** Runs a widget file with a stub browser and hands back its definition. */
 function loadWidget(name) {
   const noop = () => {};

@@ -134,6 +134,9 @@ window.Desk = window.Desk || {};
     saveGrouping: (payload) => request('POST', '/api/groupings', payload),
     deleteGrouping: (id) => request('DELETE', `/api/groupings/${encodeURIComponent(id)}`),
 
+    bibleVersions: () => request('GET', '/api/bible/versions'),
+    biblePassage: (version, ref) => request('GET', `/api/bible/passage?v=${encodeURIComponent(version)}&r=${encodeURIComponent(ref)}`),
+
     videoTitle: (id) => request('GET', `/api/video/${encodeURIComponent(id)}`),
 
     weather: (lat, lon, units) => request('GET', `/api/weather?lat=${lat}&lon=${lon}&units=${encodeURIComponent(units || 'metric')}`),

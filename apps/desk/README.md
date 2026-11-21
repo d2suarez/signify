@@ -129,6 +129,35 @@ and chance of rain underneath it decide whether anyone needs a coat. They are
 rule-based rather than generated, so they cannot surprise anybody in front of
 a class.
 
+## Bible
+
+`widgets/bible.js`, type `bible`, signed-in teachers only (not visitors, not
+students unless a school turns it on in Tools by role). Type one reference or
+several — `John 3:16-18, 20; Rom 8:28, Ps 23` — or pick a book and chapter.
+Reads on the card, in the big view, or in **reading mode** (the expand
+button, or `F`): the page fills the window and asks the browser for the
+whole screen on top, which it may refuse inside a frame without the button
+doing nothing. Esc steps back one level. ←/→ go a chapter back or on, +/−
+change the size. Highlighter in four colours plus an eraser: drag across
+words, or tap a verse number to mark the whole verse. Every passage and verse
+number links to the same place on Blue Letter Bible, in the same translation
+when they carry it and the KJV when they do not.
+
+The text comes through this server (`server/bible.js`), which holds the keys:
+
+| Variable | Gives | Where from |
+|---|---|---|
+| `ESV_API_KEY` | the ESV | api.esv.org (Crossway), free for teaching |
+| `API_BIBLE_KEY` | NIV, NKJV, AMP and everything else English on the key | api.bible |
+
+With neither set, the KJV and the World English Bible still come from
+bible-api.com with no key. The widget sends only a canonical id
+(`JHN.3.16-JHN.3.18`), checked against `public/js/bible-books.js` (books,
+chapter counts, Blue Letter Bible codes — shared by the widget and the
+server) before any URL is built. Providers' HTML is read with DOMParser and
+rebuilt from text; it is never inserted. Highlights live in the card's
+state, per translation and verse by word position.
+
 ## The ones with an outside dependency
 
 **Weather** searches by town, city or postcode. Open-Meteo's name search knows

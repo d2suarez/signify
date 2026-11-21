@@ -20,6 +20,7 @@ const groups = require('./server/groups');
 const templates = require('./server/templates');
 const assets = require('./server/assets');
 const video = require('./server/video');
+const bible = require('./server/bible');
 const inventory = require('./server/inventory');
 const weather = require('./server/weather');
 const visitors = require('./server/visitors');
@@ -403,6 +404,24 @@ app.get('/api/video/:id', wrap(async (req, res) => {
   // 200 with nothing rather than 404: "YouTube would not tell us" is an
   // ordinary answer here, not an error the widget should show anybody.
   ok(res, found || {});
+}));
+
+// ---------------- Bible ----------------
+// Signed-in only: the ESV and API.Bible keys are the teacher's own, so the
+// desk is not a free relay for visitors. See server/bible.js.
+
+app.get('/api/bible/versions', wrap(async (req, res) => {
+  if (!auth.requireTool(req, res, 'bible')) return;
+  ok(res, await bible.versions());
+}));
+
+app.get('/api/bible/passage', wrap(async (req, res) => {
+  if (!auth.requireTool(req, res, 'bible')) return;
+  try { ok(res, await bible.passage(req.query.v, req.query.r)); }
+  catch (e) {
+    if (!(e instanceof bible.BibleError)) throw e;
+    bad(res, e.status, e.message);
+  }
 }));
 
 // ---------------- uploads ----------------

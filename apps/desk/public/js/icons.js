@@ -14,6 +14,7 @@ window.Desk = window.Desk || {};
     timer: '<path d="M9 2h6M12 8v6l4 2"/><circle cx="12" cy="14" r="8"/>',
     stopwatch: '<path d="M9 2h6M12 7v7M19 6l1.5-1.5"/><circle cx="12" cy="14" r="8"/>',
     alarm: '<path d="M6 19h12M18 15V10a6 6 0 0 0-12 0v5l-1.5 3h15L18 15ZM10 22h4"/><path d="M3 5 6 2M21 5l-3-3"/>',
+    book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5M12 7v6M9.5 9.5h5"/>',
     notes: '<path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5M8 12h8M8 16h6"/>',
     behaviour: '<path d="M4 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="10" cy="7" r="3.5"/><path d="M17 6h5M19.5 3.5v5"/>',
     randomiser: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
