@@ -240,6 +240,8 @@
     fills: true,
     size: { w: 5, h: 6 },
     min: { w: 3, h: 4 },
+    added: '2026-11-21',
+    news: 'Look up several verses at once, read them full screen, and highlight for the class — ESV, NIV and more.',
 
     _mark: mark,
     _expand: expand,
