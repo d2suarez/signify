@@ -69,7 +69,6 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
         <div className="lightbox-in">
           <div className="lightbox-bar">
             <span className="lightbox-count" aria-live="polite" aria-atomic="true">{many ? count : ""}</span>
-            {pic && <a className="btn btn-sm" href={pic.href} target="_blank" rel="noopener">{labels.original}</a>}
             <button ref={closeBtn} type="button" className="btn btn-sm" onClick={() => dialog.current?.close()}>{labels.close}</button>
           </div>
           <figure className="lightbox-fig"
@@ -83,6 +82,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {pic && <img key={pic.src} src={pic.src} alt={pic.alt} />}
             {pic?.alt && <figcaption>{pic.alt}</figcaption>}
+            {pic && <a className="lightbox-orig" href={pic.href} target="_blank" rel="noopener">{labels.original}</a>}
           </figure>
           {many && (
             <div className="lightbox-nav">

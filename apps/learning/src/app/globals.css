@@ -569,15 +569,19 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 /* The picture overlay (Lightbox.tsx): fits the screen at every text size, no sideways scroll.
    It sits inside main, whose zoom (Larger text) would scale screen units too, so they are divided back. */
 .lightbox { --z: var(--main-zoom, 1); width: min(1100px, calc((100vw - 16px) / var(--z))); max-width: none; max-height: calc((100dvh - 16px) / var(--z)); overflow: auto; }
-.lightbox-in { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.lightbox-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* A column the height of the screen at most: the bar, caption and buttons keep their size and the
+   picture shrinks into what is left, so Previous/Next stay on screen at every text size. */
+.lightbox[open] { display: flex; flex-direction: column; }
+.lightbox-in { flex: 1 1 auto; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lightbox-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lightbox-bar .btn-sm, .lightbox-nav .btn { min-height: 44px; min-width: 44px; }
 .lightbox-count { margin-right: auto; font-weight: 700; }
-.lightbox-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; touch-action: pan-y pinch-zoom; }
-.lightbox-fig img { display: block; max-width: 100%; max-height: calc(100dvh / var(--z) - 210px); min-height: 80px; object-fit: contain; border-radius: var(--r-md); background: var(--desk); }
-.lightbox-fig figcaption { max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
-.lightbox-nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
-.lightbox-nav .btn { flex: 1 1 140px; }
+.lightbox-fig { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; touch-action: pan-y pinch-zoom; }
+.lightbox-fig img { display: block; flex: 0 1 auto; min-height: min(calc(35dvh / var(--z)), 300px); max-width: 100%; max-height: calc((100dvh - 16px) / var(--z)); object-fit: contain; border-radius: var(--r-md); }
+.lightbox-orig { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; }
+.lightbox-fig figcaption { flex: none; max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
+.lightbox-nav { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.lightbox-nav .btn { flex: 1 1 130px; min-width: 0; white-space: normal; text-align: center; }
 .post-video { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: #000; }
 .post-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .post-attach { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: var(--r-md); background: var(--desk); color: var(--ink); text-decoration: none; font-weight: 600; }
