@@ -131,8 +131,8 @@ a class.
 
 ## Bible
 
-`widgets/bible.js`, type `bible`, signed-in teachers only (not visitors, not
-students unless a school turns it on in Tools by role). Type one reference or
+`widgets/bible.js`, type `bible`, signed-in teachers and students (not
+visitors; a school can take it from students in Tools by role). Type one reference or
 several — `John 3:16-18, 20; Rom 8:28, Ps 23` — or pick a book and chapter.
 Reads on the card, in the big view, or in **reading mode** (the expand
 button, or `F`): the page fills the window and asks the browser for the

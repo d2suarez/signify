@@ -20,7 +20,7 @@ To announce it under "Add a tool" for 45 days: `added: 'YYYY-MM-DD'` + `news: '.
 `public/js/widgets/helpdesk.js` talks straight to the Signify Help Desk (`HELPDESK_URL`, default https://help.signify.one; http://localhost:3110 locally) with `credentials: 'include'`. The desk server is not involved; the origin is in `/api/config` (`helpDeskUrl`) and in CSP `connect-src`. See `apps/helpdesk/CLAUDE.md`.
 
 ## Bible widget
-`public/js/widgets/bible.js` + `server/bible.js` + `public/js/bible-books.js` (shared book table/parser). Signed-in only (`requireTool('bible')`); keys `ESV_API_KEY` and `API_BIBLE_KEY` on the Railway service, free KJV/WEB without them. README "Bible".
+`public/js/widgets/bible.js` + `server/bible.js` + `public/js/bible-books.js` (shared book table/parser). Signed-in only, students too (`requireTool('bible')`); keys `ESV_API_KEY` and `API_BIBLE_KEY` on the Railway service, free KJV/WEB without them. README "Bible".
 
 ## Rules that came from the user
 - Cards never follow their content. Size is chosen once at add; content fits itself to the card.

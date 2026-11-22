@@ -238,6 +238,7 @@
     icon: 'book',
     category: 'board',
     fills: true,
+    students: true,
     size: { w: 5, h: 6 },
     min: { w: 3, h: 4 },
     added: '2026-11-21',

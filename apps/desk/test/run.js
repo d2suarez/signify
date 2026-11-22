@@ -2561,9 +2561,9 @@ describe('the Bible widget', () => {
   const bible = loadWidget('bible');
   const plain = (x) => JSON.parse(JSON.stringify(x));
 
-  it('is for signed-in teachers only, and not given to students', () => {
+  it('is for signed-in people only, students included', () => {
     equal(bible.guest, undefined, 'not a visitor tool: it uses the desk’s own keys');
-    equal(bible.students, undefined, 'students get it only once somebody decides they should');
+    equal(bible.students, true, 'turned on for students 2026-11-22, at the owner’s request');
   });
 
   it('merges, recolours and rubs out highlights by word', () => {
@@ -3128,7 +3128,7 @@ describe('tools by role', () => {
   // somebody decides otherwise (and asks Desmond), which means editing this.
   it('students get exactly these tools by default', () => {
     equal(tools.TOOLS.filter((t) => t.students).map((t) => t.type).sort(), [
-      'alarms', 'atlas', 'breathing', 'calculator', 'calendar', 'clock', 'convert', 'countdown', 'econgraphs',
+      'alarms', 'atlas', 'bible', 'breathing', 'calculator', 'calendar', 'clock', 'convert', 'countdown', 'econgraphs',
       'emoji', 'flashcards', 'helpdesk', 'links', 'message', 'music', 'noise', 'notes', 'picture', 'qr', 'random',
       'scoreboard', 'slides', 'soundboard', 'stopwatch', 'timer', 'video', 'weather', 'whiteboard', 'wordcount',
     ]);
