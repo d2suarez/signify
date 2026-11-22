@@ -62,7 +62,7 @@ export default async function QuizResultsPage({ params }: { params: Promise<{ id
           <h2 id="qa-title" style={{ fontSize: 22 }}>{d.quizItemAnalysis}</h2>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.quizItemAnalysisHint}</p>
           {analysis.students === 0 ? <p className="empty">{d.quizNobodyYet}</p> : (
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ overflowX: "auto", position: "relative" }}>
               <table className="plain-table">
                 <thead>
                   <tr><th scope="col">#</th><th scope="col">{d.quizQuestion}</th><th scope="col">{d.quizPercentCorrect}</th><th scope="col">{d.quizAverage}</th><th scope="col">{d.quizToScore}</th></tr>

@@ -128,7 +128,7 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
                   )}
                   <form action={act} className="row" style={{ alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                     <input type="hidden" name="key" value={f.key ?? ""} />
-                    <div className="grow" style={{ minWidth: 220 }}>
+                    <div className="grow" style={{ minWidth: "min(220px, 100%)" }}>
                       <b lang={f.language}>{f.title}</b>{f.version ? ` (${f.version})` : ""} {f.followed && <span className="chip">{d.stdFollowing}</span>}
                       <details>
                         <summary className="muted" style={{ fontSize: 13 }}>{d.stdLicense}: <span lang="en">{f.licenseTitle}</span></summary>

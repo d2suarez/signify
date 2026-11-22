@@ -25,7 +25,7 @@ export default function Accommodations({ courseId, students, d }: { courseId: st
   };
   if (!rows.length) return <p className="empty">{d.noStudents}</p>;
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div style={{ overflowX: "auto", position: "relative" }}>
       <table className="plain-table">
         <thead><tr><th scope="col">{d.student}</th><th scope="col">{d.quizExtraTime}</th><th scope="col">{d.quizExtraAttempts}</th><th scope="col"><span className="sr-only">{d.saved}</span></th></tr></thead>
         <tbody>

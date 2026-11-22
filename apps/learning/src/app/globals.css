@@ -714,3 +714,25 @@ html[data-size="larger"] .drawer-in { zoom: 1.45; }
 html[data-contrast="high"] .drawer { border-right: 2px solid var(--ink); }
 html[data-contrast="high"] .drawer-link[aria-current="page"] { outline: 2px solid var(--ink); }
 .drawer .btn { min-height: 44px; }
+
+/* Phone width (375px) with Larger text and the dyslexia font: nothing may push the page wider.
+   Screen-reader-only text inside a sideways scroller is placed against the body unless the
+   scroller is positioned, and then makes the whole page scroll. */
+:is(.strip, .cal-wrap, .gb-scroll, .rubric, .desk-list, .work-text) { position: relative; }
+fieldset { min-width: 0; }
+.row > * { max-width: 100%; }
+.btn { max-width: 100%; }
+.check { white-space: normal; }
+.check input { flex: none; }
+.seg { flex-wrap: wrap; max-width: 100%; border-radius: 22px; }
+.block-head { flex-wrap: wrap; }
+.island { max-width: 100%; }
+.island .chip { white-space: normal; min-width: 0; }
+.checks li, .facts li { overflow-wrap: anywhere; }
+.checks li > *, .facts li > * { min-width: 0; }
+/* Long addresses and names break rather than push the page wider; wide tables scroll in their own box. */
+body { overflow-wrap: break-word; }
+.scale-table, .conv-table { display: block; max-width: 100%; overflow-x: auto; position: relative; }
+/* Page titles are 34px; on a phone (and zoomed by Larger) that leaves a few letters a line. Not lesson slides. */
+@media (max-width: 600px) { .page h1:not(.stage h1) { font-size: clamp(26px, 8vw, 34px) !important; } }
+.projector-bar { flex-wrap: wrap; }
