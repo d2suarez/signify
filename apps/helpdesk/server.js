@@ -17,6 +17,7 @@ const express = require('express');
 const compression = require('compression');
 const next = require('next');
 const signify = require('./signify-auth');
+const deskBearer = require('./desk-bearer');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const PRODUCTION = !!process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
@@ -150,6 +151,8 @@ async function main() {
     if (req.method === 'OPTIONS') return res.status(204).end();
     nextFn();
   });
+  // ...or the desk server itself, asking for a teacher (desk-bearer.js).
+  app.use('/api/desk', deskBearer.middleware);
 
   // Hand whoever this is to Next, then let Next render.
   app.use((req, res, nextFn) => {

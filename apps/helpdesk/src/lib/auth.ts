@@ -28,6 +28,8 @@ export type SignifyClaims = {
   tenantName?: string | null;
   tenantKind?: string | null;
   perms?: Record<string, string>;
+  /** Set when Teacher's Desk asked on this person's behalf (desk-bearer.js). */
+  vouchedBy?: string;
 };
 
 const USER_HEADER = "x-signify-user";
@@ -81,6 +83,14 @@ export const getCurrentUser = cache(async () => {
   };
 
   let user = await prisma.user.findUnique({ where: { signifyId: c.id } });
+
+  // A token Teacher's Desk forwarded carries the desk's permissions, not this
+  // app's, so it cannot say whether someone is an agent here. Keep the role
+  // on file; a real visit to the help desk is what changes it.
+  if (c.vouchedBy && user) {
+    data.role = user.role as typeof data.role;
+    data.roleLabel = user.roleLabel;
+  }
 
   if (!user) {
     // Someone new to the help desk. An address can change hands at a school,

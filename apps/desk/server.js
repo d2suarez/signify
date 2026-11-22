@@ -383,6 +383,40 @@ app.delete('/api/templates/:id', (req, res) => {
   ok(res, { deleted: true });
 });
 
+// ---------------- help desk ----------------
+// The help desk box asks through the desk, which vouches for the teacher with
+// the Signify ID token it already holds. The help desk's own sign-in cookie
+// lives on help.signify.one and ends with each day's Signify ID session, so
+// asking the browser to carry it meant "Connect" again every morning.
+// (A desk with no token of its own — opened from Schoology — answers
+// noVouch, and the box falls back to asking the help desk directly.)
+const HELPDESK_PATHS = new Set(['me', 'tickets']);
+app.all('/api/helpdesk/:what', wrap(async (req, res) => {
+  if (!HELPDESK_PATHS.has(req.params.what)) return bad(res, 404, 'Not found.');
+  if (!['GET', 'POST'].includes(req.method)) return bad(res, 405, 'Not allowed.');
+  const u = auth.requireTool(req, res, 'helpdesk'); if (!u) return;
+  if (!req.signifyToken || req.lti) return res.status(401).json({ error: 'Not signed in here.', noVouch: true });
+  let upstream;
+  try {
+    upstream = await fetch(`${HELPDESK_ORIGIN}/api/desk/${req.params.what}`, {
+      method: req.method,
+      headers: {
+        authorization: `Bearer ${req.signifyToken}`,
+        ...(req.method === 'POST' ? { 'content-type': 'application/json' } : {}),
+      },
+      body: req.method === 'POST' ? JSON.stringify(req.body || {}) : undefined,
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    console.error('desk: help desk unreachable —', e.message);
+    return bad(res, 502, 'The help desk could not be reached.');
+  }
+  const data = await upstream.json().catch(() => ({}));
+  if (upstream.status === 401) console.warn('desk: help desk refused the desk\'s token (401)');
+  res.set('Cache-Control', 'no-store');
+  res.status(upstream.status).json(upstream.status === 401 ? { ...data, noVouch: true } : data);
+}));
+
 // ---------------- weather ----------------
 // Proxied so the browsers never talk to a third party; see server/weather.js.
 

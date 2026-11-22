@@ -5,15 +5,21 @@
 // form that files a request with the Signify Help Desk (help.signify.one),
 // and the last few requests you sent with where each one stands.
 //
-// The desk server is not involved. The browser talks to the help desk
-// directly — a sibling on the same site, so it carries the help desk's own
-// sign-in cookie, and the help desk decides who is asking. The first time,
-// that cookie does not exist yet: "Connect" opens the help desk in a small
-// window, Signify ID signs the teacher in there (usually without a click),
-// and the window closes itself.
+// The desk server asks the help desk on the teacher's behalf (/api/helpdesk/*),
+// vouching with the Signify ID sign-in the desk already holds. Only when it
+// cannot (a desk opened from Schoology) does the browser talk to the help desk
+// directly with the help desk's own cookie, and offer "Connect" when that
+// cookie has lapsed.
 //
-// Nothing about a request is kept on the board. The card holds only the place
-// the teacher last picked, so they are not asked for it every time.
+// Nothing about a request is kept on the board. The card holds the place the
+// teacher last picked, and the help desk's options (categories, places) as
+// they were the last time it answered — school settings, nothing personal.
+//
+// The help desk sleeps when nobody uses it, and far more people open the desk
+// than file requests. So a card that has seen the options once draws from
+// them without asking, and the help desk is only woken when somebody actually
+// uses the box (clicks or types in it); that is also when "Your requests" is
+// fetched and the saved options are brought up to date.
 // ===================================================================
 
 (function (Desk) {
@@ -32,14 +38,33 @@
 
   const base = () => ((Desk.config && Desk.config.helpDeskUrl) || 'https://help.signify.one').replace(/\/+$/, '');
 
-  async function call(method, path, body) {
-    const res = await fetch(base() + path, {
+  // Asks through the desk first: the desk vouches for the teacher with the
+  // sign-in it already has, so there is nothing to connect. Only a desk that
+  // cannot vouch (opened from Schoology, or an older desk server) falls back
+  // to the browser carrying the help desk's own cookie — and to "Connect".
+  let direct = false;
+
+  async function send(url, method, body, withCookie) {
+    const res = await fetch(url, {
       method,
-      credentials: 'include',
+      credentials: withCookie ? 'include' : 'same-origin',
       headers: body ? { 'content-type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
+    return { res, data };
+  }
+
+  async function call(method, path, body) {
+    if (!direct) {
+      const { res, data } = await send(`/api/helpdesk/${path.replace(/^\/api\/desk\//, '')}`, method, body, false);
+      if (res.ok) return data;
+      if (res.status === 401 && data.noVouch) direct = true;
+      else if (res.status === 404 && !data.error) direct = true;
+      else if (res.status === 401) { const e = new Error('signed-out'); e.signedOut = true; throw e; }
+      else throw new Error(data.error || 'The help desk did not answer.');
+    }
+    const { res, data } = await send(base() + path, method, body, true);
     if (res.status === 401) { const e = new Error('signed-out'); e.signedOut = true; throw e; }
     if (!res.ok) throw new Error(data.error || 'The help desk did not answer.');
     return data;
@@ -59,6 +84,9 @@
     init(s) {
       if (typeof s.room !== 'string') s.room = '';
       s.room = s.room.slice(0, 120);
+      const o = s.options;
+      if (!o || typeof o !== 'object' || !Array.isArray(o.categories) || !o.categories.length
+          || !Array.isArray(o.locations)) delete s.options;
     },
 
     mount(ctx) {
@@ -67,6 +95,64 @@
       ctx.root.append(root);
       let alive = true;
       let kind = '';
+      let awake = false;   // the help desk has answered since this card mounted
+      let waking = null;
+      let formShown = false;
+      let drawnFrom = '';  // the options the form on screen was drawn from
+      let recentBox = null;
+
+      // What is worth keeping from an answer: the options, never the tickets.
+      function remember(me) {
+        const opts = {
+          categories: Array.isArray(me.categories) ? me.categories : [],
+          locations: Array.isArray(me.locations) ? me.locations : [],
+          helpDeskUrl: typeof me.helpDeskUrl === 'string' ? me.helpDeskUrl : '',
+        };
+        if (!opts.categories.length) return false;
+        if (JSON.stringify(opts) === JSON.stringify(s.options || null)) return false;
+        s.options = opts;
+        ctx.save();
+        return true;
+      }
+
+      function fillRecent(tickets) {
+        if (!recentBox) return;
+        Desk.clear(recentBox);
+        if (!tickets || !tickets.length) return;
+        const list = el('ul.hd-list');
+        for (const t of tickets) {
+          list.append(el('li', {}, [
+            el('a.hd-ticket', { href: t.url, target: '_blank', rel: 'noopener' }, [
+              el('span.hd-ticket-title', { text: `#${t.id} ${t.title}` }),
+              el(`span.hd-status.hd-status--${String(t.status).toLowerCase()}`, { text: t.statusLabel }),
+            ]),
+          ]));
+        }
+        recentBox.append(el('p.hd-label', { text: 'Your requests' }), list);
+      }
+
+      // Somebody is using the box: wake the help desk, fetch their requests,
+      // and freshen the saved options. The form is NOT redrawn here — this
+      // runs on the pointerdown of a click, and swapping the button out under
+      // the pointer would swallow the click. New options show from the next
+      // time the card is drawn (or right after a request is sent).
+      function wake() {
+        if (!formShown || awake || waking) return waking;
+        if (recentBox) { Desk.clear(recentBox); recentBox.append(el('p.hint', { text: 'Checking your requests…' })); }
+        waking = call('GET', '/api/desk/me').then((me) => {
+          awake = true;
+          if (!alive) return;
+          remember(me);
+          fillRecent(me.tickets);
+        }).catch((err) => {
+          if (!alive) return;
+          if (err.signedOut) drawSignedOut();
+          else if (recentBox) { Desk.clear(recentBox); }
+        }).finally(() => { waking = null; });
+        return waking;
+      }
+      root.addEventListener('pointerdown', () => wake(), true);
+      root.addEventListener('focusin', () => wake());
 
       function onMessage(e) {
         if (e.origin !== base()) return;
@@ -82,6 +168,7 @@
       }
 
       function drawSignedOut() {
+        formShown = false;
         Desk.clear(root);
         root.append(
           el('div.hd-connect', {}, [
@@ -94,6 +181,7 @@
       }
 
       function drawError(message) {
+        formShown = false;
         Desk.clear(root);
         root.append(el('div.hd-connect', {}, [
           el('p.hint', { text: message }),
@@ -103,6 +191,8 @@
       }
 
       function drawForm(me) {
+        formShown = true;
+        drawnFrom = JSON.stringify(me === s.options ? s.options : null);
         Desk.clear(root);
         const kinds = Array.isArray(me.categories) && me.categories.length ? me.categories : KINDS;
         const places = Array.isArray(me.locations) ? me.locations : [];
@@ -212,7 +302,7 @@
               details.value = '';
               device.value = '';
               urgent.checked = false;
-              load();
+              refresh();
             } catch (err) {
               if (err.signedOut) drawSignedOut();
               else toast(err.message, 'warn');
@@ -230,31 +320,42 @@
           send,
         ]);
 
-        const list = el('ul.hd-list');
-        for (const t of me.tickets || []) {
-          list.append(el('li', {}, [
-            el('a.hd-ticket', { href: t.url, target: '_blank', rel: 'noopener' }, [
-              el('span.hd-ticket-title', { text: `#${t.id} ${t.title}` }),
-              el(`span.hd-status.hd-status--${String(t.status).toLowerCase()}`, { text: t.statusLabel }),
-            ]),
-          ]));
-        }
-
         root.append(form);
-        if (me.tickets && me.tickets.length) {
-          root.append(el('div.hd-recent', {}, [el('p.hd-label', { text: 'Your requests' }), list]));
+        recentBox = el('div.hd-recent');
+        root.append(recentBox);
+        if (!awake) {
+          recentBox.append(el('button.btn.btn--ghost.btn--small', { type: 'button', onclick: () => wake() }, 'Show my requests'));
         }
         root.append(
           el('a.hint.hd-open', { href: me.helpDeskUrl || base(), target: '_blank', rel: 'noopener', svg: icon('external', 12) }, ' Open the help desk'),
         );
       }
 
+      // The help desk is awake (a request was just sent): bring the list and
+      // the saved options up to date without throwing the form away.
+      async function refresh() {
+        try {
+          const me = await call('GET', '/api/desk/me');
+          if (!alive) return;
+          awake = true;
+          remember(me);
+          if (s.options && JSON.stringify(s.options) !== drawnFrom) drawForm(s.options);
+          fillRecent(me.tickets);
+        } catch { /* the toast already said it was sent */ }
+      }
+
+      // The first time (no saved options yet), or after connecting.
       async function load() {
+        formShown = false;
         Desk.clear(root);
         root.append(el('p.hint', { text: 'Asking the help desk…' }));
         try {
           const me = await call('GET', '/api/desk/me');
-          if (alive) drawForm(me);
+          if (!alive) return;
+          awake = true;
+          remember(me);
+          drawForm(s.options || me);
+          fillRecent(me.tickets);
         } catch (err) {
           if (!alive) return;
           if (err.signedOut) drawSignedOut();
@@ -262,7 +363,8 @@
         }
       }
 
-      load();
+      if (s.options) drawForm(s.options);
+      else load();
       return {
         destroy() {
           alive = false;
