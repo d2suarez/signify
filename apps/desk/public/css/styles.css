@@ -3268,3 +3268,17 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 .cp-photo > .btn { align-self: center; }
 .cp-name { display: flex; align-items: center; gap: .35rem; margin: 0; font-size: .85rem; color: var(--muted); }
 .cp-name-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+
+/* ---------- framed by Signify Learning (/embed, js/embed.js) ----------
+   Just the cards, one column, nothing behind them: the frame sits in a
+   card of Learning's own, so the desk's dotted paper would be a second
+   background. The theme's colours still apply to the cards. */
+body.is-embed { background: transparent; overflow-x: hidden; }
+body.is-embed #app { min-height: 0; }
+.board.board--embed { padding: 2px; background: none; grid-template-columns: 1fr; }
+.board--embed .card-head { cursor: default; }
+.board--embed .desk-mark { display: block; width: 16px; height: 16px; }
+.embed-note { padding: 12px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.embed-note p { margin: 0; }
+/* In a frame the two buttons are always there: there is no desk around the card to hover first. */
+.board--embed .card-actions { opacity: 1; visibility: visible; pointer-events: auto; }

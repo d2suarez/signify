@@ -512,6 +512,29 @@ app.get('/what-is-held', (req, res) => {
   res.type('html').send(inventory.page({ host: CANONICAL_HOST || req.get('host') }));
 });
 
+// ---------------- framed by another Signify app ----------------
+
+// Signify Learning's left rail frames /embed: the person's own desk cards,
+// with their own desk sign-in (a sibling on signify.one, so the cookie
+// comes). Only these origins may frame it; everything else stays
+// frame-ancestors 'none'. EMBED_FRAME_ORIGINS (space separated) overrides.
+const EMBED_ORIGINS = (process.env.EMBED_FRAME_ORIGINS
+  || (process.env.RAILWAY_ENVIRONMENT ? 'https://learn.signify.one'
+    : 'https://learn.signify.one http://localhost:3120 http://localhost:3121 http://localhost:3127'))
+  .split(/[\s,]+/).filter((o) => /^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(o));
+let embedPage = null;
+app.get('/embed', (req, res) => {
+  if (!embedPage) {
+    embedPage = require('fs').readFileSync(path.join(__dirname, 'public', 'embed.html'), 'utf8')
+      .replace('__EMBED_ORIGINS__', EMBED_ORIGINS.join(' '));
+  }
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', String(res.getHeader('Content-Security-Policy'))
+    .replace("frame-ancestors 'none'", `frame-ancestors ${EMBED_ORIGINS.join(' ') || "'none'"}`));
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(embedPage);
+});
+
 // ---------------- static ----------------
 
 app.use(express.static(path.join(__dirname, 'public'), {

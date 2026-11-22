@@ -45,6 +45,10 @@ window.Desk = window.Desk || {};
     // A visitor who has not signed in. Their board lives in this browser
     // only and never reaches the server — there is no account to keep it in.
     guest: false,
+    // Framed by another Signify app (Learning's left rail, /embed): only
+    // these cards are drawn, in this order, as one column. Every other card
+    // is still on the desk and still saved, untouched.
+    shown: null,
   };
 
   // Versioned: a visitor who has only ever seen the first, jumbled guest
@@ -258,6 +262,8 @@ window.Desk = window.Desk || {};
     node.style.setProperty('--w', item.w);
     node.style.setProperty('--h', item.h);
 
+    if (board.shown) return embedCard(node, def, item);
+
     const head = el('header.card-head', {}, [
       el('span.card-grip', { svg: icon('drag', 16), title: 'Drag to move' }),
       // The shape says which family the tool belongs to. It replaces the
@@ -274,6 +280,28 @@ window.Desk = window.Desk || {};
     node.append(head, el('div.card-body'), el('div.card-resize', { title: 'Drag to resize' }));
     head.addEventListener('pointerdown', (e) => startDrag(e, item, node, 'move'));
     node.querySelector('.card-resize').addEventListener('pointerdown', (e) => startDrag(e, item, node, 'resize'));
+    return node;
+  }
+
+  /**
+   * A card in another app's frame: no moving, resizing, recolouring or
+   * removing (that is what the desk itself is for), just Open larger and a
+   * way to the whole desk in its own window.
+   */
+  function embedCard(node, def, item) {
+    const name = def ? def.name : item.type;
+    const head = el('header.card-head', {}, [
+      Desk.widgets.marker(def ? def.category : 'other'),
+      el('h2.card-title', { text: name }),
+      el('div.card-actions', {}, [
+        el('a.icon-btn', {
+          href: '/', target: '_blank', rel: 'noopener',
+          title: 'Open Teacher’s Desk in a new window', 'aria-label': `Open Teacher’s Desk in a new window (${name})`,
+        }, [el('img.desk-mark', { src: '/icons/icon.svg', alt: '', width: 16, height: 16 })]),
+        el('button.icon-btn', { title: 'Open larger', 'aria-label': `Open larger: ${name}`, svg: icon('expand', 16), onclick: () => openStage(item.id) }),
+      ]),
+    ]);
+    node.append(head, el('div.card-body'));
     return node;
   }
 
@@ -352,7 +380,9 @@ window.Desk = window.Desk || {};
     root.dataset.cols = String(cols);
     root.style.setProperty('--cols', String(cols));
 
-    const order = board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    const order = board.shown
+      ? board.shown.map((id) => board.items.find((i) => i.id === id)).filter(Boolean)
+      : board.items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
     const present = new Set(order.map((i) => i.id));
 
     for (const id of [...board.instances.keys()]) {
@@ -362,8 +392,13 @@ window.Desk = window.Desk || {};
     for (const item of order) {
       let inst = board.instances.get(item.id);
       if (!inst) {
-        const node = cardFor(item);
-        root.append(node);
+        // A card open larger has no instance but still has its node: reuse
+        // it, and leave it empty until the big view closes and remounts it.
+        // (Without this, a resize while a card was open larger drew a second
+        // copy of the card: the embed's frame always resizes then.)
+        let node = root.querySelector(`[data-id="${CSS.escape(item.id)}"]`);
+        if (!node) { node = cardFor(item); root.append(node); }
+        if (board.stage && board.stage.id === item.id) { position(node, item); root.append(node); continue; }
         mountInstance(item, node);
         inst = board.instances.get(item.id);
         if (!inst) board.instances.set(item.id, { def: null, item, api: {}, node });
@@ -375,7 +410,7 @@ window.Desk = window.Desk || {};
     }
 
     root.querySelector('.board-empty')?.remove();
-    if (!board.items.length) {
+    if (!board.items.length && !board.shown) {
       root.append(el('div.board-empty', {}, [
         el('p', { text: 'Your desk is empty.' }),
         el('button.btn.btn--primary', { text: 'Add a tool', onclick: () => Desk.app.openCatalogue() }),
@@ -906,6 +941,7 @@ window.Desk = window.Desk || {};
 
     document.body.append(stage);
     document.body.classList.add('has-stage');
+    tellParent({ stage: true });
     const cardNode = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
     stageMotion(stage, cardNode, 'open');
 
@@ -928,6 +964,7 @@ window.Desk = window.Desk || {};
       stage.remove();
       document.body.classList.remove('has-stage');
       board.stage = null;
+      tellParent({ stage: false });
       // Put the card back the way the big view left things.
       const node = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
       if (node) mountInstance(item, node);
@@ -955,7 +992,45 @@ window.Desk = window.Desk || {};
 
   // ---------- boot ----------
 
-  function init({ root, data, me, guest = false, storage = null }) {
+  /** Messages to the app framing this desk (Learning), only to the origin it said it was. */
+  function tellParent(msg) {
+    if (!board.shown || !board.parentOrigin || window.parent === window) return;
+    try { window.parent.postMessage({ desk: 1, ...msg }, board.parentOrigin); } catch { /* not framed after all */ }
+  }
+
+  /**
+   * The cards to show in a frame, one per type asked for, in that order: the
+   * first card of that type already on the desk (so it is the same timer,
+   * the same seating plans), or a new one put down BELOW everything on the
+   * desk, never moving a card that is there. Types this person may not have
+   * are skipped.
+   */
+  function pickShown(types, classKey) {
+    const ids = [];
+    for (const type of types) {
+      const def = Desk.widgets.get(type);
+      if (!def || !Desk.widgets.allowed(board.me, def)) continue;
+      let item = board.items.find((i) => i.type === type && !ids.includes(i.id));
+      if (!item) {
+        if (board.items.length >= MAX_ITEMS) continue;
+        const bottom = board.items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
+        item = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, type, x: 0, y: bottom,
+          w: def.size.w, h: def.size.h, state: {} };
+        def.init(item.state);
+        board.items.push(item);
+        dirty = true;
+      }
+      // Opened from a class: tools that know the class start on it.
+      if (classKey && def.needsRoster && typeof item.state.classKey === 'string' && item.state.classKey !== classKey) {
+        item.state.classKey = classKey;
+        dirty = true;
+      }
+      ids.push(item.id);
+    }
+    return ids;
+  }
+
+  function init({ root, data, me, guest = false, storage = null, only = null, classKey = '', parentOrigin = '' }) {
     board.root = root;
     board.me = me;
     board.guest = guest;
@@ -967,6 +1042,11 @@ window.Desk = window.Desk || {};
       // has turned off for their role) simply is not drawn. The server keeps
       // such cards on the desk unseen, so they come back if it is turned on.
       .filter((i) => { const d = Desk.widgets.get(i.type); return !d || Desk.widgets.allowed(me, d); });
+    if (only) {
+      board.parentOrigin = parentOrigin;
+      board.shown = pickShown(only, classKey);
+      if (dirty) flush();
+    }
     render();
     startClocks();
 
