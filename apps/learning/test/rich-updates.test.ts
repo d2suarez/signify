@@ -5,7 +5,7 @@ import { openPglite, migrate, useDb, type Db } from "../src/lib/db";
 import { myCourses } from "../src/lib/courses";
 import { createAssignment } from "../src/lib/assignments";
 import { createLesson } from "../src/lib/lessons";
-import { feed, thread, createPosts, createPost, materialChoices, postablePlaces, setCourseRules, UpdateError, type Viewer } from "../src/lib/updates";
+import { feed, thread, createPosts, createPost, editPost, addComment, materialChoices, postablePlaces, setCourseRules, UpdateError, type Viewer } from "../src/lib/updates";
 import { normalizeDoc, docText, safeHref, videoFromUrl, videoSrc, docFromText } from "../src/lib/post-doc";
 import { memoryStore, useFileStore, saveFile, canOpen } from "../src/lib/files";
 import { teacherTasks, studentTasks } from "../src/lib/tasks";
@@ -227,4 +227,42 @@ test("to do: teachers see work to grade, due soon, drafts due soon and today's l
   assert.deepEqual(s.overdue.map((x) => x.id), ["miss", "late"]);
   assert.deepEqual(s.upcoming.map((x) => x.id), ["next"]);
   assert.equal(studentTasks(work, now, 14, { id: "c1", name: "Kid" }).overdue[0].who?.name, "Kid");
+});
+
+test("editing: only the author; every place changes; old versions kept; comments and unread untouched", async () => {
+  const para = (t: string) => ({ v: 1, nodes: [{ type: "p", content: [{ text: t }] }] });
+  const made = await createPosts(teacher, { to: [p1, p3], title: "Trip", doc: para("Bus at 8") });
+  await addComment(s1, made[0].id, "Got it");
+  const unreadBefore = (await feed(s3)).find((p) => p.groupId === made[0].groupId)!.unread;
+  await assert.rejects(editPost(s1, made[0].id, { doc: para("hacked") }), (e: UpdateError) => e.code === "forbidden");
+  await assert.rejects(editPost(artTeacher, made[0].id, { doc: para("x") }), (e: UpdateError) => e.code === "notfound");
+  await assert.rejects(editPost(teacher, made[0].id, { doc: para("   ") }), (e: UpdateError) => e.code === "empty");
+  const e = await editPost(teacher, made[0].id, { title: "Field trip", doc: para("Bus at 7:30") });
+  assert.ok(e.editedAt);
+  for (const m of made) {
+    const [row] = await db.query("SELECT title, body, edited_at FROM posts WHERE id = $1", [m.id]);
+    assert.equal(row.title, "Field trip");
+    assert.equal(row.body, "Bus at 7:30", "every place of the update changed");
+    assert.ok(row.edited_at);
+  }
+  const hist = await db.query("SELECT post_id, body, edited_by FROM post_edits WHERE post_id = ANY($1::uuid[])", [made.map((m) => m.id)]);
+  assert.equal(hist.length, 2);
+  assert.ok(hist.every((h) => h.body === "Bus at 8" && h.edited_by === "t1"), "the earlier words are kept");
+  assert.equal((await thread(s1, made[0].id))!.comments.length, 1, "comments stay");
+  assert.equal((await feed(s3)).find((p) => p.groupId === made[0].groupId)!.unread, unreadBefore, "an edit doesn't mark it unread");
+  assert.equal((await feed(s1, { courseId: p1 })).find((p) => p.id === made[0].id)!.canEdit, false);
+  assert.equal((await feed(teacher, { courseId: p1 })).find((p) => p.id === made[0].id)!.canEdit, true);
+});
+
+test("editing: a student's own post, only while posts are on; another class's file can't be slipped in", async () => {
+  const [mine] = await createPosts(s1, { to: [p1], body: "Study group?" });
+  const edited = await editPost(s1, mine.id, { doc: { v: 1, nodes: [{ type: "p", content: [{ text: "Study group at lunch?" }] }] } });
+  assert.equal(edited.body, "Study group at lunch?");
+  const artFile = await saveFile({ tenantId: T, userId: "t2", role: "teacher" }, art, "secret2.png", PNG);
+  const [tp] = await createPosts(teacher, { to: [p1], body: "Pic soon" });
+  const after = await editPost(teacher, tp.id, { doc: { nodes: [{ type: "p", content: [{ text: "Here" }] }, { type: "file", fileId: artFile.id, name: "x", kind: "image", alt: "" }] } });
+  assert.deepEqual(after.doc.nodes.map((n) => n.type), ["p"]);
+  await setCourseRules(teacher, p1, { studentPosts: false, studentComments: true });
+  await assert.rejects(editPost(s1, mine.id, { body: "again" }), (e: UpdateError) => e.code === "off");
+  await setCourseRules(teacher, p1, { studentPosts: true, studentComments: true });
 });

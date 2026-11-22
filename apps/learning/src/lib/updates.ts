@@ -53,6 +53,10 @@ export type Post = {
   places: Place[];
   /** Material links in the document, as this viewer may follow them. */
   materials: Record<string, MaterialView>;
+  /** Last changed by its author (null = never). */
+  editedAt: string | null;
+  /** The author may change it. */
+  canEdit: boolean;
   authorId: string; authorName: string; authorKind: "staff" | "student";
   status: PostStatus; createdAt: string; activityAt: string;
   comments: number; unread: boolean;
@@ -123,6 +127,7 @@ function toPost(v: Viewer, r: Row, rules: Map<string, CourseRules>): Post {
     title: String(r.title), body: String(r.body),
     doc: r.doc ? normalizeDoc(r.doc) : docFromText(String(r.body)), groupId: r.group_id ? String(r.group_id) : null,
     places: [], materials: {},
+    editedAt: r.edited_at ? iso(r.edited_at) : null, canEdit: r.author_id === v.userId && r.status !== "deleted",
     authorId: String(r.author_id), authorName: String(r.author_name ?? ""),
     authorKind: r.author_kind === "student" ? "student" : "staff", status: r.status as PostStatus,
     createdAt: iso(r.created_at), activityAt: iso(r.activity_at), comments: Number(r.comments ?? 0),
@@ -322,28 +327,7 @@ export async function createPosts(v: Viewer, input: { to: unknown[]; title?: unk
   }
   const title = clean(input.title, UPDATE_LIMITS.title).replace(/\s+/g, " ");
   const db = await getDb();
-  const teaches = [...v.courses].filter(([, r]) => r === "teacher").map(([c]) => c);
-
-  let doc: PostDoc | null = null;
-  if (input.doc != null && input.doc !== "") {
-    let raw: unknown = input.doc;
-    if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
-    doc = normalizeDoc(raw);
-    const fileIds = docFileIds(doc);
-    const okFiles = new Set(fileIds.length ? (await db.query(
-      `SELECT id FROM course_files WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND (uploaded_by = $3 OR course_id = ANY($4::uuid[]))`,
-      [v.tenantId, fileIds, v.userId, teaches])).map((r) => String(r.id)) : []);
-    const mats = docMaterials(doc);
-    const okMats = new Set<string>();
-    for (const [kind, table] of [["assignment", "assignments"], ["lesson", "lessons"], ["resource", "class_resources"]] as const) {
-      const want = mats.filter((m) => m.kind === kind).map((m) => m.id);
-      if (!want.length || !teaches.length) continue;
-      const rows = await db.query(`SELECT id FROM ${table} WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND course_id = ANY($3::uuid[])`, [v.tenantId, want, teaches]);
-      for (const r of rows) okMats.add(`${kind}:${r.id}`);
-    }
-    doc = filterDoc(doc, (n) => n.type === "file" ? okFiles.has(n.fileId) : n.type === "material" ? okMats.has(`${n.kind}:${n.id}`) : true);
-    if (docIsEmpty(doc)) doc = null;
-  }
+  const doc = await cleanDoc(v, input.doc);
   const body = doc ? docText(doc).slice(0, UPDATE_LIMITS.body) : clean(input.body, UPDATE_LIMITS.body);
   if (!body && !doc) throw new UpdateError("empty");
 
@@ -370,6 +354,73 @@ export async function createPosts(v: Viewer, input: { to: unknown[]; title?: unk
   });
   const rules = await rulesFor(courseIds, v.tenantId);
   return made.map((r) => toPost(v, { ...r, read_at: r.created_at, comments: 0 }, rules));
+}
+
+/**
+ * The editor's document as this viewer may post it: normalised, pictures and
+ * files only their own uploads or their classes', material links only from
+ * classes they teach. Null when nothing is left (or none was sent).
+ */
+async function cleanDoc(v: Viewer, input: unknown): Promise<PostDoc | null> {
+  if (input == null || input === "") return null;
+  let raw: unknown = input;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+  let doc = normalizeDoc(raw);
+  const db = await getDb();
+  const teaches = [...v.courses].filter(([, r]) => r === "teacher").map(([c]) => c);
+  const fileIds = docFileIds(doc);
+  const okFiles = new Set(fileIds.length ? (await db.query(
+    `SELECT id FROM course_files WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND (uploaded_by = $3 OR course_id = ANY($4::uuid[]))`,
+    [v.tenantId, fileIds, v.userId, teaches])).map((r) => String(r.id)) : []);
+  const mats = docMaterials(doc);
+  const okMats = new Set<string>();
+  for (const [kind, table] of [["assignment", "assignments"], ["lesson", "lessons"], ["resource", "class_resources"]] as const) {
+    const want = mats.filter((m) => m.kind === kind).map((m) => m.id);
+    if (!want.length || !teaches.length) continue;
+    const rows = await db.query(`SELECT id FROM ${table} WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND course_id = ANY($3::uuid[])`, [v.tenantId, want, teaches]);
+    for (const r of rows) okMats.add(`${kind}:${r.id}`);
+  }
+  doc = filterDoc(doc, (n) => n.type === "file" ? okFiles.has(n.fileId) : n.type === "material" ? okMats.has(`${n.kind}:${n.id}`) : true);
+  return docIsEmpty(doc) ? null : doc;
+}
+
+/**
+ * The author changes an update's title and words. Sent to several places,
+ * it changes in every one of them (the author's own posts of that group
+ * that aren't deleted). Each post's previous version goes to `post_edits`
+ * first. Comments, readers and unread markers stay as they were.
+ */
+export async function editPost(v: Viewer, postId: string, input: { title?: unknown; doc?: unknown; body?: unknown }): Promise<Post> {
+  const p = await visiblePost(v, postId);
+  if (!p || p.author_id !== v.userId) throw new UpdateError(p ? "forbidden" : "notfound");
+  const db = await getDb();
+  const group = p.group_id
+    ? await db.query("SELECT * FROM posts WHERE tenant_id = $1 AND group_id = $2 AND author_id = $3 AND status <> 'deleted'", [v.tenantId, p.group_id, v.userId])
+    : [p];
+  // Still allowed to post there (a student whose teacher turned posts off can't change one).
+  for (const g of group) {
+    if (!(await mayPost(v, g.course_id ? String(g.course_id) : null))) throw new UpdateError(v.kind === "student" ? "off" : "forbidden");
+  }
+  const title = clean(input.title, UPDATE_LIMITS.title).replace(/\s+/g, " ");
+  const doc = await cleanDoc(v, input.doc);
+  const body = doc ? docText(doc).slice(0, UPDATE_LIMITS.body) : clean(input.body, UPDATE_LIMITS.body);
+  if (!body && !doc) throw new UpdateError("empty");
+  const files = doc ? docFileIds(doc) : [];
+  await db.tx(async (q) => {
+    for (const g of group) {
+      await q.query(
+        `INSERT INTO post_edits (tenant_id, post_id, title, body, doc, file_ids, edited_by)
+         VALUES ($1, $2, $3, $4, $5, $6::uuid[], $7)`,
+        [v.tenantId, g.id, g.title, g.body, g.doc ? JSON.stringify(g.doc) : null, g.file_ids ?? [], v.userId],
+      );
+      await q.query(
+        `UPDATE posts SET title = $3, body = $4, doc = $5, file_ids = $6::uuid[], edited_at = now() WHERE tenant_id = $1 AND id = $2`,
+        [v.tenantId, g.id, title, body, doc ? JSON.stringify(doc) : null, files],
+      );
+    }
+  });
+  const t = await thread(v, postId);
+  return t!.post;
 }
 
 /** The places this viewer may post to now: their classes/clubs (as rules allow) and maybe the whole school. */

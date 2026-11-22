@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { updatesViewer } from "@/lib/access";
-import { createPost, createPosts, addComment, moderatePost, moderateComment, setCourseRules, markRead, UpdateError, type ModOp } from "@/lib/updates";
+import { createPost, createPosts, editPost, addComment, moderatePost, moderateComment, setCourseRules, markRead, UpdateError, type ModOp } from "@/lib/updates";
 
 const back = (f: FormData, fallback: string) => {
   const b = String(f.get("back") || "");
@@ -41,6 +41,22 @@ export async function postRichUpdate(f: FormData): Promise<{ ok: true; count: nu
     const made = await createPosts(v, { to: f.getAll("to"), title: f.get("title"), doc: f.get("doc") });
     revalidatePath(back(f, "/").split("?")[0]);
     return { ok: true, count: made.length };
+  } catch (e) {
+    if (e instanceof UpdateError) return { error: e.code };
+    throw e;
+  }
+}
+
+/** The author's change to an update (every place it went). */
+export async function editRichUpdate(f: FormData): Promise<{ ok: true; count: number } | { error: string }> {
+  const v = await updatesViewer();
+  if (!v) return { error: "forbidden" };
+  const postId = String(f.get("postId") || "");
+  try {
+    const p = await editPost(v, postId, { title: f.get("title"), doc: f.get("doc") });
+    revalidatePath(`/updates/${postId}`);
+    revalidatePath(back(f, "/").split("?")[0]);
+    return { ok: true, count: p.places.length };
   } catch (e) {
     if (e instanceof UpdateError) return { error: e.code };
     throw e;

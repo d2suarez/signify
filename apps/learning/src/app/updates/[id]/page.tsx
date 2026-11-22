@@ -5,14 +5,19 @@ import { lang, updatesViewer } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { thread, markRead, UPDATE_LIMITS } from "@/lib/updates";
 import { TopBar } from "@/components/TopBar";
+import { When } from "@/components/When";
 import { Byline, UpdateErrorNote, PostBody } from "@/components/Updates";
 import { commentOn, moderate } from "../actions";
+import PostComposer from "@/components/PostComposer";
+import { composerSetup } from "@/lib/composer";
+import { myCourses } from "@/lib/courses";
+import { myClasses } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /** One post and its comments. Opening it marks it read. */
-export default async function UpdateThread({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string }> }) {
-  await requireMe();
+export default async function UpdateThread({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; edit?: string; back?: string }> }) {
+  const me = await requireMe();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const L = await lang();
   const d = dict(L);
@@ -23,6 +28,10 @@ export default async function UpdateThread({ params, searchParams }: { params: P
   const { post, comments } = t;
   const here = `/updates/${post.id}`;
   const where = post.courseId ? post.courseName : d.updWholeSchool;
+  // The author changing it: the editor, filled with the post, in place of the post.
+  const editing = sp.edit === "1" && post.canEdit;
+  const backTo = sp.back && sp.back.startsWith("/") && !sp.back.startsWith("//") ? sp.back : here;
+  const setup = editing ? await composerSetup(v, await myCourses(me.tenantId, (await myClasses()).classes, me.id), d.updWholeSchool) : null;
   const ModButtons = ({ commentId, status, label }: { commentId?: string; status: string; label: string }) => (
     <form action={moderate} className="row" style={{ gap: 4 }}>
       <input type="hidden" name="postId" value={post.id} />
@@ -41,7 +50,14 @@ export default async function UpdateThread({ params, searchParams }: { params: P
       <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href="/updates">{d.updTitle}</Link>{post.courseId && <> · <Link href={`/courses/${post.courseId}`}>{post.courseName}</Link></>}</>} />
       <main className="page stack updates-page">
         <UpdateErrorNote code={sp.updateError} d={d} />
-        <article className="card stack post-thread" style={{ gap: 10 }}>
+        {setup && (
+          <div className="card composer-card">
+            <PostComposer places={setup.places} materials={setup.materials} canUpload={setup.canUpload} uploadFallback={post.courseId && v.courses.get(post.courseId) === "teacher" ? post.courseId : setup.uploadFallback}
+              d={d} placeholder={d.pcPlaceholderTeacher} back={backTo}
+              editing={{ postId: post.id, title: post.title, nodes: post.doc.nodes, placeNames: post.places.map((pl) => (pl.courseId ? pl.courseName : d.updWholeSchool)) }} />
+          </div>
+        )}
+        {!setup && <article className="card stack post-thread" style={{ gap: 10 }}>
           {post.status === "hidden" && <div className="notice">{d.updHiddenNote}</div>}
           {post.title && <h1 style={{ fontSize: 28 }}>{post.title}</h1>}
           <PostBody post={post} d={d} L={L} />
@@ -55,8 +71,12 @@ export default async function UpdateThread({ params, searchParams }: { params: P
               {" · "}{d.pcOwnComments}
             </p>
           )}
-          {(post.canModerate || post.authorId === v.userId) && <ModButtons status={post.status} label={post.title || post.body.slice(0, 40)} />}
-        </article>
+          {post.editedAt && <span className="muted" style={{ fontSize: 13 }}>{d.pcEdited} · <When iso={post.editedAt} lang={L} /></span>}
+          <div className="row" style={{ gap: 4 }}>
+            {post.canEdit && <Link className="btn btn-sm" href={`${here}?edit=1`}>{d.pcEdit}</Link>}
+            {(post.canModerate || post.authorId === v.userId) && <ModButtons status={post.status} label={post.title || post.body.slice(0, 40)} />}
+          </div>
+        </article>}
 
         {v.kind !== "parent" && (
           <section className="stack" aria-labelledby="comments-title" style={{ gap: 8 }}>

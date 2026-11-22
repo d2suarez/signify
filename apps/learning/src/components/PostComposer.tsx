@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Dict } from "@/lib/i18n";
 import type { MaterialChoice } from "@/lib/updates";
 import { videoFromUrl, safeHref, type DocNode, type Inline } from "@/lib/post-doc";
-import { postRichUpdate } from "@/app/updates/actions";
+import { postRichUpdate, editRichUpdate } from "@/app/updates/actions";
 
 export type ComposerPlace = { id: string; name: string; kind: "school" | "class" | "club"; teach: boolean };
 
@@ -23,15 +23,17 @@ const MAX = 25 * 1024 * 1024;
  * The editor never sends HTML: what's on screen is turned into the post
  * document (post-doc.ts) on every change, and the server normalises it again.
  */
-export default function PostComposer({ places, preselected = [], materials = [], canUpload, uploadFallback, d, placeholder, back }: {
+export default function PostComposer({ places, preselected = [], materials = [], canUpload, uploadFallback, d, placeholder, back, editing }: {
   places: ComposerPlace[]; preselected?: string[]; materials?: MaterialChoice[];
   canUpload: boolean; uploadFallback?: string | null; d: Dict; placeholder: string; back: string;
+  /** Changing an existing update: its id, title and document; the places stay as they are. */
+  editing?: { postId: string; title: string; nodes: DocNode[]; placeNames: string[] };
 }) {
   const router = useRouter();
   const ed = useRef<HTMLDivElement>(null);
   const range = useRef<Range | null>(null);
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
+  const [open, setOpen] = useState(!!editing);
+  const [title, setTitle] = useState(editing?.title ?? "");
   const [to, setTo] = useState<Set<string>>(() => new Set(preselected.length ? preselected : places.length === 1 ? [places[0].id] : []));
   const [nodes, setNodes] = useState<DocNode[]>([]);
   const [panel, setPanel] = useState<null | "link" | "video" | "material">(null);
@@ -46,6 +48,15 @@ export default function PostComposer({ places, preselected = [], materials = [],
   const classes = places.filter((p) => p.kind !== "school");
 
   const sync = useCallback(() => { if (ed.current) setNodes(serialize(ed.current)); }, []);
+
+  useEffect(() => {
+    if (!editing || !ed.current) return;
+    ed.current.replaceChildren(...editing.nodes.map((n) => nodeEl(n, d)));
+    setNodes(serialize(ed.current));
+    ed.current.focus();
+    // Only once: what's typed after this is the person's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     try { document.execCommand("styleWithCSS", false, "false"); document.execCommand("defaultParagraphSeparator", false, "p"); } catch { /* old browser */ }
@@ -147,6 +158,7 @@ export default function PostComposer({ places, preselected = [], materials = [],
   };
 
   const reset = () => {
+    if (editing) { router.push(back); return; }
     if (ed.current) ed.current.innerHTML = "";
     setNodes([]); setTitle(""); setPanel(null); setUrl(""); setNote(null); setOpen(false);
     setTo(new Set(preselected.length ? preselected : places.length === 1 ? [places[0].id] : []));
@@ -154,18 +166,20 @@ export default function PostComposer({ places, preselected = [], materials = [],
 
   const empty = nodes.length === 0;
   const submit = async () => {
-    if (!to.size) { setNote({ bad: true, text: d.pcPickPlace }); return; }
+    if (!editing && !to.size) { setNote({ bad: true, text: d.pcPickPlace }); return; }
     const doc = ed.current ? serialize(ed.current) : [];
     if (!doc.length) { setNote({ bad: true, text: d.updErrEmpty }); return; }
     setBusy("post");
     const fd = new FormData();
-    for (const id of to) fd.append("to", id);
+    if (editing) fd.set("postId", editing.postId);
+    else for (const id of to) fd.append("to", id);
     fd.set("title", title);
     fd.set("doc", JSON.stringify({ v: 1, nodes: doc }));
     fd.set("back", back);
-    const r = await postRichUpdate(fd).catch(() => ({ error: "failed" as const }));
+    const r = await (editing ? editRichUpdate(fd) : postRichUpdate(fd)).catch(() => ({ error: "failed" as const }));
     setBusy("");
-    if ("error" in r) { setNote({ bad: true, text: ({ off: d.updErrOff, empty: d.updErrEmpty, forbidden: d.updErrForbidden, noplace: d.pcPickPlace } as Record<string, string>)[r.error] ?? d.fileFailed }); return; }
+    if ("error" in r) { setNote({ bad: true, text: ({ off: d.updErrOff, empty: d.updErrEmpty, forbidden: d.updErrForbidden, noplace: d.pcPickPlace, notfound: d.updErrForbidden } as Record<string, string>)[r.error] ?? d.fileFailed }); return; }
+    if (editing) { router.push(back); router.refresh(); return; }
     reset();
     setNote({ bad: false, text: r.count > 1 ? d.pcPostedMany.replace("{n}", String(r.count)) : d.pcPosted });
     router.refresh();
@@ -295,7 +309,12 @@ export default function PostComposer({ places, preselected = [], materials = [],
         }}
       />
 
-      {open && (
+      {editing && (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          {d.pcEditingIn} {editing.placeNames.join(", ")}{editing.placeNames.length > 1 ? ` · ${d.pcEditAll}` : ""}
+        </p>
+      )}
+      {open && !editing && (
         <fieldset className="composer-to">
           <legend className="label">{d.pcPostTo}</legend>
           <div className="row" style={{ gap: 6 }}>
@@ -322,11 +341,11 @@ export default function PostComposer({ places, preselected = [], materials = [],
       {open && (
         <div className="row composer-actions">
           <span className="muted grow" style={{ fontSize: 13 }}>
-            {busy === "upload" ? d.fileUploading : to.size ? `${d.pcGoingTo} ${[...to].map((id) => names.get(id)).filter(Boolean).join(", ")}` : d.pcPickPlace}
+            {busy === "upload" ? d.fileUploading : editing ? "" : to.size ? `${d.pcGoingTo} ${[...to].map((id) => names.get(id)).filter(Boolean).join(", ")}` : d.pcPickPlace}
           </span>
           <button type="button" className="btn btn-sm" onClick={reset} disabled={busy === "post"}>{d.cancel}</button>
-          <button type="button" className="btn btn-primary" onClick={submit} disabled={!!busy || empty || !to.size}>
-            {busy === "post" ? d.saving : d.updPost}
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={!!busy || empty || (!editing && !to.size)}>
+            {busy === "post" ? d.saving : editing ? d.pcSaveChanges : d.updPost}
           </button>
         </div>
       )}
@@ -344,6 +363,41 @@ function Tool({ on, label, onClick, children }: { on?: boolean; label: string; o
 
 function Icon({ d }: { d: string }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={d} fill="currentColor" /></svg>;
+}
+
+/** A saved node back into the editor, so an update can be changed. */
+function nodeEl(n: DocNode, d: Dict): HTMLElement {
+  const runs = (parent: HTMLElement, rs: Inline[]) => {
+    for (const r of rs) {
+      let el: Node = document.createDocumentFragment();
+      r.text.split("\n").forEach((part, i) => {
+        if (i > 0) el.appendChild(document.createElement("br"));
+        if (part) el.appendChild(document.createTextNode(part));
+      });
+      for (const [on, tag] of [[r.u, "u"], [r.i, "i"], [r.b, "b"]] as const) {
+        if (!on) continue;
+        const w = document.createElement(tag); w.appendChild(el); el = w;
+      }
+      if (r.href) { const a = document.createElement("a"); a.href = r.href; a.appendChild(el); el = a; }
+      parent.appendChild(el);
+    }
+    return parent;
+  };
+  switch (n.type) {
+    case "p": return runs(document.createElement("p"), n.content);
+    case "h": return runs(document.createElement("h3"), n.content);
+    case "quote": return runs(document.createElement("blockquote"), n.content);
+    case "ul": case "ol": {
+      const list = document.createElement(n.type);
+      for (const it of n.items) list.appendChild(runs(document.createElement("li"), it));
+      return list;
+    }
+    default: {
+      const box = embedEl(n, d);
+      if (n.type === "file") { const alt = box.querySelector<HTMLInputElement>("[data-alt]"); if (alt) alt.value = n.alt; }
+      return box;
+    }
+  }
 }
 
 /** The non-editable box for a picture, file, video or Learning link inside the editor. */

@@ -81,7 +81,7 @@ function PostCard({ p, back, L, d, showWhere, card }: { p: Post; back: string; L
               </span>
             )}
           </div>
-          <span className="muted" style={{ fontSize: 13 }}><When iso={p.createdAt} lang={L} /></span>
+          <span className="muted" style={{ fontSize: 13 }}><When iso={p.createdAt} lang={L} />{p.editedAt && <> · {d.pcEdited}</>}</span>
         </div>
         {p.unread && <span className="pill pill-new">{d.updNew}</span>}
         {p.status === "hidden" && <span className="pill">{d.updHidden}</span>}
@@ -98,6 +98,7 @@ function PostCard({ p, back, L, d, showWhere, card }: { p: Post; back: string; L
           {p.comments > 0 ? `${p.comments} ${p.comments === 1 ? d.updComment : d.updComments}` : p.canComment ? d.updCommentGo : d.pcOpen}
         </Link>
         <span className="grow" />
+        {p.canEdit && <Link href={`/updates/${p.id}?edit=1&back=${encodeURIComponent(back)}`} className="btn btn-sm">{d.pcEdit}</Link>}
         {p.canModerate && (
           <form action={moderate} className="row" style={{ gap: 4 }}>
             <input type="hidden" name="postId" value={p.id} />
