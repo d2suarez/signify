@@ -576,7 +576,7 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .lightbox-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lightbox-bar .btn-sm, .lightbox-nav .btn { min-height: 44px; min-width: 44px; }
 .lightbox-count { margin-right: auto; font-weight: 700; }
-.lightbox-fig { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; touch-action: pan-y pinch-zoom; }
+.lightbox-fig { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; touch-action: pan-y pinch-zoom; }
 .lightbox-fig img { display: block; flex: 0 1 auto; min-height: min(calc(35dvh / var(--z)), 300px); max-width: 100%; max-height: calc((100dvh - 16px) / var(--z)); object-fit: contain; border-radius: var(--r-md); }
 .lightbox-orig { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; }
 .lightbox-fig figcaption { flex: none; max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
