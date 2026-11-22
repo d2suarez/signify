@@ -50,7 +50,7 @@
     const picked = card.hasAttribute('data-picked') && card.dataset.tone === 'card';
     const body = card.querySelector('.card-body');
     for (const e of card.querySelectorAll('*')) {
-      if (!visible(e) || e.closest('svg, canvas, img, video, iframe, .bib-read[data-theme], .note-paper')) continue;
+      if (!visible(e) || e.closest('svg, canvas, img, video, iframe, .bib-read[data-theme], .note-paper, [data-audit="skip"]')) continue;
       const s = getComputedStyle(e);
       const own = [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
       if (own) {

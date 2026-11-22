@@ -26,7 +26,9 @@ Any widget that paints with those tokens gets the tint for free.
    a tinted sheet. That is how a widget ends up "white in the middle".
    *Exception:* a surface whose colour **is** the content, such as a Bible
    reading theme, the pupil's own seat colour or a highlighter pen. Those keep
-   their fixed colours on purpose.
+   their fixed colours on purpose. Mark one that would fail the audit by
+   design, such as the Colours tool's "black text on this colour" sample,
+   with `data-audit="skip"`.
 
 2. **Never paint the card's own colour inside the card.** Anything a widget
    colours with a palette hue inside the card (tiles, team colours, chips,

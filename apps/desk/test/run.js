@@ -1629,6 +1629,71 @@ describe('flashcards', () => {
 });
 
 // ===================================================================
+describe('the colours tool', () => {
+  const w = loadWidget('colours');
+  const c = w._colour;
+  it('reads the codes people type, in any common form', () => {
+    equal(c.parse('#1F4FD1'), '#1f4fd1');
+    equal(c.parse('1f4fd1'), '#1f4fd1');
+    equal(c.parse('#abc'), '#aabbcc');
+    equal(c.parse('rgb(31, 79, 209)'), '#1f4fd1');
+    equal(c.parse('rgb(31 79 209)'), '#1f4fd1');
+    equal(c.parse('hsl(0, 100%, 50%)'), '#ff0000');
+  });
+  it('refuses what is not a colour', () => {
+    for (const bad of ['', 'blue-ish', '#12345', 'rgb(300, 0, 0)', 'hsl(10, 120%, 50%)', null]) equal(c.parse(bad), null, String(bad));
+  });
+  it('round-trips between HEX, RGB and HSL', () => {
+    for (const hex of ['#ff0000', '#00ff00', '#0000ff', '#ffffff', '#000000', '#808080']) {
+      equal(c.toHex(c.toRgb(hex)), hex, hex);
+      equal(c.toHex(c.fromHsl(c.toHsl(hex))), hex, hex + ' via HSL');
+    }
+    equal(JSON.stringify(c.toHsl('#ff0000')), JSON.stringify({ h: 0, s: 100, l: 50 }));
+  });
+  it('finds the matching colours on the wheel', () => {
+    equal(c.harmony('#ff0000', 'complementary').join(), '#ff0000,#00ffff');
+    equal(c.harmony('#ff0000', 'triadic').join(), '#ff0000,#00ff00,#0000ff');
+    equal(c.harmony('#ff0000', 'square').length, 4);
+    equal(c.harmony('#ff0000', 'analogous').length, 3);
+    equal(c.harmony('#ff0000', 'split').join(), '#ff0000,#00ff80,#007fff');
+  });
+  it('lays shades out dark to light with the colour itself among them', () => {
+    const shades = c.harmony('#1f4fd1', 'shades');
+    assert(shades.includes('#1f4fd1'), 'the colour is in its own shades');
+    const l = shades.map((h) => c.toHsl(h).l);
+    equal(JSON.stringify(l), JSON.stringify([...l].sort((a, b) => a - b)), 'dark to light');
+  });
+  it('measures contrast as WCAG does, and picks the text that reads', () => {
+    equal(c.contrast('#000000', '#ffffff').toFixed(0), '21');
+    equal(c.contrast('#777777', '#777777'), 1);
+    equal(c.textOn('#f5c400'), '#201e1d');
+    equal(c.textOn('#1f4fd1'), '#ffffff');
+  });
+  it('gives the three codes, upper-case HEX first', () => {
+    equal(c.formats('#1f4fd1').map((f) => f.text).join(' | '), '#1F4FD1 | rgb(31, 79, 209) | hsl(224, 74%, 47%)');
+  });
+  it('makes random colours that are real colours, not mud or white', () => {
+    let n = 0; const rand = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
+    for (let i = 0; i < 50; i++) {
+      const { s, l } = c.toHsl(c.randomColour(rand));
+      assert(s >= 45 && l >= 30 && l <= 70, `s ${s} l ${l}`);
+    }
+  });
+  it('cleans up saved state it cannot use', () => {
+    const s = { hex: 'nonsense', harmony: 'plaid', saved: ['#abc', 'x', '#123456', ...Array(20).fill('#000000')] };
+    w.init(s);
+    equal(s.hex, '#1f4fd1');
+    equal(s.harmony, 'complementary');
+    equal(s.saved[0], '#aabbcc');
+    assert(s.saved.length <= 12, 'twelve saved at most');
+  });
+  it('is open to visitors but off for students until someone decides', () => {
+    equal(w.guest, true);
+    equal(w.students, false);
+  });
+});
+
+// ===================================================================
 describe('the word count', () => {
   const count = loadWidget('wordcount')._count;
   it('counts words, sentences and paragraphs', () => {

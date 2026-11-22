@@ -3165,3 +3165,52 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 :is(.card, .stage)[data-role="p2"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p3); --alt2-ink: var(--p3-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
 :is(.card, .stage)[data-role="p3"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
 :is(.card, .stage)[data-role="p4"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p3); --alt3-ink: var(--p3-ink); }
+
+/* ---------------- Colours ----------------
+   The swatches show the colour itself (content colours, see DESIGN.md);
+   everything around them is tokens. */
+.cp { display: flex; flex-direction: column; gap: .55rem; min-height: 0; }
+.cp-top { display: grid; grid-template-columns: minmax(96px, 38%) 1fr; gap: .6rem; align-items: stretch; }
+.cp-big {
+  position: relative; display: flex; align-items: flex-end; min-height: 96px; padding: .5rem .6rem;
+  border-radius: var(--r); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+}
+.cp-big-hex { font: 700 .95rem/1 var(--mono); letter-spacing: .02em; }
+.cp-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+.cp-side { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.cp-field { font-family: var(--mono); text-transform: uppercase; }
+.cp-field.is-bad { border-color: var(--red); }
+.cp-tools { display: flex; flex-wrap: wrap; gap: .3rem; }
+.cp-codes { display: flex; flex-direction: column; gap: .15rem; }
+.cp-code { display: flex; align-items: center; gap: .5rem; padding: .15rem .2rem .15rem .5rem; border-radius: var(--r-sm); background: var(--desk); }
+.cp-code-label { flex: none; width: 2.6rem; font: 800 .7rem/1 var(--body); letter-spacing: .08em; color: var(--muted); }
+.cp-code-text { flex: 1; min-width: 0; font: 600 .86rem/1.4 var(--mono); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
+.cp-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .2rem; }
+.cp-label { font: 800 .72rem/1.2 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.cp-harmony { max-width: 60%; }
+.cp-note { margin: -.2rem 0 0; }
+.cp-matches { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: .4rem; }
+.cp-swatch { display: flex; flex-direction: column; gap: .2rem; align-items: stretch; min-width: 0; }
+.cp-chip {
+  display: flex; align-items: flex-end; min-height: 52px; padding: .3rem .35rem; border: 0; border-radius: var(--r-sm);
+  cursor: pointer; font: 700 .7rem/1 var(--mono); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+}
+.cp-chip:hover { transform: translateY(-1px); }
+.cp-swatch.is-main .cp-chip { box-shadow: inset 0 0 0 1px rgba(0,0,0,.12), 0 0 0 2px var(--ink); }
+.cp-use, .cp-chip-tag { font: 600 .72rem/1.2 var(--body); text-align: center; color: var(--muted); }
+.cp-use { border: 0; background: none; cursor: pointer; padding: .1rem; border-radius: var(--r-sm); }
+.cp-use:hover { background: var(--desk); color: var(--ink); }
+.cp-read { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+.cp-sample { display: flex; flex-direction: column; gap: .15rem; padding: .45rem .55rem; border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.cp-sample-text { font-weight: 700; font-size: .95rem; }
+.cp-sample-score { font-size: .72rem; opacity: .9; }
+.cp-saved { display: flex; flex-wrap: wrap; gap: .35rem; }
+.cp-saved .hint { margin: 0; }
+.cp-saved-item { position: relative; }
+.cp-saved-chip { width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.cp-saved-x {
+  position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 700 .7rem/1 var(--body); cursor: pointer;
+  opacity: 0; transition: opacity .12s;
+}
+.cp-saved-item:hover .cp-saved-x, .cp-saved-x:focus-visible { opacity: 1; }
