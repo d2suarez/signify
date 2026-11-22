@@ -9,12 +9,12 @@ import { When } from "./When";
  * for a student or parent, overdue and upcoming work. Each group says what
  * it is in words (colour and shape only back that up).
  */
-export function TodoPanel({ teacher, student, d, L }: { teacher: TeacherTasks | null; student: StudentTasks; d: Dict; L: Lang }) {
+export function TodoPanel({ teacher, student, d, L, headingId = "todo-title" }: { teacher: TeacherTasks | null; student: StudentTasks; d: Dict; L: Lang; headingId?: string }) {
   const hasStudent = student.overdue.length + student.upcoming.length > 0;
   const hasTeacher = !!teacher && teacher.grade.length + teacher.due.length + teacher.drafts.length + teacher.lessons.length > 0;
   return (
-    <section className="card side-card todo" aria-labelledby="todo-title">
-      <h2 id="todo-title" className="label">{d.todoTitle}</h2>
+    <section className="card side-card todo" aria-labelledby={headingId}>
+      <h2 id={headingId} className="label">{d.todoTitle}</h2>
       {!hasStudent && !hasTeacher && <p className="muted todo-empty">{d.todoNothing}</p>}
 
       {teacher && teacher.grade.length > 0 && (

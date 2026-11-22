@@ -4,6 +4,7 @@ import {
   normalizeCoursePolicy, normalizePolicies, readPolicies, ruleFor,
   type Applied, type CoursePolicy, type LatePolicies, type WorkKind,
 } from "./late-policy";
+import { normalizeSchoolWidgets, type SchoolWidgets } from "./widgets";
 
 /**
  * A school's grade scales and late policies (school admins change them), and
@@ -18,14 +19,14 @@ import {
 
 type Ctx = { tenantId: string; userId: string };
 const UUID = /^[0-9a-f-]{36}$/i;
-export type SettingKey = "scales" | "late";
+export type SettingKey = "scales" | "late" | "widgets";
 /** Where the school's grading periods, scales and late policies live. Teachers' and students' courses use "America/New_York" for now. */
 export const SCHOOL_TZ = "America/New_York";
 
 export type Setting<T> = { value: T; version: number; updatedBy: string | null; updatedAt: string | null };
 export type SettingVersion<T> = { id: string; version: number; value: T; changedBy: string; changedAt: string };
 
-const read = { scales: readScales, late: readPolicies } as const;
+const read = { scales: readScales, late: readPolicies, widgets: normalizeSchoolWidgets } as const;
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? null : String(v));
 
 async function getSetting<K extends SettingKey>(tenantId: string, key: K, q?: Queryable): Promise<Setting<ReturnType<typeof read[K]>>> {
@@ -41,6 +42,8 @@ async function getSetting<K extends SettingKey>(tenantId: string, key: K, q?: Qu
 
 export const schoolScales = (tenantId: string, q?: Queryable) => getSetting(tenantId, "scales", q);
 export const schoolLate = (tenantId: string, q?: Queryable) => getSetting(tenantId, "late", q);
+/** The school's Desk tools policy and defaults (src/lib/widgets.ts). */
+export const schoolWidgets = (tenantId: string, q?: Queryable) => getSetting(tenantId, "widgets", q);
 
 export type SaveResult<T> = { ok: true; setting: Setting<T> } | { ok: false; reason: "stale"; current: Setting<T> } | { ok: false; reason: "bad"; problem: ScaleProblem; band?: number };
 
@@ -76,6 +79,10 @@ export async function saveLate(ctx: Ctx, input: unknown, baseVersion: unknown): 
   return saveSetting(ctx, "late", normalizePolicies(input), baseVersion);
 }
 
+export async function saveWidgets(ctx: Ctx, input: unknown, baseVersion: unknown): Promise<SaveResult<SchoolWidgets>> {
+  return saveSetting(ctx, "widgets", normalizeSchoolWidgets(input), baseVersion);
+}
+
 /** Earlier versions, newest first (the current one is not in this list). */
 export async function settingHistory<K extends SettingKey>(tenantId: string, key: K, limit = 30): Promise<SettingVersion<ReturnType<typeof read[K]>>[]> {
   const db = await getDb();
@@ -93,7 +100,9 @@ export async function restoreSetting(ctx: Ctx, key: SettingKey, versionId: strin
   const db = await getDb();
   const [r] = await db.query("SELECT value FROM school_setting_versions WHERE tenant_id = $1 AND key = $2 AND id = $3", [ctx.tenantId, key, versionId]);
   if (!r) return false;
-  const res = key === "scales" ? await saveScales(ctx, read.scales(r.value), baseVersion) : await saveLate(ctx, read.late(r.value), baseVersion);
+  const res = key === "scales" ? await saveScales(ctx, read.scales(r.value), baseVersion)
+    : key === "widgets" ? await saveWidgets(ctx, read.widgets(r.value), baseVersion)
+    : await saveLate(ctx, read.late(r.value), baseVersion);
   return res.ok;
 }
 

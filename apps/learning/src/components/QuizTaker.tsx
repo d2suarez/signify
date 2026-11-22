@@ -204,6 +204,8 @@ export default function QuizTaker({ assignmentId, initial, points, d }: {
 
   return (
     <div className="stack">
+      {/* No left rail while an attempt is open (globals.css). */}
+      <span data-no-rail hidden />
       <div className="quiz-bar card row" role="group" aria-label={d.quizWord}>
         <span className="grow"><b>{d.quizAttempt} {open.number}</b>{view.allowed ? ` ${d.of} ${view.allowed}` : ""}</span>
         <span className="save-state" role="status" aria-live="polite">{stateText}</span>

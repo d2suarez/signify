@@ -31,6 +31,8 @@ export async function TopBar({ crumbs, right, below }: { crumbs?: ReactNode; rig
         </Link>
         {crumbs ? <nav className="crumbs" aria-label={d.whereYouAre}>{crumbs}</nav> : null}
         <span className="spacer" />
+        {/* On narrow screens the rail is below the page; this goes straight to it (hidden where there's no rail). */}
+        {me && <a className="btn btn-sm rail-jump" href="#rail" aria-label={d.wgJump}>{d.wgTools} ↓</a>}
         {supports}
         {right}
       </div>

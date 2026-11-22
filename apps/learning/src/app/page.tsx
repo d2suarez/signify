@@ -22,8 +22,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Home: updates down the middle (write one at the top), what needs doing on
- * the left, classes and clubs on the right. On a narrow screen: to do,
- * updates, then classes.
+ * the left (in the left rail with the person's tools on wide screens),
+ * classes and clubs on the right. On a narrow screen: to do, updates, then
+ * classes (the rail with the tools comes after).
  */
 export default async function Home() {
   const me = await requireMe();
@@ -70,6 +71,7 @@ export default async function Home() {
     isSchoolAdmin(me) && <a key="pe" className="btn btn-sm" href="/school/periods">{d.periods}</a>,
     isSchoolAdmin(me) && <a key="g" className="btn btn-sm" href="/school/grading">{d.gradingSetupLink}</a>,
     isSchoolAdmin(me) && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,
+    isSchoolAdmin(me) && <a key="wg" className="btn btn-sm" href="/school/widgets">{d.wgSchoolLink}</a>,
   ].filter(Boolean);
 
   const ClassLink = ({ c, sub }: { c: (typeof courses)[number]; sub?: string }) => {
@@ -104,14 +106,9 @@ export default async function Home() {
         )}
 
         <div className="home-grid">
+          {/* On wide screens To do is in the left rail (with the person's tools); here only on narrow ones. */}
           <aside className="home-todo stack" aria-label={d.todoTitle}>
             <TodoPanel teacher={tTasks} student={sTasks} d={d} L={L} />
-            {toAnswer.length > 0 && (
-              <section className="card stack" aria-labelledby="share-title" style={{ gap: 8 }}>
-                <h2 id="share-title" className="label">{d.secToAnswerHome}</h2>
-                <ShareRequests list={toAnswer} back="/" d={d} />
-              </section>
-            )}
           </aside>
 
           <section className="home-feed stack" aria-labelledby="home-updates" style={{ gap: 14 }}>
@@ -129,6 +126,12 @@ export default async function Home() {
           </section>
 
           <aside className="home-classes stack" aria-label={d.homeClasses}>
+            {toAnswer.length > 0 && (
+              <section className="card stack" aria-labelledby="share-title" style={{ gap: 8 }}>
+                <h2 id="share-title" className="label">{d.secToAnswerHome}</h2>
+                <ShareRequests list={toAnswer} back="/" d={d} />
+              </section>
+            )}
             {teaching.length > 0 && (
               <section className="card side-card" aria-labelledby="h-teaching">
                 <h2 id="h-teaching" className="label">{d.teaching}</h2>
