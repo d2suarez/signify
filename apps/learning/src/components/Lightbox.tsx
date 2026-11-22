@@ -2,12 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type LightboxLabels = { title: string; close: string; prev: string; next: string; count: string; original: string; zoomIn: string; zoomOut: string };
+export type LightboxLabels = { title: string; close: string; prev: string; next: string; count: string; original: string; zoomIn: string; zoomOut: string; hintOne: string; hintMany: string };
 
 type Pic = { href: string; src: string; alt: string };
 
 const MAX_ZOOM = 4;
 const STEPS = [1, 1.5, 2, 3, 4];
+const HINT_KEY = "sl:lightbox-hint";
+const HINT_TIMES = 3;
+
+/**
+ * On touch screens, the first few times the overlay opens on this device,
+ * say what the swipes do. Counted in localStorage (a convenience: if it's
+ * unavailable the hint just shows).
+ */
+function takeHint(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) return false;
+  try {
+    const n = Number(localStorage.getItem(HINT_KEY)) || 0;
+    if (n >= HINT_TIMES) return false;
+    localStorage.setItem(HINT_KEY, String(n + 1));
+  } catch { /* private mode: show it */ }
+  return true;
+}
 
 /**
  * Wraps one post's body. Its pictures are plain links to `/files/<id>` (they
@@ -38,6 +55,13 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
   const [zoomed, setZoomed] = useState(1);
   const [pics, setPics] = useState<Pic[]>([]);
   const [at, setAt] = useState(0);
+  const [hint, setHint] = useState(false);
+
+  useEffect(() => {
+    if (!hint) return;
+    const t = setTimeout(() => setHint(false), 5000);
+    return () => clearTimeout(t);
+  }, [hint]);
 
   const links = () => Array.from(box.current?.querySelectorAll<HTMLAnchorElement>("a.post-figure-link") ?? []);
 
@@ -59,13 +83,14 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
       return { href: l.href, src: im?.currentSrc || im?.src || l.href, alt: im?.alt ?? "" };
     }));
     setAt(i);
+    setHint(takeHint());
     dialog.current?.showModal();
     closeBtn.current?.focus();
   }
 
   // Close and give focus back to the picture that opened it. Our own closes
   // do it at once; Esc closes natively and comes through onClose.
-  function backToOpener() { resetZoom(); const o = opener.current; opener.current = null; o?.focus(); }
+  function backToOpener() { resetZoom(); setHint(false); const o = opener.current; opener.current = null; o?.focus(); }
   function shut() { dialog.current?.close(); backToOpener(); }
 
   function go(step: number) {
@@ -262,6 +287,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
     el.style.opacity = dy ? String(Math.max(0.4, 1 - Math.abs(dy) / 400)) : "";
   }
   function onTouchStart(e: React.TouchEvent<HTMLElement>) {
+    setHint(false);
     const t = e.touches[0], f = e.currentTarget;
     touch.current = e.touches.length === 1 && zoom.current <= 1
       ? { x: t.clientX, y: t.clientY, atTop: f.scrollTop <= 0, atBottom: f.scrollTop + f.clientHeight >= f.scrollHeight - 1 }
@@ -313,6 +339,8 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
           <figure ref={fig} className="lightbox-fig"
             onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             onTouchCancel={() => { touch.current = null; drag(0); }}>
+            {/* Only for touch screens; the buttons do all of this too, so screen readers skip it. */}
+            {hint && <p className="lightbox-hint" aria-hidden="true">{many ? labels.hintMany : labels.hintOne}</p>}
             <div ref={stage} className="lightbox-stage"
               onPointerDown={onPointerDown} onPointerMove={onPointerMove}
               onPointerUp={() => { mouse.current = null; }} onPointerCancel={() => { mouse.current = null; }}>

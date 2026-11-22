@@ -590,6 +590,10 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .lightbox-stage.is-zoomed img { cursor: inherit; }
 .lightbox-zoom { font-size: 22px; line-height: 1; }
 .lightbox-zoom[aria-disabled="true"] { opacity: .45; cursor: default; }
+/* The swipe hint (touch screens, first few opens): over the top of the picture, takes no room. */
+.lightbox-fig { position: relative; }
+.lightbox-hint { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1; margin: 0; padding: 8px 12px; border-radius: var(--r-md); background: var(--ink); color: var(--bg); border: 2px solid var(--bg); font-size: 14px; font-weight: 700; text-align: center; pointer-events: none; animation: lightbox-hint 5s ease forwards; }
+@keyframes lightbox-hint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
 .lightbox-orig { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; }
 .lightbox-fig figcaption { flex: none; max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
 .lightbox-nav { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
