@@ -1005,8 +1005,8 @@ body.is-stacked .card-grip, body.is-stacked .card-resize { display: none; }
 .beh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; }
 .beh-tallies { display: flex; gap: .25rem; }
 .tally { min-width: 22px; padding: .02rem .32rem; border-radius: 999px; font-family: var(--mono); font-size: .76rem; font-weight: 500; text-align: center; }
-.tally--pos { background: var(--green-soft); color: var(--green); }
-.tally--neg { background: var(--red-soft); color: var(--red); }
+.tally--pos { background: var(--green-soft); color: color-mix(in srgb, var(--green) 60%, var(--ink)); }
+.tally--neg { background: var(--red-soft); color: color-mix(in srgb, var(--red) 60%, var(--ink)); }
 .beh-chips { display: flex; flex-direction: column; gap: .25rem; padding: .35rem .45rem .5rem; }
 .beh-chip-row { display: flex; flex-wrap: wrap; gap: .25rem; }
 
@@ -1315,10 +1315,10 @@ body.is-seating-drag { user-select: none; }
 }
 .pad:hover { filter: brightness(.97); }
 .pad:active { transform: translateY(2px); box-shadow: none; }
-.pad--accent { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
-.pad--green { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 40%, transparent); color: var(--green); }
-.pad--red { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
-.pad--yellow { background: var(--yellow-soft); border-color: color-mix(in srgb, var(--yellow) 45%, transparent); color: var(--yellow-dark); }
+.pad--accent { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: color-mix(in srgb, var(--accent) 60%, var(--ink)); }
+.pad--green { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 40%, transparent); color: color-mix(in srgb, var(--green) 60%, var(--ink)); }
+.pad--red { background: var(--red-soft); border-color: color-mix(in srgb, var(--red) 40%, transparent); color: color-mix(in srgb, var(--red) 60%, var(--ink)); }
+.pad--yellow { background: var(--yellow-soft); border-color: color-mix(in srgb, var(--yellow) 45%, transparent); color: color-mix(in srgb, var(--yellow) 35%, var(--ink)); }
 .pad--add { border-style: dashed; color: var(--muted); flex-direction: column; gap: .15rem; font-weight: 550; }
 .pad-edit {
   position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
@@ -1904,9 +1904,9 @@ body.is-seating-drag { user-select: none; }
 /* Pressed keys go IN, which is the whole point of everything else standing out. */
 .calc-key:active { transform: translateY(1px); box-shadow: inset 0 2px 4px rgba(64,72,120,.14); }
 
-.calc-key[data-kind="op"] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.calc-key[data-kind="op"] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: color-mix(in srgb, var(--accent) 60%, var(--ink)); }
 .calc-key[data-kind="equals"] { background: var(--accent); color: var(--on-accent); }
-.calc-key[data-kind="clear"], .calc-key[data-kind="back"] { color: var(--red); }
+.calc-key[data-kind="clear"], .calc-key[data-kind="back"] { color: color-mix(in srgb, var(--red) 60%, var(--ink)); }
 
 .calc-tape { display: flex; flex-direction: column; gap: .1rem; max-height: 40%; overflow-y: auto; }
 .calc-tape-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
@@ -1938,7 +1938,7 @@ body.is-seating-drag { user-select: none; }
 .calc-keys { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
 .calc-sci { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: .35rem; min-height: 0; }
 .calc-key--sci { font-size: clamp(.8rem, 1.6vw, 1.15rem); font-weight: 600; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
-.calc-key--sci[data-kind="angle"] { color: var(--accent); }
+.calc-key--sci[data-kind="angle"] { color: color-mix(in srgb, var(--accent) 60%, var(--ink)); }
 .is-big .calc-pad { grid-auto-rows: 1fr; }
 .is-big .calc-key { min-height: 44px; font-size: clamp(1rem, 2.2vw, 1.5rem); }
 .is-big .calc-key--sci { font-size: clamp(.8rem, 1.6vw, 1.15rem); }
@@ -2105,8 +2105,9 @@ body.is-seating-drag { user-select: none; }
 :is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-name { text-align: left; }
 :is(.card, .stage)[data-tone="block"][data-type="randomiser"] .pick-count { text-align: left; }
 
-/* Groups are the one place four colours appear at once: the tiles cycle
-   through the roles, so two groups are never the same colour side by side. */
+/* Group tiles cycle through the three palette colours that are not the
+   card's own, so two groups are never the same colour side by side and no
+   tile disappears into the card. */
 .group-card {
   border-radius: var(--r); padding: 12px 14px; border: 0;
   background: var(--group-colour, var(--desk)); color: var(--group-ink, var(--ink));
@@ -2116,13 +2117,14 @@ body.is-seating-drag { user-select: none; }
    own ink, white on white. Take the real hues on the card itself, above that
    reset, and let the tiles inherit them. */
 :is(.card, .stage)[data-type="groups"] {
-  --g1: var(--p1); --g1-ink: var(--p1-ink); --g2: var(--p2); --g2-ink: var(--p2-ink);
-  --g3: var(--p3); --g3-ink: var(--p3-ink); --g4: var(--p4); --g4-ink: var(--p4-ink);
+  /* The three colours that are not the card's own (see "the other colours"),
+     so no tile is ever the colour of the card it sits on. */
+  --g1: var(--alt1); --g1-ink: var(--alt1-ink); --g2: var(--alt2); --g2-ink: var(--alt2-ink);
+  --g3: var(--alt3); --g3-ink: var(--alt3-ink);
 }
-.group-grid > :nth-child(4n+1) { --group-colour: var(--g1, var(--p1)); --group-ink: var(--g1-ink, var(--p1-ink)); }
-.group-grid > :nth-child(4n+2) { --group-colour: var(--g2, var(--p2)); --group-ink: var(--g2-ink, var(--p2-ink)); }
-.group-grid > :nth-child(4n+3) { --group-colour: var(--g3, var(--p3)); --group-ink: var(--g3-ink, var(--p3-ink)); }
-.group-grid > :nth-child(4n+4) { --group-colour: var(--g4, var(--p4)); --group-ink: var(--g4-ink, var(--p4-ink)); }
+.group-grid > :nth-child(3n+1) { --group-colour: var(--g1); --group-ink: var(--g1-ink); }
+.group-grid > :nth-child(3n+2) { --group-colour: var(--g2); --group-ink: var(--g2-ink); }
+.group-grid > :nth-child(3n+3) { --group-colour: var(--g3); --group-ink: var(--g3-ink); }
 .group-grid > * .group-title, .group-grid > * .group-title-text { color: inherit; }
 
 /* Scores: the two sides of a class are the two ends of the palette. */
@@ -2795,7 +2797,7 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 .ec-controls { display: flex; flex-direction: column; gap: .45rem; }
 .ec-h { font: 800 .72rem var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: .3rem; font-size: .72rem; }
 .ec-row { display: grid; grid-template-columns: 1fr auto; gap: .1rem .6rem; align-items: center; font-size: .88rem; }
-.ec-row .ec-range { grid-column: 1 / -1; width: 100%; accent-color: var(--p2); min-height: 26px; margin: 0; }
+.ec-row .ec-range { grid-column: 1 / -1; width: 100%; background: transparent; accent-color: var(--p2); min-height: 26px; margin: 0; }
 .ec-val { font: 700 .82rem var(--mono); color: var(--ink); }
 .ec-row--seg { grid-template-columns: 1fr; }
 .ec-seg { display: flex; flex-wrap: wrap; gap: .25rem; }
@@ -3101,12 +3103,22 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 /* ---------------- a working tool the teacher has coloured ----------------
    Working tools (notes, alarms, calculator…) are white tiles by default; the
    user chose that. When the teacher picks a colour for one, the colour fills
-   the tile and the controls sit on a white sheet inside it, because they are
-   drawn for white. Only picked cards get this — never the default board. */
+   the tile and the controls sit on a sheet inside it: a PALE version of the
+   same colour, never plain white. The sheet works by redefining the paper
+   tokens (--surface, --desk, --bg, --line) inside the body, so every widget
+   that paints with tokens follows without knowing about it. See DESIGN.md. */
 :is(.card, .stage)[data-tone="card"][data-picked] {
   --card-bg: var(--role);
   background: var(--role);
   color: var(--role-ink);
+  /* Worked out here, on the card, where --surface is still the page's paper. */
+  --sheet: color-mix(in srgb, var(--role) 13%, var(--surface));
+  --sheet-deep: color-mix(in srgb, var(--role) 24%, var(--surface));
+  --sheet-line: color-mix(in srgb, var(--role) 35%, var(--surface));
+  /* Grey text is drawn for white; on a tinted sheet it is pulled toward the
+     ink so it still reads. */
+  --sheet-muted: color-mix(in srgb, var(--ink) 80%, var(--surface));
+  --sheet-faint: color-mix(in srgb, var(--ink) 66%, var(--surface));
 }
 :is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) :is(.card-title, .stage-title) { color: inherit; }
 :is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .shape { background: currentColor; }
@@ -3114,10 +3126,42 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 :is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .icon-btn { color: inherit; }
 :is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
 :is(.card, .stage)[data-tone="card"][data-picked] > :is(.card-body, .stage-body) {
-  --card-bg: var(--surface);
-  background-color: var(--surface);
+  --surface: var(--sheet);
+  --card-bg: var(--sheet);
+  --desk: var(--sheet-deep);
+  --bg: var(--sheet-deep);
+  --line: var(--sheet-line);
+  --muted: var(--sheet-muted);
+  --faint: var(--sheet-faint);
+  background-color: var(--sheet);
   color: var(--ink);
   border-radius: 14px;
   padding: .7rem .75rem;
   margin-top: .35rem;
 }
+/* Fields stay the brightest thing on the sheet, so it is obvious where to type. */
+:is(.card, .stage)[data-tone="card"][data-picked] > :is(.card-body, .stage-body) :is(.input, .select, .textarea) {
+  background-color: color-mix(in srgb, var(--sheet) 35%, #fff);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) :is(.card, .stage)[data-tone="card"][data-picked] > :is(.card-body, .stage-body) :is(.input, .select, .textarea) { background-color: color-mix(in srgb, var(--sheet) 70%, #000); }
+}
+:root[data-theme="dark"] :is(.card, .stage)[data-tone="card"][data-picked] > :is(.card-body, .stage-body) :is(.input, .select, .textarea) { background-color: color-mix(in srgb, var(--sheet) 70%, #000); }
+
+/* ---------------- the other colours ----------------
+   Every card knows the three palette colours that are NOT its own, as
+   --alt1..--alt3 with their inks. Anything a widget paints in a palette
+   colour INSIDE a card (group tiles, team colours, chips) uses these, so it
+   can never vanish into the card whichever colour the teacher picks. They are
+   set on the card itself, above the block reset that turns --p1..--p4 into
+   ink on everything inside. The family colour comes first, a picked colour
+   after, so a pick wins. */
+:is(.card, .stage) { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p3); --alt3-ink: var(--p3-ink); }
+:is(.card, .stage)[data-category="time"] { --alt1: var(--p2); --alt1-ink: var(--p2-ink); --alt2: var(--p3); --alt2-ink: var(--p3-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-category="class"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p3); --alt2-ink: var(--p3-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-category="board"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-category="calm"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p3); --alt3-ink: var(--p3-ink); }
+:is(.card, .stage)[data-role="p1"] { --alt1: var(--p2); --alt1-ink: var(--p2-ink); --alt2: var(--p3); --alt2-ink: var(--p3-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-role="p2"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p3); --alt2-ink: var(--p3-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-role="p3"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p4); --alt3-ink: var(--p4-ink); }
+:is(.card, .stage)[data-role="p4"] { --alt1: var(--p1); --alt1-ink: var(--p1-ink); --alt2: var(--p2); --alt2-ink: var(--p2-ink); --alt3: var(--p3); --alt3-ink: var(--p3-ink); }

@@ -1023,7 +1023,7 @@ window.Desk = window.Desk || {};
   }
 
   Desk.board = {
-    init, addItem, adopt, whenSaved, removeItem, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, calm, COLUMNS, GUEST_KEY,
+    init, addItem, adopt, whenSaved, removeItem, setColour, reset, render, markDirty, openStage, setPrefs, tidy, readouts, glide, calm, COLUMNS, GUEST_KEY,
     isGuest: () => board.guest,
     items: () => board.items,
     // The packing rules are the one piece of this file with no DOM in it, so

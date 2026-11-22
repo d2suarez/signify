@@ -32,6 +32,7 @@ To announce it under "Add a tool" for 45 days: `added: 'YYYY-MM-DD'` + `news: '.
 ## Traps
 - **Silence is not an empty class.** A refused roster lookup returns `[]`. Never prune saved seats/lists against it (`rosterKnown` guard). This wiped four classes once.
 - **A widget can mount twice** (card, then expanded view). Any `load()` with more than one `await` needs `loadSeq` and locals, or it races itself (this caused the second seating wipe).
+- Colour: every widget must look right in all four theme colours a teacher can pick, in light and dark. Follow DESIGN.md (tokens not literal colours, --alt1..3 for hues inside a card) and run test/colour-audit.browser.js before calling a widget done.
 - `Object.assign(el.style, {'--x': 1})` silently drops custom properties; use `Desk.el` / `setProperty`.
 - `aspect-ratio` loses to a flex-assigned height; use `flex: none` or px sizing from a ResizeObserver.
 - `requestAnimationFrame` stops in background tabs; anything that must finish needs a timer too.
