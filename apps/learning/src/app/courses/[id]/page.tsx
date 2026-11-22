@@ -19,6 +19,7 @@ import { myClasses } from "@/lib/auth";
 import { StudentCourse } from "@/components/StudentCourse";
 import { myPreviewPeople } from "@/lib/preview";
 import { CourseNav } from "@/components/CourseNav";
+import { CourseMenu } from "@/components/CourseMenu";
 import { When } from "@/components/When";
 import ToolPicker from "@/components/ToolPicker";
 import { toolChoices } from "@/lib/lti-platform";
@@ -193,17 +194,50 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
     <>
       <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
       <main className="page stack">
-        <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{isClub ? d.clubLabel : course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-          {catalog && (
-            <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
-              <span className="muted">{d.secOf}</span>
-              <Link href={`/catalog/${catalog.id}`}>{catalog.name}</Link>
-              <span className="muted">· {course.schoolYear || d.secNoYear}</span>
-              <Link href={`/courses/${course.id}/copy`} className="btn btn-sm">{d.secCopy}</Link>
-            </p>
-          )}
+        <div className="row" style={{ alignItems: "flex-start", flexWrap: "nowrap", gap: 12 }}>
+          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{isClub ? d.clubLabel : course.subject}</p>
+            <h1 style={{ fontSize: 34 }}>{course.name}</h1>
+            {catalog && (
+              <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
+                <span className="muted">{d.secOf}</span>
+                <Link href={`/catalog/${catalog.id}`}>{catalog.name}</Link>
+                <span className="muted">· {course.schoolYear || d.secNoYear}</span>
+              </p>
+            )}
+          </div>
+          <CourseMenu label={d.courseMore} title={d.courseMoreTitle}>
+            {previewable.length > 0 && (
+              <section className="stack" style={{ gap: 6 }} aria-labelledby="preview-title">
+                <h2 id="preview-title" className="label" style={{ margin: 0 }}>{d.previewAsStudent}</h2>
+                {previewable.map((p) => (
+                  <Link key={p.id} className="btn" href={`/preview/${p.id}/courses/${course.id}`}>{p.display_name}</Link>
+                ))}
+                <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.previewHint}</p>
+              </section>
+            )}
+            {catalog && <Link href={`/courses/${course.id}/copy`} className="btn">{d.secCopy}</Link>}
+            {!isClub && (
+              <div className="stack" style={{ gap: 4 }}>
+                <Link href={`/courses/${course.id}/import`} className="btn">{d.importCourse}</Link>
+                <span className="muted" style={{ fontSize: 13 }}>{d.importCourseHint}</span>
+              </div>
+            )}
+            <details>
+              <summary className="label" style={{ cursor: "pointer", minHeight: 44, display: "flex", alignItems: "center" }}>{d.secMoveTitle}</summary>
+              <form action={moveToCourse} className="stack" style={{ marginTop: 6, gap: 6 }}>
+                <input type="hidden" name="courseId" value={course.id} />
+                <label className="sr-only" htmlFor="move-course">{d.secMoveTitle}</label>
+                <select id="move-course" name="catalogId" className="field" defaultValue={catalog?.id || "new"}>
+                  {allCourses.map((k) => <option key={k.id} value={k.id}>{k.name}{k.subject ? ` · ${k.subject}` : ""}</option>)}
+                  <option value="new">{d.secMoveNew}</option>
+                </select>
+                <button className="btn" type="submit" style={{ alignSelf: "flex-start" }}>{d.secMoveGo}</button>
+              </form>
+              <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.secMoveHint}</p>
+            </details>
+            <ClubSwitch courseId={course.id} club={isClub} d={d} />
+          </CourseMenu>
         </div>
         {suggested && (
           <div className="notice row" role="status" style={{ gap: 10 }}>
@@ -249,32 +283,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <ToolPicker tools={tools} courseId={course.id} d={d} />
             </div>
           )}
-          {!isClub && <p style={{ margin: 0, fontSize: 14 }}><Link href={`/courses/${course.id}/import`}>{d.importCourse}</Link> <span className="muted">{d.importCourseHint}</span></p>}
-          <ClubSwitch courseId={course.id} club={isClub} d={d} />
-          <details>
-            <summary className="label" style={{ cursor: "pointer", minHeight: 44, display: "flex", alignItems: "center" }}>{d.secMoveTitle}</summary>
-            <form action={moveToCourse} className="row" style={{ marginTop: 6 }}>
-              <input type="hidden" name="courseId" value={course.id} />
-              <label className="sr-only" htmlFor="move-course">{d.secMoveTitle}</label>
-              <select id="move-course" name="catalogId" className="field" style={{ width: "auto", flex: "1 1 240px" }} defaultValue={catalog?.id || "new"}>
-                {allCourses.map((k) => <option key={k.id} value={k.id}>{k.name}{k.subject ? ` · ${k.subject}` : ""}</option>)}
-                <option value="new">{d.secMoveNew}</option>
-              </select>
-              <button className="btn" type="submit">{d.secMoveGo}</button>
-            </form>
-            <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.secMoveHint}</p>
-          </details>
         </div>
-
-        {previewable.length > 0 && (
-          <section className="card row" style={{ gap: 8 }} aria-labelledby="preview-title">
-            <h2 id="preview-title" className="label" style={{ flex: "0 0 auto", margin: 0 }}>{d.previewAs}</h2>
-            {previewable.map((p) => (
-              <Link key={p.id} className="btn btn-sm" href={`/preview/${p.id}/courses/${course.id}`}>{p.display_name}</Link>
-            ))}
-            <p className="muted" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{d.previewHint}</p>
-          </section>
-        )}
 
         {isPracticeCourse(course) && (
           <section className="card stack" aria-labelledby="practice-title" style={{ gap: 8 }}>

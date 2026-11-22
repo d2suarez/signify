@@ -199,6 +199,8 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .menu > summary { list-style: none; }
 .menu > summary::-webkit-details-marker { display: none; }
 .menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: min(300px, 80vw); padding: 14px; }
+.course-menu > .menu-pop { width: min(340px, calc(100vw - 32px)); }
+.course-menu > .menu-pop .btn { justify-content: flex-start; text-align: left; }
 .pill-draft { background: color-mix(in srgb, var(--p3) 35%, var(--surface)); }
 .grade-badge { padding: 12px 18px; display: flex; flex-direction: column; gap: 2px; }
 .grade-badge b { font-family: var(--display); font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
