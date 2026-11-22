@@ -15,7 +15,8 @@ const STEPS = [1, 1.5, 2, 3, 4];
  * them here instead, in a native <dialog>, paging through only this post's
  * pictures with buttons, arrow keys or a sideways swipe. Focus goes to the
  * close button and back to the picture that opened it; Esc, the backdrop and
- * a swipe down (the picture follows the finger) close.
+ * a swipe down (the picture follows the finger) close. A swipe up opens the
+ * original in a new tab, like the "Open original" link.
  *
  * Zoom: pinch, double-tap/double-click, the + and − buttons or the + − 0
  * keys. Zoomed, the picture sits in a scroll box of the size it had, so a
@@ -27,7 +28,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
   const dialog = useRef<HTMLDialogElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null);
-  const touch = useRef<{ x: number; y: number; atTop: boolean } | null>(null);
+  const touch = useRef<{ x: number; y: number; atTop: boolean; atBottom: boolean } | null>(null);
   const fig = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
@@ -249,26 +250,30 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
     else if (e.key === "ArrowRight") { e.preventDefault(); go(1); }
   }
 
-  // Swipes on the picture area: sideways pages, down closes. Down only counts
-  // when the area isn't scrolled into a long caption, so scrolling back up
-  // never closes it by surprise. Zoomed, a finger moves the picture instead.
+  // Swipes on the picture area: sideways pages, down closes, up opens the
+  // original. Down only counts when the area isn't scrolled into a long
+  // caption, and up only when it's scrolled to the end, so scrolling to read a
+  // long caption never closes or opens anything by surprise. Zoomed, a finger
+  // moves the picture instead.
   function drag(dy: number) {
     const el = img.current;
     if (!el) return;
-    el.style.transform = dy > 0 ? `translateY(${dy}px)` : "";
-    el.style.opacity = dy > 0 ? String(Math.max(0.4, 1 - dy / 400)) : "";
+    el.style.transform = dy ? `translateY(${dy}px)` : "";
+    el.style.opacity = dy ? String(Math.max(0.4, 1 - Math.abs(dy) / 400)) : "";
   }
   function onTouchStart(e: React.TouchEvent<HTMLElement>) {
-    const t = e.touches[0];
-    touch.current = e.touches.length === 1 && zoom.current <= 1 ? { x: t.clientX, y: t.clientY, atTop: e.currentTarget.scrollTop <= 0 } : null;
+    const t = e.touches[0], f = e.currentTarget;
+    touch.current = e.touches.length === 1 && zoom.current <= 1
+      ? { x: t.clientX, y: t.clientY, atTop: f.scrollTop <= 0, atBottom: f.scrollTop + f.clientHeight >= f.scrollHeight - 1 }
+      : null;
   }
   function onTouchMove(e: React.TouchEvent<HTMLElement>) {
     const s = touch.current;
     if (!s) return;
     if (e.touches.length !== 1) { touch.current = null; drag(0); return; }
-    if (!s.atTop) return;
     const dx = e.touches[0].clientX - s.x, dy = e.touches[0].clientY - s.y;
-    drag(dy > Math.abs(dx) ? dy : 0);
+    const vertical = Math.abs(dy) > Math.abs(dx);
+    drag(vertical && ((dy > 0 && s.atTop) || (dy < 0 && s.atBottom)) ? dy : 0);
   }
   function onTouchEnd(e: React.TouchEvent<HTMLElement>) {
     const s = touch.current;
@@ -277,6 +282,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
     if (!s || e.touches.length) return;
     const dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y;
     if (s.atTop && dy > 80 && dy > Math.abs(dx) * 1.5) shut();
+    else if (s.atBottom && dy < -80 && -dy > Math.abs(dx) * 1.5) { if (pic) window.open(pic.href, "_blank", "noopener"); }
     else if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
   }
 
