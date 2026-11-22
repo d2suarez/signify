@@ -5,7 +5,7 @@ import { lang, updatesViewer } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { thread, markRead, UPDATE_LIMITS } from "@/lib/updates";
 import { TopBar } from "@/components/TopBar";
-import { Byline, UpdateErrorNote } from "@/components/Updates";
+import { Byline, UpdateErrorNote, PostBody } from "@/components/Updates";
 import { commentOn, moderate } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -39,13 +39,22 @@ export default async function UpdateThread({ params, searchParams }: { params: P
   return (
     <>
       <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href="/updates">{d.updTitle}</Link>{post.courseId && <> · <Link href={`/courses/${post.courseId}`}>{post.courseName}</Link></>}</>} />
-      <main className="page stack">
+      <main className="page stack updates-page">
         <UpdateErrorNote code={sp.updateError} d={d} />
-        <article className="card stack" style={{ gap: 8 }}>
+        <article className="card stack post-thread" style={{ gap: 10 }}>
           {post.status === "hidden" && <div className="notice">{d.updHiddenNote}</div>}
           {post.title && <h1 style={{ fontSize: 28 }}>{post.title}</h1>}
-          <p style={{ whiteSpace: "pre-wrap", margin: 0, fontSize: post.title ? undefined : 18 }}>{post.body}</p>
+          <PostBody post={post} d={d} L={L} />
           <Byline name={post.authorName} kind={post.authorKind} iso={post.createdAt} where={where} L={L} d={d} />
+          {post.places.length > 1 && (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {d.pcAlsoPosted}{" "}
+              {post.places.slice(1).map((pl, i) => (
+                <span key={pl.postId}>{i > 0 && ", "}<Link href={`/updates/${pl.postId}`}>{pl.courseId ? pl.courseName : d.updWholeSchool}</Link></span>
+              ))}
+              {" · "}{d.pcOwnComments}
+            </p>
+          )}
           {(post.canModerate || post.authorId === v.userId) && <ModButtons status={post.status} label={post.title || post.body.slice(0, 40)} />}
         </article>
 

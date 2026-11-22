@@ -1,5 +1,5 @@
 import { readMe } from "@/lib/auth";
-import { courseAccess } from "@/lib/access";
+import { courseAccess, updatesViewer } from "@/lib/access";
 import { getFile, canOpen, fileBytes } from "@/lib/files";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!me) return missing();
   const file = await getFile(me.tenantId, id);
   if (!file) return missing();
-  const ok = await canOpen(me.tenantId, file, async (courseId) => (await courseAccess(courseId))?.course.role ?? null);
+  // Updates: a reader of a visible post showing it may open it too (a parent included).
+  const v = await updatesViewer();
+  const ok = await canOpen(me.tenantId, file, async (courseId) => (await courseAccess(courseId))?.course.role ?? null,
+    v ? { userId: v.userId, reads: (c) => c === null || v.courses.has(c) || v.childCourses.has(c) } : undefined);
   if (!ok) return missing();
   const bytes = await fileBytes(file);
   if (!bytes) return new Response("That file can't be reached right now.", { status: 503 });

@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { updatesViewer } from "@/lib/access";
-import { createPost, addComment, moderatePost, moderateComment, setCourseRules, markRead, UpdateError, type ModOp } from "@/lib/updates";
+import { createPost, createPosts, addComment, moderatePost, moderateComment, setCourseRules, markRead, UpdateError, type ModOp } from "@/lib/updates";
 
 const back = (f: FormData, fallback: string) => {
   const b = String(f.get("back") || "");
@@ -27,6 +27,24 @@ export async function postUpdate(f: FormData) {
   }
   revalidatePath(to.split("?")[0]);
   redirect(to.split("?")[0]);
+}
+
+/**
+ * The rich editor's post (PostComposer): several places at once, a
+ * document instead of plain text. Answers instead of redirecting, so the
+ * editor can clear itself or show what went wrong.
+ */
+export async function postRichUpdate(f: FormData): Promise<{ ok: true; count: number } | { error: string }> {
+  const v = await updatesViewer();
+  if (!v) return { error: "forbidden" };
+  try {
+    const made = await createPosts(v, { to: f.getAll("to"), title: f.get("title"), doc: f.get("doc") });
+    revalidatePath(back(f, "/").split("?")[0]);
+    return { ok: true, count: made.length };
+  } catch (e) {
+    if (e instanceof UpdateError) return { error: e.code };
+    throw e;
+  }
 }
 
 export async function commentOn(f: FormData) {

@@ -1,12 +1,14 @@
 import type { NextConfig } from "next";
 import { BOARD_ORIGINS } from "./src/lib/boards";
+import { VIDEO_ORIGINS } from "./src/lib/post-doc";
 
 // Sent with every response. Students' work and names pass through this app,
 // so no external origin is allowed for scripts, styles, fonts or connections:
 // an injected <script src> has nowhere to load from and an injected fetch has
 // nowhere to send to. 'unsafe-inline' stays for scripts because the app
 // router inlines its hydration payload. Frames: only Signify Boards' own
-// origins, for Board blocks (src/lib/boards.ts holds the list).
+// origins, for Board blocks (src/lib/boards.ts holds the list), and the
+// YouTube (no-cookie) and Vimeo players for videos in updates (post-doc.ts).
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -14,7 +16,7 @@ const CSP = [
   "img-src 'self' data: blob: https://lh3.googleusercontent.com",
   "font-src 'self'",
   "connect-src 'self'",
-  `frame-src 'self' ${BOARD_ORIGINS.join(" ")}`,
+  `frame-src 'self' ${[...BOARD_ORIGINS, ...VIDEO_ORIGINS].join(" ")}`,
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",

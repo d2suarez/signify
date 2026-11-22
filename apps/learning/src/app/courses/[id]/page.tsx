@@ -11,7 +11,11 @@ import { liveLessonId } from "@/lib/live-ticket";
 import { feed, mayPost, courseRules } from "@/lib/updates";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { Feed, Composer, CourseRulesForm, UpdateErrorNote } from "@/components/Updates";
+import { Feed, CourseRulesForm, UpdateErrorNote } from "@/components/Updates";
+import PostComposer from "@/components/PostComposer";
+import { composerSetup } from "@/lib/composer";
+import { myCourses } from "@/lib/courses";
+import { myClasses } from "@/lib/auth";
 import { StudentCourse } from "@/components/StudentCourse";
 import { myPreviewPeople } from "@/lib/preview";
 import { CourseNav } from "@/components/CourseNav";
@@ -102,12 +106,19 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const here = `/courses/${access.course.id}`;
   const updatesSection = async (teacher: boolean) => {
     const dd = dict(L);
-    const [posts, canPost, rules] = await Promise.all([feed(viewer, { courseId: access.course.id }), mayPost(viewer, access.course.id), courseRules(viewer, access.course.id)]);
+    const [posts, canPost, rules, mine] = await Promise.all([
+      feed(viewer, { courseId: access.course.id }), mayPost(viewer, access.course.id), courseRules(viewer, access.course.id),
+      myClasses().then(({ classes }) => myCourses(access.me.tenantId, classes, access.me.id)),
+    ]);
+    const setup = canPost ? await composerSetup(viewer, mine, dd.updWholeSchool) : null;
     return (
       <section className="card stack" aria-labelledby="upd-title" style={{ gap: 10 }}>
         <div className="row"><h2 id="upd-title" className="label grow">{dd.updTitle}</h2><Link href="/updates" className="btn btn-sm">{dd.updAll}</Link></div>
         <UpdateErrorNote code={sp.updateError} d={dd} />
-        {canPost && <Composer courseId={access.course.id} back={here} d={dd} label={teacher ? dd.updWriteClass : dd.updWriteStudent} />}
+        {setup && (
+          <PostComposer places={setup.places} preselected={[access.course.id]} materials={setup.materials} canUpload={setup.canUpload}
+            uploadFallback={access.course.role === "teacher" ? access.course.id : setup.uploadFallback} d={dd} placeholder={teacher ? dd.updWriteClass : dd.updWriteStudent} back={here} />
+        )}
         {!canPost && !teacher && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{dd.updPostsOff}</p>}
         {teacher && <CourseRulesForm courseId={access.course.id} rules={rules} d={dd} />}
         <Feed posts={posts} back={here} L={L} d={dd} showWhere={false} />

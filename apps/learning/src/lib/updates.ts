@@ -1,4 +1,8 @@
 import { getDb, type Row } from "./db";
+import {
+  normalizeDoc, docText, docFileIds, docMaterials, docFromText, filterDoc, docIsEmpty,
+  type PostDoc, type MaterialKind,
+} from "./post-doc";
 
 /**
  * Updates (migration 018): posts to a class or club, or to the whole school,
@@ -33,8 +37,22 @@ export type Viewer = {
 };
 
 export type PostStatus = "visible" | "hidden" | "deleted";
+/** Where a link to Learning material leads for this viewer (null = they can't open it). */
+export type MaterialView = {
+  kind: MaterialKind; title: string; courseName: string; href: string | null;
+  dueAt: string | null; draft: boolean; gone: boolean;
+};
+/** One place an update went to (a post of the same group the viewer can see). */
+export type Place = { postId: string; courseId: string | null; courseName: string; unread: boolean; comments: number };
 export type Post = {
   id: string; courseId: string | null; courseName: string; title: string; body: string;
+  /** The formatted document (older posts: their text as paragraphs). */
+  doc: PostDoc;
+  groupId: string | null;
+  /** Every place this update went that the viewer can see, this one first. */
+  places: Place[];
+  /** Material links in the document, as this viewer may follow them. */
+  materials: Record<string, MaterialView>;
   authorId: string; authorName: string; authorKind: "staff" | "student";
   status: PostStatus; createdAt: string; activityAt: string;
   comments: number; unread: boolean;
@@ -53,7 +71,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (x: unknown): x is string => typeof x === "string" && UUID.test(x);
 
 export class UpdateError extends Error {
-  constructor(public code: "forbidden" | "empty" | "notfound" | "off") { super(code); }
+  constructor(public code: "forbidden" | "empty" | "notfound" | "off" | "noplace") { super(code); }
 }
 
 const iso = (v: unknown) => new Date(v as string).toISOString();
@@ -102,7 +120,10 @@ export async function mayPost(v: Viewer, courseId: string | null): Promise<boole
 function toPost(v: Viewer, r: Row, rules: Map<string, CourseRules>): Post {
   return {
     id: String(r.id), courseId: r.course_id ? String(r.course_id) : null, courseName: String(r.course_name ?? ""),
-    title: String(r.title), body: String(r.body), authorId: String(r.author_id), authorName: String(r.author_name ?? ""),
+    title: String(r.title), body: String(r.body),
+    doc: r.doc ? normalizeDoc(r.doc) : docFromText(String(r.body)), groupId: r.group_id ? String(r.group_id) : null,
+    places: [], materials: {},
+    authorId: String(r.author_id), authorName: String(r.author_name ?? ""),
     authorKind: r.author_kind === "student" ? "student" : "staff", status: r.status as PostStatus,
     createdAt: iso(r.created_at), activityAt: iso(r.activity_at), comments: Number(r.comments ?? 0),
     // Never opened: unread unless it's their own. Opened: unread again once someone comments after.
@@ -137,11 +158,83 @@ export async function feed(v: Viewer, where: { courseId?: string; school?: boole
     [v.tenantId, v.userId, courses, school, teaches, v.schoolAdmin, Math.min(Math.max(1, limit), 100)],
   );
   const rules = await rulesFor([...new Set(rows.map((r) => r.course_id).filter(Boolean).map(String))], v.tenantId);
-  return rows.map((r) => {
+  const all = rows.map((r) => {
     const p = toPost(v, r, rules);
     // A parent sees no comments, so no count either.
     return v.kind === "parent" ? { ...p, comments: 0 } : p;
   });
+  // One update sent to several places shows once, naming each place it went.
+  const out: Post[] = [];
+  const byGroup = new Map<string, Post>();
+  for (const p of all) {
+    const place: Place = { postId: p.id, courseId: p.courseId, courseName: p.courseName, unread: p.unread, comments: p.comments };
+    const first = p.groupId ? byGroup.get(p.groupId) : undefined;
+    if (first) {
+      first.places.push(place);
+      first.unread ||= p.unread;
+      first.comments += p.comments;
+      continue;
+    }
+    p.places = [place];
+    if (p.groupId) byGroup.set(p.groupId, p);
+    out.push(p);
+  }
+  await attachMaterials(v, out);
+  return out;
+}
+
+/** Fills each post's `materials`: titles, due dates and where a link leads for this viewer, now. */
+async function attachMaterials(v: Viewer, posts: Post[]): Promise<void> {
+  const refs = posts.flatMap((p) => docMaterials(p.doc));
+  if (!refs.length) return;
+  const ids = (k: MaterialKind) => [...new Set(refs.filter((r) => r.kind === k).map((r) => r.id))];
+  const db = await getDb();
+  const [as, ls, rs] = await Promise.all([
+    ids("assignment").length ? db.query(
+      `SELECT a.id, a.course_id, a.title, a.published, a.archived, a.due_at, c.name AS course_name
+         FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.tenant_id = $1 AND a.id = ANY($2::uuid[])`,
+      [v.tenantId, ids("assignment")]) : [],
+    ids("lesson").length ? db.query(
+      `SELECT l.id, l.course_id, l.title, l.archived, c.name AS course_name
+         FROM lessons l JOIN courses c ON c.id = l.course_id WHERE l.tenant_id = $1 AND l.id = ANY($2::uuid[])`,
+      [v.tenantId, ids("lesson")]) : [],
+    ids("resource").length ? db.query(
+      `SELECT r.id, r.course_id, COALESCE(NULLIF(r.title, ''), NULLIF(r.block->>'title', ''), NULLIF(r.block->>'name', ''), '') AS title, r.visible, r.archived, r.kind, r.block->>'type' AS block_type, c.name AS course_name
+         FROM class_resources r JOIN courses c ON c.id = r.course_id WHERE r.tenant_id = $1 AND r.id = ANY($2::uuid[])`,
+      [v.tenantId, ids("resource")]) : [],
+  ]);
+  const found = new Map<string, MaterialView>();
+  for (const a of as) {
+    const role = v.courses.get(String(a.course_id));
+    const open = !a.archived && (role === "teacher" || (role === "student" && !!a.published));
+    found.set(`assignment:${a.id}`, {
+      kind: "assignment", title: String(a.title), courseName: String(a.course_name), href: open ? `/assignments/${a.id}` : null,
+      dueAt: a.due_at ? iso(a.due_at) : null, draft: !a.published, gone: !!a.archived,
+    });
+  }
+  for (const l of ls) {
+    // Students follow a lesson when it's presented; only its teachers open it from a post.
+    const role = v.courses.get(String(l.course_id));
+    found.set(`lesson:${l.id}`, {
+      kind: "lesson", title: String(l.title), courseName: String(l.course_name),
+      href: !l.archived && role === "teacher" ? `/lessons/${l.id}/edit` : null, dueAt: null, draft: false, gone: !!l.archived,
+    });
+  }
+  for (const r of rs) {
+    const role = v.courses.get(String(r.course_id));
+    const shown = !!r.visible && r.kind === "block" && ["text", "link", "board", "file"].includes(String(r.block_type));
+    found.set(`resource:${r.id}`, {
+      kind: "resource", title: String(r.title || ""), courseName: String(r.course_name),
+      href: !r.archived && (role === "teacher" || (role === "student" && shown)) ? `/courses/${r.course_id}/resources` : null,
+      dueAt: null, draft: !shown, gone: !!r.archived,
+    });
+  }
+  for (const p of posts) {
+    for (const m of docMaterials(p.doc)) {
+      const f = found.get(`${m.kind}:${m.id}`);
+      p.materials[m.id] = f ? { ...f, title: f.title || m.title } : { kind: m.kind, title: m.title, courseName: "", href: null, dueAt: null, draft: false, gone: true };
+    }
+  }
 }
 
 export async function unreadCount(v: Viewer): Promise<number> {
@@ -171,6 +264,18 @@ export async function thread(v: Viewer, postId: string): Promise<{ post: Post; c
   const [{ n }] = await db.query("SELECT count(*)::int AS n FROM post_comments WHERE post_id = $1 AND status = 'visible'", [p.id]);
   const rules = await rulesFor(p.course_id ? [String(p.course_id)] : [], v.tenantId);
   const post = toPost(v, { ...p, read_at: read?.read_at ?? null, comments: v.kind === "parent" ? 0 : n }, rules);
+  post.places = [{ postId: post.id, courseId: post.courseId, courseName: post.courseName, unread: false, comments: post.comments }];
+  if (post.groupId) {
+    // The same update's other places this viewer can read (each has its own comments).
+    const others = await db.query(
+      `SELECT p.id, p.course_id, c.name AS course_name FROM posts p LEFT JOIN courses c ON c.id = p.course_id
+        WHERE p.tenant_id = $1 AND p.group_id = $2 AND p.id <> $3 AND p.status = 'visible'
+          AND (p.course_id IS NULL OR p.course_id = ANY($4::uuid[])) ORDER BY c.name NULLS FIRST`,
+      [v.tenantId, post.groupId, post.id, readable(v)],
+    );
+    for (const o of others) post.places.push({ postId: String(o.id), courseId: o.course_id ? String(o.course_id) : null, courseName: String(o.course_name ?? ""), unread: false, comments: 0 });
+  }
+  await attachMaterials(v, [post]);
   if (v.kind === "parent") return { post, comments: [] };
   const mod = moderates(v, p);
   const rows = await db.query(
@@ -190,31 +295,110 @@ export async function thread(v: Viewer, postId: string): Promise<{ post: Post; c
 
 const authorKind = (v: Viewer): "staff" | "student" => (v.kind === "student" ? "student" : "staff");
 
-export async function createPost(v: Viewer, input: { courseId?: unknown; title?: unknown; body?: unknown }): Promise<Post> {
-  const courseId = input.courseId == null || input.courseId === "" || input.courseId === "school" ? null : String(input.courseId);
-  if (courseId !== null && !isId(courseId)) throw new UpdateError("forbidden");
-  if (!(await mayPost(v, courseId))) {
-    throw new UpdateError(courseId && v.courses.get(courseId) === "student" ? "off" : "forbidden");
+export async function createPost(v: Viewer, input: { courseId?: unknown; title?: unknown; body?: unknown; doc?: unknown }): Promise<Post> {
+  const [p] = await createPosts(v, { to: [input.courseId], title: input.title, body: input.body, doc: input.doc });
+  return p;
+}
+
+const placeId = (x: unknown): string | null => (x == null || x === "" || x === "school" ? null : String(x));
+
+/**
+ * One update to several places at once (course ids, "school" for the whole
+ * school): one post per place, in one transaction, tied by `group_id`. Every
+ * place must be allowed or nothing is posted. `doc` (the editor's document)
+ * wins over `body`; pictures/files must be the poster's own uploads or from
+ * a class they teach, and material links from classes they teach: anything
+ * else is dropped, so no one can show a class a file it can't otherwise see.
+ */
+export async function createPosts(v: Viewer, input: { to: unknown[]; title?: unknown; body?: unknown; doc?: unknown }): Promise<Post[]> {
+  const places = [...new Set(input.to.map(placeId))];
+  if (!places.length) throw new UpdateError("noplace");
+  if (places.length > 60) throw new UpdateError("forbidden");
+  for (const courseId of places) {
+    if (courseId !== null && !isId(courseId)) throw new UpdateError("forbidden");
+    if (!(await mayPost(v, courseId))) {
+      throw new UpdateError(courseId && v.courses.get(courseId) === "student" ? "off" : "forbidden");
+    }
   }
   const title = clean(input.title, UPDATE_LIMITS.title).replace(/\s+/g, " ");
-  const body = clean(input.body, UPDATE_LIMITS.body);
-  if (!body) throw new UpdateError("empty");
   const db = await getDb();
-  if (courseId) {
-    // The viewer's courses come from Signify ID, but check the course is this school's anyway.
-    const [c] = await db.query("SELECT 1 FROM courses WHERE tenant_id = $1 AND id = $2", [v.tenantId, courseId]);
-    if (!c) throw new UpdateError("forbidden");
+  const teaches = [...v.courses].filter(([, r]) => r === "teacher").map(([c]) => c);
+
+  let doc: PostDoc | null = null;
+  if (input.doc != null && input.doc !== "") {
+    let raw: unknown = input.doc;
+    if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+    doc = normalizeDoc(raw);
+    const fileIds = docFileIds(doc);
+    const okFiles = new Set(fileIds.length ? (await db.query(
+      `SELECT id FROM course_files WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND (uploaded_by = $3 OR course_id = ANY($4::uuid[]))`,
+      [v.tenantId, fileIds, v.userId, teaches])).map((r) => String(r.id)) : []);
+    const mats = docMaterials(doc);
+    const okMats = new Set<string>();
+    for (const [kind, table] of [["assignment", "assignments"], ["lesson", "lessons"], ["resource", "class_resources"]] as const) {
+      const want = mats.filter((m) => m.kind === kind).map((m) => m.id);
+      if (!want.length || !teaches.length) continue;
+      const rows = await db.query(`SELECT id FROM ${table} WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND course_id = ANY($3::uuid[])`, [v.tenantId, want, teaches]);
+      for (const r of rows) okMats.add(`${kind}:${r.id}`);
+    }
+    doc = filterDoc(doc, (n) => n.type === "file" ? okFiles.has(n.fileId) : n.type === "material" ? okMats.has(`${n.kind}:${n.id}`) : true);
+    if (docIsEmpty(doc)) doc = null;
   }
-  const r = await db.tx(async (q) => {
-    const [row] = await q.query(
-      `INSERT INTO posts (tenant_id, course_id, title, body, author_id, author_name, author_kind)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [v.tenantId, courseId, title, body, v.userId, v.name.slice(0, UPDATE_LIMITS.name), authorKind(v)],
-    );
-    await q.query("INSERT INTO post_reads (tenant_id, user_id, post_id, read_at) VALUES ($1, $2, $3, $4)", [v.tenantId, v.userId, row.id, row.activity_at]);
-    return row;
+  const body = doc ? docText(doc).slice(0, UPDATE_LIMITS.body) : clean(input.body, UPDATE_LIMITS.body);
+  if (!body && !doc) throw new UpdateError("empty");
+
+  const courseIds = places.filter((c): c is string => c !== null);
+  if (courseIds.length) {
+    // The viewer's courses come from Signify ID, but check the courses are this school's anyway.
+    const rows = await db.query("SELECT id FROM courses WHERE tenant_id = $1 AND id = ANY($2::uuid[])", [v.tenantId, courseIds]);
+    if (rows.length !== courseIds.length) throw new UpdateError("forbidden");
+  }
+  const groupId = places.length > 1 ? crypto.randomUUID() : null;
+  const files = doc ? docFileIds(doc) : [];
+  const made = await db.tx(async (q) => {
+    const out: Row[] = [];
+    for (const courseId of places) {
+      const [row] = await q.query(
+        `INSERT INTO posts (tenant_id, course_id, title, body, author_id, author_name, author_kind, doc, group_id, file_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid[]) RETURNING *`,
+        [v.tenantId, courseId, title, body, v.userId, v.name.slice(0, UPDATE_LIMITS.name), authorKind(v), doc ? JSON.stringify(doc) : null, groupId, files],
+      );
+      await q.query("INSERT INTO post_reads (tenant_id, user_id, post_id, read_at) VALUES ($1, $2, $3, $4)", [v.tenantId, v.userId, row.id, row.activity_at]);
+      out.push(row);
+    }
+    return out;
   });
-  return toPost(v, { ...r, read_at: r.created_at, comments: 0 }, await rulesFor(courseId ? [courseId] : [], v.tenantId));
+  const rules = await rulesFor(courseIds, v.tenantId);
+  return made.map((r) => toPost(v, { ...r, read_at: r.created_at, comments: 0 }, rules));
+}
+
+/** The places this viewer may post to now: their classes/clubs (as rules allow) and maybe the whole school. */
+export async function postablePlaces(v: Viewer): Promise<{ courseIds: string[]; school: boolean }> {
+  const ids = [...v.courses.keys()].filter(isId);
+  const rules = await rulesFor(ids, v.tenantId);
+  return {
+    courseIds: ids.filter((c) => v.courses.get(c) === "teacher" || (rules.get(c)?.studentPosts ?? true)),
+    school: v.kind === "staff" && v.canPostSchool,
+  };
+}
+
+export type MaterialChoice = { kind: MaterialKind; id: string; courseId: string; title: string; draft: boolean; dueAt: string | null };
+
+/** What a teacher may link in an update: each taught class's assignments, lessons and resources. */
+export async function materialChoices(v: Viewer): Promise<MaterialChoice[]> {
+  const teaches = [...v.courses].filter(([, r]) => r === "teacher").map(([c]) => c).filter(isId);
+  if (!teaches.length) return [];
+  const db = await getDb();
+  const [as, ls, rs] = await Promise.all([
+    db.query(`SELECT id, course_id, title, published, due_at FROM assignments WHERE tenant_id = $1 AND course_id = ANY($2::uuid[]) AND archived = false ORDER BY due_at DESC NULLS LAST, created_at DESC LIMIT 600`, [v.tenantId, teaches]),
+    db.query(`SELECT id, course_id, title, planned_for FROM lessons WHERE tenant_id = $1 AND course_id = ANY($2::uuid[]) AND archived = false ORDER BY planned_for DESC NULLS LAST, created_at DESC LIMIT 600`, [v.tenantId, teaches]),
+    db.query(`SELECT r.id, r.course_id, COALESCE(NULLIF(r.title, ''), NULLIF(r.block->>'title', ''), NULLIF(r.block->>'name', ''), l.title, '') AS title, r.visible, r.kind, r.block->>'type' AS block_type, l.title AS lesson_title FROM class_resources r LEFT JOIN lessons l ON l.id = r.lesson_id WHERE r.tenant_id = $1 AND r.course_id = ANY($2::uuid[]) AND r.archived = false ORDER BY r.position LIMIT 600`, [v.tenantId, teaches]),
+  ]);
+  return [
+    ...as.map((a) => ({ kind: "assignment" as const, id: String(a.id), courseId: String(a.course_id), title: String(a.title), draft: !a.published, dueAt: a.due_at ? iso(a.due_at) : null })),
+    ...ls.map((l) => ({ kind: "lesson" as const, id: String(l.id), courseId: String(l.course_id), title: String(l.title), draft: false, dueAt: null })),
+    ...rs.map((r) => ({ kind: "resource" as const, id: String(r.id), courseId: String(r.course_id), title: String(r.title || r.lesson_title || r.block_type || ""), draft: !r.visible, dueAt: null })),
+  ];
 }
 
 export async function addComment(v: Viewer, postId: string, body: unknown): Promise<Comment> {

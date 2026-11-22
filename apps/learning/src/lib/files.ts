@@ -32,7 +32,7 @@ export const MAX_FILE = 25 * 1024 * 1024;
 export const ACCEPT = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.pptx,.xlsx,.txt,.csv,.mp3,.m4a,.mp4";
 
 export type CourseFile = {
-  id: string; courseId: string; name: string; contentType: string; kind: FileKind; size: number; createdAt: string;
+  id: string; courseId: string | null; name: string; contentType: string; kind: FileKind; size: number; createdAt: string;
 };
 
 export class FileError extends Error {
@@ -228,7 +228,7 @@ export const uploadsOn = () => !!fileStore() && !!filesKey();
 
 function toFile(r: Record<string, unknown>): CourseFile {
   return {
-    id: String(r.id), courseId: String(r.course_id), name: String(r.name), contentType: String(r.content_type),
+    id: String(r.id), courseId: r.course_id ? String(r.course_id) : null, name: String(r.name), contentType: String(r.content_type),
     kind: r.kind as FileKind, size: Number(r.size),
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   };
@@ -236,8 +236,12 @@ function toFile(r: Record<string, unknown>): CourseFile {
 
 const objectKey = (tenantId: string, id: string) => `files/${tenantId.replace(/[^A-Za-z0-9_-]/g, "_")}/${id}`;
 
-/** Stores a teacher's upload for this course. Throws FileError for anything refused. */
-export async function saveFile(who: Who, courseId: string, rawName: unknown, bytes: Buffer): Promise<CourseFile> {
+/**
+ * Stores a teacher's upload for this course. Throws FileError for anything
+ * refused. `courseId` null = a picture or file for a whole-school update
+ * (the caller has checked the person may post to the whole school).
+ */
+export async function saveFile(who: Who, courseId: string | null, rawName: unknown, bytes: Buffer): Promise<CourseFile> {
   if (who.role !== "teacher") throw new FileError("teachers");
   const store = fileStore();
   const key = filesKey();
@@ -261,11 +265,11 @@ export async function saveFile(who: Who, courseId: string, rawName: unknown, byt
 }
 
 /** A file of this school, whoever may see it (callers check `canOpen`). */
-export async function getFile(tenantId: string, id: string): Promise<(CourseFile & { storageKey: string }) | null> {
+export async function getFile(tenantId: string, id: string): Promise<(CourseFile & { storageKey: string; uploadedBy: string }) | null> {
   if (!UUID.test(id)) return null;
   const db = await getDb();
   const rows = await db.query("SELECT * FROM course_files WHERE tenant_id = $1 AND id = $2", [tenantId, id]);
-  return rows[0] ? { ...toFile(rows[0]), storageKey: String(rows[0].storage_key) } : null;
+  return rows[0] ? { ...toFile(rows[0]), storageKey: String(rows[0].storage_key), uploadedBy: String(rows[0].uploaded_by) } : null;
 }
 
 /** The file's bytes, decrypted. Null if the store has lost them or is off. */
@@ -283,10 +287,23 @@ export async function fileBytes(f: { storageKey: string }): Promise<Buffer | nul
  * course where a lesson holds it or a resource showing to students is it.
  */
 export async function canOpen(
-  tenantId: string, file: { id: string; courseId: string }, roleIn: (courseId: string) => Promise<CourseRole | null>,
+  tenantId: string, file: { id: string; courseId: string | null; uploadedBy?: string },
+  roleIn: (courseId: string) => Promise<CourseRole | null>,
+  /** Updates: who is asking, and whether they may read a post in a place (null = the whole school). */
+  posts?: { userId: string; reads: (courseId: string | null) => boolean },
 ): Promise<boolean> {
-  if ((await roleIn(file.courseId)) === "teacher") return true;
+  if (posts && file.uploadedBy && file.uploadedBy === posts.userId) return true;
+  if (file.courseId && (await roleIn(file.courseId)) === "teacher") return true;
   const db = await getDb();
+  if (posts) {
+    // A picture or file shown in a visible update its reader can see.
+    const shown = await db.query(
+      "SELECT DISTINCT course_id FROM posts WHERE tenant_id = $1 AND status = 'visible' AND $2::uuid = ANY(file_ids)",
+      [tenantId, file.id],
+    );
+    if (shown.some((r) => posts.reads(r.course_id ? String(r.course_id) : null))) return true;
+  }
+  if (!file.courseId) return false;
   const [res, les] = await Promise.all([
     db.query(
       `SELECT course_id, bool_or(visible AND NOT archived) AS shown FROM class_resources
@@ -300,8 +317,9 @@ export async function canOpen(
   ]);
   const studentOk = new Set([...res.filter((r) => r.shown === true).map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id))]);
   const courses = new Set([...res.map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id))]);
-  courses.delete(file.courseId);
-  if (studentOk.has(file.courseId) && (await roleIn(file.courseId)) === "student") return true;
+  const own = file.courseId;
+  courses.delete(own);
+  if (studentOk.has(own) && (await roleIn(own)) === "student") return true;
   for (const c of courses) {
     const role = await roleIn(c);
     if (role === "teacher" || (role === "student" && studentOk.has(c))) return true;
