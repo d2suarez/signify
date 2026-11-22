@@ -246,6 +246,7 @@ window.Desk = window.Desk || {};
       'data-category': def ? def.category : 'other',
       // A colour the teacher picked for this one card wins over the family's.
       'data-role': colourOf(item, def),
+      'data-picked': COLOURS.includes(item.colour) ? '' : null,
       'data-tone': def ? def.tone : 'card',
       // A card is only as tall as what is in it, unless the widget says it
       // needs the room. That is the difference between a board of tools and a
@@ -297,7 +298,10 @@ window.Desk = window.Desk || {};
     if (!item) return;
     if (colour) item.colour = colour; else delete item.colour;
     const node = board.instances.get(id)?.node;
-    if (node) node.setAttribute('data-role', colourOf(item, Desk.widgets.get(item.type)));
+    if (node) {
+      node.setAttribute('data-role', colourOf(item, Desk.widgets.get(item.type)));
+      node.toggleAttribute('data-picked', !!colour);
+    }
     markDirty();
   }
 
@@ -870,6 +874,7 @@ window.Desk = window.Desk || {};
       'data-type': item.type,
       'data-category': def.category,
       'data-role': colourOf(item, def),
+      'data-picked': COLOURS.includes(item.colour) ? '' : null,
       'data-tone': def.tone,
     }, [
       el('header.stage-head', {}, [title, el('div.stage-actions', {}, [presentBtn, closeBtn])]),

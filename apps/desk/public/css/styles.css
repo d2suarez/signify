@@ -3097,3 +3097,27 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
 /* Poetry arrives a line per paragraph (API.Bible's q1/q2): lines sit together. */
 .bib-poem { margin-bottom: .05em; }
 .bib-poem + .bib-p:not(.bib-poem), .bib-p:not(.bib-poem) + .bib-poem { margin-top: .55em; }
+
+/* ---------------- a working tool the teacher has coloured ----------------
+   Working tools (notes, alarms, calculator…) are white tiles by default; the
+   user chose that. When the teacher picks a colour for one, the colour fills
+   the tile and the controls sit on a white sheet inside it, because they are
+   drawn for white. Only picked cards get this — never the default board. */
+:is(.card, .stage)[data-tone="card"][data-picked] {
+  --card-bg: var(--role);
+  background: var(--role);
+  color: var(--role-ink);
+}
+:is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) :is(.card-title, .stage-title) { color: inherit; }
+:is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .shape { background: currentColor; }
+:is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .shape[data-shape="ring"] { background: none; }
+:is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .icon-btn { color: inherit; }
+:is(.card, .stage)[data-tone="card"][data-picked] :is(.card-head, .stage-head) .icon-btn:hover { background: color-mix(in srgb, var(--role-ink) 18%, transparent); color: inherit; }
+:is(.card, .stage)[data-tone="card"][data-picked] > :is(.card-body, .stage-body) {
+  --card-bg: var(--surface);
+  background-color: var(--surface);
+  color: var(--ink);
+  border-radius: 14px;
+  padding: .7rem .75rem;
+  margin-top: .35rem;
+}
