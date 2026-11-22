@@ -3214,3 +3214,57 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
   opacity: 0; transition: opacity .12s;
 }
 .cp-saved-item:hover .cp-saved-x, .cp-saved-x:focus-visible { opacity: 1; }
+
+/* Colours: ways to choose — the wheel, sliders, a photo. */
+.cp-modes { align-self: stretch; display: flex; }
+.cp-modes .seg-btn { flex: 1; }
+.cp-panel { display: flex; flex-direction: column; gap: .45rem; }
+.cp-panel[hidden], .cp-photo [hidden] { display: none !important; }
+.cp-wheel {
+  position: relative; width: 100%; max-width: 250px; aspect-ratio: 1; margin: 0 auto;
+  border-radius: 50%; touch-action: none; cursor: crosshair; outline: none;
+}
+.cp-wheel:focus-visible { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--ink); }
+.cp-wheel-canvas, .cp-wheel-shade, .cp-wheel-lines, .cp-wheel-dots { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; }
+.cp-wheel-shade { background: #000; pointer-events: none; }
+.cp-wheel-lines { pointer-events: none; overflow: visible; }
+.cp-wheel-lines line, .cp-wheel-lines polygon { fill: none; stroke: rgba(255,255,255,.85); stroke-width: .018; }
+.cp-wheel-lines polygon { stroke-dasharray: .05 .035; }
+.cp-wheel-dots { pointer-events: none; }
+.cp-wheel-dot {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.35);
+}
+.cp-wheel-dot.is-main { width: 22px; height: 22px; margin: -11px 0 0 -11px; border-width: 3px; }
+.cp-slider-row { display: grid; grid-template-columns: 5.6rem 1fr auto; align-items: center; gap: .5rem; }
+.cp-panel[data-panel="wheel"] .cp-slider-row { grid-template-columns: 5.6rem 1fr; }
+.cp-slider-name { font-size: .8rem; font-weight: 600; color: var(--muted); }
+.cp-num { width: 4.2rem; padding: .2rem .35rem; font-family: var(--mono); font-size: .85rem; }
+.cp-sliders { display: flex; flex-direction: column; gap: .35rem; }
+.cp-slider-kind { align-self: flex-start; }
+/* A range whose track IS the colour scale (content colours, DESIGN.md). */
+.cp-range {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; margin: 0; border-radius: 999px;
+  background: var(--track, var(--desk)); box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); cursor: pointer;
+}
+.cp-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  border: 2px solid #201e1d; box-shadow: 0 1px 3px rgba(0,0,0,.35);
+}
+.cp-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid #201e1d; }
+.cp-range:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.cp-photo-empty {
+  display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: 1rem .8rem; text-align: center;
+  border: 2px dashed var(--line); border-radius: var(--r);
+}
+.cp-photo-empty .hint { margin: 0; }
+.cp-photo.is-drop .cp-photo-empty { border-color: var(--ink); background: var(--desk); }
+.cp-photo-stage { position: relative; align-self: center; max-width: 100%; line-height: 0; }
+.cp-photo-canvas { display: block; max-width: 100%; max-height: 260px; border-radius: var(--r-sm); cursor: crosshair; touch-action: none; }
+.cp-photo-mark {
+  position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+}
+.cp-photo > .btn { align-self: center; }
+.cp-name { display: flex; align-items: center; gap: .35rem; margin: 0; font-size: .85rem; color: var(--muted); }
+.cp-name-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }

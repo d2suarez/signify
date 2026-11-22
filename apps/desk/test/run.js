@@ -1682,14 +1682,49 @@ describe('the colours tool', () => {
   it('cleans up saved state it cannot use', () => {
     const s = { hex: 'nonsense', harmony: 'plaid', saved: ['#abc', 'x', '#123456', ...Array(20).fill('#000000')] };
     w.init(s);
+    equal(s.mode, 'wheel', 'starts on the wheel');
+    equal(s.sliders, 'rgb');
     equal(s.hex, '#1f4fd1');
     equal(s.harmony, 'complementary');
     equal(s.saved[0], '#aabbcc');
     assert(s.saved.length <= 12, 'twelve saved at most');
   });
-  it('is open to visitors but off for students until someone decides', () => {
+  it('is open to visitors and to students', () => {
     equal(w.guest, true);
-    equal(w.students, false);
+    equal(w.students, true);
+  });
+  it('round-trips through HSV, the wheel\'s own numbers', () => {
+    for (const hex of ['#ff0000', '#1f4fd1', '#f5c400', '#0e7f89', '#ffffff', '#000000', '#808080']) equal(c.fromHsv(c.toHsv(hex)), hex, hex);
+    const v = c.toHsv('#1f4fd1');
+    assert(Math.abs(v.h - 223.9) < 0.2 && Math.abs(v.s - 85.2) < 0.2 && Math.abs(v.v - 82) < 0.2, JSON.stringify(v));
+  });
+  it('puts red at the top of the wheel, running clockwise, grey in the middle', () => {
+    const top = c.wheelPoint(0, 100), right = c.wheelPoint(90, 100), mid = c.wheelPoint(200, 0);
+    assert(Math.abs(top.x) < 1e-9 && Math.abs(top.y + 1) < 1e-9, 'red at the top');
+    assert(Math.abs(right.x - 1) < 1e-9 && Math.abs(right.y) < 1e-9, 'yellow-green to the right');
+    equal(Math.hypot(mid.x, mid.y), 0);
+  });
+  it('reads back the colour under any point of the wheel, and clamps past the rim', () => {
+    for (const [h, sat] of [[0, 100], [45, 50], [200, 80], [330, 25]]) {
+      const p = c.wheelPoint(h, sat), back = c.wheelAt(p.x, p.y);
+      assert(Math.abs(back.h - h) < 1e-6 && Math.abs(back.s - sat) < 1e-6, `${h},${sat} came back ${back.h},${back.s}`);
+    }
+    equal(c.wheelAt(3, 0).s, 100);
+  });
+  it('names a colour, exactly or by the nearest name', () => {
+    const red = c.nearestName('#ff0000');
+    equal(red.name, 'red'); equal(red.exact, true);
+    const near = c.nearestName('#4169e2');
+    equal(near.name, 'royal blue'); equal(near.exact, true);
+    const close = c.nearestName('#1f4fd1');
+    equal(close.exact, false);
+    assert(/blue/.test(close.name), close.name);
+  });
+  it('keeps one of each named colour, all valid', () => {
+    const names = c.NAMES.map((n) => n.name);
+    equal(new Set(names).size, names.length, 'no name twice');
+    for (const n of c.NAMES) equal(c.parse(n.hex), n.hex, n.name);
+    assert(c.NAMES.length > 130, 'the CSS list, near enough');
   });
 });
 
@@ -3206,7 +3241,7 @@ describe('tools by role', () => {
   // somebody decides otherwise (and asks Desmond), which means editing this.
   it('students get exactly these tools by default', () => {
     equal(tools.TOOLS.filter((t) => t.students).map((t) => t.type).sort(), [
-      'alarms', 'atlas', 'bible', 'breathing', 'calculator', 'calendar', 'clock', 'convert', 'countdown', 'econgraphs',
+      'alarms', 'atlas', 'bible', 'breathing', 'calculator', 'calendar', 'clock', 'colours', 'convert', 'countdown', 'econgraphs',
       'emoji', 'flashcards', 'helpdesk', 'links', 'message', 'music', 'noise', 'notes', 'picture', 'qr', 'random',
       'scoreboard', 'slides', 'soundboard', 'stopwatch', 'timer', 'video', 'weather', 'whiteboard', 'wordcount',
     ]);
