@@ -891,6 +891,15 @@ window.Desk = window.Desk || {};
     if (!def) return;
     if (locked(def)) { toast(`${def.name} needs a school account. Log in to use it.`); return; }
 
+    // Framed (Learning's rail): the frame is about to fill the window, and
+    // the board behind the big view re-lays itself out at that width, so a
+    // zoom drawn in here would start from the wrong place. The framing app
+    // zooms the frame itself instead, from and back to where the card sits
+    // in its column: it is told where that is, in the frame's own pixels,
+    // measured now, while the card still has its contents.
+    const framed = isFramed();
+    const spot = framed ? board.root.querySelector(`[data-id="${CSS.escape(id)}"]`)?.getBoundingClientRect() : null;
+
     // Only one copy of a widget runs at a time, so a timer cannot tick twice.
     unmountInstance(id);
     board.root.querySelector(`[data-id="${CSS.escape(id)}"] .card-body`)?.replaceChildren();
@@ -939,11 +948,11 @@ window.Desk = window.Desk || {};
     const onKey = (e) => { if (e.key === 'Escape' && !document.fullscreenElement) close(); };
     document.addEventListener('keydown', onKey);
 
+    const cardNode = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
     document.body.append(stage);
     document.body.classList.add('has-stage');
-    tellParent({ stage: true });
-    const cardNode = board.root.querySelector(`[data-id="${CSS.escape(id)}"]`);
-    stageMotion(stage, cardNode, 'open');
+    tellParent({ stage: true, rect: spot ? { x: spot.left, y: spot.top, w: spot.width, h: spot.height } : null });
+    if (!framed) stageMotion(stage, cardNode, 'open');
 
     def.init(item.state);
     const api = def.mount({
@@ -960,7 +969,15 @@ window.Desk = window.Desk || {};
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('fullscreenchange', onFs);
       try { api.destroy && api.destroy(); } catch (e) { console.error(e); }
-      await stageMotion(stage, board.root.querySelector(`[data-id="${CSS.escape(id)}"]`), 'close');
+      if (framed) {
+        // The framing app shrinks the frame back into the card's place, then
+        // says so; only then does the big view go (or after a short wait, if
+        // it never answers).
+        tellParent({ stage: 'closing' });
+        await parentDone();
+      } else {
+        await stageMotion(stage, board.root.querySelector(`[data-id="${CSS.escape(id)}"]`), 'close');
+      }
       stage.remove();
       document.body.classList.remove('has-stage');
       board.stage = null;
@@ -992,10 +1009,30 @@ window.Desk = window.Desk || {};
 
   // ---------- boot ----------
 
+  /** Framed by an app this desk may talk to (Learning's rail). */
+  const isFramed = () => !!(board.shown && board.parentOrigin && window.parent !== window);
+
   /** Messages to the app framing this desk (Learning), only to the origin it said it was. */
   function tellParent(msg) {
-    if (!board.shown || !board.parentOrigin || window.parent === window) return;
+    if (!isFramed()) return;
     try { window.parent.postMessage({ desk: 1, ...msg }, board.parentOrigin); } catch { /* not framed after all */ }
+  }
+
+  /**
+   * Waits for the framing app to say it has finished shrinking the frame
+   * ({ desk: 1, closed: true }, from that window and origin only), or for
+   * a little longer than that ever takes, whichever is first.
+   */
+  function parentDone() {
+    return new Promise((done) => {
+      const finish = () => { window.removeEventListener('message', onMessage); clearTimeout(timer); done(); };
+      const onMessage = (e) => {
+        if (e.source !== window.parent || e.origin !== board.parentOrigin) return;
+        if (e.data && e.data.desk === 1 && e.data.closed === true) finish();
+      };
+      const timer = setTimeout(finish, 900);
+      window.addEventListener('message', onMessage);
+    });
   }
 
   /**

@@ -3275,7 +3275,35 @@ html.session-ended body > *:not(.session-gate) { visibility: hidden !important; 
    background. The theme's colours still apply to the cards. */
 body.is-embed { background: transparent; overflow-x: hidden; }
 body.is-embed #app { min-height: 0; }
-.board.board--embed { padding: 2px; background: none; grid-template-columns: 1fr; }
+.board.board--embed { padding: 2px; background: none; grid-template-columns: 1fr; grid-auto-rows: auto; }
+/* One column at the frame's width, whatever width the card has on the desk,
+   and as tall as what is in it: the desk's rows are a desk's, and a card
+   kept at its desk height cut off a timer's buttons, made groups and a
+   picked name in a narrow frame. Tools that fill their card (a clock face,
+   a seating plan) are given a height for a narrow column instead. */
+body.is-embed .board--embed .card {
+  grid-column: 1 / -1; grid-row: auto;
+  height: auto; max-height: none; min-height: 0;
+  padding: 14px 14px 12px;
+}
+body.is-embed .board--embed .card:not(.is-fluid) .card-body { overflow: visible; }
+body.is-embed .board--embed .card.is-fluid { min-height: var(--embed-h, clamp(240px, 90vw, 420px)); }
+/* Fitted text needs a box whose size comes from the card, never from the
+   text (or it shrinks to nothing): in a card that hugs its content, that box
+   gets a height of its own. */
+.board--embed .card[data-type="timer"] .timer-face { flex: none; height: clamp(64px, 28vw, 120px); }
+.board--embed .card[data-type="randomiser"] .pick-face { flex: none; min-height: clamp(56px, 24vw, 110px); }
+.board--embed .card[data-type="clock"] { --embed-h: clamp(150px, 56vw, 260px); }
+.board--embed .card[data-type="seating"] { --embed-h: clamp(300px, 110vw, 520px); }
+/* The frame's height follows its content, so a height in vh inside a card
+   (the seating room's 52vh, below 1100px) would chase its own tail. */
+.board--embed .card .plan-stage { overflow: visible; }
+.board--embed .card .plan-stage .plan-print { flex: 1 1 0; min-height: 0; }
+/* Tools whose body scrolls inside a card the desk sized: here the card
+   grows to the body instead. */
+.board--embed .card .cv-body { flex: none; overflow: visible; }
+.board--embed .card-head { min-width: 0; }
+.board--embed .card-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board--embed .card-head { cursor: default; }
 .board--embed .desk-mark { display: block; width: 16px; height: 16px; }
 .embed-note { padding: 12px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

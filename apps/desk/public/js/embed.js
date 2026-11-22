@@ -14,6 +14,11 @@
 // The framing app is told the frame's height and when a card opens larger,
 // by postMessage to the origin it names (?from=), and only if that origin is
 // one this server lets frame it (the page's frame-ancestors says the same).
+// Opening larger sends where the card sits in the frame; the framing app
+// grows the frame out of that spot, and on { stage: 'closing' } shrinks it
+// back there and answers { closed: true } before the big view goes
+// (board.js, openStage). Cards here are sized to their content at the
+// frame's width (styles.css, .board--embed), not to their desk rows.
 // ===================================================================
 
 (function (Desk) {
