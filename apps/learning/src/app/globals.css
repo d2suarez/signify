@@ -336,6 +336,9 @@ html[data-font="dyslexia"] :is(.label, .section-title h2) { text-transform: none
 /* Bigger text: the page is scaled, so layouts reflow rather than overflow. */
 html[data-size="large"] main { zoom: 1.2; }
 html[data-size="larger"] main { zoom: 1.45; }
+/* The same scale as a number, for things sized to the screen inside main (the picture overlay). */
+html[data-size="large"] { --main-zoom: 1.2; }
+html[data-size="larger"] { --main-zoom: 1.45; }
 
 /* Wider spacing: at least the WCAG 1.4.12 text-spacing values. */
 html[data-spacing="wide"] body { line-height: 1.9; letter-spacing: .05em; word-spacing: .16em; }
@@ -562,6 +565,19 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .post-h { font-family: var(--display); font-size: 18px; letter-spacing: -0.01em; margin: 4px 0 0; }
 .post-figure { margin: 0; }
 .post-figure img { display: block; max-width: 100%; max-height: 460px; border-radius: var(--r-md); object-fit: contain; background: var(--desk); }
+.post-figure-link { display: inline-block; cursor: zoom-in; border-radius: var(--r-md); }
+/* The picture overlay (Lightbox.tsx): fits the screen at every text size, no sideways scroll.
+   It sits inside main, whose zoom (Larger text) would scale screen units too, so they are divided back. */
+.lightbox { --z: var(--main-zoom, 1); width: min(1100px, calc((100vw - 16px) / var(--z))); max-width: none; max-height: calc((100dvh - 16px) / var(--z)); overflow: auto; }
+.lightbox-in { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lightbox-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lightbox-bar .btn-sm, .lightbox-nav .btn { min-height: 44px; min-width: 44px; }
+.lightbox-count { margin-right: auto; font-weight: 700; }
+.lightbox-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; touch-action: pan-y pinch-zoom; }
+.lightbox-fig img { display: block; max-width: 100%; max-height: calc(100dvh / var(--z) - 210px); min-height: 80px; object-fit: contain; border-radius: var(--r-md); background: var(--desk); }
+.lightbox-fig figcaption { max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
+.lightbox-nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.lightbox-nav .btn { flex: 1 1 140px; }
 .post-video { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: #000; }
 .post-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .post-attach { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: var(--r-md); background: var(--desk); color: var(--ink); text-decoration: none; font-weight: 600; }

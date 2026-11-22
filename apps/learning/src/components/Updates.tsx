@@ -4,6 +4,7 @@ import { videoSrc, type Inline } from "@/lib/post-doc";
 import type { Dict, Lang } from "@/lib/i18n";
 import type { Post, CourseRules } from "@/lib/updates";
 import { When } from "./When";
+import { Lightbox } from "./Lightbox";
 import { moderate, courseRulesAction, markAllRead } from "@/app/updates/actions";
 
 /** "Who · where · when" under a post or comment. */
@@ -135,7 +136,7 @@ function Runs({ runs }: { runs: Inline[] }) {
 
 /** A post's document, as React: no HTML from the post ever reaches the page. */
 export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">; d: Dict; L: Lang }) {
-  return (
+  const body = (
     <div className="post-body">
       {post.doc.nodes.map((n, i) => {
         switch (n.type) {
@@ -146,7 +147,7 @@ export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">
           case "ol": return <ol key={i}>{n.items.map((it, j) => <li key={j}><Runs runs={it} /></li>)}</ol>;
           case "file":
             return n.kind === "image"
-              ? <figure key={i} className="post-figure"><a href={`/files/${n.fileId}`} target="_blank" rel="noopener"><img src={`/files/${n.fileId}`} alt={n.alt || n.name} loading="lazy" /></a></figure>
+              ? <figure key={i} className="post-figure"><a className="post-figure-link" href={`/files/${n.fileId}`} target="_blank" rel="noopener"><img src={`/files/${n.fileId}`} alt={n.alt || n.name} loading="lazy" /></a></figure>
               : <a key={i} className="post-attach" href={`/files/${n.fileId}${n.kind === "doc" ? "" : ""}`} target="_blank" rel="noopener"><span aria-hidden="true">📎</span> {n.name || d.pcFile}</a>;
           case "video":
             return (
@@ -183,4 +184,7 @@ export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">
       })}
     </div>
   );
+  // Pictures open over the page, paging through this post's pictures only.
+  if (!post.doc.nodes.some((n) => n.type === "file" && n.kind === "image")) return body;
+  return <Lightbox labels={{ title: d.lbTitle, close: d.close, prev: d.lbPrev, next: d.lbNext, count: d.lbCount, original: d.lbOriginal }}>{body}</Lightbox>;
 }
