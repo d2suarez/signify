@@ -744,3 +744,23 @@ html[data-contrast="high"] .wg-timer-face, html[data-contrast="high"] .wg-noise-
 .rail .wg-presets .btn { flex: 1 1 0; min-width: 44px; padding: 0 4px; }
 .wg-group-form { grid-template-columns: minmax(0, 1fr); }
 #rail { scroll-margin-top: 120px; }
+
+/* Courses drawer from the top bar (CourseDrawer.tsx): over the page, from the left. */
+.drawer-btn { white-space: nowrap; min-height: 44px; }
+.drawer { margin: 0; inset: 0 auto 0 0; height: 100dvh; max-height: 100dvh; width: min(380px, calc(100vw - 40px)); max-width: none; border: 0; padding: 0;
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-3); border-radius: 0 var(--r-lg) var(--r-lg) 0; overflow-y: auto; overscroll-behavior: contain; }
+.drawer::backdrop { background: rgba(32,30,29,.45); }
+.drawer[open] { animation: drawer-in .18s ease-out; }
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .drawer[open] { animation: none; } }
+.drawer-in { padding: 18px 20px 28px; display: flex; flex-direction: column; gap: 14px; }
+.drawer-group { display: flex; flex-direction: column; gap: 4px; }
+.drawer-link { margin: 0; flex-wrap: wrap; }
+.drawer-link .grow { min-width: 9em; }
+.drawer-link[aria-current="page"] { background: var(--desk); box-shadow: inset 3px 0 0 var(--p2); }
+.drawer-here { display: inline-block; margin-top: 3px; padding: 1px 8px; border-radius: var(--r-pill); background: var(--ink); color: var(--bg); font-size: 12px; font-weight: 700; }
+html[data-size="large"] .drawer-in { zoom: 1.2; }
+html[data-size="larger"] .drawer-in { zoom: 1.45; }
+html[data-contrast="high"] .drawer { border-right: 2px solid var(--ink); }
+html[data-contrast="high"] .drawer-link[aria-current="page"] { outline: 2px solid var(--ink); }
+.drawer .btn { min-height: 44px; }

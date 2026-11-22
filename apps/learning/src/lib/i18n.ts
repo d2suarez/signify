@@ -1400,6 +1400,16 @@ const en = {
   wgSchoolPolicyTitle: "Students",
   wgKindList: "Tools, in order",
   wgEmptyList: "None",
+  // Courses drawer from the top bar (CourseDrawer.tsx)
+  cdButton: "My courses",
+  cdTitle: "Your courses",
+  cdHint: "Go to any of your classes, clubs or children from here.",
+  cdFilter: "Find a course",
+  cdNoMatch: "Nothing matches that.",
+  cdLoading: "Loading your courses…",
+  cdFailed: "Your courses couldn't be loaded. Try again in a minute.",
+  cdHere: "You are here",
+  cdGoHome: "Home",
 };
 
 export type Key = keyof typeof en;
@@ -2787,6 +2797,15 @@ const es: Partial<Record<Key, string>> = {
   wgSchoolPolicyTitle: "Estudiantes",
   wgKindList: "Herramientas, en orden",
   wgEmptyList: "Ninguna",
+  cdButton: "Mis cursos",
+  cdTitle: "Tus cursos",
+  cdHint: "Ve a cualquiera de tus clases, clubes o hijos desde aquí.",
+  cdFilter: "Buscar un curso",
+  cdNoMatch: "Nada coincide con eso.",
+  cdLoading: "Cargando tus cursos…",
+  cdFailed: "No se pudieron cargar tus cursos. Vuelve a intentarlo en un minuto.",
+  cdHere: "Estás aquí",
+  cdGoHome: "Inicio",
 };
 
 const dicts = { en, es } as const;

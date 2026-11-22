@@ -4,6 +4,11 @@ import { readMe } from "@/lib/auth";
 import { lang, myPrefs } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import Supports from "./Supports";
+import CourseDrawer, { type DrawerWords } from "./CourseDrawer";
+
+const DRAWER_KEYS = ["cdButton", "cdTitle", "cdHint", "cdFilter", "cdNoMatch", "cdLoading", "cdFailed", "cdHere", "cdGoHome", "close", "tryAgain",
+  "teaching", "learning", "clubsTitle", "yourChildren", "seeAllWork", "liveNow", "joinLive", "covering", "clubSponsors", "clubLabel",
+  "noCourses", "childrenFailed"] as const;
 
 export function Marks() {
   return (
@@ -25,6 +30,8 @@ export async function TopBar({ crumbs, right, below }: { crumbs?: ReactNode; rig
   return (
     <header className="top">
       <div className="top-in">
+        {/* Every class, club and child, from any page (asked for when it opens). */}
+        {me && <CourseDrawer w={Object.fromEntries(DRAWER_KEYS.map((k) => [k, d[k]])) as DrawerWords} />}
         <Link href="/" className="brand">
           <Marks />
           <span className="brand-name">Signify Learning</span>
