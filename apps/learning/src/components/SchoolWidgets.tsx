@@ -44,13 +44,15 @@ export function SchoolWidgetsEditor({ initial, version: v0, canEdit, d }: { init
         <h2 className="label" id="wg-policy">{d.wgSchoolPolicyTitle}</h2>
         <fieldset className="stack" style={{ gap: 6, border: 0, padding: 0, margin: 0 }} disabled={!canEdit}>
           <legend className="todo-head" style={{ marginBottom: 6 }}>{d.wgSchoolAllowed}</legend>
-          {STUDENT_SAFE.map((k) => (
-            <label key={k} className="row wg-check">
-              <input type="checkbox" checked={v.studentAllowed.includes(k)}
-                onChange={(e) => change({ studentAllowed: e.target.checked ? [...v.studentAllowed, k] : v.studentAllowed.filter((x) => x !== k) })} />
-              {d[`wg_${k}`]}
-            </label>
-          ))}
+          <div className="wg-checks">
+            {STUDENT_SAFE.map((k) => (
+              <label key={k} className="row wg-check">
+                <input type="checkbox" checked={v.studentAllowed.includes(k)}
+                  onChange={(e) => change({ studentAllowed: e.target.checked ? [...v.studentAllowed, k] : v.studentAllowed.filter((x) => x !== k) })} />
+                {d[`wg_${k}`]}
+              </label>
+            ))}
+          </div>
           <p className="muted wg-small" style={{ margin: 0 }}>{d.wgSchoolAllowedHint}</p>
         </fieldset>
         <label className="row wg-check">

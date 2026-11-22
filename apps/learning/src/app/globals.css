@@ -73,6 +73,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .s-square { border-radius: 3px; background: var(--p2); }
 .s-tri { background: var(--p3); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .s-arch { background: var(--p4); border-radius: 6px 6px 0 0; }
+.s-ring { border-radius: 50%; box-shadow: inset 0 0 0 2.5px var(--ink); }
 
 /* ---------- pieces ---------- */
 .card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-3); padding: 20px 22px; min-width: 0; }
@@ -687,10 +688,12 @@ html[data-size="larger"] .rail { zoom: 1.45; }
    reports its height; when one of its cards opens larger the frame fills the
    window until Desk says it closed. */
 .desk-frame { display: flex; flex-direction: column; gap: 6px; margin: 0 -10px; }
+.desk-frame[hidden] { display: none; }
 .desk-frame iframe { display: block; width: 100%; border: 0; background: transparent; color-scheme: normal; }
-.desk-frame.is-big iframe { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 80; background: var(--bg); }
+.desk-frame.is-big iframe { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 80; background: var(--bg); transform-origin: 0 0; }
 .rail:has(.desk-frame.is-big) { z-index: 70; } /* a sticky rail is its own stacking context: lift it over the top bar */
 .desk-link { min-width: 44px; padding: 0 10px; }
+.wg-checks { display: grid; gap: 0 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); }
 .wg-school-lists { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
 .wg-school-list { padding: 14px 16px; box-shadow: none; border: 1px solid var(--line); }
 #rail { scroll-margin-top: 120px; }

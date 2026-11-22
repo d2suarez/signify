@@ -1,9 +1,10 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import fs from "node:fs";
 import { openPglite, migrate, useDb, type Db } from "../src/lib/db";
 import {
-  DEFAULT_SCHOOL_WIDGETS, ROSTER_KINDS, WIDGET_KINDS, classStudentDefaults, forViewer,
+  DEFAULT_SCHOOL_WIDGETS, KIND_FAMILY, MAX_TOOLS, ROSTER_KINDS, STUDENT_SAFE, WIDGET_KINDS, classStudentDefaults, forViewer,
   normalizeSchoolWidgets, resolveWidgets, type SchoolWidgets,
 } from "../src/lib/widgets";
 import { restoreSetting, saveWidgets, schoolWidgets, settingHistory } from "../src/lib/school-grading";
@@ -171,7 +172,8 @@ test("widgets: teachers set their students' defaults only within the school's po
 
 test("widgets: the rail frames Teacher's Desk's own tools, on the class when there is one", () => {
   assert.equal(DESK_ORIGIN, "https://desk.signify.one");
-  assert.deepEqual(WIDGET_KINDS.map((k) => DESK_TYPE[k]), ["clock", "timer", "noise", "randomiser", "groups", "seating"]);
+  assert.equal(DESK_TYPE.picker, "randomiser");
+  assert.equal(DESK_TYPE.seating, "seating");
   const u = new URL(deskEmbedUrl(["randomiser", "seating"], "cls-9", "https://learn.signify.one"));
   assert.equal(u.origin + u.pathname, "https://desk.signify.one/embed");
   assert.equal(u.searchParams.get("tools"), "randomiser,seating");
@@ -182,6 +184,55 @@ test("widgets: the rail frames Teacher's Desk's own tools, on the class when the
 
 test("widgets: every rail word has Spanish", () => {
   const en = dict("en"), es = dict("es");
-  const missing = Object.keys(en).filter((k) => k.startsWith("wg") && es[k as keyof typeof es] === en[k as keyof typeof en]);
+  // Product names stay as they are in both.
+  const names = new Set(["wg_slides", "wg_calendar", "wg_atlas"]);
+  const missing = Object.keys(en).filter((k) => k.startsWith("wg") && !names.has(k) && es[k as keyof typeof es] === en[k as keyof typeof en]);
   assert.deepEqual(missing, []);
+});
+
+// ---------- every Desk tool, within what Desk itself allows ----------
+
+const deskWidgets = () => {
+  const dir = path.join(__dirname, "..", "..", "desk", "public", "js", "widgets");
+  return fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    const call = src.slice(src.indexOf("Desk.widget({"));
+    return { type: /type:\s*'([a-z]+)'/.exec(call)![1], students: /\n\s*students:\s*true/.test(call), roster: /needsRoster:\s*true/.test(call) };
+  });
+};
+
+test("widgets: Change tools can add every Teacher's Desk tool, each mapped to a real Desk type", () => {
+  const desk = deskWidgets();
+  const types = WIDGET_KINDS.map((k) => DESK_TYPE[k]);
+  assert.deepEqual([...types].sort(), desk.map((w) => w.type).sort(), "one kind for each Desk tool, no more, no less");
+  for (const k of WIDGET_KINDS) {
+    assert.ok(KIND_FAMILY[k], k);
+    const t = dict("en")[`wg_${k}` as never] as string; const e = dict("es")[`wg_${k}` as never] as string;
+    assert.ok(t && e, `names for ${k}`);
+  }
+  const staffHome = resolveWidgets({ school: DEFAULT_SCHOOL_WIDGETS, audience: "staff", place: "home" });
+  assert.ok(staffHome.addable.length > 20, "far more to add than the six there were");
+});
+
+test("widgets: students only ever get tools Desk gives students, never a roster tool", () => {
+  const desk = deskWidgets();
+  for (const w of desk) {
+    const kind = WIDGET_KINDS.find((k) => DESK_TYPE[k] === w.type)!;
+    if (w.roster) assert.ok(ROSTER_KINDS.has(kind), `${kind} shows names: staff only`);
+    assert.equal(STUDENT_SAFE.includes(kind), w.students && !w.roster, `${kind} for students only as Desk says`);
+  }
+  // The school's defaults for students are what they were.
+  assert.deepEqual(DEFAULT_SCHOOL_WIDGETS.studentAllowed, ["clock", "timer"]);
+  const s = normalizeSchoolWidgets({ studentAllowed: [...WIDGET_KINDS], studentHome: ["behaviour", "jobs", "passage", "notes"] });
+  assert.ok(!s.studentAllowed.some((k) => !STUDENT_SAFE.includes(k)));
+  assert.deepEqual(s.studentHome, ["notes"]);
+  assert.deepEqual(forViewer(["behaviour", "jobs", "passage", "calculator"], s, "student"), ["calculator"]);
+});
+
+test("widgets: a list holds at most MAX_TOOLS (what one Desk frame shows)", () => {
+  assert.equal(MAX_TOOLS, 12);
+  const many = WIDGET_KINDS.slice(0, 20);
+  assert.equal(forViewer([...many], DEFAULT_SCHOOL_WIDGETS, "staff").length, 12);
+  assert.equal(normalizeSchoolWidgets({ staffHome: many }).staffHome.length, 12);
+  assert.equal(resolveWidgets({ school: DEFAULT_SCHOOL_WIDGETS, audience: "staff", place: "home", own: many }).widgets.length, 12);
 });
