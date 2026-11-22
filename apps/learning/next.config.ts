@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { BOARD_ORIGINS } from "./src/lib/boards";
 import { VIDEO_ORIGINS } from "./src/lib/post-doc";
+import { DESK_ORIGIN } from "./src/lib/desk";
 
 // Sent with every response. Students' work and names pass through this app,
 // so no external origin is allowed for scripts, styles, fonts or connections:
@@ -8,7 +9,8 @@ import { VIDEO_ORIGINS } from "./src/lib/post-doc";
 // nowhere to send to. 'unsafe-inline' stays for scripts because the app
 // router inlines its hydration payload. Frames: only Signify Boards' own
 // origins, for Board blocks (src/lib/boards.ts holds the list), and the
-// YouTube (no-cookie) and Vimeo players for videos in updates (post-doc.ts).
+// YouTube (no-cookie) and Vimeo players for videos in updates (post-doc.ts),
+// and Teacher's Desk for the left rail's tools (src/lib/desk.ts).
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -16,7 +18,7 @@ const CSP = [
   "img-src 'self' data: blob: https://lh3.googleusercontent.com",
   "font-src 'self'",
   "connect-src 'self'",
-  `frame-src 'self' ${[...BOARD_ORIGINS, ...VIDEO_ORIGINS].join(" ")}`,
+  `frame-src 'self' ${[...BOARD_ORIGINS, ...VIDEO_ORIGINS, DESK_ORIGIN].join(" ")}`,
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
@@ -45,8 +47,9 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // The microphone only for this app's own pages: the teacher's noise meter
-          // (Presenter.tsx), which keeps nothing but a loudness number.
-          { key: "Permissions-Policy", value: "geolocation=(), microphone=(self), camera=(), payment=()" },
+          // (Presenter.tsx), which keeps nothing but a loudness number; and
+          // Teacher's Desk framed in the left rail, for its own noise meter.
+          { key: "Permissions-Policy", value: `geolocation=(), microphone=(self "${DESK_ORIGIN}"), camera=(), payment=()` },
         ],
       },
     ];

@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { openPglite, migrate, useDb, type Db } from "../src/lib/db";
 import {
-  DEFAULT_SCHOOL_WIDGETS, ROSTER_KINDS, WIDGET_KINDS, classStudentDefaults, fillSeats, forViewer, makeGroups,
-  normalizeSchoolWidgets, normalizeSeating, resolveWidgets, type SchoolWidgets,
+  DEFAULT_SCHOOL_WIDGETS, ROSTER_KINDS, WIDGET_KINDS, classStudentDefaults, forViewer,
+  normalizeSchoolWidgets, resolveWidgets, type SchoolWidgets,
 } from "../src/lib/widgets";
 import { restoreSetting, saveWidgets, schoolWidgets, settingHistory } from "../src/lib/school-grading";
-import {
-  classStudentWidgets, getSeating, railWidgets, saveOwnWidgets, saveSeating, setClassStudentWidgets,
-} from "../src/lib/widget-store";
+import { classStudentWidgets, railWidgets, saveOwnWidgets, setClassStudentWidgets } from "../src/lib/widget-store";
+import { DESK_ORIGIN, DESK_TYPE, deskEmbedUrl } from "../src/lib/desk";
 import { dict } from "../src/lib/i18n";
 
 let db: Db;
@@ -97,32 +96,6 @@ test("widgets: unknown kinds and repeats are dropped", () => {
   assert.deepEqual(normalizeSchoolWidgets("nonsense"), DEFAULT_SCHOOL_WIDGETS);
 });
 
-// ---------- groups and seats, pure ----------
-
-test("widgets: groups are balanced and hold everyone once", () => {
-  const people = Array.from({ length: 10 }, (_, i) => `s${i}`);
-  let seed = 1;
-  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const byCount = makeGroups(people, { count: 3 }, rand);
-  assert.deepEqual(byCount.map((g) => g.length).sort(), [3, 3, 4]);
-  const bySize = makeGroups(people, { size: 4 }, rand);
-  assert.deepEqual(bySize.map((g) => g.length).sort(), [3, 3, 4]);
-  assert.deepEqual(bySize.flat().sort(), people.slice().sort());
-  assert.equal(makeGroups(people, { count: 50 }, rand).length, 10, "never more groups than people");
-  assert.deepEqual(makeGroups([], { count: 3 }, rand), []);
-});
-
-test("widgets: seating keeps seats inside the room, one per person, ids only", () => {
-  const s = normalizeSeating({ rows: 2, cols: 2, seats: { "0-0": "a", "0-1": "a", "1-1": "b", "5-5": "c", "x": "d", "1-0": { name: "Eve" } } });
-  assert.deepEqual(s, { rows: 2, cols: 2, seats: { "0-0": "a", "1-1": "b" } });
-  assert.deepEqual(normalizeSeating({ rows: 99, cols: 0 }), { rows: 10, cols: 1, seats: {} });
-  assert.deepEqual(normalizeSeating({ rows: "x" }), { rows: 5, cols: 6, seats: {} });
-  const known = normalizeSeating({ rows: 2, cols: 2, seats: { "0-0": "a", "1-1": "gone" } }, new Set(["a"]));
-  assert.deepEqual(known.seats, { "0-0": "a" });
-  const filled = fillSeats({ rows: 2, cols: 2, seats: { "1-1": "a" } }, ["a", "b", "c", "d", "e"], Math.random);
-  assert.equal(filled.seats["1-1"], "a", "already seated stays");
-  assert.equal(new Set(Object.values(filled.seats)).size, 4, "four desks, four people");
-});
 
 // ---------- stored ----------
 
@@ -145,7 +118,7 @@ test("widgets: the school's setting is versioned, stale saves refused, restore i
   assert.deepEqual(now.value.staffHome, ["clock"]);
 });
 
-test("widgets: one school's setting, lists and charts never reach another", async () => {
+test("widgets: one school's setting, lists and class choices never reach another", async () => {
   const a = school(), b = school();
   await saveWidgets({ tenantId: a, userId: "admin-a" }, { ...DEFAULT_SCHOOL_WIDGETS, staffHome: ["noise"] }, 0);
   assert.deepEqual((await schoolWidgets(b)).value, DEFAULT_SCHOOL_WIDGETS, "school B untouched");
@@ -159,11 +132,6 @@ test("widgets: one school's setting, lists and charts never reach another", asyn
   assert.equal((await classStudentWidgets({ tenantId: b, userId: "t" }, ca)).chosen, null);
   await setClassStudentWidgets({ tenantId: b, userId: "t" }, ca, "teacher", ["clock"]);
   assert.deepEqual((await classStudentWidgets({ tenantId: a, userId: "t" }, ca)).chosen, ["timer"], "B's write didn't touch A's class");
-  await saveSeating({ tenantId: a, userId: "t" }, ca, "teacher", { rows: 2, cols: 2, seats: { "0-0": "s1" } }, 0, new Set(["s1"]));
-  assert.deepEqual((await getSeating({ tenantId: b, userId: "t" }, ca, "teacher"))?.layout.seats, {});
-  const fromB = await saveSeating({ tenantId: b, userId: "t" }, ca, "teacher", { rows: 1, cols: 1, seats: {} }, 0, new Set());
-  assert.ok(!fromB.ok, "no chart written into another school's class");
-  assert.deepEqual((await getSeating({ tenantId: a, userId: "t" }, ca, "teacher"))?.layout.seats, { "0-0": "s1" });
 });
 
 test("widgets: a person's own list per context, back to the defaults, and students' saves filtered", async () => {
@@ -201,25 +169,19 @@ test("widgets: teachers set their students' defaults only within the school's po
   assert.equal((await classStudentWidgets(teacher, c)).chosen, null);
 });
 
-test("widgets: seating charts are teachers' only, version-checked, live roster ids only", async () => {
-  const t = school();
-  const c = await course(t);
-  const me = { tenantId: t, userId: "teach" };
-  assert.equal(await getSeating({ tenantId: t, userId: "kid" }, c, "student"), null);
-  assert.deepEqual(await saveSeating({ tenantId: t, userId: "kid" }, c, "student", { rows: 1, cols: 1, seats: {} }, 0, new Set()), { ok: false, reason: "notTeacher" });
-  const first = await saveSeating(me, c, "teacher", { rows: 2, cols: 3, seats: { "0-0": "s1", "0-1": "left-school" } }, 0, new Set(["s1", "s2"]));
-  assert.ok(first.ok);
-  assert.deepEqual(first.ok && first.chart, { layout: { rows: 2, cols: 3, seats: { "0-0": "s1" } }, version: 1 });
-  const stale = await saveSeating(me, c, "teacher", { rows: 1, cols: 1, seats: {} }, 0, new Set(["s1"]));
-  assert.ok(!stale.ok && stale.reason === "stale" && stale.current.version === 1);
-  assert.deepEqual((await getSeating(me, c, "teacher"))?.layout.seats, { "0-0": "s1" }, "never written over");
-  // Only ids are stored, never a name.
-  const [row] = await db.query("SELECT layout FROM seating_charts WHERE tenant_id = $1", [t]);
-  assert.deepEqual(Object.keys(row.layout as object).sort(), ["cols", "rows", "seats"]);
+test("widgets: the rail frames Teacher's Desk's own tools, on the class when there is one", () => {
+  assert.equal(DESK_ORIGIN, "https://desk.signify.one");
+  assert.deepEqual(WIDGET_KINDS.map((k) => DESK_TYPE[k]), ["clock", "timer", "noise", "randomiser", "groups", "seating"]);
+  const u = new URL(deskEmbedUrl(["randomiser", "seating"], "cls-9", "https://learn.signify.one"));
+  assert.equal(u.origin + u.pathname, "https://desk.signify.one/embed");
+  assert.equal(u.searchParams.get("tools"), "randomiser,seating");
+  assert.equal(u.searchParams.get("class"), "cls-9");
+  assert.equal(u.searchParams.get("from"), "https://learn.signify.one");
+  assert.equal(new URL(deskEmbedUrl(["clock"], null, "x")).searchParams.has("class"), false);
 });
 
 test("widgets: every rail word has Spanish", () => {
   const en = dict("en"), es = dict("es");
-  const missing = Object.keys(en).filter((k) => k.startsWith("wg") && es[k as keyof typeof es] === en[k as keyof typeof en] && !["wgMin"].includes(k));
+  const missing = Object.keys(en).filter((k) => k.startsWith("wg") && es[k as keyof typeof es] === en[k as keyof typeof en]);
   assert.deepEqual(missing, []);
 });

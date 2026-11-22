@@ -7,7 +7,8 @@ import type { RailData } from "@/lib/rail";
 import type { WidgetKind } from "@/lib/widgets";
 import { TodoPanel } from "../Todo";
 import { KindList } from "./KindList";
-import { ClassChoice, ClockTool, GroupsTool, NoiseTool, PickerTool, SeatingTool, TimerTool } from "./tools";
+import { DeskFrame, DeskMark } from "./DeskFrame";
+import { DESK_ORIGIN } from "@/lib/desk";
 
 /**
  * Pages that need the whole screen or have a layout of their own get no
@@ -38,18 +39,13 @@ export function RailShell({ children, d, lang, signedIn }: { children: ReactNode
   );
 }
 
-const CLASS_KEY = "sl-wg-class";
-
 function Rail({ d, lang, path }: { d: Dict; lang: Lang; path: string }) {
   const [data, setData] = useState<RailData | null>(null);
   const [todo, setTodo] = useState<RailData["todo"]>(undefined);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saveBad, setSaveBad] = useState(false);
-  const [big, setBig] = useState<WidgetKind | null>(null);
-  const [chosenClass, setChosenClass] = useState<string | null>(null);
   const todoAt = useRef(0);
-  const opener = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async (p: string) => {
     // To do is the same on every page; ask for it again at most once a minute (and always on home).
@@ -64,8 +60,7 @@ function Rail({ d, lang, path }: { d: Dict; lang: Lang; path: string }) {
     } catch { setFailed(true); }
   }, []);
 
-  useEffect(() => { load(path); setEditing(false); setBig(null); }, [path, load]);
-  useEffect(() => { try { setChosenClass(localStorage.getItem(CLASS_KEY)); } catch { /* private mode */ } }, []);
+  useEffect(() => { load(path); setEditing(false); }, [path, load]);
 
   const context = data?.context;
   const save = async (widgets: WidgetKind[] | null) => {
@@ -82,31 +77,8 @@ function Rail({ d, lang, path }: { d: Dict; lang: Lang; path: string }) {
     setData((cur) => (cur && cur.context === before.context ? { ...cur, ...j } : cur));
   };
 
-  const closeBig = useCallback(() => { setBig(null); requestAnimationFrame(() => opener.current?.focus()); }, []);
-  useEffect(() => {
-    if (!big) return;
-    requestAnimationFrame(() => document.querySelector<HTMLElement>(".wg-big .wg-head button")?.focus());
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { closeBig(); return; }
-      // Keep the keyboard inside the large view while it is open.
-      if (e.key !== "Tab") return;
-      const box = document.querySelector<HTMLElement>(".wg-big");
-      const els = box ? Array.from(box.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]")).filter((x) => !x.hasAttribute("disabled")) : [];
-      if (!els.length) return;
-      const first = els[0], last = els[els.length - 1];
-      if (e.shiftKey && (document.activeElement === first || !box!.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && (document.activeElement === last || !box!.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [big, closeBig]);
-
   const isHome = path === "/";
   const teacherHere = data?.course?.role === "teacher";
-  const rosterCourse = data?.course ? (teacherHere ? data.course.id : null)
-    : data && chosenClass && data.teaching.some((c) => c.id === chosenClass) ? chosenClass : null;
-  const props = { d, lang, courseId: rosterCourse };
-  const className = data?.course?.name ?? data?.teaching.find((c) => c.id === rosterCourse)?.name ?? "";
 
   return (
     <aside className="rail" id="rail" aria-label={d.wgRail} data-home={isHome ? "" : undefined}>
@@ -120,6 +92,9 @@ function Rail({ d, lang, path }: { d: Dict; lang: Lang; path: string }) {
       <section className="card side-card rail-tools" aria-labelledby="rail-tools-title">
         <div className="row" style={{ gap: 8 }}>
           <h2 id="rail-tools-title" className="label grow">{d.wgTools}</h2>
+          <a className="btn btn-sm desk-link" href={`${DESK_ORIGIN}/`} target="_blank" rel="noopener" aria-label={d.wgOpenDesk} title={d.wgOpenDesk}>
+            <DeskMark />
+          </a>
           {data && (
             <button type="button" className="btn btn-sm" aria-pressed={editing} onClick={() => setEditing(!editing)}>
               {editing ? d.wgDone : d.wgChange}
@@ -147,37 +122,11 @@ function Rail({ d, lang, path }: { d: Dict; lang: Lang; path: string }) {
         )}
 
         {data && !editing && data.widgets.length === 0 && <p className="muted wg-small" style={{ margin: 0 }}>{d.wgNone}</p>}
-        {data && !editing && data.widgets.map((k) => {
-          const isBig = big === k;
-          const roster = k === "picker" || k === "groups" || k === "seating";
-          return (
-            <section key={k} className={`wg ${isBig ? "wg-big" : ""}`} aria-labelledby={`wg-${k}-t`}
-              role={isBig ? "dialog" : undefined} aria-modal={isBig ? true : undefined}>
-              <div className="wg-head">
-                <span className={`shape ${k === "clock" || k === "timer" ? "s-circle" : "s-square"}`} aria-hidden="true" />
-                <h3 id={`wg-${k}-t`} className="grow">{d[`wg_${k}`]}{isBig && roster && className ? ` · ${className}` : ""}</h3>
-                {isBig ? (
-                  <button type="button" className="btn btn-sm" onClick={closeBig}>{d.close}</button>
-                ) : (
-                  <button type="button" className="btn btn-sm" aria-label={`${d.wgBig}: ${d[`wg_${k}`]}`}
-                    onClick={(e) => { opener.current = e.currentTarget; setBig(k); }}>{d.wgBig}</button>
-                )}
-              </div>
-              {roster && !data.course && (
-                <ClassChoice d={d} teaching={data.teaching} value={rosterCourse}
-                  onChange={(id) => { setChosenClass(id); try { if (id) localStorage.setItem(CLASS_KEY, id); else localStorage.removeItem(CLASS_KEY); } catch { /* */ } }} />
-              )}
-              {k === "clock" && <ClockTool {...props} big={isBig} />}
-              {k === "timer" && <TimerTool {...props} big={isBig} />}
-              {k === "noise" && <NoiseTool {...props} big={isBig} />}
-              {k === "picker" && <PickerTool {...props} big={isBig} />}
-              {k === "groups" && <GroupsTool {...props} big={isBig} />}
-              {k === "seating" && <SeatingTool {...props} big={isBig} onArrange={() => setBig("seating")} />}
-            </section>
-          );
-        })}
+        {/* Teacher's Desk's own tools: the person's real cards, drawn and saved by Desk. */}
+        {data && data.widgets.length > 0 && (
+          <DeskFrame d={d} kinds={data.widgets} idClassId={data.course?.idClassId ?? null} hidden={editing} />
+        )}
       </section>
-      {big && <div className="wg-scrim" aria-hidden="true" onClick={closeBig} />}
     </aside>
   );
 }

@@ -662,7 +662,7 @@ a.post-mat:hover { background: var(--desk); }
 .shell:has([data-no-rail]) > .rail { display: none; }
 html[data-size="large"] .rail { zoom: 1.2; }
 html[data-size="larger"] .rail { zoom: 1.45; }
-.rail .btn-sm, .kind-list .btn-sm, .wg .btn-sm { min-height: 44px; }
+.rail .btn-sm, .kind-list .btn-sm { min-height: 44px; }
 .kind-list .icon-btn { width: 44px; height: 44px; font-size: 18px; }
 .wg-small { font-size: 13.5px; }
 .rail-tools { gap: 12px; }
@@ -672,81 +672,16 @@ html[data-size="larger"] .rail { zoom: 1.45; }
 .kind-row .grow { flex: 1; min-width: 100px; font-weight: 600; }
 .wg-students { border-top: 1px solid var(--line); padding-top: 12px; }
 
-.wg { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.rail-tools > .wg:first-of-type { border-top: 0; }
-.wg-head { display: flex; align-items: center; gap: 8px; }
-.wg-head h3 { font-family: var(--body); font-size: 15px; font-weight: 700; letter-spacing: 0; flex: 1; min-width: 0; }
-.wg-actions { gap: 6px; }
-.wg-actions .btn { flex: 1; }
-.wg-num { width: 76px; flex: none; }
-.wg-check { gap: 8px; font-size: 14px; min-height: 44px; }
-.wg-check input { width: 20px; height: 20px; }
-.wg-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.wg-presets .btn { flex: 1 0 auto; padding: 0 10px; }
-
-.wg-clock { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4px 0; }
-.wg-clock-time { font-family: var(--display); font-size: 40px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.wg-clock-date { font-size: 14px; }
-
-.wg-timer-face { display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: var(--r-md); background: var(--desk); }
-.wg-timer-time { font-family: var(--display); font-size: 44px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.wg-timer-word { font-size: 13.5px; }
-.wg-timer.is-over .wg-timer-face { background: var(--p1); color: var(--p1-ink); box-shadow: inset 0 0 0 3px var(--ink); }
-.wg-timer { display: flex; flex-direction: column; gap: 10px; }
-
-.wg-noise { display: flex; flex-direction: column; gap: 10px; }
-.wg-noise-stage { border-radius: var(--r-md); background: var(--desk); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-.wg-noise-word { font-family: var(--display); font-size: 22px; }
-.wg-noise-bar { position: relative; height: 16px; border-radius: var(--r-pill); background: color-mix(in srgb, currentColor 18%, transparent); overflow: visible; }
-.wg-noise-bar span { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: currentColor; transition: width .1s linear; }
-.wg-noise-bar i { position: absolute; top: -5px; bottom: -5px; width: 3px; background: currentColor; border-radius: 2px; }
-.wg-noise input[type="range"] { width: 100%; min-height: 44px; }
-
-.wg-picked { font-family: var(--display); font-size: 26px; font-weight: 700; margin: 0; text-align: center; overflow-wrap: anywhere; min-height: 1.3em; }
-.wg-picker, .wg-groups, .wg-seating { display: flex; flex-direction: column; gap: 10px; }
-.wg-group-form { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; align-items: center; }
-.wg-group-form .wg-num { width: 100%; }
-.wg-group-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-.wg-group { background: var(--desk); border-radius: var(--r-md); padding: 8px 10px; }
-.wg-group h4 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
-.wg-group ul { margin: 0; padding-left: 18px; font-size: 14px; }
-
-.wg-room { display: flex; flex-direction: column; gap: 6px; }
-.wg-front { text-align: center; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); border-bottom: 3px solid var(--ink); padding-bottom: 2px; }
-.wg-seats { display: grid; gap: 4px; }
-.wg-seat { min-height: 30px; border-radius: 6px; border: 1px dashed var(--line); background: transparent; font-size: 11px; line-height: 1.1; display: grid; place-items: center; text-align: center; padding: 2px; overflow: hidden; overflow-wrap: anywhere; color: inherit; }
-.wg-seat.is-taken { border: 1px solid var(--p2); background: color-mix(in srgb, var(--p2) 12%, var(--surface)); font-weight: 600; }
-button.wg-seat { cursor: pointer; min-height: 44px; font-size: 13px; }
-.wg-seat.is-on, .wg-person.is-on { outline: 3px solid var(--ink); outline-offset: 1px; }
-.wg-person.is-on { background: var(--p3); color: var(--p3-ink); }
-
-/* shown large: the same tool, over the page */
-.wg-scrim { position: fixed; inset: 0; z-index: 59; background: rgb(0 0 0 / .5); }
-.wg.wg-big { position: fixed; inset: 16px; z-index: 60; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-island); padding: 20px 24px; overflow: auto; border: 0; gap: 18px; }
-.wg-big .wg-head h3 { font-family: var(--display); font-size: 26px; }
-.wg-big .is-big { flex: 1; }
-.wg-big .wg-clock { justify-content: center; min-height: 60vh; }
-.wg-big .wg-clock-time { font-size: clamp(64px, 16vw, 260px); }
-.wg-big .wg-clock-date { font-size: clamp(18px, 3vw, 40px); }
-.wg-big .wg-timer-face { padding: 4vh 0; }
-.wg-big .wg-timer-time { font-size: clamp(72px, 18vw, 300px); }
-.wg-big .wg-timer-word { font-size: clamp(16px, 2.4vw, 32px); }
-.wg-big .wg-noise-stage { min-height: 50vh; justify-content: center; padding: 4vh 4vw; }
-.wg-big .wg-noise-word { font-size: clamp(36px, 8vw, 120px); text-align: center; }
-.wg-big .wg-noise-bar { height: 36px; }
-.wg-big .wg-picked { font-size: clamp(40px, 9vw, 140px); padding: 6vh 0; }
-.wg-big .wg-group-list { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.wg-big .wg-group ul { font-size: 20px; }
-.wg-big .wg-seat { min-height: 64px; font-size: 16px; }
-.wg-big .wg-actions .btn, .wg-big .wg-presets .btn { flex: 0 1 auto; }
-@media (prefers-contrast: more) { .wg-seat { border-style: solid; } }
-html[data-contrast="high"] .wg-seat { border: 2px solid var(--ink); }
-html[data-contrast="high"] .wg-timer-face, html[data-contrast="high"] .wg-noise-stage { box-shadow: inset 0 0 0 2px var(--ink); }
+/* Teacher's Desk's own tools, framed (components/rail/DeskFrame.tsx). Desk
+   reports its height; when one of its cards opens larger the frame fills the
+   window until Desk says it closed. */
+.desk-frame { display: flex; flex-direction: column; gap: 6px; margin: 0 -10px; }
+.desk-frame iframe { display: block; width: 100%; border: 0; background: transparent; color-scheme: normal; }
+.desk-frame.is-big iframe { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 80; background: var(--bg); }
+.rail:has(.desk-frame.is-big) { z-index: 70; } /* a sticky rail is its own stacking context: lift it over the top bar */
+.desk-link { min-width: 44px; padding: 0 10px; }
 .wg-school-lists { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
 .wg-school-list { padding: 14px 16px; box-shadow: none; border: 1px solid var(--line); }
-.rail:has(.wg-big) { z-index: 70; } /* a sticky rail is its own stacking context: lift it over the top bar while a tool is shown large */
-.rail .wg-presets .btn { flex: 1 1 0; min-width: 44px; padding: 0 4px; }
-.wg-group-form { grid-template-columns: minmax(0, 1fr); }
 #rail { scroll-margin-top: 120px; }
 
 /* Courses drawer from the top bar (CourseDrawer.tsx): over the page, from the left. */

@@ -1,13 +1,14 @@
 import { getDb } from "./db";
 import { schoolWidgets } from "./school-grading";
 import {
-  classStudentDefaults, cleanKinds, contextKey, forViewer, normalizeSeating, resolveWidgets,
-  type Audience, type Resolved, type SchoolWidgets, type Seating, type WidgetKind,
+  classStudentDefaults, cleanKinds, contextKey, forViewer, resolveWidgets,
+  type Audience, type Resolved, type SchoolWidgets, type WidgetKind,
 } from "./widgets";
 
 /**
- * The rail's tools, stored: each person's own list per context, a class's
- * students' defaults (its teacher's choice), and a class's seating chart.
+ * Which Desk tools the rail shows, stored: each person's own list per
+ * context and a class's students' defaults (its teacher's choice). The tools
+ * themselves (timers, seating plans) live on the person's Teacher's Desk.
  * Every query filters on the signed-in person's tenant; who may do what is
  * checked here too (the routes check first).
  */
@@ -85,43 +86,4 @@ export async function setClassStudentWidgets(
   await db.query("UPDATE courses SET student_widgets = $3::jsonb WHERE tenant_id = $1 AND id = $2",
     [ctx.tenantId, courseId, chosen ? JSON.stringify(chosen) : null]);
   return { ok: true, chosen };
-}
-
-// ---------- seating charts (teachers only) ----------
-
-export type SeatingChart = { layout: Seating; version: number };
-
-export async function getSeating(ctx: Ctx, courseId: string, role: string): Promise<SeatingChart | null> {
-  if (role !== "teacher" || !UUID.test(courseId)) return null;
-  const db = await getDb();
-  const [r] = await db.query("SELECT layout, version FROM seating_charts WHERE tenant_id = $1 AND course_id = $2", [ctx.tenantId, courseId]);
-  return r ? { layout: normalizeSeating(json(r.layout)), version: Number(r.version) } : { layout: normalizeSeating(null), version: 0 };
-}
-
-/**
- * Saves a class's chart. `known` = the class's students from Signify ID now
- * (the caller refuses to save when ID couldn't be asked, so a failed lookup
- * never empties a chart); anyone else is left out. Stale = 409, never written over.
- */
-export async function saveSeating(
-  ctx: Ctx, courseId: string, role: string, input: unknown, baseVersion: unknown, known: ReadonlySet<string>,
-): Promise<{ ok: true; chart: SeatingChart } | { ok: false; reason: "notTeacher" } | { ok: false; reason: "stale"; current: SeatingChart }> {
-  if (role !== "teacher" || !UUID.test(courseId)) return { ok: false, reason: "notTeacher" };
-  const layout = normalizeSeating(input, known);
-  const db = await getDb();
-  return db.tx(async (t) => {
-    const [c] = await t.query("SELECT 1 FROM courses WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId]);
-    if (!c) return { ok: false, reason: "notTeacher" } as const;
-    const [cur] = await t.query("SELECT layout, version FROM seating_charts WHERE tenant_id = $1 AND course_id = $2 FOR UPDATE", [ctx.tenantId, courseId]);
-    const version = cur ? Number(cur.version) : 0;
-    if (Number(baseVersion) !== version) {
-      return { ok: false, reason: "stale", current: { layout: cur ? normalizeSeating(json(cur.layout)) : normalizeSeating(null), version } } as const;
-    }
-    await t.query(
-      `INSERT INTO seating_charts (tenant_id, course_id, layout, version, updated_by) VALUES ($1, $2, $3::jsonb, $4, $5)
-       ON CONFLICT (tenant_id, course_id) DO UPDATE SET layout = EXCLUDED.layout, version = EXCLUDED.version,
-         updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [ctx.tenantId, courseId, JSON.stringify(layout), version + 1, ctx.userId]);
-    return { ok: true, chart: { layout, version: version + 1 } } as const;
-  });
 }

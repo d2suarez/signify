@@ -29,8 +29,8 @@ export function audienceOf(me: Me, courses: MyCourse[]): Audience {
 }
 
 /** The class a page belongs to, from its path, if the person is in it. */
-export async function placeOf(me: Me, path: string): Promise<{ place: RailPlace; courseName: string | null }> {
-  const home = { place: { courseId: null } as RailPlace, courseName: null };
+export async function placeOf(me: Me, path: string): Promise<{ place: RailPlace; courseName: string | null; idClassId: string | null }> {
+  const home = { place: { courseId: null } as RailPlace, courseName: null, idClassId: null };
   const m = /^\/(courses|assignments|lessons)\/([0-9a-f-]{36})(?:\/|$)/i.exec(path || "");
   if (!m || !UUID.test(m[2])) return home;
   let courseId = m[2];
@@ -40,7 +40,7 @@ export async function placeOf(me: Me, path: string): Promise<{ place: RailPlace;
   const { classes } = await myClasses();
   const course = await courseFor(me.tenantId, courseId, classes);
   if (!course) return home;
-  return { place: { courseId: course.id, role: course.role }, courseName: course.name };
+  return { place: { courseId: course.id, role: course.role }, courseName: course.name, idClassId: course.idClassId };
 }
 
 export type RailTodo = { teacher: TeacherTasks | null; student: StudentTasks };
@@ -68,14 +68,13 @@ export async function todoFor(me: Me, courses: MyCourse[]): Promise<RailTodo> {
 
 export type RailData = {
   context: string;
-  course: { id: string; name: string; role: "teacher" | "student" } | null;
+  /** idClassId: the Signify ID class, so Desk opens its tools on this class. */
+  course: { id: string; name: string; role: "teacher" | "student"; idClassId: string } | null;
   audience: Audience;
   widgets: WidgetKind[];
   defaults: WidgetKind[];
   addable: WidgetKind[];
   from: "own" | "class" | "school";
-  /** Classes this person teaches, for a roster tool used on a page that isn't one class. */
-  teaching: { id: string; name: string }[];
   /** A class's teacher, when the school lets them choose: what students here get, and what they may be given. */
   students: { chosen: WidgetKind[] | null; schoolDefault: WidgetKind[]; allowed: WidgetKind[] } | null;
   schoolAdmin: boolean;
@@ -86,7 +85,7 @@ export async function railFor(me: Me, path: string, withTodo: boolean): Promise<
   const { classes } = await myClasses();
   const courses = await myCourses(me.tenantId, classes, me.id);
   const audience = audienceOf(me, courses);
-  const { place, courseName } = await placeOf(me, path);
+  const { place, courseName, idClassId } = await placeOf(me, path);
   const [r, todo] = await Promise.all([
     railWidgets(ctx(me), audience, place),
     withTodo ? todoFor(me, courses) : Promise.resolve(undefined),
@@ -98,9 +97,8 @@ export async function railFor(me: Me, path: string, withTodo: boolean): Promise<
   }
   return {
     context: r.context,
-    course: place.courseId ? { id: place.courseId, name: courseName ?? "", role: place.role } : null,
+    course: place.courseId ? { id: place.courseId, name: courseName ?? "", role: place.role, idClassId: idClassId ?? "" } : null,
     audience, widgets: r.widgets, defaults: r.defaults, addable: r.addable, from: r.from,
-    teaching: courses.filter((c) => c.role === "teacher").map((c) => ({ id: c.id, name: c.name })),
     students, schoolAdmin: isSchoolAdmin(me), todo,
   };
 }

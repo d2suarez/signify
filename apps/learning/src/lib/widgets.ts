@@ -1,6 +1,6 @@
 /**
- * Desk tools in the left rail (under To do), rebuilt from Teacher's Desk's
- * widgets like the lesson blocks were. Pure: the kinds, the school's policy,
+ * Teacher's Desk tools in the left rail (under To do; the tools themselves
+ * are Desk's own, framed: src/lib/desk.ts). Pure: the kinds, the school's policy,
  * and how one person's list is worked out, in layers:
  *
  *   the school's defaults (school admins, /school/widgets, versioned)
@@ -140,67 +140,4 @@ export function resolveWidgets(l: Layers): Resolved {
 /** A context key: "home" or a class's course id. */
 export function contextKey(courseId: string | null): string {
   return courseId && /^[0-9a-f-]{36}$/i.test(courseId) ? courseId : "home";
-}
-
-// ---------- seating chart ----------
-
-/** Seats in a grid of desks, by Signify id only (names come from ID, live). */
-export type Seating = { rows: number; cols: number; seats: Record<string, string> };
-export const EMPTY_SEATING: Seating = { rows: 5, cols: 6, seats: {} };
-
-/** Keeps the grid within 1-10 × 1-10 and seats inside it, one seat per person; `known` (live roster ids) drops anyone else. */
-export function normalizeSeating(input: unknown, known?: ReadonlySet<string>): Seating {
-  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
-  const n = (v: unknown, d: number) => (Number.isInteger(v) ? Math.min(10, Math.max(1, Number(v))) : d);
-  const rows = n(o.rows, EMPTY_SEATING.rows);
-  const cols = n(o.cols, EMPTY_SEATING.cols);
-  const seats: Record<string, string> = {};
-  const used = new Set<string>();
-  const raw = o.seats && typeof o.seats === "object" ? (o.seats as Record<string, unknown>) : {};
-  for (const [key, who] of Object.entries(raw).slice(0, 200)) {
-    const m = /^(\d+)-(\d+)$/.exec(key);
-    if (!m || typeof who !== "string" || !who || who.length > 80) continue;
-    const r = Number(m[1]), c = Number(m[2]);
-    if (r >= rows || c >= cols || used.has(who)) continue;
-    if (known && !known.has(who)) continue;
-    used.add(who);
-    seats[`${r}-${c}`] = who;
-  }
-  return { rows, cols, seats };
-}
-
-/** Everyone in a seat, at random; people already seated stay unless `all`. `rand` gives [0, 1). */
-export function fillSeats(s: Seating, ids: string[], rand: () => number, all = false): Seating {
-  const seats: Record<string, string> = all ? {} : { ...s.seats };
-  const seated = new Set(Object.values(seats));
-  const left = shuffle(ids.filter((id) => !seated.has(id)), rand);
-  for (let r = 0; r < s.rows && left.length; r++) {
-    for (let c = 0; c < s.cols && left.length; c++) {
-      const k = `${r}-${c}`;
-      if (!seats[k]) seats[k] = left.shift()!;
-    }
-  }
-  return { ...s, seats };
-}
-
-// ---------- groups ----------
-
-export function shuffle<T>(list: T[], rand: () => number): T[] {
-  const a = list.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-/** Deals people into groups: `count` groups, or groups of `size` (the last ones a person smaller), sizes balanced. */
-export function makeGroups<T>(people: T[], how: { count?: number; size?: number }, rand: () => number): T[][] {
-  if (!people.length) return [];
-  const n = how.size
-    ? Math.max(1, Math.ceil(people.length / Math.max(1, Math.floor(how.size))))
-    : Math.max(1, Math.min(people.length, Math.floor(how.count ?? 2)));
-  const groups: T[][] = Array.from({ length: n }, () => []);
-  shuffle(people, rand).forEach((p, i) => groups[i % n].push(p));
-  return groups;
 }
