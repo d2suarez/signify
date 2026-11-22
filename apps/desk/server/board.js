@@ -198,6 +198,8 @@ function saveBoard(user, incoming, allowed = null) {
       y: int(raw.y, 0, MAX_ROWS, 0),
       w,
       h: int(raw.h, 1, 40, 4),
+      // A theme colour picked for this one card; anything else is dropped.
+      ...(/^p[1-4]$/.test(raw.colour) ? { colour: raw.colour } : {}),
       state: (raw.state && typeof raw.state === 'object' && !Array.isArray(raw.state)) ? raw.state : {},
     });
   }

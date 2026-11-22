@@ -514,6 +514,24 @@ p { margin: 0 0 .6rem; }
   margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: .81rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
 }
+/* The colour picker under a card's palette button: the theme's four colours
+   and the family's own. It lives on <body> so a block card's ink rules never
+   reach it. */
+.tint-menu {
+  position: fixed; z-index: 60; padding: .55rem .6rem .65rem;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-panel); box-shadow: var(--shadow-3);
+}
+.tint-menu-title { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 .45rem .1rem; opacity: .75; }
+.tint-swatches { display: flex; gap: .4rem; }
+.tint-swatch {
+  width: 34px; height: 34px; padding: 0; border-radius: 50%; cursor: pointer;
+  background: var(--sw); color: var(--sw-ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line);
+  display: inline-flex; align-items: center; justify-content: center; font: 700 .62rem/1 inherit;
+}
+.tint-swatch:has(span) { width: auto; padding: 0 .7rem; border-radius: 999px; }
+.tint-swatch:hover { transform: scale(1.06); }
+.tint-swatch.is-on { box-shadow: 0 0 0 2px var(--ink); }
+.tint-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .card-actions { display: flex; gap: .1rem; opacity: 0; transition: opacity .12s; }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 

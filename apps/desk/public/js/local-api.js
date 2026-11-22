@@ -376,6 +376,7 @@
       if (strays) { state = {}; linked = false; }
       const own = !String(item.id || '').startsWith('g_');
       const candidate = { type: item.type, state, x: item.x, y: item.y, w: item.w, h: item.h };
+      if (/^p[1-4]$/.test(item.colour)) candidate.colour = item.colour;
       if (own || linked || (!strays && worth(candidate))) out.push(candidate);
     }
     return out;

@@ -76,6 +76,19 @@ describe('the board', () => {
     assert(item.h >= 1, 'height is at least one row');
   });
 
+  it('keeps a theme colour picked for a card, and nothing else', () => {
+    const rev = board.boardFor(alice).rev;
+    board.saveBoard(alice, { rev, items: [
+      { id: 'w1', type: 'timer', x: 0, y: 0, w: 3, h: 3, colour: 'p3' },
+      { id: 'w2', type: 'timer', x: 3, y: 0, w: 3, h: 3, colour: 'red; background:url(x)' },
+      { id: 'w3', type: 'timer', x: 6, y: 0, w: 3, h: 3 },
+    ] });
+    const [a, b, c] = board.boardFor(alice).items;
+    equal(a.colour, 'p3', 'a theme colour is kept');
+    assert(!('colour' in b), 'anything that is not a theme colour is dropped');
+    assert(!('colour' in c), 'a card with no pick has no colour field');
+  });
+
   it('will not let one widget push another off the right edge', () => {
     const rev = board.boardFor(alice).rev;
     board.saveBoard(alice, { rev, items: [{ id: 'w1', type: 'timer', x: 10, y: 0, w: 6, h: 3 }] });

@@ -244,7 +244,8 @@ window.Desk = window.Desk || {};
       // whether that colour fills the card or just marks it. Both are written
       // here so the stylesheet can do the rest without a line of JavaScript.
       'data-category': def ? def.category : 'other',
-      'data-role': def && def.role ? def.role : '',
+      // A colour the teacher picked for this one card wins over the family's.
+      'data-role': colourOf(item, def),
       'data-tone': def ? def.tone : 'card',
       // A card is only as tall as what is in it, unless the widget says it
       // needs the room. That is the difference between a board of tools and a
@@ -263,6 +264,7 @@ window.Desk = window.Desk || {};
       Desk.widgets.marker(def ? def.category : 'other'),
       el('h2.card-title', { text: def ? def.name : item.type }),
       el('div.card-actions', {}, [
+        el('button.icon-btn', { title: 'Change the colour', 'aria-label': 'Change the colour', 'aria-haspopup': 'true', svg: icon('palette', 16), onclick: (e) => openColours(e.currentTarget, item.id) }),
         el('button.icon-btn', { title: 'Open larger', 'aria-label': 'Open larger', svg: icon('expand', 16), onclick: () => openStage(item.id) }),
         el('button.icon-btn.icon-btn--danger', { title: 'Remove from the desk', 'aria-label': 'Remove from the desk', svg: icon('close', 16), onclick: () => removeItem(item.id) }),
       ]),
@@ -272,6 +274,71 @@ window.Desk = window.Desk || {};
     head.addEventListener('pointerdown', (e) => startDrag(e, item, node, 'move'));
     node.querySelector('.card-resize').addEventListener('pointerdown', (e) => startDrag(e, item, node, 'resize'));
     return node;
+  }
+
+  /* The four theme colours a card can wear. They are the palette's roles, not
+     fixed hues, so a card set to "colour 2" follows the teacher to a new
+     palette rather than clashing with it. '' means the family's own colour. */
+  const COLOURS = ['p1', 'p2', 'p3', 'p4'];
+  function colourOf(item, def) {
+    return COLOURS.includes(item.colour) ? item.colour : (def && def.role ? def.role : '');
+  }
+
+  let colourMenu = null;
+  function closeColours() {
+    if (!colourMenu) return;
+    colourMenu.cleanup();
+    colourMenu.node.remove();
+    colourMenu = null;
+  }
+
+  function setColour(id, colour) {
+    const item = board.items.find((i) => i.id === id);
+    if (!item) return;
+    if (colour) item.colour = colour; else delete item.colour;
+    const node = board.instances.get(id)?.node;
+    if (node) node.setAttribute('data-role', colourOf(item, Desk.widgets.get(item.type)));
+    markDirty();
+  }
+
+  function openColours(button, id) {
+    const reopen = colourMenu && colourMenu.id === id;
+    closeColours();
+    if (reopen) return;
+    const item = board.items.find((i) => i.id === id);
+    if (!item) return;
+    const def = Desk.widgets.get(item.type);
+    const own = def && def.role ? def.role : ({ time: 'p1', class: 'p2', board: 'p3', calm: 'p4' })[def && def.category] || '';
+    const picked = COLOURS.includes(item.colour) ? item.colour : '';
+    const swatch = (key, label) => el('button.tint-swatch', {
+      type: 'button', title: label, 'aria-label': label, 'aria-pressed': String(picked === key),
+      class: picked === key ? 'is-on' : '',
+      style: key ? { '--sw': `var(--${key})`, '--sw-ink': `var(--${key}-ink)` } : { '--sw': own ? `var(--${own})` : 'var(--ink)', '--sw-ink': own ? `var(--${own}-ink)` : 'var(--surface)' },
+      onclick: () => { setColour(id, key); closeColours(); },
+    }, key ? null : [el('span', { text: 'Usual' })]);
+    const node = el('div.tint-menu', { role: 'group', 'aria-label': 'Colour for this tool' }, [
+      el('div.tint-menu-title', { text: 'Colour' }),
+      el('div.tint-swatches', {}, [
+        ...COLOURS.map((k, n) => swatch(k, `Theme colour ${n + 1}`)),
+        swatch('', 'Its usual colour'),
+      ]),
+    ]);
+    document.body.append(node);
+    const r = button.getBoundingClientRect();
+    const w = node.offsetWidth;
+    node.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))}px`;
+    node.style.top = `${r.bottom + 6}px`;
+    const away = (e) => { if (!node.contains(e.target) && e.target !== button && !button.contains(e.target)) closeColours(); };
+    const key = (e) => { if (e.key === 'Escape') { closeColours(); button.focus(); } };
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', key);
+    window.addEventListener('scroll', closeColours, { once: true, capture: true });
+    colourMenu = { id, node, cleanup: () => {
+      document.removeEventListener('pointerdown', away, true);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('scroll', closeColours, true);
+    } };
+    node.querySelector('.is-on, .tint-swatch')?.focus();
   }
 
   function render() {
@@ -802,7 +869,7 @@ window.Desk = window.Desk || {};
       // red timer is still a red timer when it fills the screen.
       'data-type': item.type,
       'data-category': def.category,
-      'data-role': def.role || '',
+      'data-role': colourOf(item, def),
       'data-tone': def.tone,
     }, [
       el('header.stage-head', {}, [title, el('div.stage-actions', {}, [presentBtn, closeBtn])]),
