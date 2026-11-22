@@ -50,7 +50,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 400 15px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
-h1, h2, h3 { font-family: var(--display); letter-spacing: -0.02em; line-height: 1.1; margin: 0; text-wrap: balance; }
+h1, h2, h3 { font-family: var(--display); letter-spacing: -0.02em; line-height: 1.1; margin: 0; text-wrap: balance; overflow-wrap: break-word; min-width: 0; }
 a { color: var(--p2); }
 button, input, textarea, select { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--p2); outline-offset: 2px; }
@@ -85,6 +85,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn-dark { background: var(--ink); color: var(--bg); }
 .btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; }
 .field { width: 100%; border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; background: var(--surface); }
+/* Never wider than their row (inputs and selects size to their text by default, too wide with Larger + dyslexia font on a phone). */
+.field { min-width: 0; max-width: 100%; }
 textarea.field { resize: vertical; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--desk); font-size: 13px; font-weight: 600; }
 .live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 25%, transparent); }
@@ -93,7 +95,7 @@ textarea.field { resize: vertical; }
 .preview-band .top-in { padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
 .notice-bad { background: color-mix(in srgb, var(--p1) 14%, var(--surface)); }
 .empty { color: var(--muted); padding: 8px 0; }
-.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 16px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .course-card { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; transition: transform .15s var(--ease); }
@@ -393,7 +395,7 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
 .plan-add input { width: 100%; }
 .plan-add-btn { align-self: flex-start; margin-top: auto; }
 .plan-unplanned summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
-.plan-unplanned-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-top: 8px; }
+.plan-unplanned-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 8px; margin-top: 8px; }
 .plan-unit label { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; }
 html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due { border: 1px solid var(--ink); }
 @media (max-width: 760px) {

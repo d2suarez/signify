@@ -136,7 +136,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
         <main className="page stack">
           <div>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>{dict(L).clubLabel}</p>
-            <h1 style={{ fontSize: 34 }}>{access.course.name}</h1>
+            <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)" }}>{access.course.name}</h1>
           </div>
           {await updatesSection(false)}
           <ClubEvents courseId={access.course.id} events={events!} sponsor={false} L={L} d={dict(L)} />
@@ -194,10 +194,10 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
     <>
       <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
       <main className="page stack">
-        <div className="row" style={{ alignItems: "flex-start", flexWrap: "nowrap", gap: 12 }}>
-          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+        <div className="row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ flex: "1 1 16em", minWidth: 0 }}>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>{isClub ? d.clubLabel : course.subject}</p>
-            <h1 style={{ fontSize: 34 }}>{course.name}</h1>
+            <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)" }}>{course.name}</h1>
             {catalog && (
               <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
                 <span className="muted">{d.secOf}</span>
