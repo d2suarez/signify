@@ -186,5 +186,5 @@ export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">
   );
   // Pictures open over the page, paging through this post's pictures only.
   if (!post.doc.nodes.some((n) => n.type === "file" && n.kind === "image")) return body;
-  return <Lightbox labels={{ title: d.lbTitle, close: d.close, prev: d.lbPrev, next: d.lbNext, count: d.lbCount, original: d.lbOriginal }}>{body}</Lightbox>;
+  return <Lightbox labels={{ title: d.lbTitle, close: d.close, prev: d.lbPrev, next: d.lbNext, count: d.lbCount, original: d.lbOriginal, zoomIn: d.lbZoomIn, zoomOut: d.lbZoomOut }}>{body}</Lightbox>;
 }
