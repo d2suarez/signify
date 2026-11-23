@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { getDb } from "./db";
-import type { Assignment, Submission } from "./assignments";
+import { isClosed, type Assignment, type Submission } from "./assignments";
 import type { CourseRole } from "./courses";
 import { cleanName, fileStore, FileError, MAX_FILE, sealFile, sniffFile, uploadsOn } from "./files";
 import { assignmentGroups, groupFor } from "./group-work";
@@ -57,11 +57,13 @@ export async function myFiles(ctx: Ctx, a: Assignment): Promise<MyFiles> {
 }
 
 export class WorkFileError extends Error {
-  constructor(public code: "off" | "empty" | "too-large" | "type" | "handed-in" | "missing" | "too-many") { super(code); }
+  constructor(public code: "off" | "empty" | "too-large" | "type" | "handed-in" | "missing" | "too-many" | "closed") { super(code); }
 }
 
 function usable(a: Assignment) {
   if (!takesFiles(a) || !a.published) throw new WorkFileError("missing");
+  // Stopped accepting work (migration 044): no adding, removing or reordering.
+  if (isClosed(a)) throw new WorkFileError("closed");
 }
 
 /** A student adds a file (ctx.userId is the student; the course role was checked by the route). */

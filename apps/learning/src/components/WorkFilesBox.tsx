@@ -79,7 +79,7 @@ export default function WorkFilesBox({ assignmentId, initial, locked, group, d, 
   }, [busy]);
 
   const why = (code: string, name: string) => (code === "off" ? d.wfOff : code === "too-large" ? d.wfTooBig : code === "type" ? d.wfBadType
-    : code === "too-many" ? d.wfTooMany : code === "handed-in" ? d.wfLocked : d.wfFailed).replace("{name}", name);
+    : code === "too-many" ? d.wfTooMany : code === "handed-in" ? d.wfLocked : code === "closed" ? d.lockStudentClosed : d.wfFailed).replace("{name}", name);
 
   const add = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -93,7 +93,7 @@ export default function WorkFilesBox({ assignmentId, initial, locked, group, d, 
       const r = await fetch(url, { method: "POST", headers: { "x-file-name": encodeURIComponent(f.name) }, body: f }).catch(() => null);
       const out = await r?.json().catch(() => ({})) ?? {};
       if (r?.ok) setFiles((x) => [...x, out.file]);
-      else { problems.push(why(out.error ?? "", raw.name)); if (out.error === "too-many" || out.error === "handed-in" || out.error === "off") break; }
+      else { problems.push(why(out.error ?? "", raw.name)); if (out.error === "too-many" || out.error === "handed-in" || out.error === "closed" || out.error === "off") break; }
     }
     setBusy("");
     setNote(problems.join(" "));

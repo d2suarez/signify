@@ -1,5 +1,5 @@
 import { getDb, type Queryable } from "./db";
-import type { Assignment } from "./assignments";
+import { isClosed, type Assignment } from "./assignments";
 import { gradesFor, setGrade } from "./grades";
 import { courseGrading } from "./standards";
 import { topLevel } from "./standards-math";
@@ -167,8 +167,8 @@ async function finish(t: Queryable, ctx: Ctx, a: Assignment, cur: Attempt, auto:
 }
 
 /**
- * Hands in every attempt left open past its deadline (one student's, or the
- * whole quiz's), with what was saved. Returns the students whose grade may
+ * Hands in every attempt left open past its deadline, or open when the quiz
+ * stopped accepting work (one student's, or the whole quiz's), with what was saved. Returns the students whose grade may
  * now change.
  */
 export async function closeExpired(ctx: Ctx, a: Assignment, studentId?: string): Promise<string[]> {
@@ -177,9 +177,10 @@ export async function closeExpired(ctx: Ctx, a: Assignment, studentId?: string):
   return db.tx(async (t) => {
     const rows = await t.query(
       `SELECT * FROM quiz_attempts WHERE tenant_id = $1 AND assignment_id = $2 AND submitted_at IS NULL
-          AND deadline_at IS NOT NULL AND deadline_at < now() - make_interval(secs => $4::double precision / 1000)
+          AND ($5 OR (deadline_at IS NOT NULL AND deadline_at < now() - make_interval(secs => $4::double precision / 1000)))
           AND ($3::text IS NULL OR student_id = $3) FOR UPDATE`,
-      [ctx.tenantId, a.id, studentId ?? null, QUIZ_GRACE_MS],
+      // Once the assignment stops accepting work (after the same grace), every open attempt is handed in.
+      [ctx.tenantId, a.id, studentId ?? null, QUIZ_GRACE_MS, isClosed(a, new Date(), QUIZ_GRACE_MS)],
     );
     const out: string[] = [];
     for (const r of rows) out.push((await finish(t, ctx, a, toAttempt(r), true)).studentId);
@@ -189,7 +190,7 @@ export async function closeExpired(ctx: Ctx, a: Assignment, studentId?: string):
 
 export type StartResult =
   | { ok: true; attempt: Attempt }
-  | { ok: false; reason: "missing" | "empty" | "no-attempts" };
+  | { ok: false; reason: "missing" | "empty" | "no-attempts" | "closed" };
 
 /** ctx.userId is the student. Gives back the open attempt if there is one. */
 export async function startAttempt(ctx: Ctx, a: Assignment, rnd: () => number = Math.random): Promise<StartResult> {
@@ -200,6 +201,14 @@ export async function startAttempt(ctx: Ctx, a: Assignment, rnd: () => number = 
   return db.tx(async (t) => {
     const all = await attemptsOf(ctx, a.id, ctx.userId, t);
     const open = all.find((x) => !x.submittedAt);
+    if (isClosed(a)) {
+      // Locked: no new attempts, and an open one is handed in with what was saved.
+      if (open) {
+        const locked = await t.query("SELECT * FROM quiz_attempts WHERE id = $1 FOR UPDATE", [open.id]);
+        if (!locked[0].submitted_at) await finish(t, ctx, a, toAttempt(locked[0]), true);
+      }
+      return { ok: false, reason: "closed" } as const;
+    }
     if (open && !pastDeadline(open)) return { ok: true, attempt: open } as const;
     if (open) {
       const locked = await t.query("SELECT * FROM quiz_attempts WHERE id = $1 FOR UPDATE", [open.id]);
@@ -312,7 +321,7 @@ async function recordFacts(t: Queryable, tenantId: string, at: Attempt, quiz: Qu
 export type SaveResult =
   | { ok: true; attempt: Attempt }
   | { ok: false; reason: "conflict"; attempt: Attempt }
-  | { ok: false; reason: "time-up"; attempt: Attempt }
+  | { ok: false; reason: "time-up" | "closed"; attempt: Attempt }
   | { ok: false; reason: "handed-in" | "missing" };
 
 /**
@@ -337,6 +346,8 @@ export async function saveAttempt(ctx: Ctx, a: Assignment, attemptId: string, in
     const cur = toAttempt(rows[0]);
     if (cur.submittedAt) return { ok: false, reason: "handed-in" } as const;
     if (pastDeadline(cur)) return { ok: false, reason: "time-up", attempt: await finish(t, ctx, a, cur, true) } as const;
+    // Stopped accepting work (migration 044): handed in with what was saved, like the time limit.
+    if (isClosed(a, new Date(), QUIZ_GRACE_MS)) return { ok: false, reason: "closed", attempt: await finish(t, ctx, a, cur, true) } as const;
     if (Number(input.baseVersion) !== cur.version) return { ok: false, reason: "conflict", attempt: cur } as const;
 
     const responses = input.responses === undefined ? cur.responses : cleanResponses(quiz, input.responses);

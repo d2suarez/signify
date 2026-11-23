@@ -63,7 +63,7 @@ export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d
           setMineLeft(s.body); take(out.work); setBody(out.work.body); setStatus("behind");
           return false;
         }
-        if (res.status === 409) { setNote(d.gaLocked); setStatus("saved"); return false; }
+        if (res.status === 409) { const o = await res.json().catch(() => ({})); setNote(o.error === "closed" ? d.lockStudentClosed : d.gaLocked); setStatus("saved"); return false; }
         if (!res.ok) throw new Error(String(res.status));
         pastes.current = pastes.current.filter((p) => !sending.includes(p));
         take(out.work);
@@ -123,7 +123,7 @@ export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setNote(out.error === "graded" ? d.cantTakeBack : out.error === "not-submitter" ? d.gaNotSubmitter : out.error === "no-submitter" ? d.gaNoSubmitter : d.saveFailed);
+      setNote(out.error === "graded" ? d.cantTakeBack : out.error === "closed" ? d.lockStudentClosed : out.error === "not-submitter" ? d.gaNotSubmitter : out.error === "no-submitter" ? d.gaNoSubmitter : d.saveFailed);
       return;
     }
     setNote("");

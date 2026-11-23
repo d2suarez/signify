@@ -38,7 +38,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const r = await saveDraft(ctx(access.me), access.assignment, { baseVersion: Number(body.baseVersion), body: body.body, pastes: body.pastes });
   if (r.ok) return NextResponse.json({ submission: r.submission });
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", submission: r.submission }, { status: 409 });
-  if (r.reason === "handed-in") return NextResponse.json({ error: "handed-in" }, { status: 409 });
+  if (r.reason === "handed-in" || r.reason === "closed") return NextResponse.json({ error: r.reason }, { status: 409 });
   return NextResponse.json({ error: "Not found." }, { status: 404 });
 }
 
@@ -54,6 +54,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const r = await setHandedIn(ctx(access.me), access.assignment, body.action === "hand-in", Number(body.baseVersion));
   if (r.ok) return NextResponse.json({ submission: r.submission });
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", submission: r.submission }, { status: 409 });
-  if (r.reason === "graded") return NextResponse.json({ error: "graded" }, { status: 409 });
+  if (r.reason === "graded" || r.reason === "closed") return NextResponse.json({ error: r.reason }, { status: 409 });
   return NextResponse.json({ error: "Not found." }, { status: 404 });
 }

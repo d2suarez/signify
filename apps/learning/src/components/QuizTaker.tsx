@@ -18,8 +18,10 @@ const SAVE_DELAY = 1200;
  * left and come back to, and what was pasted into written answers. Nothing
  * else, and never a verdict.
  */
-export default function QuizTaker({ assignmentId, initial, points, d }: {
+export default function QuizTaker({ assignmentId, initial, points, d, closed = false }: {
   assignmentId: string; initial: StudentQuizView; points: number; d: Dict;
+  /** The quiz stopped accepting work (migration 044): no Start button. */
+  closed?: boolean;
 }) {
   const [view, setView] = useState(initial);
   const open = view.open;
@@ -74,9 +76,9 @@ export default function QuizTaker({ assignmentId, initial, points, d }: {
         });
         const out = await res.json().catch(() => ({}));
         if (res.status === 409 && out.error === "conflict") { stopped.current = true; setStatus("conflict"); return false; }
-        if (res.status === 409 && (out.error === "time-up" || out.error === "handed-in")) {
+        if (res.status === 409 && (out.error === "time-up" || out.error === "handed-in" || out.error === "closed")) {
           stopped.current = true;
-          setNote(out.error === "time-up" ? d.quizTimeUpNote : "");
+          setNote(out.error === "time-up" ? d.quizTimeUpNote : out.error === "closed" ? d.lockQuizHandedIn : "");
           await refresh();
           return false;
         }
@@ -159,7 +161,11 @@ export default function QuizTaker({ assignmentId, initial, points, d }: {
     try {
       const res = await fetch(`/api/assignments/${assignmentId}/quiz`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok) { setNote(out.error === "no-attempts" ? d.quizNoAttemptsLeft : d.saveError); return; }
+      if (!res.ok) {
+        setNote(out.error === "no-attempts" ? d.quizNoAttemptsLeft : out.error === "closed" ? d.lockStudentClosed : d.saveError);
+        if (out.error === "closed") await refresh();
+        return;
+      }
       await refresh();
     } finally {
       setBusy(false);
@@ -194,7 +200,9 @@ export default function QuizTaker({ assignmentId, initial, points, d }: {
           </ul>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.quizFactsNote}</p>
           {note && <p className="notice" role="alert">{note}</p>}
-          {left_ === 0
+          {closed
+            ? <p className="notice">{d.lockStudentClosed}</p>
+            : left_ === 0
             ? <p className="notice">{d.quizNoAttemptsLeft}</p>
             : <div><button type="button" className="btn btn-primary" disabled={busy} onClick={start}>{view.attempts.length ? `${d.quizStartAttempt} ${view.used + 1}` : d.quizStart}</button></div>}
         </section>

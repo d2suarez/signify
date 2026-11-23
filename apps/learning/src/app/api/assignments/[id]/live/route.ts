@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assignmentAccess, ctx } from "@/lib/access";
-import { getSubmission } from "@/lib/assignments";
+import { getSubmission, isClosed } from "@/lib/assignments";
 import { gradesFor } from "@/lib/grades";
 import { closeExpired, QUIZ_GRADER, studentQuiz, syncGrade } from "@/lib/quiz-store";
 import { passBack } from "@/lib/lti-passback";
@@ -23,7 +23,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const noStore = { headers: { "Cache-Control": "no-store" } };
   if (!access) return NextResponse.json({ waiting: true }, { status: 404, ...noStore });
   const { me, course, assignment: a } = access;
-  const base = { id: a.id, courseId: course.id, title: a.title, kind: a.kind, points: a.points, dueAt: a.dueAt };
+  const base = { id: a.id, courseId: course.id, title: a.title, kind: a.kind, points: a.points, dueAt: a.dueAt, closesAt: a.closesAt, closed: isClosed(a) };
   if (course.role === "teacher") {
     return NextResponse.json({ role: "teacher", ...base, published: a.published, version: a.version }, noStore);
   }
@@ -41,7 +41,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({
     role: "student", ...base,
     instructions: a.instructions, instructionsDoc: a.instructionsDoc ?? null,
-    quiz, submission, locked: !!mine && (mine.score !== null || mine.flag === "exempt"),
+    quiz, submission, locked: (!!mine && (mine.score !== null || mine.flag === "exempt")) || isClosed(a),
     toolLinkId: toolLink?.id ?? null, group, me: me.id,
   }, noStore);
 }

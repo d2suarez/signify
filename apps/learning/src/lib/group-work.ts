@@ -1,7 +1,7 @@
 import { getDb, type Queryable } from "./db";
 import { getGroupSet } from "./group-sets";
 import type { Group } from "./groups";
-import { LIMITS, type Assignment, type Submission } from "./assignments";
+import { LIMITS, isClosed, type Assignment, type Submission } from "./assignments";
 import { cleanPastes, record } from "./writing";
 import { groupOwner, snapshotHandIn, studentOwner } from "./hand-in-files";
 
@@ -118,11 +118,12 @@ export async function groupState(ctx: Ctx, a: Assignment, studentId: string): Pr
 export type GroupSave =
   | { ok: true; work: GroupWork }
   | { ok: false; reason: "conflict"; work: GroupWork }
-  | { ok: false; reason: "handed-in" | "missing" | "not-submitter" | "graded" | "no-submitter" };
+  | { ok: false; reason: "handed-in" | "missing" | "not-submitter" | "graded" | "no-submitter" | "closed" };
 
 /** One member saves the group's shared text (online only). ctx.userId is the student. */
 export async function saveGroupDraft(ctx: Ctx, a: Assignment, input: { baseVersion: unknown; body: unknown; pastes?: unknown }): Promise<GroupSave> {
   if (a.kind !== "online" || !a.published) return { ok: false, reason: "missing" };
+  if (isClosed(a)) return { ok: false, reason: "closed" };
   const group = await groupFor(ctx, a, ctx.userId);
   if (!group) return { ok: false, reason: "missing" };
   const body = String(input.body ?? "").slice(0, LIMITS.body);
@@ -156,6 +157,7 @@ export async function saveGroupDraft(ctx: Ctx, a: Assignment, input: { baseVersi
  */
 export async function groupHandIn(ctx: Ctx, a: Assignment, handIn: boolean): Promise<GroupSave> {
   if (a.kind !== "online" || !a.published) return { ok: false, reason: "missing" };
+  if (isClosed(a)) return { ok: false, reason: "closed" };
   const db = await getDb();
   return db.tx(async (t) => {
     const group = await groupFor(ctx, a, ctx.userId, t);
@@ -196,6 +198,7 @@ export async function groupHandIn(ctx: Ctx, a: Assignment, handIn: boolean): Pro
 /** "I'll hand it in": a member takes on handing in for the group (when the group chooses, and before it is handed in). */
 export async function claimSubmitter(ctx: Ctx, a: Assignment): Promise<GroupSave> {
   if (a.groupHandIn !== "one" || a.groupSubmitter !== "group" || !a.published) return { ok: false, reason: "missing" };
+  if (isClosed(a)) return { ok: false, reason: "closed" };
   const db = await getDb();
   return db.tx(async (t) => {
     const group = await groupFor(ctx, a, ctx.userId, t);

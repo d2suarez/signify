@@ -48,7 +48,13 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d, tex
           method: "PUT", headers: { "content-type": "application/json" },
           body: JSON.stringify({ baseVersion: s.version, body: s.body, pastes: sending.map((p) => ({ ago: now - p.at, chars: p.chars, text: p.text })) }),
         });
-        if (res.status === 409) { stopped.current = true; setStatus("conflict"); return false; }
+        if (res.status === 409) {
+          const o = await res.json().catch(() => ({}));
+          stopped.current = true;
+          // Stopped accepting work (migration 044): not a conflict, the work just can't change now.
+          if (o.error === "closed") { setNote(d.lockStudentClosed); setStatus("saved"); } else setStatus("conflict");
+          return false;
+        }
         if (!res.ok) throw new Error(String(res.status));
         const { submission } = await res.json();
         pastes.current = pastes.current.filter((p) => !sending.includes(p));
@@ -102,6 +108,8 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d, tex
       setNote("");
     } else if (out.error === "graded") {
       setNote(d.cantTakeBack);
+    } else if (out.error === "closed") {
+      setNote(d.lockStudentClosed);
     } else if (out.error === "conflict") {
       stopped.current = true;
       setStatus("conflict");

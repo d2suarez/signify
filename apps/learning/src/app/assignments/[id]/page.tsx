@@ -6,7 +6,7 @@ import { finalScore } from "@/lib/late-policy";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang } from "@/lib/access";
-import { getSubmission, listSubmissions } from "@/lib/assignments";
+import { getSubmission, isClosed, listSubmissions } from "@/lib/assignments";
 import { listGroupSets } from "@/lib/group-sets";
 import { assignmentGroups, groupState, listGroupWork } from "@/lib/group-work";
 import GroupHandIn from "@/components/GroupHandIn";
@@ -34,6 +34,8 @@ import { StandardsList } from "@/components/Work";
 import type { StandardsView } from "@/lib/gradebook";
 import { alignedStandards } from "@/lib/standards-math";
 import QuizTaker from "@/components/QuizTaker";
+import AssignmentLock from "@/components/AssignmentLock";
+import { SCHOOL_TZ } from "@/lib/school-grading";
 import { attemptsOf, closeExpired, QUIZ_GRADER, studentQuiz, syncGrade } from "@/lib/quiz-store";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
 import { passBack } from "@/lib/lti-passback";
@@ -80,6 +82,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             standards={options}
             attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size}
             groupSets={sets.map((g) => ({ id: g.id, name: g.name }))} graded={graded} />
+          {a.kind !== "offline" && <AssignmentLock assignmentId={a.id} closesAt={a.closesAt} quiz={a.kind === "quiz"} d={d} lang={L} schoolZone={SCHOOL_TZ} />}
           {/* Answer keys and grading materials (A11): teacher-only, never part of the assignment students get. */}
           <GradingMaterials assignmentId={a.id} courseId={course.id} initial={materials} editable canUpload={uploadsOn()} d={d} />
           {groups && (
@@ -121,6 +124,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     takesFiles(a) ? myFiles(c, a).then((f) => f.files) : Promise.resolve(null),
   ]);
   const text = takesText(a);
+  // Stopped accepting work (migration 044): read-only, and the server refuses every write too.
+  const closed = isClosed(a);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   const shown = a.gradesReleased ? mine : null;
   // A parts rubric not every part of which is scored yet: the card says so (there is no score until it is).
@@ -148,6 +153,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           <h1 style={{ fontSize: 34 }}>{a.title}</h1>
         </div>
         {!a.instructions && <ReadAloud text={a.title} d={d} />}
+        {a.closesAt && (closed
+          ? <p className="notice" role="status" style={{ margin: 0 }}><b>{d.lockClosedAt}</b> <When iso={a.closesAt} lang={L} /> {d.lockStudentClosed}</p>
+          : <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.lockClosesAt} <When iso={a.closesAt} lang={L} /></p>)}
 
         {levelsView && <section className="card"><StandardsList view={levelsView} d={d} id="a-standards" /></section>}
         {shown && (shown.score !== null || shown.flag || shown.comment || partial) && (
@@ -190,11 +198,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         )}
 
         {quizView
-          ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} />
+          ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} closed={closed} />
           : a.kind === "online" && group
-          ? <section className="card"><GroupWorkEditor assignmentId={a.id} initial={group} myId={me.id} locked={locked} d={d} text={text} files={files} /></section>
+          ? <section className="card"><GroupWorkEditor assignmentId={a.id} initial={group} myId={me.id} locked={locked || closed} d={d} text={text} files={files} /></section>
           : a.kind === "online"
-          ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} text={text} files={files} /></section>
+          ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked || closed} d={d} text={text} files={files} /></section>
           : toolLink
           ? <section className="card stack" style={{ gap: 8 }}><p style={{ margin: 0 }}>{d.toolStudentHint}</p>
               <div><a className="btn btn-primary" href={`/lti/tool/launch?link=${toolLink.id}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a></div></section>

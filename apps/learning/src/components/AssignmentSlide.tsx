@@ -25,6 +25,8 @@ type TeacherView = { role: "teacher"; id: string; title: string; kind: string; p
 type StudentView = {
   role: "student"; id: string; title: string; kind: string; points: number; dueAt: string | null;
   instructions: string; instructionsDoc: PostDoc | null; quiz: StudentQuizView | null; submission: Submission | null; locked: boolean; toolLinkId: string | null;
+  /** Stopped accepting work (migration 044). */
+  closesAt?: string | null; closed?: boolean;
   /** A group assignment: the student's group and its shared text (null when they work alone). */
   group?: GroupState | null; me?: string;
 };
@@ -125,10 +127,11 @@ export function StudentAssignmentStage({ block, d, L, stamp }: { block: Assignme
         </p>
         <h2 style={{ fontSize: 26, margin: "4px 0 0" }}>{a.title}</h2>
       </div>
+      {a.closed && a.closesAt && <p className="notice" role="status" style={{ margin: 0 }}><b>{d.lockClosedAt}</b> <When iso={a.closesAt} lang={L} /> {d.lockStudentClosed}</p>}
       {a.instructions && <Instructions text={a.instructions} doc={a.instructionsDoc} d={d} L={L} />}
       {/* Keyed by assignment: moving to another slide starts fresh; publishing another never resets this one. */}
       {a.quiz
-        ? <QuizTaker key={a.id} assignmentId={a.id} initial={a.quiz} points={a.points} d={d} />
+        ? <QuizTaker key={a.id} assignmentId={a.id} initial={a.quiz} points={a.points} d={d} closed={!!a.closed} />
         : a.kind === "online" && a.group
         ? <GroupWorkEditor key={a.id} assignmentId={a.id} initial={a.group} myId={a.me ?? ""} locked={a.locked} d={d} />
         : a.kind === "online"

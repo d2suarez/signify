@@ -59,6 +59,11 @@ export type Assignment = {
   groupSubmitter: GroupSubmitter;
   /** Online only: what students hand in (story 01 A7). */
   handIn: HandIn;
+  /**
+   * When it stops accepting work (migration 044): now or a chosen moment;
+   * null = open. See isClosed. Not versioned; set with setClosesAt.
+   */
+  closesAt: string | null;
   version: number;
   updatedAt: string;
 };
@@ -105,6 +110,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     groupHandIn: r.group_hand_in === "one" ? "one" : "each",
     groupSubmitter: r.group_submitter === "teacher" ? "teacher" : "group",
     handIn: cleanHandIn(r.hand_in),
+    closesAt: iso(r.closes_at),
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
@@ -378,6 +384,38 @@ export async function versionCount(ctx: Ctx, id: string): Promise<number> {
   return n;
 }
 
+// ---------- stop accepting work (migration 044) ----------
+
+/**
+ * Whether the assignment has stopped accepting work. `graceMs` lets a save
+ * already on its way when the lock fell still land (open quiz attempts).
+ * Every student write checks this on the server; grading never does.
+ */
+export function isClosed(a: Pick<Assignment, "closesAt">, now = new Date(), graceMs = 0): boolean {
+  return !!a.closesAt && now.getTime() - graceMs >= new Date(a.closesAt).getTime();
+}
+
+/**
+ * The teacher stops work now ("now"), at a moment (ISO), or opens it again
+ * (null). A moment in the past counts as now. Returns the saved moment.
+ */
+export async function setClosesAt(ctx: Ctx, id: string, at: unknown): Promise<{ ok: true; closesAt: string | null } | { ok: false }> {
+  if (!UUID.test(id)) return { ok: false };
+  let when: string | null = null;
+  if (at === "now") when = new Date().toISOString();
+  else if (typeof at === "string" && at) {
+    const t = new Date(at);
+    if (Number.isNaN(t.getTime()) || t.getFullYear() > 2200) return { ok: false };
+    when = (t.getTime() < Date.now() ? new Date() : t).toISOString();
+  } else if (at !== null) return { ok: false };
+  const db = await getDb();
+  const rows = await db.query(
+    "UPDATE assignments SET closes_at = $3 WHERE tenant_id = $1 AND id = $2 AND archived = false RETURNING closes_at",
+    [ctx.tenantId, id, when],
+  );
+  return rows[0] ? { ok: true, closesAt: iso(rows[0].closes_at) } : { ok: false };
+}
+
 // ---------- submissions ----------
 
 export type Submission = {
@@ -450,7 +488,7 @@ export async function courseSubmissions(ctx: Ctx, courseId: string, studentId?: 
 export type SubmissionSave =
   | { ok: true; submission: Submission }
   | { ok: false; reason: "conflict"; submission: Submission }
-  | { ok: false; reason: "handed-in" | "missing" };
+  | { ok: false; reason: "handed-in" | "missing" | "closed" };
 
 /**
  * Saves a student's own work. ctx.userId is the student; nobody can write
@@ -459,6 +497,7 @@ export type SubmissionSave =
  */
 export async function saveDraft(ctx: Ctx, a: Assignment, input: { baseVersion: number; body: unknown; pastes?: unknown }): Promise<SubmissionSave> {
   if (a.kind !== "online" || !a.published) return { ok: false, reason: "missing" };
+  if (isClosed(a)) return { ok: false, reason: "closed" };
   const body = String(input.body ?? "").slice(0, LIMITS.body);
   const pastes = cleanPastes(input.pastes);
   const db = await getDb();
@@ -506,6 +545,8 @@ export async function saveDraft(ctx: Ctx, a: Assignment, input: { baseVersion: n
  */
 export async function setHandedIn(ctx: Ctx, a: Assignment, handIn: boolean, baseVersion: number): Promise<SubmissionSave | { ok: false; reason: "graded" }> {
   if (a.kind !== "online" || !a.published) return { ok: false, reason: "missing" };
+  // Locked: no new hand-ins and no taking back (what's in stays in).
+  if (isClosed(a)) return { ok: false, reason: "closed" };
   const db = await getDb();
   return db.tx(async (t) => {
     const rows = await t.query(

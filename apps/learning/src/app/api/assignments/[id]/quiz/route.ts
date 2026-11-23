@@ -55,6 +55,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = await json(req);
   if (body?.action !== "start") return NextResponse.json({ error: "Say start." }, { status: 400 });
   const r = await startAttempt(ctx(access.me), access.assignment);
+  if (!r.ok && r.reason === "closed") await grade(access); // an open attempt may just have been handed in
   if (!r.ok) return NextResponse.json({ error: r.reason }, { status: r.reason === "missing" ? 404 : 409 });
   return view(access);
 }
@@ -73,9 +74,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (r.attempt.submittedAt) await grade(access);
     return NextResponse.json({ attempt: { id: r.attempt.id, version: r.attempt.version, submittedAt: r.attempt.submittedAt } });
   }
-  if (r.reason === "time-up") {
+  if (r.reason === "time-up" || r.reason === "closed") {
     await grade(access);
-    return NextResponse.json({ error: "time-up" }, { status: 409 });
+    return NextResponse.json({ error: r.reason }, { status: 409 });
   }
   if (r.reason === "conflict" || r.reason === "handed-in") return NextResponse.json({ error: r.reason }, { status: 409 });
   return NextResponse.json({ error: "Not found." }, { status: 404 });
