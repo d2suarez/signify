@@ -16,6 +16,7 @@ import GradingMaterials from "@/components/GradingMaterials";
 import { listMaterials } from "@/lib/grading-materials";
 import { isParts } from "@/lib/rubric";
 import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
+import { reviewedFor } from "@/lib/grade-review";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,8 @@ export default async function GradePage({ params, searchParams }: {
     studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), placements(me.tenantId, "assignment", a.id),
     courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listMaterials(c, a.id),
   ]);
-  const notesBy = isParts(a.rubric) ? await partNotesFor(c, a.id) : new Map();
+  const review = isParts(a.rubric);
+  const [notesBy, reviewed] = review ? await Promise.all([partNotesFor(c, a.id), reviewedFor(c, a.id)]) : [new Map(), new Map<string, string>()];
   // Group work (story 01, F4): each student's group, and the group's shared text where they haven't handed in.
   const groupOf = new Map((groups ?? []).flatMap((g) => g.members.map((m) => [m.id, g] as const)));
   let standards: DeskStandards | undefined;
@@ -67,7 +69,7 @@ export default async function GradePage({ params, searchParams }: {
       late: isLate(a, sub),
       score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null, levels: g?.levels ?? null,
       autoDays: late.byStudent.get(s.id)?.autoDays ?? null, lateOverride: g?.lateOverride ?? null,
-      parts: g?.parts ?? null, notes: notesBy.get(s.id) ?? null,
+      parts: g?.parts ?? null, notes: notesBy.get(s.id) ?? null, reviewedAt: reviewed.get(s.id) ?? null,
     };
   });
 
@@ -82,6 +84,7 @@ export default async function GradePage({ params, searchParams }: {
           {a.kind === "quiz" && <Link className="btn" href={`/assignments/${a.id}/results`}>{d.quizResults}</Link>}
           <Link className="btn" href={`/courses/${course.id}/gradebook`}>{d.gradebook}</Link>
           {a.kind === "online" && <a className="btn" href={`/api/assignments/${a.id}/download`} download>⬇ {d.zipAll}</a>}
+          <a className="btn" href={`/api/assignments/${a.id}/table`} download title={d.rvCsvHint}>⬇ {d.rvCsv}</a>
         </div>
         <GradingMaterials assignmentId={a.id} courseId={course.id} initial={materials} editable={false} canUpload={false} d={d} />
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}

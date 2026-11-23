@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dict } from "@/lib/i18n";
 import type { Flag } from "@/lib/grades";
 import WritingReplay from "./WritingReplay";
@@ -10,6 +10,8 @@ import QuizReview from "./QuizReview";
 import type { Grade } from "@/lib/grades";
 import { feedbackFromParts, isParts, partsScore, rubricScore, type PartMarks, type PartNotes, type Rubric, type RubricSelection } from "@/lib/rubric";
 import PartsGrader from "./PartsGrader";
+import ReviewWork from "./ReviewWork";
+import PartZoom from "./PartZoom";
 import { levelsFromRubric } from "@/lib/standards-math";
 import { finalScore, normalizeOverride, penaltyFor, ruleText, type Applied, type LateOverride } from "@/lib/late-policy";
 
@@ -27,7 +29,10 @@ export type DeskStudent = {
   group?: { name: string; ids: string[] } | null;
   /** A sections-and-parts rubric: part scores and messages, and the teacher's own notes. */
   parts?: PartMarks | null; notes?: PartNotes | null;
+  /** The review screen: when the teacher marked this grade reviewed (null = not yet). */
+  reviewedAt?: string | null;
 };
+type Sort = "name" | "low" | "todo";
 
 type History = { score: number | null; flag: Flag | null; comment: string; lateOverride: LateOverride | null; changedAt: string }[];
 type LateMode = "policy" | "waive" | "percent" | "days";
@@ -66,6 +71,24 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   // A group assignment: one grade for the whole group, unless the teacher changes just this member.
   const [whole, setWhole] = useState(true);
   const scoreRef = useRef<HTMLInputElement>(null);
+  // The review screen (a sections-and-parts rubric): sort, the enlarged part, the Grade / Student feedback tabs.
+  const [sort, setSort] = useState<Sort>("name");
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [tab, setTab] = useState<"grade" | "feedback">("grade");
+  const review = parts;
+  const view = useMemo(() => {
+    const at = new Map(students.map((x, k) => [x.id, k]));
+    const base = students.map((x) => x);
+    if (sort === "low") return base.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity) || at.get(a.id)! - at.get(b.id)!);
+    if (sort === "todo") {
+      const done = (x: DeskStudent) => (review ? !!x.reviewedAt : x.score !== null || !!x.flag);
+      return base.sort((a, b) => Number(done(a)) - Number(done(b)) || at.get(a.id)! - at.get(b.id)!);
+    }
+    return base;
+  }, [students, sort, review]);
+  const pos = view.findIndex((x) => x.id === s.id);
+  const go = (id: string | undefined) => { const k = students.findIndex((x) => x.id === id); if (k >= 0) setI(k); };
+  const reviewedCount = students.filter((x) => x.reviewedAt).length;
 
   // Load the chosen student's grade into the form.
   useEffect(() => {
@@ -83,7 +106,9 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setHistory(null);
     setShowWriting(false);
     setWhole(true);
-    scoreRef.current?.focus();
+    setZoom(null);
+    setTab("grade");
+    scoreRef.current?.focus({ preventScroll: true });
     // Only when moving to another student, not after each save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i]);
@@ -141,10 +166,18 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setComment(built);
   };
 
-  const save = async (thenNext: boolean) => {
+  /** Save (when anything changed), optionally mark reviewed, then optionally move on. */
+  const save = async (thenNext: boolean, markReviewed = false) => {
     setSaving(true);
     setError("");
+    // Where "next" goes, worked out before this save re-sorts the list.
+    const skip = new Set(s.group && whole ? s.group.ids : [s.id]);
+    const nextId = view.slice(pos + 1).find((x) => !skip.has(x.id))?.id;
     try {
+      if (!dirty && markReviewed) {
+        if (await setReviewed([...skip].filter((id) => !s.group || whole || id === s.id), true) && thenNext && nextId) go(nextId);
+        return;
+      }
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(assignment.rubric && !parts ? { rubric: sel } : {}), ...(parts ? { parts: marks ?? {}, notes: notes ?? {} } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
@@ -163,17 +196,26 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         return { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null,
           parts: g ? g.parts : null, notes: g && parts ? notes : null };
       }));
+      if (markReviewed && !(await setReviewed(Object.keys(reached), true))) return;
       // Save · Next on a group grade moves past the group's other members.
-      if (thenNext) {
-        let k = i + 1;
-        while (k < students.length && s.group && whole && s.group.ids.includes(students[k].id)) k++;
-        if (k < students.length) setI(k);
-      }
+      if (thenNext && nextId) go(nextId);
     } catch {
       setError(d.saveError);
     } finally {
       setSaving(false);
     }
+  };
+
+  /** Mark (or unmark) students reviewed; false when it didn't work (the error is shown). */
+  const setReviewed = async (ids: string[], on: boolean): Promise<boolean> => {
+    const res = await fetch(`/api/assignments/${assignment.id}/review`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentIds: ids, reviewed: on }),
+    }).catch(() => null);
+    const out = res ? await res.json().catch(() => ({})) : {};
+    if (!res?.ok) { setError(out.error === "roster" ? d.rosterFailed : d.saveError); return false; }
+    const got: Record<string, string | null> = out.reviewed ?? {};
+    setStudents((all) => all.map((x) => (x.id in got ? { ...x, reviewedAt: got[x.id] } : x)));
+    return true;
   };
 
   const loadHistory = async () => {
@@ -197,13 +239,28 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   return (
     <div className="desk">
       <nav className="card desk-list" aria-label={d.students}>
+        <div className="seg desk-sort" role="group" aria-label={d.rvSort}>
+          {(["name", "low", "todo"] as const).map((k) => (
+            <button key={k} type="button" aria-pressed={sort === k} onClick={() => setSort(k)}>
+              {k === "name" ? d.rvSortName : k === "low" ? d.rvSortLow : d.rvSortTodo}
+            </button>
+          ))}
+        </div>
+        {review && (
+          <p className="desk-progress" aria-live="polite">
+            <span>{d.rvProgress.replace("{n}", String(reviewedCount)).replace("{total}", String(students.length))}</span>
+            <span className="bar" aria-hidden="true"><i style={{ width: `${students.length ? (100 * reviewedCount) / students.length : 0}%` }} /></span>
+          </p>
+        )}
         <ul>
-          {students.map((x, j) => (
+          {view.map((x) => (
             <li key={x.id}>
-              <button type="button" aria-current={j === i ? "true" : undefined} onClick={() => setI(j)}>
+              <button type="button" aria-current={x.id === s.id ? "true" : undefined} onClick={() => go(x.id)}>
                 <span className="grow">{x.name}{x.group && <span className="muted" style={{ display: "block", fontSize: 12 }}>{x.group.name}</span>}</span>
+                {review && x.late && <span className="chip chip-late desk-mark">{d.late}</span>}
+                {review && x.reviewedAt && <span className="desk-reviewed" title={d.rvReviewed} aria-label={d.rvReviewed}>✓</span>}
                 {x.score !== null
-                  ? <b>{x.score}</b>
+                  ? <b>{x.score}{review ? <span className="muted" style={{ fontWeight: 400 }}>/{assignment.points}</span> : null}</b>
                   : x.flag ? <span className={`chip chip-${x.flag}`}>{flagLabel(x.flag)}</span>
                   : assignment.kind !== "offline" && x.submittedAt ? <span className="chip chip-done">{d.handedIn}</span>
                   : null}
@@ -223,7 +280,10 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         {assignment.kind === "quiz"
           ? <QuizReview key={s.id} assignmentId={assignment.id} studentId={s.id} points={assignment.points} onGrade={quizGrade} d={d} />
           : assignment.kind === "online"
-          ? (s.body ? <div className="work-text">{s.body}</div> : <p className="empty">{d.noWork}</p>)
+          ? (s.body
+            ? (review ? <ReviewWork key={s.id} rubric={assignment.rubric!} body={s.body} marks={marks} current={zoom} onOpen={setZoom} d={d} />
+              : <div className="work-text">{s.body}</div>)
+            : <p className="empty">{d.noWork}</p>)
           : <p className="muted">{d.kindOffline}</p>}
         {assignment.kind === "online" && s.body && (
           <p style={{ margin: "8px 0 0" }}><a href={`/api/assignments/${assignment.id}/download?student=${encodeURIComponent(s.id)}`} download className="btn btn-sm">⬇ {d.zipOne}</a></p>
@@ -237,12 +297,20 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         )}
       </section>
 
-      <form className="card desk-form" onSubmit={(e) => { e.preventDefault(); save(true); }}>
+      <form className="card desk-form" onSubmit={(e) => { e.preventDefault(); save(true, review); }}>
+        {review && (
+          <div className="seg desk-tabs" role="tablist" aria-label={d.rvTabs}>
+            <button type="button" role="tab" id="tab-grade" aria-controls="panel-grade" aria-selected={tab === "grade"} onClick={() => setTab("grade")}>{d.rvTabGrade}</button>
+            <button type="button" role="tab" id="tab-feedback" aria-controls="panel-feedback" aria-selected={tab === "feedback"}
+              onClick={() => { setTab("feedback"); if (!comment.trim() && built) setComment(built); }}>{d.prFeedback}</button>
+          </div>
+        )}
+        <div id="panel-grade" role={review ? "tabpanel" : undefined} aria-labelledby={review ? "tab-grade" : undefined} hidden={review && tab !== "grade"}>
         {assignment.rubric && (
           <div className="fieldset" style={{ marginTop: 0 }}>
             <p className="flabel" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>{d.rubric}</p>
             {parts
-              ? <PartsGrader key={s.id} rubric={assignment.rubric} marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} d={d} />
+              ? <PartsGrader key={s.id} rubric={assignment.rubric} marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onOpen={setZoom} d={d} />
               : <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />}
           </div>
         )}
@@ -313,13 +381,15 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
             )}
           </fieldset>
         )}
-        <div className="fieldset">
+        </div>
+        <div className="fieldset" id="panel-feedback" role={review ? "tabpanel" : undefined} aria-labelledby={review ? "tab-feedback" : undefined}
+          hidden={review && tab !== "feedback"} style={review ? { marginTop: 12 } : undefined}>
           <div className="row" style={{ gap: 8 }}>
             <label htmlFor="g-comment" className="grow">{parts ? d.prFeedback : d.comment}</label>
             {parts && <button type="button" className="btn btn-sm" disabled={!built || built === comment} onClick={buildFeedback}>{d.prBuild}</button>}
           </div>
           {parts && <p className="muted" style={{ fontSize: 12, margin: "2px 0 4px" }}>{d.prFeedbackHint}</p>}
-          <textarea id="g-comment" className="field" rows={5} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} />
+          <textarea id="g-comment" className="field" rows={review ? 12 : 5} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} />
         </div>
         {s.group && (
           <label className="check" style={{ marginTop: 10, whiteSpace: "normal" }}>
@@ -330,11 +400,20 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         <p className="muted" style={{ fontSize: 13, margin: "8px 0 0" }}>{assignment.gradesReleased ? d.gradesReleasedNote : d.gradesHiddenNote}</p>
         {schoology && <SchoologyScores assignmentId={assignment.id} studentId={s.id} refresh={saves} d={d} />}
         {error && <p className="notice notice-bad" role="alert" style={{ marginTop: 10 }}>{error}</p>}
-        <div className="row" style={{ marginTop: 12 }}>
-          <button type="button" className="btn" disabled={i === 0} onClick={() => setI(i - 1)}>← {d.previous}</button>
+        {review && (
+          <p className="muted" style={{ fontSize: 13, margin: "8px 0 0" }}>
+            {s.reviewedAt
+              ? <>✓ {d.rvReviewedAt} <time suppressHydrationWarning>{new Date(s.reviewedAt).toLocaleString()}</time> · <button type="button" className="link-btn" onClick={() => setReviewed(s.group && whole ? s.group.ids : [s.id], false)}>{d.rvUnmark}</button></>
+              : d.rvNotReviewed}
+          </p>
+        )}
+        <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" className="btn" disabled={pos <= 0} onClick={() => go(view[pos - 1]?.id)}>← {d.previous}</button>
           <span className="spacer" style={{ flex: 1 }} />
           <button type="button" className="btn" disabled={saving || !dirty} onClick={() => save(false)}>{d.save}</button>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{i < students.length - 1 ? `${d.save} · ${d.nextStudent} →` : d.save}</button>
+          {review
+            ? <button type="submit" className="btn btn-primary" disabled={saving}>{pos < view.length - 1 ? `${d.rvMarkNext} →` : d.rvMark}</button>
+            : <button type="submit" className="btn btn-primary" disabled={saving}>{pos < view.length - 1 ? `${d.save} · ${d.nextStudent} →` : d.save}</button>}
         </div>
         <div style={{ marginTop: 14 }}>
           {history === null
@@ -356,6 +435,10 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
             )}
         </div>
       </form>
+      {review && (
+        <PartZoom rubric={assignment.rubric!} partId={zoom} body={assignment.kind === "online" ? s.body : null}
+          marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onPart={setZoom} onClose={() => setZoom(null)} d={d} />
+      )}
     </div>
   );
 }
