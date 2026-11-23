@@ -110,14 +110,20 @@ export type ClassAttendance = {
   notPresent: { name: string; status: Status; note: string }[];
 };
 
-/** Every class's attendance for one day, for school admins. */
-export async function schoolDay(tenantId: string, day: Day, now = new Date()): Promise<ClassAttendance[]> {
+/** The school's classes seen teaching lately (as the principal's weekly plans), with their teachers' names. */
+export async function schoolClasses(tenantId: string, now = new Date()): Promise<Map<string, { name: string; teacher: string }>> {
   const teachers = await schoolTeachers(tenantId, now);
   const classes = new Map<string, { name: string; teacher: string }>();
   for (const t of teachers) for (const c of t.classes) {
     const had = classes.get(c.courseId);
     classes.set(c.courseId, { name: c.name, teacher: [had?.teacher, t.name].filter(Boolean).join(", ") });
   }
+  return classes;
+}
+
+/** Every class's attendance for one day, for school admins. */
+export async function schoolDay(tenantId: string, day: Day, now = new Date()): Promise<ClassAttendance[]> {
+  const classes = await schoolClasses(tenantId, now);
   if (!classes.size) return [];
   const db = await getDb();
   const rows = await db.query(
@@ -136,15 +142,15 @@ export async function schoolDay(tenantId: string, day: Day, now = new Date()): P
 
 export type ExportRow = { day: Day; className: string; courseId: string; studentId: string; studentName: string; status: Status; note: string; markedAt: string };
 
-/** The school's attendance from `from` to `to` (inclusive, at most a year), for its SIS. */
-export async function schoolExport(tenantId: string, from: Day, to: Day): Promise<ExportRow[]> {
+/** The school's attendance from `from` to `to` (inclusive, at most a year), for its SIS; or one class's (its teachers' export). */
+export async function schoolExport(tenantId: string, from: Day, to: Day, courseId?: string): Promise<ExportRow[]> {
   const db = await getDb();
   const rows = await db.query(
     `SELECT a.day, c.name AS class_name, a.course_id, a.student_id, a.student_name, a.status, a.note, a.marked_at
        FROM attendance a JOIN courses c ON c.id = a.course_id
-      WHERE a.tenant_id = $1 AND a.day BETWEEN $2 AND $3
+      WHERE a.tenant_id = $1 AND a.day BETWEEN $2 AND $3 AND ($4::uuid IS NULL OR a.course_id = $4::uuid)
       ORDER BY a.day, c.name, a.student_name LIMIT 200000`,
-    [tenantId, from, to]);
+    [tenantId, from, to, courseId ?? null]);
   return rows.map((r) => ({
     day: dayOf(r.day), className: String(r.class_name), courseId: String(r.course_id), studentId: String(r.student_id),
     studentName: String(r.student_name), status: r.status as Status, note: String(r.note), markedAt: iso(r.marked_at),

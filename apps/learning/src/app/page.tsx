@@ -73,7 +73,9 @@ export default async function Home() {
     // No "Courses" button here: the Courses drawer in the top bar and the class list already lead there (Desmond, 2026-11-23).
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="s" className="btn btn-sm" href="/standards">{d.standardsLibrary}</Link>,
     isSchoolAdmin(me) && <Link key="sp" className="btn btn-sm" href="/school/plans">{d.spTitle}</Link>,
-    isSchoolAdmin(me) && <Link key="att" className="btn btn-sm" href="/school/attendance">{d.attSchoolTitle}</Link>,
+    // Attendance: a teacher picks a class and is on today's attendance (Desmond, 2026-11-23); an admin who doesn't teach gets the school's.
+    (courses.some((c) => c.role === "teacher") || isSchoolAdmin(me)) &&
+      <Link key="att" className="btn btn-sm" href={courses.some((c) => c.role === "teacher") ? "/attendance" : "/school/attendance"}>{d.attSchoolTitle}</Link>,
     isSchoolAdmin(me) && <a key="pe" className="btn btn-sm" href="/school/periods">{d.periods}</a>,
     isSchoolAdmin(me) && <a key="g" className="btn btn-sm" href="/school/grading">{d.gradingSetupLink}</a>,
     isSchoolAdmin(me) && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,
