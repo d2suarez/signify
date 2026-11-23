@@ -140,13 +140,16 @@ test("rich updates: links to Learning material: only the poster's own classes; s
   assert.equal(post.doc.nodes.filter((n) => n.type === "material").length, 3, "another class's assignment is dropped");
   const forTeacher = (await feed(teacher, { courseId: p1 })).find((p) => p.id === post.id)!;
   assert.equal(forTeacher.materials[pub.id].href, `/assignments/${pub.id}`);
-  assert.equal(forTeacher.materials[lesson.id].href, `/lessons/${lesson.id}/edit`);
+  assert.equal(forTeacher.materials[lesson.id].href, `/lessons/${lesson.id}`);
   assert.equal(forTeacher.materials[draft.id].draft, true);
   const forStudent = (await feed(s1, { courseId: p1 })).find((p) => p.id === post.id)!;
   assert.equal(forStudent.materials[pub.id].href, `/assignments/${pub.id}`);
   assert.ok(forStudent.materials[pub.id].dueAt);
   assert.equal(forStudent.materials[draft.id].href, null, "a draft isn't open to students");
-  assert.equal(forStudent.materials[lesson.id].href, null, "students don't open lessons from a post");
+  assert.equal(forStudent.materials[lesson.id].href, null, "students don't open a lesson their teacher hasn't shown them");
+  await db.query("UPDATE lessons SET student_view = 'list' WHERE id = $1", [lesson.id]);
+  const shown = (await feed(s1, { courseId: p1 })).find((p) => p.id === post.id)!;
+  assert.equal(shown.materials[lesson.id].href, `/lessons/${lesson.id}`, "a lesson shown to students opens from a post");
   const forParent = (await feed(parent)).find((p) => p.id === post.id)!;
   assert.equal(forParent.materials[pub.id].href, null);
   await db.query("UPDATE assignments SET archived = true WHERE id = $1", [pub.id]);

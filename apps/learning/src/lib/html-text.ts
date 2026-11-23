@@ -7,15 +7,19 @@ import { webLink, LIMITS } from "./blocks";
  * script, style or event handler survives, and a link is only kept when it is
  * http(s) (written out after its words). Headings (h1–h3) start a new block,
  * so a long page becomes a set of slides. An embedded frame (a video, a
- * slideshow) becomes a link block. Images and files inside the export can't
- * be brought in yet; they are left as a note in the text and listed.
+ * slideshow) becomes a link block (YouTube and Vimeo play in place). A picture
+ * becomes an image block naming where it came from (a path inside the export
+ * or a web address); cartridge.ts and cc-import.ts bring the picture in.
  */
 
-export type PageBlock = { type: "text"; title: string; body: string } | { type: "link"; title: string; url: string };
+export type PageBlock =
+  | { type: "text"; title: string; body: string }
+  | { type: "link"; title: string; url: string }
+  | { type: "image"; title: string; src: string; alt: string };
 
 export type PageResult = {
   blocks: PageBlock[];
-  /** Paths or links the page uses that weren't brought in (images, files). */
+  /** Paths or links the page links to that aren't pages (files, mostly). */
   missing: string[];
   /** Links to other pages inside the export (their text is kept, the link isn't). */
   internal: string[];
@@ -190,12 +194,15 @@ export function htmlToBlocks(html: string, fallbackTitle = ""): PageResult {
         }
         continue;
       case "img": {
-        const alt = (a.alt ?? "").replace(/\s+/g, " ").trim();
-        const srcRef = a.src ?? "";
-        const url = webLink(srcRef);
-        if (url) missing.add(url);
-        else if (srcRef && !/^data:/i.test(srcRef)) missing.add(cleanRef(srcRef));
-        out += alt ? `[Image: ${alt}]` : "[Image]";
+        const alt = (a.alt ?? a.title ?? "").replace(/\s+/g, " ").trim().slice(0, LIMITS.alt);
+        const srcRef = (a.src ?? "").trim();
+        const ref = webLink(srcRef) || (srcRef && !/^(data|blob|javascript):/i.test(srcRef) ? srcRef : "");
+        if (!ref) { if (alt) out += `[${alt}]`; continue; }
+        if (heading !== null) continue;
+        // A heading with nothing under it but this picture names the picture.
+        let name = "";
+        if (title && !tidy(out)) { name = title; title = ""; out = ""; } else flush();
+        blocks.push({ type: "image", title: name.slice(0, LIMITS.title), src: ref, alt });
         continue;
       }
       case "iframe": {
@@ -250,7 +257,7 @@ function fit(blocks: PageBlock[]): PageBlock[] {
   if (out.length > LIMITS.blocks) {
     // Fold the overflow into the last block's text rather than lose it.
     const keep = out.slice(0, LIMITS.blocks - 1);
-    const tail = out.slice(LIMITS.blocks - 1).map((b) => b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n") : `${b.title} ${b.url}`.trim());
+    const tail = out.slice(LIMITS.blocks - 1).map((b) => b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n") : b.type === "link" ? `${b.title} ${b.url}`.trim() : b.alt);
     keep.push({ type: "text", title: "", body: tail.join("\n\n").slice(0, LIMITS.body) });
     return keep;
   }

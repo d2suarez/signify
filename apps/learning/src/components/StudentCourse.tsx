@@ -12,6 +12,7 @@ import { When } from "./When";
 import { StandardsList } from "./Work";
 import { Announcements } from "./Announcements";
 import { listResources } from "@/lib/resources";
+import { shownLessons, itemPlaces } from "@/lib/organize";
 
 type Ctx = { tenantId: string; userId: string };
 
@@ -33,11 +34,13 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   const d = dict(L);
   const previewing = !!previewBase;
   const live = previewing ? null : liveLessonId(course.id);
-  const [units, assignments, subs, announcements] = await Promise.all([
+  const [units, assignments, subs, announcements, lessons, places] = await Promise.all([
     listUnits(c, course.id),
     listAssignments(c, course.id, { publishedOnly: true }),
     courseSubmissions(c, course.id, person.id),
     listAnnouncements(c, course.id),
+    shownLessons(c, course.id),
+    itemPlaces(c, course.id),
   ]);
   const self = { id: person.id, name: person.name, sortKey: "", factsName: person.name };
   const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
@@ -48,8 +51,13 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
   const href = (a: Assignment) => previewing ? `${previewBase}/assignments/${a.id}` : `/assignments/${a.id}`;
 
-  const groups = [...units.map((u) => ({ title: u.title, id: u.id, items: [] as Assignment[] })), { title: d.noUnit, id: "", items: [] as Assignment[] }];
-  for (const a of assignments) (groups.find((g) => g.id && g.id === a.unitId) || groups[groups.length - 1]).items.push(a);
+  type Shown = { kind: "assignment"; a: Assignment; pos: number | null; day: string } | { kind: "lesson"; id: string; title: string; pos: number | null; day: string };
+  const groups = [...units.map((u) => ({ title: u.title, id: u.id, items: [] as Shown[] })), { title: d.noUnit, id: "", items: [] as Shown[] }];
+  const groupOf = (unitId: string | null) => groups.find((g) => g.id && g.id === unitId) || groups[groups.length - 1];
+  for (const a of assignments) groupOf(a.unitId).items.push({ kind: "assignment", a, pos: places.get(`assignment:${a.id}`)?.position ?? null, day: a.dueOn || "9999" });
+  // Lessons the teacher shows students (organize.ts), read at /lessons/<id>.
+  for (const l of lessons) groupOf(l.unitId).items.push({ kind: "lesson", id: l.id, title: l.title, pos: l.position, day: "9999" });
+  for (const g of groups) g.items.sort((x, y) => (x.pos !== null || y.pos !== null) ? (x.pos === null ? 1 : y.pos === null ? -1 : x.pos - y.pos) : x.day.localeCompare(y.day));
 
   return (
     <>
@@ -85,12 +93,25 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
         </section>
       )}
 
-      {assignments.length === 0 && <p className="empty">{d.noAssignmentsStudent}</p>}
+      {assignments.length === 0 && lessons.length === 0 && <p className="empty">{d.noAssignmentsStudent}</p>}
       {groups.filter((g) => g.items.length > 0).map((g) => (
         <section key={g.id || "loose"} className="card">
           <div className="unit-head"><h2>{g.title}</h2></div>
           <ul className="list">
-            {g.items.map((a) => {
+            {g.items.map((it) => {
+              if (it.kind === "lesson") {
+                return (
+                  <li key={it.id}>
+                    <span className="shape s-arch" aria-hidden="true" />
+                    <div className="grow">
+                      <h3>{previewing ? it.title : <Link href={`/lessons/${it.id}`} style={{ color: "inherit" }}>{it.title}</Link>}</h3>
+                      <span className="muted" style={{ fontSize: 13 }}>{d.pcKindLesson}</span>
+                    </div>
+                    {!previewing && <Link className="btn btn-sm" href={`/lessons/${it.id}`}>{d.readerOpen}</Link>}
+                  </li>
+                );
+              }
+              const a = it.a;
               const s = subBy.get(a.id) || null;
               const cell = row.cells[a.id];
               return (

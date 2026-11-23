@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { academicAccess as courseAccess, ctx } from "@/lib/access";
+import { academicAccess as courseAccess, ctx, updatesViewer } from "@/lib/access";
+import { asView, setStudentView } from "@/lib/organize";
 import { CartridgeError } from "@/lib/cartridge";
 import { previewImport, commitImport, MAX_UPLOAD } from "@/lib/cc-import";
 
@@ -11,7 +12,9 @@ const SCHOOL_TZ = "America/New_York";
  * Common Cartridge import, teachers only. The body is the export file itself.
  * ?step=preview reads it and says what it would make, writing nothing;
  * ?step=import (with keepDates=1|0 and name=<file name>) writes it all in one
- * transaction. Errors come back as { error: code } for the page to word.
+ * transaction. Both take nested=1 (folders inside folders become units) and
+ * import takes view=hidden|list|thread (what students see of the pages;
+ * thread also posts each to the class's Updates, after the import). Errors come back as { error: code } for the page to word.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,15 +30,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (buf === "too-large") return NextResponse.json({ error: "upload-too-large" }, { status: 413 });
   if (!buf.length) return NextResponse.json({ error: "empty" }, { status: 400 });
 
+  const nested = url.searchParams.get("nested") === "1";
+  const view = asView(url.searchParams.get("view")) ?? "hidden";
   try {
     if (step === "preview") {
-      return NextResponse.json({ preview: await previewImport(ctx(access.me), access.course.id, buf, SCHOOL_TZ) });
+      return NextResponse.json({ preview: await previewImport(ctx(access.me), access.course.id, buf, SCHOOL_TZ, nested) });
     }
     const name = (url.searchParams.get("name") || "").replace(/[\u0000-\u001f]/g, "").slice(0, 200);
     const result = await commitImport(ctx(access.me), access.course.id, buf, name, {
-      keepDates: url.searchParams.get("keepDates") === "1", schoolTz: SCHOOL_TZ,
+      keepDates: url.searchParams.get("keepDates") === "1", schoolTz: SCHOOL_TZ, nestedUnits: nested, studentView: view,
     });
-    return NextResponse.json({ result });
+    let posted = 0;
+    if (view === "thread" && result.lessonIds.length) {
+      // Last first, so the class's Updates (newest on top) read in the export's order.
+      const viewer = await updatesViewer();
+      if (viewer) posted = await setStudentView(viewer, access.course.id, [...result.lessonIds].reverse(), "thread").catch(() => 0);
+    }
+    return NextResponse.json({ result: { ...result, posted } });
   } catch (e) {
     if (e instanceof CartridgeError) return NextResponse.json({ error: e.code }, { status: 422 });
     throw e;

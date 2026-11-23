@@ -36,7 +36,7 @@ export function plainText(raw: string, isHtml?: boolean): string {
   const html = isHtml ?? /<[a-z][\s\S]*>/i.test(raw);
   if (!html) return raw.replace(/\r\n/g, "\n").trim();
   return htmlToBlocks(raw).blocks
-    .map((b) => (b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n\n") : [b.title, b.url].filter(Boolean).join(": ")))
+    .map((b) => (b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n\n") : b.type === "link" ? [b.title, b.url].filter(Boolean).join(": ") : b.alt))
     .filter(Boolean)
     .join("\n\n")
     .trim();

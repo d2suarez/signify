@@ -10,7 +10,7 @@ type Stage =
   | { at: "reading" }
   | { at: "preview"; preview: Preview }
   | { at: "importing"; preview: Preview }
-  | { at: "done"; result: ImportResult };
+  | { at: "done"; result: ImportResult & { posted: number } };
 
 const SHAPE = { lesson: "s-arch", assignment: "s-tri", quiz: "s-tri" } as const;
 
@@ -25,6 +25,8 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
   const [stage, setStage] = useState<Stage>({ at: "choose" });
   const [file, setFile] = useState<File | null>(null);
   const [keepDates, setKeepDates] = useState(true);
+  const [nested, setNested] = useState(false);
+  const [view, setView] = useState<"hidden" | "list" | "thread">("list");
   const input = useRef<HTMLInputElement>(null);
 
   const message = (code: string): string => {
@@ -32,9 +34,10 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
     return d[key] ?? d.importErr_other;
   };
 
-  const send = async (f: File, step: "preview" | "import") => {
+  const send = async (f: File, step: "preview" | "import", nestedUnits = nested) => {
     const q = new URLSearchParams({ step });
-    if (step === "import") { q.set("keepDates", keepDates ? "1" : "0"); q.set("name", f.name); }
+    if (nestedUnits) q.set("nested", "1");
+    if (step === "import") { q.set("keepDates", keepDates ? "1" : "0"); q.set("name", f.name); q.set("view", view); }
     const res = await fetch(`/api/courses/${courseId}/import?${q}`, {
       method: "POST", body: f, headers: { "content-type": "application/octet-stream" },
     });
@@ -43,12 +46,12 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
     return json;
   };
 
-  const read = async (f: File) => {
+  const read = async (f: File, nestedUnits = nested) => {
     setFile(f);
     if (f.size > maxBytes) { setStage({ at: "choose", error: message("upload-too-large") }); return; }
     setStage({ at: "reading" });
     try {
-      const { preview } = await send(f, "preview");
+      const { preview } = await send(f, "preview", nestedUnits);
       setStage({ at: "preview", preview });
     } catch (e) {
       setStage({ at: "choose", error: message((e as Error).message) });
@@ -73,7 +76,17 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
         <h2 style={{ fontSize: 22 }}>{d.importDone}</h2>
         <p style={{ margin: 0 }}>{s.units} {d.importUnits} · {s.lessons} {d.importLessons} · {s.assignments} {d.importAssignments} · {s.quizzesImported} {d.importQuizzesMade}</p>
         {s.discussionsImported > 0 && <p style={{ margin: 0 }}>{d.importDiscussionsNote.replace("{n}", String(s.discussionsImported))}</p>}
-        <p className="muted" style={{ margin: 0 }}>{d.importDraftNote}</p>
+        {stage.result.media.saved > 0 && <p style={{ margin: 0 }}>{d.importMediaSaved.replace("{n}", String(stage.result.media.saved))}</p>}
+        {stage.result.media.off && <p className="notice notice-bad" style={{ margin: 0 }}>{d.importMediaOff}</p>}
+        {stage.result.media.failed.length > 0 && (
+          <details>
+            <summary>{d.importMediaFailed.replace("{n}", String(stage.result.media.failed.length))}</summary>
+            <ul className="muted" style={{ fontSize: 13, overflowWrap: "anywhere" }}>{stage.result.media.failed.map((f) => <li key={f}>{f}</li>)}</ul>
+          </details>
+        )}
+        {stage.result.posted > 0 && <p style={{ margin: 0 }}>{d.importPosted.replace("{n}", String(stage.result.posted))}</p>}
+        <p className="muted" style={{ margin: 0 }}>{view === "hidden" ? d.importDraftNote : d.importShownNote}</p>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importOrganizeNote}</p>
         <Link className="btn btn-primary" style={{ alignSelf: "flex-start" }} href={`/courses/${courseId}`}>{d.importSeeCourse}</Link>
       </section>
     );
@@ -101,9 +114,10 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
             {" · "}<b>{s.quizzesImported}</b> {d.importQuizzesMade} <span className="muted">({s.questions} {d.importQuestionsMade})</span>
           </p>
           {s.discussionsImported > 0 && <p style={{ margin: 0 }}>{d.importDiscussionsNote.replace("{n}", String(s.discussionsImported))}</p>}
+          {s.media > 0 && <p style={{ margin: 0 }}>{d.importMediaComing.replace("{n}", String(s.media))}</p>}
           {skippedBits.length > 0 && <p style={{ margin: 0 }}>{d.importSkipped}: {skippedBits.join(", ")}.</p>}
           {s.quizzes + s.questionsSkipped > 0 && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importKeptNote}</p>}
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importIntoNote} <b>{courseName}</b>. {d.importDraftNote}</p>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.importIntoNote} <b>{courseName}</b>. {d.importAssignDraftNote}</p>
           {p.importedBefore.length > 0 && (
             <p className="notice notice-bad" style={{ margin: 0 }}>
               {d.importAgainWarn} {new Date(p.importedBefore[0].at).toLocaleString()}.
@@ -115,6 +129,21 @@ export default function ImportCourse({ courseId, courseName, maxBytes, d }: {
               {d.importKeepDates} ({s.datedAssignments})
             </label>
           )}
+          <label className="check" style={{ fontSize: 15 }}>
+            <input type="checkbox" checked={nested} disabled={busy}
+              onChange={(e) => { setNested(e.target.checked); if (file) void read(file, e.target.checked); }} />{" "}
+            {d.importNested}
+          </label>
+          <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0, gap: 4 }} disabled={busy}>
+            <legend className="label" style={{ marginBottom: 4 }}>{d.importViewTitle}</legend>
+            {(["list", "thread", "hidden"] as const).map((v) => (
+              <label key={v} className="check" style={{ fontSize: 15 }}>
+                <input type="radio" name="imp-view" value={v} checked={view === v} onChange={() => setView(v)} />{" "}
+                {v === "list" ? d.svList : v === "thread" ? d.svThread : d.svHidden}
+              </label>
+            ))}
+            <span className="muted" style={{ fontSize: 13 }}>{d.importViewHint}</span>
+          </fieldset>
           {nothing && <p className="notice notice-bad" style={{ margin: 0 }}>{d.importErr_empty}</p>}
           <div className="row">
             <button className="btn btn-primary" onClick={() => go(p)} disabled={busy || nothing}>{busy ? d.importWorking : d.importGo}</button>

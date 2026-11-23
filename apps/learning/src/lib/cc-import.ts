@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { getDb } from "./db";
 import { readCartridge, summarize, type Plan, type PlanItem, type PlanSummary, type Skipped } from "./cartridge";
 import { quizPoints } from "./quiz";
+import { bringInMedia } from "./import-media";
+import type { StudentView } from "./organize";
 
 /**
  * Brings a Common Cartridge (a Schoology course export) into a course, in two
@@ -54,8 +56,8 @@ function outlineOf(plan: Plan): Preview["outline"] {
   return sections;
 }
 
-export async function previewImport(ctx: Ctx, courseId: string, buf: Buffer, schoolTz?: string): Promise<Preview> {
-  const plan = readCartridge(buf, { schoolTz });
+export async function previewImport(ctx: Ctx, courseId: string, buf: Buffer, schoolTz?: string, nestedUnits = false): Promise<Preview> {
+  const plan = readCartridge(buf, { schoolTz, nestedUnits });
   const db = await getDb();
   const before = await db.query(
     `SELECT created_at, file_name FROM course_imports
@@ -76,20 +78,31 @@ export async function previewImport(ctx: Ctx, courseId: string, buf: Buffer, sch
   };
 }
 
-export type ImportResult = { importId: string; summary: PlanSummary; unitIds: string[] };
+export type ImportResult = {
+  importId: string; summary: PlanSummary; unitIds: string[];
+  /** The lessons made, in order (to show them to students when asked). */
+  lessonIds: string[];
+  /** Pictures and files stored; ones in the export that couldn't be; whether file storage is off. */
+  media: { saved: number; failed: string[]; off: boolean };
+};
 
 export async function commitImport(
-  ctx: Ctx, courseId: string, buf: Buffer, fileName: string, opts: { keepDates: boolean; schoolTz?: string },
+  ctx: Ctx, courseId: string, buf: Buffer, fileName: string,
+  opts: { keepDates: boolean; schoolTz?: string; nestedUnits?: boolean; studentView?: StudentView; fetcher?: (url: string) => Promise<Buffer | null> },
 ): Promise<ImportResult> {
-  const plan = readCartridge(buf, { schoolTz: opts.schoolTz });
+  const plan = readCartridge(buf, { schoolTz: opts.schoolTz, nestedUnits: opts.nestedUnits });
   const summary = summarize(plan);
+  // Pictures and files first, outside the transaction (they go to file storage, not the database).
+  const media = await bringInMedia(ctx, courseId, buf, plan, opts.fetcher);
+  // 'thread' is posted by the caller once the lessons exist; here they start in the list.
+  const view = opts.studentView === "list" || opts.studentView === "thread" ? "list" : "hidden";
   const db = await getDb();
   return db.tx(async (t) => {
     const [rec] = await t.query(
       `INSERT INTO course_imports (tenant_id, course_id, file_name, file_sha256, summary, created_by)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id`,
       [ctx.tenantId, courseId, fileName.slice(0, 200), sha256(buf),
-        JSON.stringify({ ...summary, skipped: plan.skipped.slice(0, 200), missingFiles: plan.missingFiles }), ctx.userId],
+        JSON.stringify({ ...summary, skipped: plan.skipped.slice(0, 200), missingFiles: [...plan.missingFiles, ...media.failed].slice(0, 400), mediaSaved: media.saved }), ctx.userId],
     );
     const importId = String(rec.id);
 
@@ -98,40 +111,49 @@ export async function commitImport(
       [ctx.tenantId, courseId],
     );
     const unitIds: string[] = [];
-    const add = async (item: PlanItem, unitId: string | null) => {
+    const lessonIds: string[] = [];
+    // Items keep the export's order inside each unit (loose items after the course's own loose ones).
+    const add = async (item: PlanItem, unitId: string | null, position: number) => {
       if (item.kind === "lesson") {
-        await t.query(
-          `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by)
-           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6)`,
-          [ctx.tenantId, courseId, item.title, JSON.stringify(item.blocks), unitId, ctx.userId],
+        const [l] = await t.query(
+          `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by, position, student_view, import_id)
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6, $7, $8, $9) RETURNING id`,
+          [ctx.tenantId, courseId, item.title, JSON.stringify(item.blocks), unitId, ctx.userId, position, view, importId],
         );
+        lessonIds.push(String(l.id));
       } else if (item.kind === "quiz") {
         // A quiz is an assignment of kind quiz, a draft like everything imported.
         await t.query(
-          `INSERT INTO assignments (tenant_id, course_id, unit_id, title, instructions, kind, points, quiz, published, created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, 'quiz', $6, $7::jsonb, false, $8, $8)`,
-          [ctx.tenantId, courseId, unitId, item.title, item.instructions, Math.min(10_000, quizPoints(item.quiz)), JSON.stringify(item.quiz), ctx.userId],
+          `INSERT INTO assignments (tenant_id, course_id, unit_id, title, instructions, kind, points, quiz, published, created_by, updated_by, position, import_id)
+           VALUES ($1, $2, $3, $4, $5, 'quiz', $6, $7::jsonb, false, $8, $8, $9, $10)`,
+          [ctx.tenantId, courseId, unitId, item.title, item.instructions, Math.min(10_000, quizPoints(item.quiz)), JSON.stringify(item.quiz), ctx.userId, position, importId],
         );
       } else {
         const dated = opts.keepDates && item.dueOn && item.dueAt;
         await t.query(
-          `INSERT INTO assignments (tenant_id, course_id, unit_id, title, instructions, kind, points, due_on, due_at, published, created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, 'online', $6, $7, $8, false, $9, $9)`,
+          `INSERT INTO assignments (tenant_id, course_id, unit_id, title, instructions, kind, points, due_on, due_at, published, created_by, updated_by, position, import_id)
+           VALUES ($1, $2, $3, $4, $5, 'online', $6, $7, $8, false, $9, $9, $10, $11)`,
           [ctx.tenantId, courseId, unitId, item.title, item.instructions, item.points ?? 10,
-            dated ? item.dueOn : null, dated ? item.dueAt : null, ctx.userId],
+            dated ? item.dueOn : null, dated ? item.dueAt : null, ctx.userId, position, importId],
         );
       }
     };
 
     for (const [i, unit] of plan.units.entries()) {
       const [u] = await t.query(
-        "INSERT INTO units (tenant_id, course_id, title, position) VALUES ($1, $2, $3, $4) RETURNING id",
-        [ctx.tenantId, courseId, unit.title, Number(next) + i],
+        "INSERT INTO units (tenant_id, course_id, title, position, import_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        [ctx.tenantId, courseId, unit.title, Number(next) + i, importId],
       );
       unitIds.push(String(u.id));
-      for (const item of unit.items) await add(item, String(u.id));
+      for (const [j, item] of unit.items.entries()) await add(item, String(u.id), j);
     }
-    for (const item of plan.loose) await add(item, null);
+    const [{ loose }] = await t.query<{ loose: number }>(
+      `SELECT coalesce(max(p), -1) + 1 AS loose FROM (
+         SELECT max(position) AS p FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND unit_id IS NULL
+         UNION ALL SELECT max(position) FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND unit_id IS NULL) x`,
+      [ctx.tenantId, courseId],
+    );
+    for (const [j, item] of plan.loose.entries()) await add(item, null, Number(loose) + j);
 
     for (const k of plan.kept) {
       await t.query(
@@ -140,6 +162,6 @@ export async function commitImport(
         [ctx.tenantId, importId, courseId, k.kind, k.title, k.unit, k.source],
       );
     }
-    return { importId, summary, unitIds };
+    return { importId, summary, unitIds, lessonIds, media };
   });
 }

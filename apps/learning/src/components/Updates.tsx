@@ -170,7 +170,7 @@ export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">
                   <span className="muted post-mat-sub">
                     {kindWord}{m?.courseName ? ` · ${m.courseName}` : ""}
                     {m?.dueAt && <> · {d.due} <When iso={m.dueAt} lang={L} /></>}
-                    {m?.gone ? ` · ${d.pcGone}` : m && !m.href ? ` · ${d.pcNotOpen}` : m?.draft ? ` · ${n.kind === "resource" ? d.pcHiddenFromStudents : d.pcDraft}` : ""}
+                    {m?.gone ? ` · ${d.pcGone}` : m && !m.href ? ` · ${d.pcNotOpen}` : m?.draft ? ` · ${n.kind === "assignment" ? d.pcDraft : d.pcHiddenFromStudents}` : ""}
                   </span>
                 </span>
                 {m?.href && <span aria-hidden="true">→</span>}

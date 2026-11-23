@@ -1,7 +1,7 @@
 import { Zip, ZipError } from "./zip";
 import { parseXml, XmlError, kid, kids, find, textOf, type XmlNode } from "./xml";
 import { htmlToBlocks, cleanRef } from "./html-text";
-import { normalizeBlocks, webLink, type Block } from "./blocks";
+import { normalizeBlocks, webLink, LIMITS as BLOCK_LIMITS, type Block } from "./blocks";
 import { LIMITS as ASSIGNMENT_LIMITS } from "./assignments";
 import { plainText, readQti12, type QtiSkipped } from "./qti12";
 import type { Quiz } from "./quiz";
@@ -26,10 +26,20 @@ import type { Quiz } from "./quiz";
  * - Discussions become online-writing assignments holding the prompt
  *   (Learning has no discussions yet), and the summary says so.
  * - Quizzes' QTI and discussions' text are also kept in import_sources.
- * - Files (PDFs, images, documents) are listed as not imported.
+ * - Pictures in pages, files pages link to, and files placed in a folder are
+ *   brought in (Learning's own files, src/lib/files.ts): the plan names them
+ *   as `media` blocks (a path inside the export, or a web address for a
+ *   picture from elsewhere) and cc-import.ts stores them. A file placed in a
+ *   folder becomes a lesson holding that one file. Kinds Learning doesn't
+ *   keep (see files.ts ACCEPT) are listed as not imported.
+ * - Folders inside folders join their top folder's unit, or (nestedUnits)
+ *   become units of their own named "Folder › Inner folder".
  */
 
-export type PlanLesson = { kind: "lesson"; title: string; blocks: Block[] };
+/** A picture or file still to be brought in: `path` inside the export, or `url` for a picture on the web. */
+export type PlanMedia = { type: "media"; title: string; alt: string; name: string; path?: string; url?: string };
+export type PlanBlock = Block | PlanMedia;
+export type PlanLesson = { kind: "lesson"; title: string; blocks: PlanBlock[] };
 export type PlanAssignment = {
   kind: "assignment"; title: string; instructions: string; points: number | null;
   dueOn: string | null; dueAt: string | null;
@@ -62,6 +72,8 @@ export type PlanSummary = {
   units: number; lessons: number; assignments: number; datedAssignments: number;
   /** Quizzes and discussions brought in (discussions as writing assignments, counted in assignments too). */
   quizzesImported: number; questions: number; discussionsImported: number;
+  /** Pictures and files to bring in (pages' pictures, linked files, files in folders). */
+  media: number;
   /** Not imported: */
   quizzes: number; questionsSkipped: number; discussions: number; tools: number; files: number; other: number;
 };
@@ -91,7 +103,14 @@ const posix = {
   },
 };
 
-export function readCartridge(buf: Buffer, opts: { schoolTz?: string } = {}): Plan {
+export type ReadOptions = { schoolTz?: string; nestedUnits?: boolean };
+
+/** File kinds Learning keeps (files.ts sniffFile decides for real when the bytes are read). */
+const MEDIA_EXT = /\.(pdf|png|jpe?g|gif|webp|docx|pptx|xlsx|txt|csv|mp3|m4a|mp4)$/i;
+export const isMediaName = (name: string) => MEDIA_EXT.test(name);
+const baseName = (p: string) => p.split("/").pop() || p;
+
+export function readCartridge(buf: Buffer, opts: ReadOptions = {}): Plan {
   let zip: Zip;
   try {
     zip = new Zip(buf);
@@ -100,7 +119,7 @@ export function readCartridge(buf: Buffer, opts: { schoolTz?: string } = {}): Pl
     throw e;
   }
   try {
-    return readZip(zip, opts.schoolTz ?? "America/New_York");
+    return readZip(zip, opts.schoolTz ?? "America/New_York", !!opts.nestedUnits);
   } catch (e) {
     if (e instanceof ZipError) throw new CartridgeError(e.message);
     if (e instanceof XmlError) throw new CartridgeError("bad-xml");
@@ -119,7 +138,7 @@ function xmlAt(zip: Zip, path: string): XmlNode | null {
   }
 }
 
-function readZip(zip: Zip, tz: string): Plan {
+function readZip(zip: Zip, tz: string, nested: boolean): Plan {
   const manifestText = zip.text("imsmanifest.xml");
   if (manifestText === null) throw new CartridgeError("no-manifest");
   let manifest: XmlNode;
@@ -181,12 +200,23 @@ function readZip(zip: Zip, tz: string): Plan {
     // A rooted hierarchy wraps everything in one item with no resource (often
     // the course itself or "LearningModules"): its children are the real top level.
     if (top.length === 1 && !top[0].attrs.identifierref && kids(top[0], "item").length) top = kids(top[0], "item");
+    /** A folder as a unit; with nestedUnits, its inner folders follow it as units of their own. */
+    const unitOf = (item: XmlNode, prefix: string) => {
+      if (plan.units.length >= PLAN_LIMITS.units) throw new CartridgeError("too-many-items");
+      const name = line(textOf(kid(item, "title"))) || "Untitled unit";
+      const unit: PlanUnit = { title: line(prefix ? `${prefix} › ${name}` : name), items: [] };
+      plan.units.push(unit);
+      if (!nested) { walk(item, unit.title, unit.items); return; }
+      const inner: XmlNode[] = [];
+      for (const child of kids(item, "item")) {
+        if (child.attrs.identifierref) take(child, unit.title, unit.items);
+        else inner.push(child);
+      }
+      for (const child of inner) unitOf(child, unit.title);
+    };
     for (const item of top) {
       if (item.attrs.identifierref) { take(item, null, plan.loose); continue; }
-      if (plan.units.length >= PLAN_LIMITS.units) throw new CartridgeError("too-many-items");
-      const unit: PlanUnit = { title: line(textOf(kid(item, "title"))) || "Untitled unit", items: [] };
-      walk(item, unit.title, unit.items);
-      plan.units.push(unit);
+      unitOf(item, "");
     }
   }
 
@@ -269,9 +299,13 @@ function fromResource(
       const html = zip.text(href);
       if (html === null) return skip("file", title || href);
       const page = htmlToBlocks(html, title);
-      noteMissing(zip, href, page.missing, missing);
       const name = title || line(/<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1] ?? "") || "Untitled lesson";
-      return { kind: "lesson", title: name, blocks: normalizeBlocks(page.blocks) };
+      return { kind: "lesson", title: name, blocks: pageBlocks(zip, href, page, missing) };
+    }
+    // A file placed in a folder: a lesson holding just that file.
+    if (href && zip.has(href) && isMediaName(href)) {
+      const name = title || baseName(href);
+      return { kind: "lesson", title: name, blocks: [{ type: "media", title: name, alt: "", name: baseName(href), path: href }] };
     }
     return skip("file", title || href.split("/").pop() || "File");
   }
@@ -280,6 +314,45 @@ function fromResource(
 
 function safeParse(xml: string): XmlNode | undefined {
   try { return parseXml(xml); } catch { return undefined; }
+}
+
+/** Where a page's own reference points inside the archive, if it is there. */
+function resolveRef(zip: Zip, pageHref: string, raw: string): string | null {
+  const ref = cleanRef(raw);
+  if (!ref) return null;
+  const inPage = posix.join(posix.dirname(pageHref), ref);
+  const fromBase = posix.join("web_resources", ref);
+  return [inPage, fromBase, ref].find((p): p is string => !!p && zip.has(p)) ?? null;
+}
+
+/**
+ * A page's blocks for the plan: its text and links, its pictures in place
+ * (as media), then the files it links to that are in the export. Anything
+ * that can't come in is recorded in `missing`.
+ */
+function pageBlocks(zip: Zip, href: string, page: ReturnType<typeof htmlToBlocks>, missing: Set<string>): PlanBlock[] {
+  const out: PlanBlock[] = [];
+  const seen = new Set<string>();
+  for (const b of page.blocks) {
+    if (b.type !== "image") { out.push(...normalizeBlocks([b])); continue; }
+    const url = webLink(b.src);
+    if (url) { out.push({ type: "media", title: b.title, alt: b.alt, name: baseName(new URL(url).pathname) || "picture", url }); continue; }
+    const path = resolveRef(zip, href, b.src);
+    if (!path || !isMediaName(path)) { missing.add(path ?? cleanRef(b.src)); continue; }
+    out.push({ type: "media", title: b.title, alt: b.alt, name: baseName(path), path });
+    seen.add(path);
+  }
+  const rest: string[] = [];
+  for (const ref of page.missing) {
+    if (/^https?:/i.test(ref)) { rest.push(ref); continue; }
+    const path = resolveRef(zip, href, ref);
+    if (path && isMediaName(path) && !/\.x?html?$/i.test(path)) {
+      if (!seen.has(path)) out.push({ type: "media", title: baseName(path), alt: "", name: baseName(path), path });
+      seen.add(path);
+    } else rest.push(ref);
+  }
+  noteMissing(zip, href, rest, missing);
+  return out.slice(0, BLOCK_LIMITS.blocks);
 }
 
 /** Records what a page used that wasn't brought in, as paths inside the archive where they resolve. */
@@ -349,7 +422,7 @@ function pageText(zip: Zip, href: string, missing: Set<string>): string {
 function blocksText(page: ReturnType<typeof htmlToBlocks>, href: string, zip: Zip, missing: Set<string>): string {
   noteMissing(zip, href, page.missing, missing);
   return page.blocks
-    .map((b) => (b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n\n") : [b.title, b.url].filter(Boolean).join(": ")))
+    .map((b) => (b.type === "text" ? [b.title, b.body].filter(Boolean).join("\n\n") : b.type === "link" ? [b.title, b.url].filter(Boolean).join(": ") : b.alt))
     .filter(Boolean)
     .join("\n\n");
 }
@@ -415,6 +488,7 @@ export function summarize(plan: Plan): PlanSummary {
     quizzesImported: quizzes.length,
     questions: quizzes.reduce((n, q) => n + q.quiz.items.length, 0),
     discussionsImported: items.filter((i) => i.kind === "assignment" && i.fromDiscussion).length,
+    media: items.reduce((n, i) => n + (i.kind === "lesson" ? i.blocks.filter((b) => b.type === "media").length : 0), 0),
     quizzes: skipped("quiz"),
     questionsSkipped: skipped("question"),
     discussions: skipped("discussion"),

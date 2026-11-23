@@ -200,7 +200,7 @@ async function attachMaterials(v: Viewer, posts: Post[]): Promise<void> {
          FROM assignments a JOIN courses c ON c.id = a.course_id WHERE a.tenant_id = $1 AND a.id = ANY($2::uuid[])`,
       [v.tenantId, ids("assignment")]) : [],
     ids("lesson").length ? db.query(
-      `SELECT l.id, l.course_id, l.title, l.archived, c.name AS course_name
+      `SELECT l.id, l.course_id, l.title, l.archived, l.student_view, c.name AS course_name
          FROM lessons l JOIN courses c ON c.id = l.course_id WHERE l.tenant_id = $1 AND l.id = ANY($2::uuid[])`,
       [v.tenantId, ids("lesson")]) : [],
     ids("resource").length ? db.query(
@@ -218,11 +218,13 @@ async function attachMaterials(v: Viewer, posts: Post[]): Promise<void> {
     });
   }
   for (const l of ls) {
-    // Students follow a lesson when it's presented; only its teachers open it from a post.
+    // Teachers open it to edit; students read it when the teacher shows it to them (organize.ts).
     const role = v.courses.get(String(l.course_id));
+    const shown = l.student_view === "list" || l.student_view === "thread";
     found.set(`lesson:${l.id}`, {
       kind: "lesson", title: String(l.title), courseName: String(l.course_name),
-      href: !l.archived && role === "teacher" ? `/lessons/${l.id}/edit` : null, dueAt: null, draft: false, gone: !!l.archived,
+      href: l.archived ? null : role === "teacher" ? `/lessons/${l.id}` : role === "student" && shown ? `/lessons/${l.id}` : null,
+      dueAt: null, draft: !shown, gone: !!l.archived,
     });
   }
   for (const r of rs) {

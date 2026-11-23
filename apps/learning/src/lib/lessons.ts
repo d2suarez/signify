@@ -23,6 +23,8 @@ export type Lesson = {
   standards: string[] | null;
   version: number;
   updatedAt: string;
+  /** What students see of it (organize.ts): hidden, in their list, or in the list and Updates. */
+  studentView?: "hidden" | "list" | "thread";
 };
 
 export type LessonSummary = Pick<Lesson, "id" | "unitId" | "title" | "plannedFor" | "durationMin" | "version" | "updatedAt"> & {
@@ -56,6 +58,7 @@ function toLesson(r: Record<string, unknown>): Lesson {
     standards: Array.isArray(r.standards) ? (r.standards as string[]) : typeof r.standards === "string" ? JSON.parse(r.standards) : null,
     version: Number(r.version),
     updatedAt: iso(r.updated_at),
+    studentView: r.student_view === "list" || r.student_view === "thread" ? r.student_view : "hidden",
   };
 }
 

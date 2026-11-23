@@ -14,6 +14,7 @@ import { listAssignments } from "../src/lib/assignments";
 import { normalizeBlocks, webLink } from "../src/lib/blocks";
 import { readQti12 } from "../src/lib/qti12";
 import { scoreItem } from "../src/lib/quiz";
+import { memoryStore, useFileStore } from "../src/lib/files";
 
 // ---------- a tiny zip writer, for fixtures ----------
 
@@ -165,7 +166,7 @@ const FILES: Entry[] = [
   { name: "imsmanifest.xml", data: MANIFEST },
   { name: "pages/cell.html", data: CELL_PAGE },
   { name: "pages/welcome.html", data: "<p>Welcome to biology!</p>" },
-  { name: "web_resources/cell diagram.png", data: Buffer.from([0x89, 0x50, 0x4e, 0x47]), store: true },
+  { name: "web_resources/cell diagram.png", data: Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000", "hex"), store: true },
   { name: "web_resources/Worksheet.pdf", data: "%PDF-1.4", store: true },
   { name: "links/l1.xml", data: `<webLink xmlns="http://www.imsglobal.org/xsd/imsccv1p3/imswl_v1p3"><title>Cell explorer</title><url href="https://example.org/explorer"/></webLink>` },
   { name: "links/bad.xml", data: `<webLink><title>Sneaky</title><url href="javascript:alert(document.cookie)"/></webLink>` },
@@ -191,13 +192,15 @@ let courseA: string;
 let courseB: string;
 
 before(async () => {
+  process.env.BACKUP_ENCRYPTION_KEY = "a".repeat(64);
+  useFileStore(memoryStore());
   db = await openPglite("memory://");
   await migrate(db, path.join(__dirname, "..", "migrations"));
   useDb(db);
   courseA = String((await db.query("INSERT INTO courses (tenant_id, id_class_id, name) VALUES ('school-a', 'c1', 'Bio') RETURNING id"))[0].id);
   courseB = String((await db.query("INSERT INTO courses (tenant_id, id_class_id, name) VALUES ('school-b', 'c9', 'Bio B') RETURNING id"))[0].id);
 });
-after(() => db.close());
+after(() => { delete process.env.BACKUP_ENCRYPTION_KEY; useFileStore(undefined as never); db.close(); });
 
 // ---------- zip safety ----------
 
@@ -274,15 +277,16 @@ test("html: nothing executable survives; links kept only when http(s)", () => {
   for (const bad of ["<script", "alert", "onclick", "steal", "javascript:", "color: red", "<b>", "fallback words"]) {
     assert.ok(!all.includes(bad), `${bad} leaked`);
   }
-  const [parts, video, rest] = page.blocks;
+  const [parts, picture, video, rest] = page.blocks;
   assert.equal(parts.type === "text" && parts.title, "Parts of a cell");
   assert.ok(parts.type === "text" && parts.body.includes("The nucleus holds DNA. See this page (https://example.org/cells)"));
   assert.ok(parts.type === "text" && parts.body.includes("• Membrane\n• Cytoplasm"));
-  assert.ok(parts.type === "text" && parts.body.includes("[Image: A plant cell]"));
+  // The picture is a block of its own, in place, naming where it came from.
+  assert.deepEqual(picture, { type: "image", title: "", src: "$IMS-CC-FILEBASE$/cell%20diagram.png", alt: "A plant cell" });
   // The heading over the video names it, rather than leaving an empty slide.
   assert.deepEqual(video, { type: "link", title: "Watch", url: "https://www.youtube.com/embed/abc123" });
   assert.ok(rest.type === "text" && rest.body === "Then answer “why?” & discuss.");
-  assert.deepEqual(page.missing, ["cell diagram.png"]);
+  assert.deepEqual(page.missing, []);
 });
 
 test("html: a page with no headings takes the item's title", () => {
@@ -310,18 +314,21 @@ test("cartridge: folders become units, everything else is listed", () => {
   const plan = readCartridge(fixture());
   assert.equal(plan.courseTitle, "Biology 9 & Lab");
   assert.deepEqual(plan.units.map((u) => u.title), ["Unit 1: Cells", "Unit 2: Genetics"]);
-  assert.deepEqual(plan.units[0].items.map((i) => `${i.kind}:${i.title}`), ["lesson:What is a cell?", "lesson:Cell explorer", "assignment:Cell diagram", "quiz:Cells quiz"]);
+  // A file in a folder is a lesson holding that file.
+  assert.deepEqual(plan.units[0].items.map((i) => `${i.kind}:${i.title}`), ["lesson:What is a cell?", "lesson:Cell explorer", "assignment:Cell diagram", "quiz:Cells quiz", "lesson:Worksheet.pdf"]);
   // A discussion becomes a writing assignment holding the prompt.
   assert.deepEqual(plan.units[1].items.map((i) => `${i.kind}:${i.title}`), ["assignment:Talk about traits"]);
   // A loose page, and Canvas's assignment that is in no module.
   assert.deepEqual(plan.loose.map((i) => `${i.kind}:${i.title}`), ["lesson:Welcome", "assignment:Lab report"]);
   assert.deepEqual(plan.skipped.map((s) => `${s.kind}:${s.title}`).sort(), [
-    "file:Worksheet.pdf", "other:Sneaky link", "question:Cells quiz: Formula (calculated_question)", "tool:Outside tool",
+    "other:Sneaky link", "question:Cells quiz: Formula (calculated_question)", "tool:Outside tool",
   ]);
-  assert.deepEqual(plan.missingFiles, ["web_resources/cell diagram.png"]);
+  assert.deepEqual(plan.missingFiles, []);
+  const cell = plan.units[0].items[0];
+  assert.ok(cell.kind === "lesson" && cell.blocks.some((b) => b.type === "media" && b.path === "web_resources/cell diagram.png" && b.alt === "A plant cell"));
   assert.deepEqual(summarize(plan), {
-    units: 2, lessons: 3, assignments: 3, datedAssignments: 2, quizzesImported: 1, questions: 7, discussionsImported: 1,
-    quizzes: 0, questionsSkipped: 1, discussions: 0, tools: 1, files: 1, other: 1,
+    units: 2, lessons: 4, assignments: 3, datedAssignments: 2, quizzesImported: 1, questions: 7, discussionsImported: 1, media: 2,
+    quizzes: 0, questionsSkipped: 1, discussions: 0, tools: 1, files: 0, other: 1,
   });
 });
 
@@ -427,7 +434,7 @@ test("cartridge: Canvas-style flat organization (no wrapper) still works", () =>
 
 test("import: preview writes nothing", async () => {
   const p = await previewImport(A, courseA, fixture());
-  assert.equal(p.summary.lessons, 3);
+  assert.equal(p.summary.lessons, 4);
   assert.equal(p.outline.length, 3);
   assert.equal(p.outline[2].title, null);
   assert.deepEqual(p.importedBefore, []);
@@ -444,7 +451,7 @@ test("import: one transaction; everything a draft; units after existing ones; ve
   const units = await listUnits(A, courseA);
   assert.deepEqual(units.map((u) => u.title), ["Already here", "Unit 1: Cells", "Unit 2: Genetics"]);
   const lessons = await listLessons(A, courseA);
-  assert.equal(lessons.length, 3);
+  assert.equal(lessons.length, 4);
   assert.ok(lessons.every((l) => l.plannedFor === null && l.version === 1));
   const asg = await listAssignments(A, courseA);
   assert.equal(asg.length, 4);
@@ -465,6 +472,17 @@ test("import: one transaction; everything a draft; units after existing ones; ve
   const full = await getLesson(A, cell.id);
   assert.equal(full?.unitId, r.unitIds[0]);
   assert.ok(full!.blocks.some((b) => b.type === "link"));
+  // The picture came in as the course's own file, in its place on the page; the PDF as its own lesson.
+  assert.equal(r.media.saved, 2);
+  assert.deepEqual(r.media.failed, []);
+  const pic = full!.blocks[1];
+  assert.ok(pic.type === "file" && pic.kind === "image" && pic.alt === "A plant cell" && pic.name === "cell diagram.png");
+  const sheet = await getLesson(A, lessons.find((l) => l.title === "Worksheet.pdf")!.id);
+  assert.ok(sheet!.blocks.length === 1 && sheet!.blocks[0].type === "file" && sheet!.blocks[0].kind === "pdf");
+  // The export's order is kept, everything is marked with its import, and nothing is shown to students.
+  const order = await db.query("SELECT title, position, import_id, student_view FROM lessons WHERE unit_id = $1 UNION ALL SELECT title, position, import_id, 'hidden' FROM assignments WHERE unit_id = $1 ORDER BY position", [r.unitIds[0]]);
+  assert.deepEqual(order.map((o) => o.title), ["What is a cell?", "Cell explorer", "Cell diagram", "Cells quiz", "Worksheet.pdf"]);
+  assert.ok(order.every((o) => o.import_id === r.importId && o.student_view === "hidden"));
   const saved = await saveLesson(A, cell.id, { baseVersion: 1, title: "Cells" });
   assert.ok(saved.ok && saved.lesson.version === 2);
   assert.equal((await db.query("SELECT count(*)::int AS n FROM lesson_versions WHERE lesson_id = $1", [cell.id]))[0].n, 1);

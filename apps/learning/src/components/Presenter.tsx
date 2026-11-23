@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { type Block, type FileBlock, blockSummary, fileUrl, formatSeconds, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
+import { videoFromUrl, videoSrc } from "@/lib/post-doc";
 import type { Dict } from "@/lib/i18n";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
@@ -326,6 +327,8 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
   }
   if (block.type === "link") {
     const url = webLink(block.url);
+    const video = url ? videoFromUrl(url) : null;
+    if (video) return <VideoStage title={block.title} src={videoSrc(video)} url={url} provider={video.provider} d={d} />;
     return (
       <div className="stage" style={{ background: "var(--p4)" }}>
         <h1>{block.title || d.blockLink}</h1>
@@ -432,6 +435,22 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** A YouTube or Vimeo link plays on the slide (the same players as videos in updates). */
+export function VideoStage({ title, src, url, provider, d }: { title: string; src: string; url: string; provider: "youtube" | "vimeo"; d: Dict }) {
+  const name = title || d.pcVideo;
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="stage stage-video">
+        <iframe src={src} title={`${name} (${provider === "youtube" ? "YouTube" : "Vimeo"})`} loading="lazy"
+          allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          referrerPolicy="strict-origin-when-cross-origin"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" />
+      </div>
+      <div className="row"><b style={{ minWidth: 0 }}>{name}</b><span style={{ flex: 1 }} /><a className="btn btn-sm" href={url} target="_blank" rel="noopener noreferrer">{d.openLink} ↗</a></div>
     </div>
   );
 }

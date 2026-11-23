@@ -31,6 +31,8 @@ import { token } from "@/lib/auth";
 import { todayIn } from "@/lib/planner";
 import { SCHOOL_TZ } from "@/lib/school-grading";
 import { ClubEvents, ClubMembers, ClubSwitch } from "@/components/Club";
+import { itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, parseKey, asView, type Place } from "@/lib/organize";
+import { SelectAll, SelectedCount } from "@/components/Organize";
 
 export const dynamic = "force-dynamic";
 
@@ -91,13 +93,40 @@ async function unitAction(formData: FormData) {
   revalidatePath(`/courses/${courseId}`);
 }
 
+// Organize mode (src/lib/organize.ts): one form, id "org", that every row's checkbox and arrows belong to.
+async function organize(formData: FormData) {
+  "use server";
+  const access = await teacherAccess(formData);
+  if (!access) return;
+  const c = ctx(access.me), courseId = access.course.id;
+  const op = String(formData.get("op") || "");
+  const picked = formData.getAll("item").map(String);
+  const step = /^(up|down):(.+)$/.exec(op);
+  if (step) await moveItem(c, courseId, step[2], step[1] === "up" ? -1 : 1);
+  if (op === "move" && picked.length) {
+    const to = String(formData.get("toUnit") || "");
+    await moveItemsToUnit(c, courseId, picked, to && to !== "none" ? to : null);
+  }
+  const view = asView(formData.get("view"));
+  if (op === "view" && view && picked.length) {
+    const viewer = await updatesViewer();
+    if (viewer) {
+      const keys = picked.map(parseKey).filter((k) => !!k);
+      await setStudentView(viewer, courseId, keys.filter((k) => k!.kind === "lesson").map((k) => k!.id), view);
+      await setAssignmentThread(viewer, courseId, keys.filter((k) => k!.kind === "assignment").map((k) => k!.id), view === "thread");
+    }
+  }
+  revalidatePath(`/courses/${courseId}`);
+}
+
 type Item = { kind: "lesson"; lesson: LessonSummary } | { kind: "assignment"; assignment: Assignment };
 
 function itemDate(i: Item): string {
   return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
 }
+const itemKey = (i: Item) => (i.kind === "lesson" ? `lesson:${i.lesson.id}` : `assignment:${i.assignment.id}`);
 
-export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string }> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string; organize?: string }> }) {
   await requireMe();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const L = await lang();
@@ -166,16 +195,23 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const d = dict(L);
   const c = ctx(me);
   const live = liveLessonId(course.id);
-  const [units, lessons, assignments, updates] = await Promise.all([
-    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), updatesSection(true),
+  const [units, lessons, assignments, updates, places] = await Promise.all([
+    listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), updatesSection(true), itemPlaces(c, course.id),
   ]);
+  const organizing = sp.organize === "1";
+  const placeOf = (i: Item): Place => places.get(itemKey(i)) ?? { position: null, studentView: "hidden", threadPostId: null };
 
   const groups = [...units.map((u) => ({ unit: u, items: [] as Item[] })), { unit: null, items: [] as Item[] }];
   const byId = new Map(units.map((u, i) => [u.id, groups[i]]));
   const loose = groups[groups.length - 1];
   for (const lesson of lessons) (byId.get(lesson.unitId || "") || loose).items.push({ kind: "lesson", lesson });
   for (const assignment of assignments) (byId.get(assignment.unitId || "") || loose).items.push({ kind: "assignment", assignment });
-  for (const g of groups) g.items.sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
+  // Placed by hand first (organize.ts), then by date, as the course always sorted.
+  for (const g of groups) g.items.sort((a, b) => {
+    const pa = placeOf(a).position, pb = placeOf(b).position;
+    if (pa !== null || pb !== null) return pa === null ? 1 : pb === null ? -1 : pa - pb;
+    return itemDate(a).localeCompare(itemDate(b));
+  });
 
   const tools = await toolChoices(me.tenantId);
   const clubRoster = isClub ? await membersOf({ id: me.id, role: me.role, dev: me.dev }, await token(), course.idClassId) : null;
@@ -310,6 +346,40 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
 
         {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
 
+        {(lessons.length > 0 || assignments.length > 0) && (
+          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <h2 className="label grow" style={{ margin: 0 }}>{d.orgMaterials}</h2>
+            <Link className={`btn btn-sm${organizing ? " btn-primary" : ""}`} href={organizing ? here : `${here}?organize=1`} scroll={false}>
+              {organizing ? d.orgDone : d.orgStart}
+            </Link>
+          </div>
+        )}
+        {organizing && (
+          <form id="org" action={organize} className="card org-bar stack" style={{ gap: 8 }} aria-label={d.orgStart}>
+            <input type="hidden" name="courseId" value={course.id} />
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.orgHint}</p>
+            <SelectedCount template={d.orgSelected} />
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <label className="label" htmlFor="org-unit" style={{ margin: 0 }}>{d.orgMoveTo}</label>
+              <select id="org-unit" name="toUnit" className="field" style={{ width: "auto", flex: "0 1 240px" }} defaultValue={units[0]?.id || "none"}>
+                {units.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
+                <option value="none">{d.noUnit}</option>
+              </select>
+              <button className="btn btn-sm" name="op" value="move">{d.orgMove}</button>
+            </div>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <label className="label" htmlFor="org-view" style={{ margin: 0 }}>{d.svLabel}</label>
+              <select id="org-view" name="view" className="field" style={{ width: "auto", flex: "0 1 320px" }} defaultValue="list">
+                <option value="hidden">{d.svHidden}</option>
+                <option value="list">{d.svList}</option>
+                <option value="thread">{d.svThread}</option>
+              </select>
+              <button className="btn btn-sm" name="op" value="view">{d.orgApply}</button>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.orgAssignNote}</p>
+          </form>
+        )}
+
         {groups.map(({ unit, items }, gi) => {
           if (!unit && items.length === 0) return null;
           return (
@@ -350,11 +420,15 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
                   </details>
                 )}
               </div>
+              {organizing && items.length > 0 && <SelectAll group={unit?.id || "loose"} label={d.orgSelectAll} />}
               {items.length === 0 ? <p className="empty">{d.emptyUnit}</p> : (
                 <ul className="list">
-                  {items.map((i) => i.kind === "lesson"
-                    ? <LessonRow key={i.lesson.id} l={i.lesson} live={live === i.lesson.id} d={d} />
-                    : <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} />)}
+                  {items.map((i, ii) => {
+                    const org = organizing ? { group: unit?.id || "loose", first: ii === 0, last: ii === items.length - 1 } : null;
+                    return i.kind === "lesson"
+                      ? <LessonRow key={i.lesson.id} l={i.lesson} live={live === i.lesson.id} d={d} place={placeOf(i)} org={org} />
+                      : <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} place={placeOf(i)} org={org} />;
+                  })}
                 </ul>
               )}
             </section>
@@ -365,27 +439,52 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   );
 }
 
-function LessonRow({ l, live, d }: { l: LessonSummary; live: boolean; d: Dict }) {
+type Org = { group: string; first: boolean; last: boolean } | null;
+
+/** Organize mode's checkbox and arrows for one row (all in the "org" form). */
+function OrgControls({ k, title, org, d }: { k: string; title: string; org: NonNullable<Org>; d: Dict }) {
+  return (
+    <>
+      <input type="checkbox" name="item" value={k} form="org" data-org-group={org.group} aria-label={d.orgPick.replace("{title}", title)} className="org-check" />
+      <span className="row" style={{ gap: 4, flex: "0 0 auto" }}>
+        <button className="icon-btn" form="org" name="op" value={`up:${k}`} aria-label={`${d.moveUp}: ${title}`} disabled={org.first}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+        </button>
+        <button className="icon-btn" form="org" name="op" value={`down:${k}`} aria-label={`${d.moveDown}: ${title}`} disabled={org.last}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+      </span>
+    </>
+  );
+}
+
+function ViewPill({ view, d }: { view: Place["studentView"]; d: Dict }) {
+  if (view === "hidden") return <span className="pill pill-draft" style={{ marginLeft: 6 }}>{d.svPillHidden}</span>;
+  return <span className="pill" style={{ marginLeft: 6 }}>{view === "thread" ? d.svPillThread : d.svPillList}</span>;
+}
+
+function LessonRow({ l, live, d, place, org }: { l: LessonSummary; live: boolean; d: Dict; place: Place; org: Org }) {
   return (
     <li>
-      <span className="shape s-arch" aria-hidden="true" />
+      {org ? <OrgControls k={`lesson:${l.id}`} title={l.title} org={org} d={d} /> : <span className="shape s-arch" aria-hidden="true" />}
       <div className="grow">
-        <h3>{l.title}</h3>
+        <h3><Link href={`/lessons/${l.id}`} style={{ color: "inherit" }}>{l.title}</Link></h3>
         <span className="muted" style={{ fontSize: 13 }}>
           {l.plannedFor ? `${l.plannedFor} · ` : ""}{l.durationMin} min · {l.blockCount} {d.blocks}
         </span>
+        <ViewPill view={place.studentView} d={d} />
         {live && <span className="pill" style={{ marginLeft: 6 }}><span className="live-dot" />{d.liveNow}</span>}
       </div>
-      <Link className="btn" href={`/lessons/${l.id}/edit`}>{d.edit}</Link>
-      <Link className="btn btn-primary" href={`/lessons/${l.id}/present`}>{d.present}</Link>
+      {!org && <Link className="btn" href={`/lessons/${l.id}/edit`}>{d.edit}</Link>}
+      {!org && <Link className="btn btn-primary" href={`/lessons/${l.id}/present`}>{d.present}</Link>}
     </li>
   );
 }
 
-function AssignmentRow({ a, d, L }: { a: Assignment; d: Dict; L: Lang }) {
+function AssignmentRow({ a, d, L, place, org }: { a: Assignment; d: Dict; L: Lang; place: Place; org: Org }) {
   return (
     <li>
-      <span className="shape s-tri" aria-hidden="true" />
+      {org ? <OrgControls k={`assignment:${a.id}`} title={a.title} org={org} d={d} /> : <span className="shape s-tri" aria-hidden="true" />}
       <div className="grow">
         <h3>{a.title}</h3>
         <span className="muted" style={{ fontSize: 13 }}>
@@ -393,9 +492,10 @@ function AssignmentRow({ a, d, L }: { a: Assignment; d: Dict; L: Lang }) {
           {a.kind === "offline" ? ` · ${d.kindOffline}` : a.kind === "quiz" ? ` · ${d.kindQuiz}` : ""}
         </span>
         {!a.published && <span className="pill pill-draft" style={{ marginLeft: 6 }}>{d.draft}</span>}
+        {a.published && place.threadPostId && <span className="pill" style={{ marginLeft: 6 }}>{d.svPillThread}</span>}
       </div>
-      <Link className="btn" href={`/assignments/${a.id}`}>{d.edit}</Link>
-      <Link className="btn btn-primary" href={`/assignments/${a.id}/grade`}>{d.openGrading}</Link>
+      {!org && <Link className="btn" href={`/assignments/${a.id}`}>{d.edit}</Link>}
+      {!org && <Link className="btn btn-primary" href={`/assignments/${a.id}/grade`}>{d.openGrading}</Link>}
     </li>
   );
 }
