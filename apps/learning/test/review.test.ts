@@ -8,6 +8,9 @@ import { setGrade, gradesFor } from "../src/lib/grades";
 import { normalizeRubric } from "../src/lib/rubric";
 import { csvCell, locate, reviewCsv, segments } from "../src/lib/review";
 import { reviewedFor, setReviewed } from "../src/lib/grade-review";
+import { addConcern, cleanConcern, ConcernError, listConcerns, removeConcern, updateConcern } from "../src/lib/integrity";
+import { addSuggestions, openSuggestions, settleSuggestions, skipSuggestion, suggestFromStudent } from "../src/lib/suggestions";
+import { partNotesFor } from "../src/lib/grades";
 
 // The grading review screen (story 01, grade assistant, no AI): migration 037 + src/lib/review.ts.
 
@@ -128,4 +131,80 @@ test("review: reviewed marks are per student, roster-only, teacher-only data, an
 
   await setReviewed(T, a.id, ["stu-1"], false, ROSTER);
   assert.equal((await reviewedFor(T, a.id)).size, 0);
+});
+
+async function partsAssignment(name: string) {
+  const [c] = await myCourses("school-a", [{ id: name, name: "Geography", role: "teacher" }]);
+  const a0 = await createAssignment(T, c.id, { title: name });
+  const s = await saveAssignment(T, a0.id, { baseVersion: a0.version, rubric: { ...RUBRIC } });
+  assert.ok(s.ok);
+  return (await getAssignment(T, a0.id))!;
+}
+
+test("integrity: concerns need a level, students on the list and evidence; never touch a grade; stay in their school", async () => {
+  const a = await partsAssignment("ic1");
+  await setGrade(T, a, "stu-1", ROSTER, { score: 4, parts: { p1: { score: 1, message: "" }, p3: { score: 1.5, message: "" }, p4: { score: 1.5, message: "" } } });
+  const before = JSON.stringify(await gradesFor(T, a.id));
+
+  assert.throws(() => cleanConcern({ level: "severe", studentIds: ["stu-1"], evidence: "x" }, ROSTER, a.rubric), ConcernError);
+  assert.throws(() => cleanConcern({ level: "high", studentIds: ["stranger"], evidence: "x" }, ROSTER, a.rubric), ConcernError);
+  assert.throws(() => cleanConcern({ level: "high", studentIds: ["stu-1"], evidence: "   " }, ROSTER, a.rubric), ConcernError);
+  const clean = cleanConcern({ level: "note", studentIds: ["stu-1", "stu-1", "stranger"], sectionId: "nope", evidence: " ok " }, ROSTER, a.rubric);
+  assert.deepEqual(clean, { level: "note", studentIds: ["stu-1"], sectionId: null, evidence: "ok" }, "unknown sections and students dropped");
+
+  const c1 = await addConcern(T, a, { level: "medium", studentIds: ["stu-1", "stu-2"], sectionId: "s2", evidence: "Same three challenges, same order." }, ROSTER);
+  const c2 = await addConcern(T, a, { level: "high", studentIds: ["stu-2"], evidence: "Tinker v. Des Moines isn't in the reading." }, ROSTER);
+  assert.deepEqual((await listConcerns(T, a.id)).map((c) => c.id), [c2.id, c1.id], "High first");
+  assert.equal((await listConcerns(OTHER, a.id)).length, 0, "another school sees none");
+  assert.equal(await updateConcern(OTHER, a, c1.id, { level: "note", studentIds: ["stu-1"], evidence: "x" }, ROSTER), null);
+  assert.equal(await removeConcern(OTHER, a.id, c1.id), false);
+  const up = await updateConcern(T, a, c1.id, { level: "note", studentIds: ["stu-1"], sectionId: "s2", evidence: "Only similar." }, ROSTER);
+  assert.equal(up?.level, "note");
+  assert.equal(JSON.stringify(await gradesFor(T, a.id)), before, "a concern never changes a grade");
+  assert.ok(await removeConcern(T, a.id, c2.id));
+  assert.equal((await listConcerns(T, a.id)).length, 1);
+});
+
+test("suggestions: stored apart from grades; 'same as' copies another student's parts; only a save settles them", async () => {
+  const a = await partsAssignment("sg1");
+  await setGrade(T, a, "stu-1", ROSTER, {
+    score: 3.25, parts: { p1: { score: 1, message: "" }, p2: { score: 0.75, message: "Say why." }, p3: { score: 1.5, message: "" } }, notes: { p2: "no reason given" },
+  });
+  const made = await suggestFromStudent(T, a, "stu-2", "stu-1");
+  assert.deepEqual(made.map((x) => [x.partId, x.score, x.message, x.note, x.source]).sort(), [
+    ["p1", 1, "", "", "copy"], ["p2", 0.75, "Say why.", "no reason given", "copy"], ["p3", 1.5, "", "", "copy"],
+  ]);
+  assert.deepEqual(made[0].detail, { from: "stu-1" });
+  assert.equal((await gradesFor(T, a.id)).filter((g) => g.studentId === "stu-2").length, 0, "no grade for stu-2 until the teacher saves");
+  assert.equal((await openSuggestions(OTHER, a.id)).length, 0, "another school sees none");
+
+  // Asking again replaces the open one on each part (one open per part).
+  await suggestFromStudent(T, a, "stu-2", "stu-1");
+  assert.equal((await openSuggestions(T, a.id, "stu-2")).length, 3);
+
+  // Only this rubric's parts, quarter points within the part; empty rows dropped; a whole-grade one is allowed.
+  const extra = await addSuggestions(T, a, "stu-1", [
+    { partId: "nope", score: 1 }, { partId: "p4", score: 9.3, message: "Explain more." }, { partId: "p5" } as never, { partId: null, score: 4.1 },
+  ], { source: "assistant", version: "test-1" });
+  assert.deepEqual(extra.map((x) => [x.partId, x.score]), [["p4", 1.5], [null, 4]]);
+  await assert.rejects(addSuggestions(T, a, "stu-1", [{ partId: "p4", score: 1 }], { source: "Bad Source!" }));
+
+  // The teacher uses p1 as is, changes p2's score, skips p3, then saves.
+  const open = await openSuggestions(T, a.id, "stu-2");
+  const by = new Map(open.map((x) => [x.partId, x]));
+  assert.ok(await skipSuggestion(T, a.id, by.get("p3")!.id));
+  assert.equal(await skipSuggestion(OTHER, a.id, by.get("p1")!.id), false);
+  const r = await setGrade(T, a, "stu-2", ROSTER, {
+    score: 1.5, parts: { p1: { score: 1, message: "" }, p2: { score: 0.5, message: "Say why." } }, notes: { p2: "no reason given" },
+  });
+  assert.ok(r.ok);
+  const n = await settleSuggestions(T, a.id, "stu-2", [by.get("p1")!.id, by.get("p2")!.id, by.get("p3")!.id, "junk"], {
+    score: r.grade!.score, comment: r.grade!.comment, parts: r.grade!.parts, notes: (await partNotesFor(T, a.id)).get("stu-2") ?? null,
+  });
+  assert.equal(n, 2, "the skipped one isn't open any more");
+  const rows = await db.query("SELECT part_id, status, decided_by FROM grade_suggestions WHERE assignment_id = $1 AND student_id = 'stu-2' AND status <> 'open' ORDER BY part_id", [a.id]);
+  assert.deepEqual(rows.map((x) => [x.part_id, x.status, x.decided_by]).filter((x) => x[0] !== null).slice(-3), [
+    ["p1", "accepted", "teacher-1"], ["p2", "changed", "teacher-1"], ["p3", "skipped", "teacher-1"],
+  ]);
+  assert.equal((await openSuggestions(T, a.id, "stu-2")).length, 0);
 });

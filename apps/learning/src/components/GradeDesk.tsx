@@ -12,6 +12,9 @@ import { feedbackFromParts, isParts, partsScore, rubricScore, type PartMarks, ty
 import PartsGrader from "./PartsGrader";
 import ReviewWork from "./ReviewWork";
 import PartZoom from "./PartZoom";
+import IntegrityDrawer from "./IntegrityDrawer";
+import type { Concern } from "@/lib/integrity";
+import type { Suggestion } from "@/lib/suggestions";
 import { levelsFromRubric } from "@/lib/standards-math";
 import { finalScore, normalizeOverride, penaltyFor, ruleText, type Applied, type LateOverride } from "@/lib/late-policy";
 
@@ -43,11 +46,14 @@ const amountOf = (o: LateOverride | null) => (o && "percent" in o ? String(o.per
  * Grading one assignment, a student at a time: their work on the left,
  * score, mark and comment on the right. Save moves to the next student.
  */
-export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, standards, lateRule = null, d }: {
+export default function GradeDesk({ assignment, students: initial, startWith, schoology = false, standards, lateRule = null, concerns: initialConcerns = [], suggestions: initialSuggestions = [], d }: {
   assignment: { id: string; points: number; kind: "online" | "offline" | "quiz"; gradesReleased: boolean; rubric: Rubric | null };
   students: DeskStudent[]; startWith?: string; schoology?: boolean; standards?: DeskStandards;
   /** The late policy for this assignment (null = late is a mark only). */
-  lateRule?: Applied | null; d: Dict;
+  lateRule?: Applied | null;
+  /** The review screen: the teacher's integrity concerns and the open suggestions (never grades). */
+  concerns?: Concern[]; suggestions?: Suggestion[];
+  d: Dict;
 }) {
   const [saves, setSaves] = useState(0);
   const [students, setStudents] = useState(initial);
@@ -89,6 +95,14 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   const pos = view.findIndex((x) => x.id === s.id);
   const go = (id: string | undefined) => { const k = students.findIndex((x) => x.id === id); if (k >= 0) setI(k); };
   const reviewedCount = students.filter((x) => x.reviewedAt).length;
+  const [concerns, setConcerns] = useState(initialConcerns);
+  const flagged = useMemo(() => new Set(concerns.flatMap((c) => c.studentIds)), [concerns]);
+  // Suggestions: open ones for everyone; `used` = this student's ones copied into the form (settled by the save).
+  const [sugg, setSugg] = useState(initialSuggestions);
+  const [used, setUsed] = useState<string[]>([]);
+  const [copyFrom, setCopyFrom] = useState("");
+  const mySugg = sugg.filter((x) => x.studentId === s.id && x.partId !== null);
+  const nameOf = (id: unknown) => students.find((x) => x.id === id)?.name ?? "?";
 
   // Load the chosen student's grade into the form.
   useEffect(() => {
@@ -108,6 +122,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setWhole(true);
     setZoom(null);
     setTab("grade");
+    setUsed([]);
     scoreRef.current?.focus({ preventScroll: true });
     // Only when moving to another student, not after each save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,7 +195,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
       }
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(assignment.rubric && !parts ? { rubric: sel } : {}), ...(parts ? { parts: marks ?? {}, notes: notes ?? {} } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
+        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(used.length ? { suggestions: used } : {}), ...(assignment.rubric && !parts ? { rubric: sel } : {}), ...(parts ? { parts: marks ?? {}, notes: notes ?? {} } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -196,6 +211,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         return { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null,
           parts: g ? g.parts : null, notes: g && parts ? notes : null };
       }));
+      if (used.length) { setSugg((all) => all.filter((x) => !used.includes(x.id))); setUsed([]); }
       if (markReviewed && !(await setReviewed(Object.keys(reached), true))) return;
       // Save · Next on a group grade moves past the group's other members.
       if (thenNext && nextId) go(nextId);
@@ -216,6 +232,58 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     const got: Record<string, string | null> = out.reviewed ?? {};
     setStudents((all) => all.map((x) => (x.id in got ? { ...x, reviewedAt: got[x.id] } : x)));
     return true;
+  };
+
+  /** "Use it": the suggestion goes into the form (not the grade); Save makes it the grade. */
+  const applySuggestion = (list: Suggestion[]) => {
+    let m = marks, n = notes;
+    for (const x of list) {
+      if (!x.partId) continue;
+      m = { ...(m ?? {}), [x.partId]: { score: x.score ?? m?.[x.partId]?.score ?? null, message: x.message || m?.[x.partId]?.message || "" } };
+      if (x.note) n = { ...(n ?? {}), [x.partId]: x.note };
+    }
+    mark(m);
+    setNotes(n);
+    setUsed((u) => [...new Set([...u, ...list.map((x) => x.id)])]);
+  };
+  const skipSuggestion = async (x: Suggestion) => {
+    const res = await fetch(`/api/assignments/${assignment.id}/suggestions`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: x.id, action: "skip" }) }).catch(() => null);
+    if (res?.ok) { setSugg((all) => all.filter((y) => y.id !== x.id)); setUsed((u) => u.filter((id) => id !== x.id)); }
+  };
+  const suggestFrom = async () => {
+    if (!copyFrom) return;
+    setError("");
+    const res = await fetch(`/api/assignments/${assignment.id}/suggestions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ studentId: s.id, from: copyFrom }) }).catch(() => null);
+    const out = res ? await res.json().catch(() => ({})) : {};
+    if (!res?.ok) { setError(out.error === "roster" ? d.rosterFailed : d.saveError); return; }
+    const got: Suggestion[] = out.suggestions ?? [];
+    if (!got.length) { setError(d.sgNothing.replace("{name}", nameOf(copyFrom))); return; }
+    const parts = new Set(got.map((x) => x.partId));
+    setSugg((all) => [...all.filter((x) => !(x.studentId === s.id && parts.has(x.partId))), ...got]);
+  };
+  /** A part's open suggestion, under its question: what made it, the values, Use it / Skip. */
+  const suggestionFor = (partId: string) => {
+    const x = mySugg.find((y) => y.partId === partId);
+    if (!x) return null;
+    const inUse = used.includes(x.id);
+    const from = x.source === "copy" ? d.sgFromStudent.replace("{name}", nameOf(x.detail?.from)) : d.sgFromOther.replace("{source}", x.source);
+    return (
+      <div className={`suggestion${inUse ? " is-used" : ""}`} role="group" aria-label={d.sgOne}>
+        <p className="suggestion-head">💡 {d.sgOne} · <span className="muted">{from}</span></p>
+        <p style={{ margin: 0, fontSize: 14 }}>
+          {x.score !== null && <b>{x.score} </b>}{x.message && <span>“{x.message}”</span>}
+          {x.note && <span className="muted" style={{ display: "block", fontSize: 13 }}>{d.prNote}: {x.note}</span>}
+        </p>
+        {inUse
+          ? <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{d.sgUsed}</p>
+          : (
+            <div className="row" style={{ gap: 6, marginTop: 4 }}>
+              <button type="button" className="btn btn-sm" onClick={() => applySuggestion([x])}>{d.sgUse}</button>
+              <button type="button" className="btn btn-sm" onClick={() => skipSuggestion(x)}>{d.sgSkip}</button>
+            </div>
+          )}
+      </div>
+    );
   };
 
   const loadHistory = async () => {
@@ -258,6 +326,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
               <button type="button" aria-current={x.id === s.id ? "true" : undefined} onClick={() => go(x.id)}>
                 <span className="grow">{x.name}{x.group && <span className="muted" style={{ display: "block", fontSize: 12 }}>{x.group.name}</span>}</span>
                 {review && x.late && <span className="chip chip-late desk-mark">{d.late}</span>}
+                {review && flagged.has(x.id) && <span className="desk-flagged" title={d.icFlagged} aria-label={d.icFlagged}>⚑</span>}
                 {review && x.reviewedAt && <span className="desk-reviewed" title={d.rvReviewed} aria-label={d.rvReviewed}>✓</span>}
                 {x.score !== null
                   ? <b>{x.score}{review ? <span className="muted" style={{ fontWeight: 400 }}>/{assignment.points}</span> : null}</b>
@@ -306,11 +375,40 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           </div>
         )}
         <div id="panel-grade" role={review ? "tabpanel" : undefined} aria-labelledby={review ? "tab-grade" : undefined} hidden={review && tab !== "grade"}>
+        {review && (
+          <div className="review-tools stack" style={{ gap: 8, marginBottom: 12 }}>
+            <IntegrityDrawer assignmentId={assignment.id} rubric={assignment.rubric} currentId={s.id} concerns={concerns} onConcerns={setConcerns}
+              students={students.map((x) => ({ id: x.id, name: x.name, body: x.body }))} d={d} />
+            {concerns.filter((c) => c.studentIds.includes(s.id)).map((c) => (
+              <p key={c.id} className={`ic-box ic-${c.level}`}>
+                <b>{c.level === "high" ? d.icHigh : c.level === "medium" ? d.icMedium : d.icNote}:</b> {c.evidence}
+                <span className="muted" style={{ display: "block", fontSize: 12 }}>{d.icNoDeduction}</span>
+              </p>
+            ))}
+            <details className="sg-tools">
+              <summary>💡 {d.sgTitle}{mySugg.length ? ` (${mySugg.length})` : ""}</summary>
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 6px" }}>{d.sgHint}</p>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                <label htmlFor="sg-from" className="sr-only">{d.sgFromLabel}</label>
+                <select id="sg-from" className="field" style={{ flex: 1, minWidth: 140 }} value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+                  <option value="">{d.sgFromLabel}</option>
+                  {students.filter((x) => x.id !== s.id && (x.parts || x.notes)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+                <button type="button" className="btn btn-sm" disabled={!copyFrom} onClick={suggestFrom}>{d.sgSuggest}</button>
+              </div>
+              {mySugg.filter((x) => !used.includes(x.id)).length > 1 && (
+                <button type="button" className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => applySuggestion(mySugg.filter((x) => !used.includes(x.id)))}>
+                  {d.sgUseAll.replace("{n}", String(mySugg.filter((x) => !used.includes(x.id)).length))}
+                </button>
+              )}
+            </details>
+          </div>
+        )}
         {assignment.rubric && (
           <div className="fieldset" style={{ marginTop: 0 }}>
             <p className="flabel" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>{d.rubric}</p>
             {parts
-              ? <PartsGrader key={s.id} rubric={assignment.rubric} marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onOpen={setZoom} d={d} />
+              ? <PartsGrader key={s.id} rubric={assignment.rubric} marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onOpen={setZoom} extra={suggestionFor} d={d} />
               : <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />}
           </div>
         )}
@@ -437,7 +535,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
       </form>
       {review && (
         <PartZoom rubric={assignment.rubric!} partId={zoom} body={assignment.kind === "online" ? s.body : null}
-          marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onPart={setZoom} onClose={() => setZoom(null)} d={d} />
+          marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} onPart={setZoom} onClose={() => setZoom(null)} extra={suggestionFor} d={d} />
       )}
     </div>
   );

@@ -17,6 +17,8 @@ import { listMaterials } from "@/lib/grading-materials";
 import { isParts } from "@/lib/rubric";
 import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
 import { reviewedFor } from "@/lib/grade-review";
+import { listConcerns } from "@/lib/integrity";
+import { openSuggestions } from "@/lib/suggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,9 @@ export default async function GradePage({ params, searchParams }: {
     courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listMaterials(c, a.id),
   ]);
   const review = isParts(a.rubric);
-  const [notesBy, reviewed] = review ? await Promise.all([partNotesFor(c, a.id), reviewedFor(c, a.id)]) : [new Map(), new Map<string, string>()];
+  const [notesBy, reviewed, concerns, suggestions] = review
+    ? await Promise.all([partNotesFor(c, a.id), reviewedFor(c, a.id), listConcerns(c, a.id), openSuggestions(c, a.id)])
+    : [new Map(), new Map<string, string>(), [], []];
   // Group work (story 01, F4): each student's group, and the group's shared text where they haven't handed in.
   const groupOf = new Map((groups ?? []).flatMap((g) => g.members.map((m) => [m.id, g] as const)));
   let standards: DeskStandards | undefined;
@@ -91,7 +95,8 @@ export default async function GradePage({ params, searchParams }: {
         {ok && desk.length === 0 && <p className="empty">{d.noStudents}</p>}
         {ok && desk.length > 0 && (
           <GradeDesk assignment={{ id: a.id, points: a.points, kind: a.kind, gradesReleased: a.gradesReleased, rubric: a.rubric }}
-            students={desk} startWith={student} schoology={placed.length > 0} standards={standards} lateRule={late.rule} d={d} />
+            students={desk} startWith={student} schoology={placed.length > 0} standards={standards} lateRule={late.rule}
+            concerns={concerns} suggestions={suggestions} d={d} />
         )}
       </main>
     </>

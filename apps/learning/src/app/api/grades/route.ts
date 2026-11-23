@@ -3,11 +3,15 @@ import { assignmentAccess, ctx, studentsOf } from "@/lib/access";
 import { gradeHistory, setGrade } from "@/lib/grades";
 import { passBack } from "@/lib/lti-passback";
 import { gradeTargets } from "@/lib/group-work";
+import { settleSuggestions } from "@/lib/suggestions";
+import { cleanNotes } from "@/lib/rubric";
+import type { Grade } from "@/lib/grades";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late?, parts?, notes?, group? }
+ * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late?, parts?, notes?, group?, suggestions? }
+ * (suggestions: ids of the review screen's suggestions the teacher used on this student; this save settles them).
  * (group: true = the same grade for every member of the student's group on a group assignment).
  * (late = the teacher's change to the late penalty: {waive}, {percent}, {days} or null).
  * The student must be in the class in Signify ID right now; if ID can't be
@@ -47,6 +51,13 @@ export async function PUT(req: Request) {
     if (r.changed) await passBack(access, id);
     grades[id] = r.grade;
     if (!first) first = { grade: r.grade, changed: r.changed };
+  }
+  // Suggestions the teacher used become "accepted" or "changed" by what was actually saved (never before a save).
+  if (body.suggestions !== undefined) {
+    const g = first!.grade as Grade | null;
+    await settleSuggestions(ctx(access.me), access.assignment.id, studentId, body.suggestions, {
+      score: g?.score ?? null, comment: g?.comment ?? "", parts: g?.parts ?? null, notes: cleanNotes(access.assignment.rubric, body.notes),
+    });
   }
   return NextResponse.json({ grade: first!.grade, changed: first!.changed, grades });
 }

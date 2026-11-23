@@ -49,7 +49,7 @@ export default function PartZoom({ rubric, partId, body, marks, notes, onMarks, 
       {p && partId && (
         <div className="part-zoom-in">
           <div className="row" style={{ gap: 8 }}>
-            <h2 id="zoom-title" className="grow" style={{ fontSize: 20 }}>
+            <h2 id="zoom-title" style={{ fontSize: 20, flex: 1 }}>
               <span className={`part-tag ${tagClass(p.si)}`}>{name}</span> {p.section.title}
             </h2>
             <button type="button" className="btn btn-sm" disabled={k <= 0} onClick={() => onPart(order[k - 1])}>← {d.rvPrevPart}</button>

@@ -5,7 +5,8 @@ import { assignmentPenalties } from "@/lib/gradebook";
 import { finalScore } from "@/lib/late-policy";
 import { reviewedFor } from "@/lib/grade-review";
 import { assignmentGroups } from "@/lib/group-work";
-import { dict } from "@/lib/i18n";
+import { dict, type Dict } from "@/lib/i18n";
+import { listConcerns } from "@/lib/integrity";
 import { reviewCsv, type TableRow } from "@/lib/review";
 import { SCHOOL_TZ } from "@/lib/school-grading";
 
@@ -63,7 +64,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   });
 }
 
-/** Commit 1: no integrity concerns yet. */
-async function concernsByStudent(_c: unknown, _id: string, _d: unknown): Promise<Map<string, string[]>> {
-  return new Map();
+/** Student id → "High: evidence" for each concern naming them (a concern never changes a score). */
+async function concernsByStudent(c: { tenantId: string; userId: string }, id: string, d: Dict): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const word = { high: d.icHigh, medium: d.icMedium, note: d.icNote };
+  for (const x of await listConcerns(c, id)) {
+    for (const s of x.studentIds) out.set(s, [...(out.get(s) ?? []), `${word[x.level]}: ${x.evidence.replace(/\s+/g, " ")}`]);
+  }
+  return out;
 }
