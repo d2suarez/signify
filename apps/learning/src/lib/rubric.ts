@@ -98,9 +98,23 @@ function normalizeParts(raw: unknown[]): Rubric | null {
   return sections.length ? { kind: "parts", criteria: [], sections } : null;
 }
 
-/** Sections with fewer than 2 parts (the editor warns; saving still keeps them so work isn't lost). */
+/** Sections with fewer than 2 parts (the editor warns; saving a changed rubric with one is refused). */
 export function shortSections(r: Rubric): RubricSection[] {
   return isParts(r) ? r.sections.filter((s) => s.parts.length < RUBRIC_LIMITS.minParts) : [];
+}
+
+/**
+ * Parts of the saved rubric that an edit removed, or whose points or
+ * question changed: their stored marks are dropped or re-capped the next
+ * time a student's grade is saved, so the editor warns while work is graded.
+ */
+export function changedParts(saved: Rubric | null | undefined, next: Rubric | null | undefined): RubricPart[] {
+  if (!isParts(saved)) return [];
+  const now = new Map((isParts(next) ? next.sections : []).flatMap((s) => s.parts.map((p) => [p.id, p] as const)));
+  return saved.sections.flatMap((s) => s.parts).filter((p) => {
+    const n = now.get(p.id);
+    return !n || n.points !== p.points || n.question.trim() !== p.question.trim();
+  });
 }
 
 /**

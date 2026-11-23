@@ -2,7 +2,7 @@
 
 import { newId } from "@/lib/blocks";
 import type { Dict } from "@/lib/i18n";
-import { newSection, quarter, rubricMax, RUBRIC_LIMITS, sectionPoints, type Rubric, type RubricPart, type RubricSection } from "@/lib/rubric";
+import { changedParts, newSection, quarter, rubricMax, RUBRIC_LIMITS, sectionPoints, type Rubric, type RubricPart, type RubricSection } from "@/lib/rubric";
 
 /**
  * Writing a sections-and-parts rubric (story 01, grade assistant): sections
@@ -11,10 +11,14 @@ import { newSection, quarter, rubricMax, RUBRIC_LIMITS, sectionPoints, type Rubr
  * and the rubric's total is the assignment's points. The point values are
  * always the teacher's: nothing is assumed from another assignment.
  */
-export default function PartsRubricEditor({ rubric, onChange, d }: {
-  rubric: Rubric; onChange: (r: Rubric | null) => void; d: Dict;
+export default function PartsRubricEditor({ rubric, onChange, saved = null, graded = false, d }: {
+  rubric: Rubric; onChange: (r: Rubric | null) => void;
+  /** The rubric as last saved, and whether students are graded with it: removing or changing a part then warns. */
+  saved?: Rubric | null; graded?: boolean; d: Dict;
 }) {
   const sections = rubric.sections ?? [];
+  // Part ids stay the same across edits (new parts get new ids), so marks follow their part.
+  const changed = graded ? changedParts(saved, rubric) : [];
   const put = (next: RubricSection[]) => onChange(next.length ? { kind: "parts", criteria: [], sections: next } : null);
   const setSection = (i: number, patch: Partial<RubricSection>) => put(sections.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const setPart = (i: number, k: number, patch: Partial<RubricPart>) =>
@@ -29,6 +33,11 @@ export default function PartsRubricEditor({ rubric, onChange, d }: {
         <button type="button" className="btn btn-sm" onClick={() => { if (confirm(d.rubricRemoveConfirm)) onChange(null); }}>{d.rubricRemove}</button>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.prEditHint}</p>
+      {changed.length > 0 && (
+        <p className="notice" role="status" style={{ margin: 0, fontSize: 14 }}>
+          {d.prGradedChanged.replace("{parts}", changed.map((p) => p.label || d.prPart).join(", "))}
+        </p>
+      )}
       {sections.map((s, i) => (
         <fieldset key={s.id} className="rubric-edit">
           <legend className="sr-only">{d.prSection} {i + 1}</legend>

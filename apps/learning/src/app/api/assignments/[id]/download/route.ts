@@ -2,7 +2,7 @@ import { assignmentAccess, ctx, lang, studentsOf } from "@/lib/access";
 import { isLate, listSubmissions } from "@/lib/assignments";
 import { assignmentGroups, listGroupWork } from "@/lib/group-work";
 import { dict } from "@/lib/i18n";
-import { workZip } from "@/lib/work-zip";
+import { workZip, ZipTooBig } from "@/lib/work-zip";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +25,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (only && !students.some((s) => s.id === only)) return new Response("Not found.", { status: 404 });
   // Only students on the class list right now: nobody else's work leaves.
   const roster = new Set(students.map((s) => s.id));
-  const zip = workZip({
-    title: a.title, students, subs: new Map(subs.filter((s) => roster.has(s.studentId)).map((s) => [s.studentId, s])),
-    groups, work, late: (s) => isLate(a, s), only, when: new Date(), d: dict(await lang()),
-  });
+  const d = dict(await lang());
+  let zip: ReturnType<typeof workZip>;
+  try {
+    zip = workZip({
+      title: a.title, students, subs: new Map(subs.filter((s) => roster.has(s.studentId)).map((s) => [s.studentId, s])),
+      groups, work, mode: a.groupHandIn, late: (s) => isLate(a, s), only, when: new Date(), d,
+    });
+  } catch (e) {
+    if (e instanceof ZipTooBig) return new Response(d.zipTooBig, { status: 413, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    throw e;
+  }
   return new Response(new Uint8Array(zip.bytes), {
     headers: {
       "Content-Type": "application/zip",

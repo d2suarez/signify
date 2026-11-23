@@ -20,7 +20,7 @@ type Ctx = { tenantId: string; userId: string };
 const UUID = /^[0-9a-f-]{36}$/i;
 
 import { FLAGS, MAX_DROP, type Flag } from "./grade-math";
-import { cleanNotes, cleanParts, cleanSelection, isParts, type PartMarks, type PartNotes, type RubricSelection } from "./rubric";
+import { cleanNotes, cleanParts, cleanSelection, isParts, partsScore, type PartMarks, type PartNotes, type RubricSelection } from "./rubric";
 import { alignedStandards, cleanLevels, topLevel } from "./standards-math";
 import { courseGrading } from "./standards";
 import { normalizeOverride, type LateOverride } from "./late-policy";
@@ -112,8 +112,9 @@ export async function setGrade(
   ctx: Ctx, a: Assignment, studentId: string, students: Set<string>, input: GradeInput,
 ): Promise<GradeSave> {
   if (!students.has(studentId)) return { ok: false, reason: "not-a-student" };
-  const score = parseScore(input.score, a.points);
-  if (score === "bad") return { ok: false, reason: "bad-score" };
+  const typed = parseScore(input.score, a.points);
+  if (typed === "bad") return { ok: false, reason: "bad-score" };
+  let score: number | null = typed;
   const flag = FLAGS.includes(input.flag as Flag) ? (input.flag as Flag) : null;
   const comment = String(input.comment ?? "").slice(0, MAX_COMMENT).trim();
   // Only levels of this assignment's own rubric; unchanged when not sent (the grid sends none).
@@ -131,6 +132,13 @@ export async function setGrade(
     const curNotes = rows[0]?.part_notes ? json(rows[0].part_notes) as PartNotes : null;
     const parts = !isParts(a.rubric) ? null : input.parts !== undefined ? cleanParts(a.rubric, input.parts) : cleanParts(a.rubric, cur?.parts);
     const notes = !isParts(a.rubric) ? null : input.notes !== undefined ? cleanNotes(a.rubric, input.notes) : cleanNotes(a.rubric, curNotes);
+    // Parts sent with scores: the score is theirs, never the client's number. Every part scored → their
+    // total; some still unscored → no score yet (a half-marked paper never counts as a grade).
+    // With no part scored the typed score stands (the teacher's own override); the grid sends no parts.
+    if (isParts(a.rubric) && input.parts !== undefined) {
+      const fromParts = partsScore(a.rubric, parts);
+      if (fromParts.score !== null) score = fromParts.complete ? fromParts.score : null;
+    }
     const sameParts = JSON.stringify(parts) === JSON.stringify(cur?.parts ?? null) && JSON.stringify(notes) === JSON.stringify(curNotes);
     // Levels only in a standards course, and only for standards this assignment measures.
     // A points course never changes them (nor reads them).

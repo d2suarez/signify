@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { isParts, partsScore } from "@/lib/rubric";
 import { notFound } from "next/navigation";
 import { ctx, lang } from "@/lib/access";
 import { courseFor } from "@/lib/courses";
@@ -51,6 +52,8 @@ export default async function PreviewAssignment({ params }: { params: Promise<{ 
   ]);
   const mine = grades.find((g) => g.studentId === who.id) || null;
   const shown = a.gradesReleased ? mine : null;
+  // A parts rubric not every part of which is scored yet: the card says so (there is no score until it is).
+  const partial = !!shown?.parts && isParts(a.rubric) && (() => { const p = partsScore(a.rubric!, shown.parts); return p.score !== null && !p.complete; })();
   const penalty = shown && shown.score !== null ? (await assignmentPenalties(c, a, [shown])).byStudent.get(who.id)?.penalty ?? null : null;
   const taken = penalty && penalty.points > 0 ? penalty : null;
   const aligned = grading.mode === "standards" ? alignedStandards(a) : [];
@@ -70,7 +73,7 @@ export default async function PreviewAssignment({ params }: { params: Promise<{ 
       </div>
 
       {levelsView && <section className="card"><StandardsList view={levelsView} d={d} id="a-standards" /></section>}
-      {shown && (shown.score !== null || shown.flag || shown.comment) && (
+      {shown && (shown.score !== null || shown.flag || shown.comment || partial) && (
         <section className="card" aria-labelledby="your-grade">
           <p className="label" id="your-grade">{d.yourGrade}</p>
           <p style={{ fontFamily: "var(--display)", fontSize: 30, fontWeight: 800, margin: "6px 0 0" }}>
@@ -78,6 +81,7 @@ export default async function PreviewAssignment({ params }: { params: Promise<{ 
               : shown.score !== null ? `${taken ? finalScore(shown.score, taken) : shown.score} / ${a.points}`
               : shown.flag === "missing" ? d.missing : ""}
             {shown.flag === "late" && <span className="chip chip-late" style={{ marginLeft: 10, verticalAlign: "middle" }}>{d.late}</span>}
+              {partial && <span className="chip" style={{ marginLeft: shown.score !== null ? 10 : 0, verticalAlign: "middle" }}>{d.gradeIncomplete}</span>}
           </p>
           {taken && shown.score !== null && (
             <p className="muted" style={{ margin: "4px 0 0", fontSize: 14 }}>

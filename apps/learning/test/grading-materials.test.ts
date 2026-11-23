@@ -91,3 +91,17 @@ test("grading materials: copying the assignment to another class copies them, st
   await removeMaterial(T, a.id, orig[0].id);
   assert.equal((await listMaterials(T, String(c.id))).length, 2);
 });
+
+test("grading materials: a file also used where students open it is marked, so the teacher is told", async () => {
+  const a = await createAssignment(T, course, { title: "Workbook 6" });
+  const shared = await saveFile(T, course, "shared6.pdf", PDF);
+  const fresh = await saveFile(T, course, "fresh6.pdf", PDF);
+  await createLesson(T, course, "Lesson 6", normalizeBlocks([{ type: "file", title: "Reading", fileId: shared.id, name: shared.name, kind: shared.kind }]));
+  const m1 = await addMaterial(T, { id: a.id, courseId: course }, { fileId: shared.id, role: "reading" });
+  const m2 = await addMaterial(T, { id: a.id, courseId: course }, { fileId: fresh.id });
+  const m3 = await addMaterial(T, { id: a.id, courseId: course }, { url: "https://example.org/key" });
+  assert.equal(m1.elsewhere, true, "in a lesson");
+  assert.equal(m2.elsewhere, false, "uploaded just for grading");
+  assert.equal(m3.elsewhere, false, "a link");
+  assert.deepEqual((await listMaterials(T, a.id)).map((m) => m.elsewhere), [true, false, false]);
+});

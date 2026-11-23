@@ -50,6 +50,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ assignment: r.assignment, changed: r.changed, regraded });
   }
   if (r.reason === "conflict") return NextResponse.json({ error: "conflict", assignment: r.assignment }, { status: 409 });
+  if (r.reason === "short-sections") return NextResponse.json({ error: "short-sections" }, { status: 400 });
   return NextResponse.json({ error: "Not found." }, { status: 404 });
 }
 

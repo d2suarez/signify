@@ -86,7 +86,7 @@ export default function PartsGrader({ rubric, marks, notes, onMarks, onNotes, on
                       : <span className={`part-tag ${tagClass(i)}`}>{name}</span>}
                     <PartStepper name={name} points={p.points} value={v} onChange={(x) => setMark(p.id, { score: x })} d={d} />
                     {v !== null && (
-                      <button type="button" className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setMark(p.id, { score: null })}
+                      <button type="button" className="btn btn-sm part-clear" style={{ marginLeft: "auto" }} onClick={() => setMark(p.id, { score: null })}
                         aria-label={`${d.prClear} ${name}`}>{d.prClear}</button>
                     )}
                   </div>

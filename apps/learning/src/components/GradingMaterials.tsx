@@ -81,6 +81,7 @@ export default function GradingMaterials({ assignmentId, courseId, initial, edit
                 {m.title || m.fileName || m.url}{m.url ? " ↗" : ""}
               </a>
               {editable && <button type="button" className="btn btn-sm" onClick={() => remove(m)} aria-label={`${d.gmRemove}: ${m.title || m.fileName || m.url}`}>{d.gmRemove}</button>}
+              {m.elsewhere && <p className="notice" style={{ margin: 0, fontSize: 13, flexBasis: "100%" }}>{d.gmElsewhere}</p>}
             </li>
           ))}
         </ul>

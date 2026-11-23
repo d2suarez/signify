@@ -481,6 +481,7 @@ html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due, h
 .part-grade { display: grid; gap: 6px; margin-bottom: 8px; }
 .part-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--desk); font-weight: 800; font-size: 13px; }
 .part-step { min-width: 44px; min-height: 44px; font-size: 20px; font-weight: 800; padding: 0; }
+.part-clear { min-height: 44px; min-width: 44px; }
 .part-score { font-variant-numeric: tabular-nums; font-weight: 800; min-width: 64px; text-align: center; }
 .part-state { font-size: 13px; font-weight: 700; color: var(--muted); }
 .is-full .part-state, .is-full .part-score { color: color-mix(in srgb, var(--good) 80%, var(--ink)); }

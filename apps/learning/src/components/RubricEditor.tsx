@@ -7,8 +7,10 @@ import PartsRubricEditor from "./PartsRubricEditor";
 import { isParts, newCriterion, newSection, rubricMax, RUBRIC_LIMITS, type Rubric, type RubricCriterion, type RubricLevel } from "@/lib/rubric";
 
 /** Writing an assignment's rubric: criteria down, levels across, each level worth points. */
-export default function RubricEditor({ rubric, onChange, standards, d }: {
+export default function RubricEditor({ rubric, onChange, standards, saved = null, graded = false, d }: {
   rubric: Rubric | null; onChange: (r: Rubric | null) => void;
+  /** The rubric as last saved, and whether any student is graded already (the parts editor warns before marks change). */
+  saved?: Rubric | null; graded?: boolean;
   /** In a standards course, each row may measure one of these. */
   standards?: StandardOption[]; d: Dict;
 }) {
@@ -25,7 +27,7 @@ export default function RubricEditor({ rubric, onChange, standards, d }: {
       </div>
     );
   }
-  if (isParts(rubric)) return <PartsRubricEditor rubric={rubric} onChange={onChange} d={d} />;
+  if (isParts(rubric)) return <PartsRubricEditor rubric={rubric} onChange={onChange} saved={saved} graded={graded} d={d} />;
 
   const setCriterion = (i: number, patch: Partial<RubricCriterion>) =>
     onChange({ criteria: rubric.criteria.map((c, j) => (j === i ? { ...c, ...patch } : c)) });

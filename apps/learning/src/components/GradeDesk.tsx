@@ -168,13 +168,19 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     }
   };
 
-  // Scoring a part fills in the total (the teacher can still change it).
+  // Scoring parts fills in the total once EVERY part is scored; until then there is no score
+  // (the server works it out from the parts the same way, so a half-marked paper never saves a total).
   const mark = (next: PartMarks | null) => {
     setMarks(next);
     if (!assignment.rubric) return;
-    const { score: total } = partsScore(assignment.rubric, next);
-    setScore(total === null ? "" : String(total));
+    const { score: total, complete } = partsScore(assignment.rubric, next);
+    setScore(total === null || !complete ? "" : String(total));
   };
+  const fromParts = parts ? partsScore(assignment.rubric!, marks) : null;
+  // Parts scored: the score is theirs (read-only here); with none scored the teacher may type one.
+  const scoreFromParts = !!fromParts && fromParts.score !== null;
+  const partCount = parts ? assignment.rubric!.sections!.reduce((n, x) => n + x.parts.length, 0) : 0;
+  const partsDone = parts && marks ? Object.values(marks).filter((m) => typeof m.score === "number").length : 0;
   const built = parts ? feedbackFromParts(assignment.rubric!, marks) : "";
   const buildFeedback = () => {
     if (comment.trim() && comment.trim() !== built && !confirm(d.prReplaceFeedback)) return;
@@ -437,7 +443,14 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         <div className="fieldset" style={assignment.rubric || standards?.list.length ? undefined : { marginTop: 0 }}>
           <label htmlFor="g-score">{d.score} <span className="muted" style={{ fontWeight: 400 }}>{d.outOf} {assignment.points}</span></label>
           <input id="g-score" ref={scoreRef} className="field score-input" inputMode="decimal" value={score}
+            readOnly={scoreFromParts} aria-describedby={scoreFromParts ? "g-score-parts" : undefined}
             onChange={(e) => setScore(e.target.value)} aria-invalid={error === d.badScore} autoComplete="off" />
+          {scoreFromParts && (
+            <p id="g-score-parts" className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+              {fromParts!.complete ? d.prScoreFromParts
+                : d.prScoreIncomplete.replace("{done}", String(partsDone)).replace("{all}", String(partCount)).replace("{sofar}", String(fromParts!.score))}
+            </p>
+          )}
         </div>
         <fieldset className="fieldset" style={{ border: 0, padding: 0 }}>
           <legend className="flabel" style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{d.flag}</legend>

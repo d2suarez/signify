@@ -27,7 +27,7 @@ function localTime(iso: string | null): string {
  * The teacher's form for one assignment. Saved with an explicit Save (it is
  * a form, not a document), version-checked like lessons.
  */
-export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, canUpload = false, groupSets = [], d }: {
+export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, canUpload = false, groupSets = [], graded = false, d }: {
   initial: Assignment; units: Option[]; categories: Option[];
   /** Whether pictures and files can be uploaded into the instructions (the file store is on). */
   canUpload?: boolean;
@@ -36,9 +36,14 @@ export default function AssignmentEditor({ initial, units, categories, standards
   /** A quiz: how many students have handed in an attempt. */
   attempted?: number;
   /** The class's saved group sets (group work, story 01 A10). */
-  groupSets?: Option[]; d: Dict;
+  groupSets?: Option[];
+  /** Whether any student already has a grade here (a parts rubric's editor warns before parts change). */
+  graded?: boolean; d: Dict;
 }) {
   const [a, setA] = useState(initial);
+  // The rubric as last saved: the parts editor compares against it.
+  const [savedRubric, setSavedRubric] = useState(initial.rubric);
+  const [saveNote, setSaveNote] = useState("");
   const [time, setTime] = useState("23:59");
   const [status, setStatus] = useState<Status>("saved");
   const [regraded, setRegraded] = useState("");
@@ -77,9 +82,15 @@ export default function AssignmentEditor({ initial, units, categories, standards
         }),
       });
       if (res.status === 409) { setStatus("conflict"); return; }
+      if (res.status === 400) {
+        const bad = await res.json().catch(() => ({}));
+        if (bad.error === "short-sections") { setSaveNote(d.prTooFewSave); setStatus("error"); return; }
+      }
       if (!res.ok) throw new Error(String(res.status));
       const body = await res.json();
       setA(body.assignment);
+      setSavedRubric(body.assignment.rubric);
+      setSaveNote("");
       setDoc(null);
       setStatus("saved");
       const r = body.regraded;
@@ -108,6 +119,7 @@ export default function AssignmentEditor({ initial, units, categories, standards
         <Link className="btn" href={`/assignments/${a.id}/grade`}>{d.openGrading}</Link>
       </div>
       {regraded && <p className="notice" role="status">{regraded}</p>}
+      {saveNote && <p className="notice notice-bad" role="alert">{saveNote}</p>}
 
       {status === "conflict" && (
         <div className="notice notice-bad" role="alert">
@@ -146,7 +158,8 @@ export default function AssignmentEditor({ initial, units, categories, standards
           {a.kind === "quiz"
             ? <QuizEditor quiz={a.quiz ?? { settings: DEFAULT_SETTINGS, items: [] }} attempted={attempted} standards={standards} d={d}
                 onChange={(quiz) => set({ quiz, points: quizPoints(quiz) })} />
-            : <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} standards={standards} d={d} />}
+            : <RubricEditor rubric={a.rubric} onChange={(rubric) => set({ rubric, ...(rubric ? { points: rubricMax(rubric) } : {}) })} standards={standards}
+                saved={savedRubric} graded={graded} d={d} />}
         </div>
 
         <aside className="editor-side">

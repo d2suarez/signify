@@ -1,7 +1,7 @@
 import { getDb, type Queryable } from "./db";
 import { cleanPastes, record } from "./writing";
 import { cleanTitle, unitInCourse } from "./units";
-import { normalizeRubric, rubricMax, type Rubric } from "./rubric";
+import { normalizeRubric, rubricMax, shortSections, type Rubric } from "./rubric";
 import { standardsInCourse } from "./standards";
 import { DEFAULT_SETTINGS, normalizeQuiz, quizPoints, type Quiz } from "./quiz";
 import { docFileIds, docIsEmpty, docText, filterDoc, normalizeDoc, type PostDoc } from "./post-doc";
@@ -212,7 +212,9 @@ export type AssignmentInput = {
 export type AssignmentSave =
   | { ok: true; assignment: Assignment; changed: boolean }
   | { ok: false; reason: "conflict"; assignment: Assignment }
-  | { ok: false; reason: "missing" };
+  | { ok: false; reason: "missing" }
+  /** A changed sections-and-parts rubric with a section of fewer than 2 parts. */
+  | { ok: false; reason: "short-sections" };
 
 const SNAPSHOT_KEYS = ["title", "instructions", "kind", "points", "dueOn", "dueAt", "unitId", "categoryId", "published", "gradesReleased", "groupSetId", "groupHandIn", "groupSubmitter"] as const;
 
@@ -288,6 +290,8 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
       }
     }
     const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);
+    // A parts rubric's sections have 2–5 parts (story 01): a changed one with fewer is refused, not stored.
+    if (rubricChanged && next.rubric && shortSections(next.rubric).length) return { ok: false, reason: "short-sections" } as const;
     const standardsChanged = JSON.stringify(next.standards) !== JSON.stringify(cur.standards);
     const quizChanged = JSON.stringify(next.quiz) !== JSON.stringify(cur.quiz);
     const docChanged = JSON.stringify(next.instructionsDoc) !== JSON.stringify(cur.instructionsDoc);

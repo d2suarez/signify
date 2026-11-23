@@ -30,10 +30,22 @@ function dosTime(d: Date): { time: number; date: number } {
   };
 }
 
-/** A file name safe on Windows, macOS and Chromebooks: no slashes or reserved characters, at most 120 characters. */
+/** Windows device names, with or without an extension ("CON", "nul.txt", "COM1"). */
+const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+/** Bytes a base name may use, so " (12).txt" still fits under 255 bytes. */
+const MAX_NAME_BYTES = 200;
+
+/**
+ * A file name safe on Windows, macOS and Chromebooks: no slashes or
+ * reserved characters, no dots or spaces at either end, never a Windows
+ * device name, at most 120 characters and 200 UTF-8 bytes.
+ */
 export function safeFileName(raw: string, fallback = "file"): string {
-  const s = raw.normalize("NFC").replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim().replace(/^\.+/, "").slice(0, 120).trim();
-  return s || fallback;
+  let chars = [...raw.normalize("NFC").replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim()].slice(0, 120);
+  while (chars.length && Buffer.byteLength(chars.join(""), "utf8") > MAX_NAME_BYTES) chars = chars.slice(0, -1);
+  const s = chars.join("").replace(/^[.\s]+|[.\s]+$/g, "");
+  if (!s) return fallback;
+  return RESERVED.test(s) ? `_${s}` : s;
 }
 
 /** The archive's bytes. Names are used as given (callers make them safe and unique). */
