@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { type Block, type FileBlock, blockSummary, fileUrl, formatSeconds, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import { videoFromUrl, videoSrc } from "@/lib/post-doc";
@@ -20,6 +21,8 @@ type Props = {
   ticket: string;
   /** The class from Signify ID, for name pickers set to the whole class; ok false when ID couldn't be asked. */
   roster?: { ok: boolean; students: Person[] } | null;
+  /** What students see of this lesson now, and whether the teacher chose it by hand (story 01, E1). */
+  afterClass?: { view: "hidden" | "list" | "thread"; byHand: boolean };
   d: Dict;
 };
 
@@ -29,8 +32,20 @@ export const KIND: Record<Block["type"], string> = {
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export default function Presenter({ lesson, courseId, courseName, ticket, roster, d }: Props) {
+export default function Presenter({ lesson, courseId, courseName, ticket, roster, afterClass, d }: Props) {
   const { state, teacher, connected, clockSkew, emit } = useLive(ticket);
+  const router = useRouter();
+  // After class the slides stay open to students, unless the teacher hid this lesson by hand or switches it off here.
+  const [keep, setKeep] = useState(afterClass ? afterClass.view !== "hidden" || !afterClass.byHand : true);
+  const [ending, setEnding] = useState(false);
+  const end = async () => {
+    setEnding(true);
+    await fetch(`/api/lessons/${lesson.id}/after-class`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keep }), keepalive: true,
+    }).catch(() => null);
+    emit("live:end");
+    router.push(`/courses/${courseId}`);
+  };
   const blocks = lesson.blocks;
   const started = useRef(false);
 
@@ -169,7 +184,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
           {block?.type === "poll" && <div className="chip"><b>{answered}</b><span>{d.answered}</span></div>}
         </div>
         <a className="btn" href={`/lessons/${lesson.id}/project`} target="_blank" rel="noopener">{d.projectorOpen}</a>
-        <Link className="btn btn-dark" href={`/courses/${courseId}`} onClick={() => emit("live:end")}>{d.endLesson}</Link>
+        <button type="button" className="btn btn-dark" disabled={ending} onClick={end}>{d.endLesson}</button>
       </div>
 
       {!connected && <div className="notice" role="status">{d.connectionLost}</div>}
@@ -216,6 +231,15 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
               {pace === "teacher" ? d.paceTeacherHint : pace === "review" ? d.paceReviewHint : d.paceSelfHint}
             </p>
           </fieldset>
+          <label className="row" style={{ gap: 10, alignItems: "flex-start", minHeight: 44 }}>
+            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} style={{ width: 22, height: 22, marginTop: 2, flex: "none" }} />
+            <span style={{ minWidth: 0 }}>
+              <b>{d.afterKeep}</b>
+              <span className="muted" style={{ display: "block", fontSize: 13 }}>
+                {keep ? (afterClass && afterClass.view !== "hidden" ? d.afterKeepAlready : d.afterKeepOn) : d.afterKeepOff}
+              </span>
+            </span>
+          </label>
           {block?.type === "picker" && classFailed && <p className="notice" role="status" style={{ margin: 0 }}>{d.rosterFallback}</p>}
           {block?.type === "picker" && !pool.length && <p className="muted" style={{ margin: 0 }}>{d.pickNobody}</p>}
           {block?.type === "noise" && (

@@ -27,7 +27,8 @@ export default async function PresentLesson({ params }: { params: Promise<{ id: 
       <main className="page">
         <Presenter
           lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: lesson.blocks }}
-          courseId={course.id} courseName={course.name} ticket={ticket} roster={roster} d={dict(L)} />
+          courseId={course.id} courseName={course.name} ticket={ticket} roster={roster}
+          afterClass={{ view: lesson.studentView ?? "hidden", byHand: !!lesson.studentViewByHand }} d={dict(L)} />
       </main>
     </>
   );

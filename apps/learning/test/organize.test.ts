@@ -13,7 +13,7 @@ import { readCartridge } from "../src/lib/cartridge";
 import { commitImport } from "../src/lib/cc-import";
 import { isPublicAddress, fetchPicture } from "../src/lib/import-media";
 import {
-  itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, shownLessons, lessonDoc, listImports, undoImport, parseKey,
+  itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, shownLessons, lessonDoc, listImports, undoImport, parseKey, afterClass,
 } from "../src/lib/organize";
 
 // ---------- a stored (uncompressed) zip, for small exports ----------
@@ -226,4 +226,27 @@ test("undo an import: its lessons archived, its posts gone, empty units removed;
   const two = await undoImport(teacher, course, r2.importId);
   assert.deepEqual(two, { lessons: 0, assignments: 0, units: 0, kept: 1 }, "an assignment with a student's work stays, and so does its unit");
   assert.equal(await undoImport({ ...teacher, tenantId: "school-b" }, course, r2.importId), null);
+});
+
+test("after class (story 01, E1): ending a presentation leaves the slides open unless the teacher said otherwise", async () => {
+  const { createLesson, getLesson } = await import("../src/lib/lessons");
+  const view = async (id: string) => { const l = await getLesson(C, id); return [l?.studentView, l?.studentViewByHand]; };
+
+  const a = await createLesson(C, course, "Monday slides");
+  assert.deepEqual(await view(a.id), ["hidden", false]);
+  assert.equal(await afterClass(teacher, course, a.id, true), "list", "nobody chose: students keep the slides");
+  assert.deepEqual(await view(a.id), ["list", false], "shown by default, not by hand");
+  assert.ok((await shownLessons(C, course)).some((l) => l.id === a.id));
+
+  const b = await createLesson(C, course, "Tuesday slides");
+  assert.equal(await afterClass(teacher, course, b.id, false), "hidden", "switched off");
+  assert.deepEqual(await view(b.id), ["hidden", true], "and that is the teacher's choice next time");
+  assert.equal(await afterClass(teacher, course, b.id, true), "list", "switched on again later");
+  assert.deepEqual(await view(b.id), ["list", true]);
+
+  const c = await createLesson(C, course, "Wednesday slides");
+  await setStudentView(teacher, course, [c.id], "thread");
+  assert.equal(await afterClass(teacher, course, c.id, true), "thread", "a view set by hand is left alone");
+  assert.equal(await afterClass(teacher, course, c.id, false), "hidden", "turning it off hides it");
+  assert.equal(await afterClass({ ...teacher, tenantId: "school-b" }, course, a.id, true), null, "another school can't");
 });

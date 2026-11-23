@@ -195,7 +195,8 @@ async function dropPost(v: Viewer, postId: string | null) {
  * else removes its post. Returns how many changed. The viewer must teach the
  * course (the caller checks; posting checks again).
  */
-export async function setStudentView(v: Viewer, courseId: string, ids: unknown[], view: StudentView): Promise<number> {
+export async function setStudentView(v: Viewer, courseId: string, ids: unknown[], view: StudentView, opts: { byHand?: boolean } = {}): Promise<number> {
+  const byHand = opts.byHand !== false;
   const want = [...new Set(ids.map(String).filter((x) => UUID.test(x)))];
   if (!want.length) return 0;
   const db = await getDb();
@@ -219,9 +220,37 @@ export async function setStudentView(v: Viewer, courseId: string, ids: unknown[]
       post = null;
     }
     if (r.student_view !== view || String(r.thread_post_id ?? "") !== String(post ?? "")) n++;
-    await db.query("UPDATE lessons SET student_view = $3, thread_post_id = $4 WHERE tenant_id = $1 AND id = $2", [v.tenantId, id, view, post]);
+    await db.query("UPDATE lessons SET student_view = $3, thread_post_id = $4, student_view_by_hand = student_view_by_hand OR $5 WHERE tenant_id = $1 AND id = $2",
+      [v.tenantId, id, view, post, byHand]);
   }
   return n;
+}
+
+/**
+ * A teacher ended a live presentation (story 01, E1). `keep` is the
+ * presenter's "students keep these slides" switch, which starts on unless the
+ * teacher hid the lesson by hand: on, a hidden lesson becomes visible in the
+ * class's list (one already shown stays as it is); off, the lesson is hidden
+ * and that counts as the teacher's choice. Returns what students see now, or null if there is no
+ * such lesson in the course. The caller checks the teacher role.
+ */
+export async function afterClass(v: Viewer, courseId: string, lessonId: string, keep: boolean): Promise<StudentView | null> {
+  if (!UUID.test(lessonId)) return null;
+  const db = await getDb();
+  const [r] = await db.query(
+    "SELECT student_view, student_view_by_hand FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false",
+    [v.tenantId, courseId, lessonId]);
+  if (!r) return null;
+  const now = String(r.student_view) as StudentView;
+  if (keep) {
+    if (now !== "hidden") return now;
+    // Shown by default; a lesson the teacher had hidden by hand and now switched on stays their choice.
+    await setStudentView(v, courseId, [lessonId], "list", { byHand: !!r.student_view_by_hand });
+    return "list";
+  }
+  if (now !== "hidden") await setStudentView(v, courseId, [lessonId], "hidden");
+  else await db.query("UPDATE lessons SET student_view_by_hand = true WHERE tenant_id = $1 AND id = $2", [v.tenantId, lessonId]);
+  return "hidden";
 }
 
 /** Shows published assignments in the class's Updates (on) or takes them out. Drafts are never posted. */

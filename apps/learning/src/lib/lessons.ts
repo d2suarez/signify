@@ -25,6 +25,8 @@ export type Lesson = {
   updatedAt: string;
   /** What students see of it (organize.ts): hidden, in their list, or in the list and Updates. */
   studentView?: "hidden" | "list" | "thread";
+  /** Whether the teacher chose studentView themselves (migration 032): ending a presentation then leaves it alone. */
+  studentViewByHand?: boolean;
 };
 
 export type LessonSummary = Pick<Lesson, "id" | "unitId" | "title" | "plannedFor" | "durationMin" | "version" | "updatedAt"> & {
@@ -59,6 +61,7 @@ function toLesson(r: Record<string, unknown>): Lesson {
     version: Number(r.version),
     updatedAt: iso(r.updated_at),
     studentView: r.student_view === "list" || r.student_view === "thread" ? r.student_view : "hidden",
+    studentViewByHand: r.student_view_by_hand === true,
   };
 }
 

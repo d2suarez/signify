@@ -1520,6 +1520,10 @@ const en = {
   asgSlideWaiting: "Your teacher will open this assignment soon.",
   asgSlideOpenPage: "Open its own page",
   asgSlideLoading: "Loading…",
+  afterKeep: "Students keep these slides after class",
+  afterKeepOn: "When you end, the class can open this lesson from its list. Untick to keep it hidden.",
+  afterKeepAlready: "Students can already open this lesson. Untick to hide it when you end.",
+  afterKeepOff: "When you end, this lesson stays hidden from students.",
 };
 
 export type Key = keyof typeof en;
@@ -3026,6 +3030,10 @@ const es: Partial<Record<Key, string>> = {
   asgSlideWaiting: "Tu maestro abrirá esta tarea pronto.",
   asgSlideOpenPage: "Abrir su propia página",
   asgSlideLoading: "Cargando…",
+  afterKeep: "Los estudiantes conservan estas diapositivas después de la clase",
+  afterKeepOn: "Al terminar, la clase puede abrir esta lección desde su lista. Desmarca para mantenerla oculta.",
+  afterKeepAlready: "Los estudiantes ya pueden abrir esta lección. Desmarca para ocultarla al terminar.",
+  afterKeepOff: "Al terminar, esta lección queda oculta para los estudiantes.",
 };
 
 const dicts = { en, es } as const;
