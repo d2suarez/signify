@@ -578,6 +578,12 @@ button.part-tag { border: 0; cursor: pointer; min-height: 32px; font: inherit; f
 .desk-list .desk-mark { font-size: 11px; padding: 1px 6px; }
 .desk-reviewed { color: color-mix(in srgb, var(--good) 80%, var(--ink)); font-weight: 800; }
 .desk-tabs { margin-bottom: 10px; }
+/* 44px targets on the grading desk and the parts rubric editor (browser check 2026-11-23: tags, questions, switches and small buttons were 21-40px). */
+.desk :is(.seg button, .btn-sm, button.part-tag), .parts-editor :is(.btn-sm) { min-height: 44px; }
+.desk .part-question-btn { min-height: 44px; padding: 6px 0; }
+.desk .check { min-height: 44px; }
+/* A chip holding a date wraps instead of running off a phone screen at Larger text. */
+.chip-wrap { white-space: normal; flex-wrap: wrap; }
 .desk-tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
 .desk-flagged { color: color-mix(in srgb, var(--bad) 85%, var(--ink)); font-weight: 800; }
 .ic-box { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); border-left: 4px solid var(--ic, var(--muted)); background: color-mix(in srgb, var(--ic, var(--muted)) 10%, var(--surface)); font-size: 14px; white-space: pre-wrap; }
@@ -597,7 +603,7 @@ button.part-tag { border: 0; cursor: pointer; min-height: 32px; font: inherit; f
 .part-message { margin: 6px 0 0; font-size: 14px; white-space: pre-wrap; }
 .part-field { display: grid; gap: 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .part-field .field { font-weight: 400; color: var(--ink); font-size: 14px; }
-.part-edit { display: grid; gap: 4px; }
+.part-edit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .part-label { width: 64px; }
 .part-points { width: 88px; }
 .rubric td.is-on { border: 3px solid currentColor; background: color-mix(in srgb, var(--p3) 22%, var(--surface)); }

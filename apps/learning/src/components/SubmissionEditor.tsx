@@ -117,7 +117,7 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d, tex
         {text ? <label htmlFor="work" className="label">{d.yourWork}</label> : <span className="label">{d.yourWork}</span>}
         <span className="spacer" style={{ flex: 1 }} />
         {!handedIn && <span className="save-state" role="status" aria-live="polite">{stateText}</span>}
-        {handedIn && <span className="chip chip-done">{d.handedIn} · <time suppressHydrationWarning>{new Date(submittedAt).toLocaleString()}</time></span>}
+        {handedIn && <span className="chip chip-done chip-wrap">{d.handedIn} · <time suppressHydrationWarning>{new Date(submittedAt).toLocaleString()}</time></span>}
       </div>
       {status === "conflict" && (
         <div className="notice notice-bad" role="alert">

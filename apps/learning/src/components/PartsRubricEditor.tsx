@@ -26,7 +26,7 @@ export default function PartsRubricEditor({ rubric, onChange, saved = null, grad
   const nextLabel = (i: number, s: RubricSection) => `${i + 1}${String.fromCharCode(97 + s.parts.length)}`;
 
   return (
-    <div className="card stack" style={{ gap: 12 }}>
+    <div className="card stack parts-editor" style={{ gap: 12 }}>
       <div className="row">
         <p className="label grow">{d.prTitle}</p>
         <span className="muted" style={{ fontSize: 13 }}>{d.rubricTotal}: <b>{rubricMax(rubric)}</b> {d.pts}</span>
@@ -55,7 +55,7 @@ export default function PartsRubricEditor({ rubric, onChange, saved = null, grad
           <div className="stack" style={{ gap: 8, marginTop: 8 }}>
             {s.parts.map((p, k) => (
               <div key={p.id} className="part-edit">
-                <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                   <label className="sr-only" htmlFor={`pl-${p.id}`}>{d.prLabel}</label>
                   <input id={`pl-${p.id}`} className="field part-label" value={p.label} maxLength={RUBRIC_LIMITS.partLabel}
                     onChange={(e) => setPart(i, k, { label: e.target.value })} />
