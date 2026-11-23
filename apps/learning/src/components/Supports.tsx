@@ -52,7 +52,7 @@ export default function Supports({ initial, d }: { initial: Prefs; d: Dict }) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 7V5h12v2M10 5v14M7 19h6M15 12v-1h6v1M18 11v8M16.5 19h3" />
         </svg>
-        {d.supports}
+        <span className="btn-word">{d.supports}</span>
       </button>
       <dialog ref={dialog} className="dialog" aria-labelledby="supports-title" aria-describedby="supports-hint"
         onClick={(e) => { if (e.target === dialog.current) dialog.current?.close(); }}>

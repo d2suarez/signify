@@ -1042,6 +1042,13 @@ html[data-class-small="1"] .class-pic-edit { display: none; }
 .create-words .muted { font-size: 13px; line-height: 1.35; }
 .create-menu > summary { cursor: pointer; }
 
+/* Phones: the top bar's buttons show only their icons (the words stay for screen readers), so the bar fits one row. */
+@media (max-width: 600px) {
+  .top .drawer-btn, .top .supports-btn { position: relative; min-width: 44px; min-height: 44px; padding-left: 10px; padding-right: 10px; justify-content: center; }
+  .top .btn-word { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .top:has(.class-head) .brand-name { display: none; }
+}
+
 /* Phone width (375px) with Larger text and the dyslexia font: nothing may push the page wider.
    Screen-reader-only text inside a sideways scroller is placed against the body unless the
    scroller is positioned, and then makes the whole page scroll. */

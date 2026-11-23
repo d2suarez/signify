@@ -105,7 +105,7 @@ export default function CourseDrawer({ w }: { w: DrawerWords }) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 6h16M4 12h16M4 18h10" />
         </svg>
-        {w.cdButton}
+        <span className="btn-word">{w.cdButton}</span>
       </button>
       <dialog ref={dialog} className="drawer" aria-labelledby="drawer-title" aria-describedby="drawer-hint"
         onClose={() => button.current?.focus()}
