@@ -748,3 +748,7 @@ body { overflow-wrap: break-word; }
 /* Page titles are 34px; on a phone (and zoomed by Larger) that leaves a few letters a line. Not lesson slides. */
 @media (max-width: 600px) { .page h1:not(.stage h1) { font-size: clamp(26px, 8vw, 34px) !important; } }
 .projector-bar { flex-wrap: wrap; }
+/* Planner on a tablet: with a larger text size the week takes as many ~150px days across as fit, at most five (normal size keeps five across); chips and the day's heading wrap inside the day. */
+html[data-size] .plan-week { grid-template-columns: repeat(auto-fill, minmax(min(100%, max(150px, calc((100% - 32px) / 5))), 1fr)); }
+.plan-day-head { flex-wrap: wrap; }
+.plan-due .chip { white-space: normal; max-width: 100%; }
