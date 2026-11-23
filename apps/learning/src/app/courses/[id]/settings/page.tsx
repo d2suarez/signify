@@ -13,7 +13,7 @@ import { letterFor } from "@/lib/grade-math";
 import { Notices } from "@/components/FrameworkInfo";
 import { dict } from "@/lib/i18n";
 import StandardsSettingsForm from "@/components/StandardsSettingsForm";
-import { courseSetup, setCourseBand, setCoursePolicy } from "@/lib/school-grading";
+import { courseSetup, setCoursePolicy } from "@/lib/school-grading";
 import { gpaText } from "@/lib/grade-scale";
 import { LATE_KINDS, ruleText, type LateKind } from "@/lib/late-policy";
 import { TopBar } from "@/components/TopBar";
@@ -48,7 +48,6 @@ async function act(formData: FormData) {
   if (op === "add") await addCategory(c, courseId, formData.get("name"), formData.get("weight"), formData.get("drop"));
   if (op === "update") await updateCategory(c, courseId, String(formData.get("categoryId")), formData.get("name"), formData.get("weight"), formData.get("drop"));
   if (op === "delete") await deleteCategory(c, courseId, String(formData.get("categoryId")));
-  if (op === "band") await setCourseBand(c, courseId, String(formData.get("band") || "") || null);
   if (op === "late") {
     const own = formData.get("lateMode") === "own";
     const r = await setCoursePolicy(c, courseId, own
@@ -236,25 +235,28 @@ export default async function SettingsPage({ params, searchParams }: {
 
         <section className="card stack" style={{ gap: 8 }} aria-labelledby="scale-title">
           <h2 className="label" id="scale-title">{d.gradeScaleTitle}</h2>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-            {setup.gradeLevels.length ? <>{d.idGradeLevels} {setup.gradeLevels.join(", ")}</> : d.noIdGradeLevels}
-          </p>
-          <form action={act} className="row" style={{ alignItems: "flex-end" }}>
-            <input type="hidden" name="courseId" value={course.id} />
-            <div className="fieldset" style={{ margin: 0 }}>
-              <label htmlFor="band">{d.gradeScaleTitle}</label>
-              <select id="band" name="band" className="field" defaultValue={setup.pickedBand ?? ""}>
-                <option value="">{d.bandAuto}</option>
-                {setup.scales.bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
-            <button className="btn" name="op" value="band">{d.save}</button>
-          </form>
+          {/* The school's scale for this class, read-only: only school admins change scales (/school/grading). */}
           <p style={{ margin: 0, fontSize: 14 }}>{d.usingScale}: <b>{setup.band.name}</b></p>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            {setup.band.rows.map((r, i) => (
-              <span key={r.letter}>{i ? " · " : ""}<span style={{ whiteSpace: "nowrap" }}>{r.letter} {r.min}{r.gpa === null ? "" : ` (${gpaText(r.gpa)})`}</span></span>
-            ))}
+            {setup.bandFrom === "grades" ? <>{d.idGradeLevels} {setup.gradeLevels.join(", ")}. {d.scaleFromGrades}</> : d.noIdGradeLevels}
+          </p>
+          <div className="gb-scroll" style={{ position: "relative" }}>
+            <table className="gb-table scale-table" style={{ width: "auto" }}>
+              <caption className="sr-only">{d.scaleTableCaption.replace("{band}", setup.band.name)}</caption>
+              <thead><tr><th scope="col" style={{ textAlign: "left" }}>{d.scaleLetter}</th><th scope="col">{d.scaleFrom}</th><th scope="col">{d.scaleGpa}</th></tr></thead>
+              <tbody>
+                {setup.band.rows.map((r, i) => (
+                  <tr key={r.letter}>
+                    <th scope="row" style={{ textAlign: "left", color: "var(--ink)", fontSize: 15 }}>{r.letter}</th>
+                    <td style={{ textAlign: "right" }}>{i === setup.band.rows.length - 1 ? `${r.min}%` : `${r.min}% +`}</td>
+                    <td style={{ textAlign: "right" }}>{r.gpa === null ? "—" : gpaText(r.gpa)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {d.scaleSchoolSets} <Link href="/school/grading">{d.gradingSetupLink}</Link> · <Link href="/school/periods">{d.periods}</Link>
           </p>
         </section>
 

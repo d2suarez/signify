@@ -9,7 +9,7 @@ import {
   finalScore, lateDays, normalizeCoursePolicy, normalizePolicies, penaltyFor, ruleFor, DEFAULT_LATE, type Applied, type LatePolicies,
 } from "../src/lib/late-policy";
 import {
-  courseSetup, restoreSetting, saveLate, saveScales, schoolLate, schoolScales, setCourseBand, setCoursePolicy, settingHistory,
+  courseSetup, restoreSetting, saveLate, saveScales, schoolLate, schoolScales, setCoursePolicy, settingHistory,
 } from "../src/lib/school-grading";
 import { assignmentPenalties, buildGradebook, factsCsv, toStudents } from "../src/lib/gradebook";
 import { gradeHistory, gradesFor, setGrade } from "../src/lib/grades";
@@ -138,10 +138,9 @@ test("scales: the gradebook, FACTS file and GPA follow the course's band from Si
   const msBook = await buildGradebook(T, ms.id, students, null);
   assert.deepEqual([msBook.band.id, msBook.rows[0].letter, msBook.rows[0].gpa], ["3-8", "B", 3]);
 
-  assert.ok(await setCourseBand(T, ms.id, "9-12"));
-  assert.equal((await buildGradebook(T, ms.id, students, null)).rows[0].letter, "B+", "the teacher's pick wins");
-  assert.equal(await setCourseBand(T, ms.id, "nope"), false);
-  assert.ok(await setCourseBand(T, ms.id, null));
+  // The school sets the scale (2026-11-23): a band a teacher picked before is no longer read.
+  await db.query("UPDATE courses SET grade_band = '9-12' WHERE id = $1", [ms.id]);
+  assert.equal((await buildGradebook(T, ms.id, students, null)).rows[0].letter, "B", "an old teacher pick is ignored");
   assert.equal((await courseSetup(T, ms.id)).bandFrom, "grades");
 
   // A standards course's converted percent uses the same scale.

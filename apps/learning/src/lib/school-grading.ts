@@ -111,9 +111,9 @@ export async function restoreSetting(ctx: Ctx, key: SettingKey, versionId: strin
 export type CourseSetup = {
   scales: SchoolScales;
   band: GradeBand;
+  /** Where the band came from: the class's grade levels in Signify ID, else the school's first band. */
   bandFrom: "teacher" | "grades" | "first";
   gradeLevels: string[];
-  pickedBand: string | null;
   late: LatePolicies;
   coursePolicy: CoursePolicy | null;
   /** The late policy for an assignment of this course. */
@@ -129,31 +129,23 @@ export async function courseSetup(ctx: Ctx, courseId: string, q?: Queryable): Pr
   const db = q ?? await getDb();
   const [[r], scales, late] = await Promise.all([
     UUID.test(courseId)
-      ? db.query("SELECT grade_levels, grade_band, late_policy FROM courses WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId])
+      ? db.query("SELECT grade_levels, late_policy FROM courses WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId])
       : Promise.resolve([] as Record<string, unknown>[]),
     schoolScales(ctx.tenantId, q),
     schoolLate(ctx.tenantId, q),
   ]);
   const gradeLevels = (json<unknown[]>(r?.grade_levels) ?? []).map(String);
-  const pickedBand = r?.grade_band ? String(r.grade_band) : null;
-  const { band, from } = bandFor(scales.value, { gradeBand: pickedBand, gradeLevels });
+  // The school owns the scales (Desmond, 2026-11-23): the band comes only from
+  // the school's bands and the class's grade levels. courses.grade_band (a
+  // teacher's pick before then) stays in the table but is no longer read.
+  const { band, from } = bandFor(scales.value, { gradeBand: null, gradeLevels });
   const own = json<Record<string, unknown>>(r?.late_policy);
   const checked = own ? normalizeCoursePolicy(own, { ...late.value, teachers: "yes" }) : null;
   const coursePolicy = checked && checked.ok ? checked.policy : null;
   return {
-    scales: scales.value, band, bandFrom: from, gradeLevels, pickedBand, late: late.value, coursePolicy,
+    scales: scales.value, band, bandFrom: from, gradeLevels, late: late.value, coursePolicy,
     ruleFor: (work) => ruleFor(late.value, coursePolicy, { band: band.id, ...work }),
   };
-}
-
-/** The teacher's band pick (null = from the class's grade levels). Only a band the school has. */
-export async function setCourseBand(ctx: Ctx, courseId: string, bandId: unknown): Promise<boolean> {
-  const scales = (await schoolScales(ctx.tenantId)).value;
-  const id = typeof bandId === "string" && scales.bands.some((b) => b.id === bandId) ? bandId : null;
-  if (bandId && !id) return false;
-  const db = await getDb();
-  await db.query("UPDATE courses SET grade_band = $3 WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId, id]);
-  return true;
 }
 
 /** The teacher's own late policy, when the school allows it. */

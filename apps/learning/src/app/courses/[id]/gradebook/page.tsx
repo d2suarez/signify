@@ -4,6 +4,7 @@ import { requireMe } from "@/lib/auth";
 import { academicAccess as courseAccess, ctx, isSchoolAdmin, lang, studentsOf } from "@/lib/access";
 import { buildGradebook, periodOn } from "@/lib/gradebook";
 import { listPeriods } from "@/lib/grades";
+import { childrenOf } from "@/lib/periods";
 import { listAssignments } from "@/lib/assignments";
 import { syncToolScores } from "@/lib/lti-tool-sync";
 import { dict } from "@/lib/i18n";
@@ -33,7 +34,7 @@ export default async function GradebookPage({ params, searchParams }: {
   const { me, course } = access;
 
   const periods = await listPeriods(me.tenantId);
-  // The period asked for; else the one today is in; else the whole year.
+  // The period asked for; else the deepest one today is in (the quarter); else the whole year.
   const period = sp.period === "year" ? null
     : periods.find((p) => p.id === sp.period) ?? periodOn(periods, new Date().toISOString().slice(0, 10));
   await syncToolScores(access, await listAssignments(ctx(me), course.id));
@@ -48,10 +49,14 @@ export default async function GradebookPage({ params, searchParams }: {
           <div className="grow" style={{ flex: 1 }}>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.name} · {d.gradebook}</p>
             <h1 style={{ fontSize: 30 }}>{period ? `${period.name} · ${shortDay(period.startsOn, L)} – ${shortDay(period.endsOn, L)}` : d.wholeYear}</h1>
+            {period && childrenOf(periods, period.id).length > 0 && (
+              <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.periodCountsAll.replace("{list}", childrenOf(periods, period.id).map((k) => k.name).join(", "))}</p>
+            )}
           </div>
           <nav className="seg" aria-label={d.period}>
             {periods.map((p) => (
-              <Link key={p.id} href={`?period=${p.id}`} aria-current={period?.id === p.id ? "page" : undefined} className="seg-link">{p.name}</Link>
+              <Link key={p.id} href={`?period=${p.id}`} aria-current={period?.id === p.id ? "page" : undefined}
+                className={p.depth ? "seg-link seg-sub" : "seg-link"}>{p.name}</Link>
             ))}
             <Link href="?period=year" aria-current={!period ? "page" : undefined} className="seg-link">{d.wholeYear}</Link>
           </nav>

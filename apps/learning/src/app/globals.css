@@ -325,6 +325,8 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .page-wide { max-width: 1440px; }
 .seg-link { display: inline-flex; align-items: center; border-radius: var(--r-pill); padding: 0 14px; min-height: 36px; font-weight: 700; font-size: 14px; color: var(--ink); text-decoration: none; }
 .seg-link[aria-current="page"] { background: var(--ink); color: var(--bg); }
+/* A period inside another (a quarter in its semester): lighter, after its parent. */
+.seg-link.seg-sub { font-weight: 600; font-size: 13px; padding: 0 10px; }
 .gb { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
 .gb-main { flex: 999 1 720px; min-width: 0; padding: 10px; }
 .gb-side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }

@@ -11,9 +11,10 @@ import {
 } from "../src/lib/assignments";
 import {
   setGrade, gradeHistory, gradesFor, computeGrade, letterFor, wholePercent, parseScore, addCategory,
-  setWeighted, addPeriod, listPeriods, inPeriod,
+  setWeighted, addPeriod, listPeriods, inPeriod, savePeriod, deletePeriod,
 } from "../src/lib/grades";
-import { buildGradebook, factsCsv, splitName, toStudents } from "../src/lib/gradebook";
+import { buildGradebook, factsCsv, periodOn, splitName, toStudents } from "../src/lib/gradebook";
+import { checkPeriod, treeOrder } from "../src/lib/periods";
 import { LEGACY_SCALE } from "../src/lib/grade-scale";
 
 let db: Db;
@@ -260,6 +261,102 @@ test("periods: bad dates are refused; assignments count in the period they're du
   assert.equal(inPeriod({ dueOn: "2026-10-17" }, q1), true);
   assert.equal(inPeriod({ dueOn: "2026-10-18" }, q1), false);
   assert.equal(inPeriod({ dueOn: null }, q1), true);
+});
+
+test("periods nest: year > semester > quarter, checked, in tree order; deleting moves what it held up", async () => {
+  const S = "school-nest";
+  const q1 = (await addPeriod(S, "Quarter 1", "2026-08-17", "2026-10-16"))!;
+  const q2 = (await addPeriod(S, "Quarter 2", "2026-10-19", "2026-12-18"))!;
+  assert.equal(q1.parentId, null, "existing periods stay at the top");
+  // A semester can be made beside the quarters it will hold (it holds them whole)…
+  const s1 = (await addPeriod(S, "Semester 1", "2026-08-17", "2026-12-18"))!;
+  assert.ok(s1);
+  // …but never one that cuts across one.
+  assert.equal((await savePeriod(S, null, { name: "Bad", startsOn: "2026-09-01", endsOn: "2027-01-10" })).ok, false);
+  for (const q of [q1, q2]) assert.ok((await savePeriod(S, q.id, { parentId: s1.id })).ok);
+  const year = (await addPeriod(S, "2026–27", "2026-08-17", "2027-06-04"))!;
+  assert.ok((await savePeriod(S, s1.id, { parentId: year.id })).ok);
+  const tree = await listPeriods(S);
+  assert.deepEqual(tree.map((p) => [p.name, p.depth]), [["2026–27", 0], ["Semester 1", 1], ["Quarter 1", 2], ["Quarter 2", 2]]);
+  assert.equal(tree.find((p) => p.id === q2.id)!.parentId, s1.id);
+
+  const why = async (id: string | null, input: Record<string, unknown>) => {
+    const r = await savePeriod(S, id, input);
+    return r.ok ? "ok" : r.reason;
+  };
+  assert.equal(await why(q1.id, { endsOn: "2026-12-30" }), "outside", "a quarter stays inside its semester");
+  assert.equal(await why(q1.id, { startsOn: "2026-09-01", endsOn: "2026-10-20" }), "overlap", "quarters side by side don't overlap");
+  assert.equal(await why(s1.id, { endsOn: "2026-11-30" }), "children", "a semester can't shrink off its quarters");
+  assert.equal(await why(year.id, { parentId: q1.id }), "parent", "never inside something it holds");
+  assert.equal(await why(s1.id, { parentId: s1.id }), "parent");
+  assert.equal(await why(null, { name: "x", startsOn: "2026-08-17", endsOn: "2026-08-20", parentId: "00000000-0000-0000-0000-000000000000" }), "parent");
+  const w1 = (await addPeriod(S, "Week 1", "2026-08-17", "2026-08-21", q1.id))!;
+  assert.equal(w1.depth, 3);
+  assert.equal(await why(null, { name: "Day", startsOn: "2026-08-17", endsOn: "2026-08-17", parentId: w1.id }), "depth");
+  assert.equal(await why(q1.id, { name: "Q1" }), "ok", "renaming keeps its place");
+  assert.equal((await savePeriod("school-other", q1.id, { name: "Mine" })).ok, false, "another school's period is not found");
+
+  // The period today is in: the deepest one.
+  assert.equal(periodOn(await listPeriods(S), "2026-11-02")!.name, "Quarter 2");
+  assert.equal(periodOn(await listPeriods(S), "2027-03-01")!.name, "2026–27");
+  assert.equal(periodOn(await listPeriods(S), "2027-07-01"), null);
+
+  // Deleting the semester moves its quarters up into the year; nothing else goes.
+  assert.ok(await deletePeriod(S, s1.id));
+  const after = await listPeriods(S);
+  assert.deepEqual(after.map((p) => [p.name, p.depth]), [["2026–27", 0], ["Q1", 1], ["Week 1", 2], ["Quarter 2", 1]]);
+});
+
+test("periods (pure): a loop or a missing parent in stored data still lists every period", () => {
+  const rows = [
+    { id: "a", name: "A", startsOn: "2026-01-01", endsOn: "2026-02-01", parentId: "b" },
+    { id: "b", name: "B", startsOn: "2026-01-01", endsOn: "2026-02-01", parentId: "a" },
+    { id: "c", name: "C", startsOn: "2026-03-01", endsOn: "2026-04-01", parentId: "gone" },
+  ];
+  const t = treeOrder(rows);
+  assert.deepEqual(t.map((p) => p.id).sort(), ["a", "b", "c"]);
+  assert.equal(t.find((p) => p.id === "c")!.depth, 0);
+  assert.equal(checkPeriod(t, { id: null, startsOn: "2026-05-02", endsOn: "2026-05-01", parentId: null }), "dates");
+});
+
+test("periods: a quarter's FACTS file is byte-identical once nested; a semester counts its quarters' whole range", async () => {
+  const S = "school-facts"; // periods are only date ranges: any school's do for the maths
+  const c = await course();
+  const students = toStudents([
+    { id: "stu-1", display_name: "Ana Rodriguez", role: "student" },
+    { id: "stu-2", display_name: "Ezra Kim", role: "student" },
+  ]);
+  const inQ1 = await published(c.id, { points: 20, dueOn: "2026-09-10", dueAt: "2026-09-10T20:00:00Z" });
+  const inQ2 = await published(c.id, { points: 10, dueOn: "2026-11-05", dueAt: "2026-11-05T20:00:00Z" });
+  const spring = await published(c.id, { points: 10, dueOn: "2027-02-05", dueAt: "2027-02-05T20:00:00Z" });
+  await setGrade(T, inQ1, "stu-1", ROSTER, { score: 18 });
+  await setGrade(T, inQ1, "stu-2", ROSTER, { score: 14 });
+  await setGrade(T, inQ2, "stu-1", ROSTER, { score: 6 });
+  await setGrade(T, inQ2, "stu-2", ROSTER, { flag: "missing" });
+  await setGrade(T, spring, "stu-1", ROSTER, { score: 0 });
+
+  const q1 = (await addPeriod(S, "Quarter 1", "2026-08-17", "2026-10-16"))!;
+  const q2 = (await addPeriod(S, "Quarter 2", "2026-10-19", "2026-12-18"))!;
+  const byName = async (name: string) => (await listPeriods(S)).find((p) => p.name === name)!;
+  const before = [factsCsv(await buildGradebook(T, c.id, students, q1)), factsCsv(await buildGradebook(T, c.id, students, q2))];
+
+  const s1 = (await addPeriod(S, "Semester 1", "2026-08-17", "2026-12-18"))!;
+  for (const q of [q1, q2]) assert.ok((await savePeriod(S, q.id, { parentId: s1.id })).ok);
+  const after = [factsCsv(await buildGradebook(T, c.id, students, await byName("Quarter 1"))), factsCsv(await buildGradebook(T, c.id, students, await byName("Quarter 2")))];
+  assert.deepEqual(Buffer.from(after.join("|")), Buffer.from(before.join("|")), "nesting changes no quarter's file");
+  assert.match(after[0], /^\ufeffStudent,Percent,Letter\r\n"Kim, Ezra",70,[^\r]*\r\n"Rodriguez, Ana",90,[^\r]*\r\n$/);
+
+  // The semester: every assignment due in its range (both quarters), not the spring one.
+  const sem = await buildGradebook(T, c.id, students, await byName("Semester 1"));
+  assert.deepEqual(sem.assignments.map((a) => a.id).sort(), [inQ1.id, inQ2.id].sort());
+  const ana = sem.rows.find((r) => r.student.id === "stu-1")!, ezra = sem.rows.find((r) => r.student.id === "stu-2")!;
+  assert.equal(ana.whole, 80, "(18 + 6) / 30");
+  assert.equal(ezra.whole, 47, "(14 + 0 missing) / 30");
+  // The same as a gradebook for that date range with no nesting at all.
+  const flat = await buildGradebook(T, c.id, students, { id: "x", name: "x", startsOn: "2026-08-17", endsOn: "2026-12-18" });
+  assert.equal(factsCsv(sem), factsCsv(flat));
+  // The whole year still counts everything.
+  assert.equal((await buildGradebook(T, c.id, students, null)).assignments.length, 3);
 });
 
 test("names: FACTS order is last name, then first", () => {

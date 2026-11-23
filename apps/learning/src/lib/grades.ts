@@ -1,4 +1,5 @@
-import { getDb } from "./db";
+import { getDb, type Queryable } from "./db";
+import { checkPeriod, treeOrder, type Period, type PeriodProblem } from "./periods";
 import type { Assignment } from "./assignments";
 
 /**
@@ -277,37 +278,84 @@ export async function isWeighted(ctx: Ctx, courseId: string): Promise<boolean> {
 }
 
 // ---------- grading periods ----------
+// The school's periods, nested (periods.ts). Only school admins write them
+// (the /school/periods page checks); everyone signed in reads them.
 
-export type Period = { id: string; name: string; startsOn: string; endsOn: string };
-
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+export type { Period, PeriodProblem } from "./periods";
+export { MAX_PERIOD_DEPTH } from "./periods";
 
 function dayText(v: unknown): string {
   return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
 }
 
-export async function listPeriods(tenantId: string): Promise<Period[]> {
-  const db = await getDb();
+function periodName(v: unknown): string {
+  return String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+/**
+ * The school's grading periods in tree order (a semester, then its
+ * quarters), each with its parent and depth. This is the one reader: the
+ * gradebook, the FACTS file and attendance's term view all use it.
+ */
+export async function listPeriods(tenantId: string, q?: Queryable): Promise<Period[]> {
+  const db = q ?? await getDb();
   const rows = await db.query("SELECT * FROM grading_periods WHERE tenant_id = $1 ORDER BY starts_on", [tenantId]);
-  return rows.map((r) => ({ id: String(r.id), name: String(r.name), startsOn: dayText(r.starts_on), endsOn: dayText(r.ends_on) }));
+  return treeOrder(rows.map((r) => ({
+    id: String(r.id), name: String(r.name), startsOn: dayText(r.starts_on), endsOn: dayText(r.ends_on),
+    parentId: r.parent_id ? String(r.parent_id) : null,
+  })));
 }
 
-export async function addPeriod(tenantId: string, name: unknown, startsOn: unknown, endsOn: unknown): Promise<Period | null> {
-  const s = String(startsOn ?? ""), e = String(endsOn ?? "");
-  if (!DAY.test(s) || !DAY.test(e) || e < s) return null;
+export type PeriodInput = { name?: unknown; startsOn?: unknown; endsOn?: unknown; parentId?: unknown };
+export type PeriodSave = { ok: true; period: Period } | { ok: false; reason: PeriodProblem | "missing" };
+
+/** Adds a period (id null) or changes one. Refuses anything that breaks the tree. */
+export async function savePeriod(tenantId: string, id: string | null, input: PeriodInput): Promise<PeriodSave> {
+  if (id !== null && !UUID.test(id)) return { ok: false, reason: "missing" };
   const db = await getDb();
-  const rows = await db.query(
-    "INSERT INTO grading_periods (tenant_id, name, starts_on, ends_on) VALUES ($1, $2, $3, $4) RETURNING *",
-    [tenantId, String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "Quarter", s, e],
-  );
-  const r = rows[0];
-  return { id: String(r.id), name: String(r.name), startsOn: dayText(r.starts_on), endsOn: dayText(r.ends_on) };
+  return db.tx(async (q) => {
+    // One school's periods change one save at a time.
+    await q.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`periods:${tenantId}`]);
+    const all = await listPeriods(tenantId, q);
+    const before = id ? all.find((p) => p.id === id) : undefined;
+    if (id && !before) return { ok: false as const, reason: "missing" as const };
+    const parentRaw = input.parentId === undefined ? before?.parentId ?? null : String(input.parentId ?? "");
+    const parentId = parentRaw && UUID.test(parentRaw) ? parentRaw : null;
+    if (parentRaw && !parentId) return { ok: false as const, reason: "parent" as const };
+    const startsOn = input.startsOn === undefined ? before?.startsOn ?? "" : String(input.startsOn ?? "");
+    const endsOn = input.endsOn === undefined ? before?.endsOn ?? "" : String(input.endsOn ?? "");
+    const name = (input.name === undefined ? before?.name : periodName(input.name)) || before?.name || "Quarter";
+    const problem = checkPeriod(all, { id, startsOn, endsOn, parentId });
+    if (problem) return { ok: false as const, reason: problem };
+    const rows = id
+      ? await q.query(
+        "UPDATE grading_periods SET name = $3, starts_on = $4, ends_on = $5, parent_id = $6 WHERE tenant_id = $1 AND id = $2 RETURNING id",
+        [tenantId, id, name, startsOn, endsOn, parentId])
+      : await q.query(
+        "INSERT INTO grading_periods (tenant_id, name, starts_on, ends_on, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        [tenantId, name, startsOn, endsOn, parentId]);
+    const saved = (await listPeriods(tenantId, q)).find((p) => p.id === String(rows[0].id))!;
+    return { ok: true as const, period: saved };
+  });
 }
 
+/** A new top-level (or nested, with parentId) period, or null when it doesn't fit. */
+export async function addPeriod(tenantId: string, name: unknown, startsOn: unknown, endsOn: unknown, parentId: unknown = null): Promise<Period | null> {
+  const r = await savePeriod(tenantId, null, { name, startsOn, endsOn, parentId });
+  return r.ok ? r.period : null;
+}
+
+/** Deletes a period; what it held moves up into its parent (nothing else is lost). */
 export async function deletePeriod(tenantId: string, id: string): Promise<boolean> {
   if (!UUID.test(id)) return false;
   const db = await getDb();
-  return (await db.query("DELETE FROM grading_periods WHERE tenant_id = $1 AND id = $2 RETURNING id", [tenantId, id])).length > 0;
+  return db.tx(async (q) => {
+    await q.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`periods:${tenantId}`]);
+    const [row] = await q.query("SELECT parent_id FROM grading_periods WHERE tenant_id = $1 AND id = $2", [tenantId, id]);
+    if (!row) return false;
+    await q.query("UPDATE grading_periods SET parent_id = $3 WHERE tenant_id = $1 AND parent_id = $2", [tenantId, id, row.parent_id ?? null]);
+    return (await q.query("DELETE FROM grading_periods WHERE tenant_id = $1 AND id = $2 RETURNING id", [tenantId, id])).length > 0;
+  });
 }
 
 // The arithmetic lives in grade-math.ts so the gradebook grid can redo it

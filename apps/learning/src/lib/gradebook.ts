@@ -1,7 +1,7 @@
 import type { IdMember } from "./roster";
 import { type Assignment, type Submission, courseSubmissions, isLate, listAssignments, listSubmissions } from "./assignments";
 import {
-  type Category, type CourseGrade, type Grade, type Period,
+  type Category, type CourseGrade, type Grade, type Period as SchoolPeriod,
   computeGrade, courseGrades, gradeFor, inPeriod, isWeighted, listCategories, wholePercent,
 } from "./grades";
 import { courseSetup, SCHOOL_TZ, type CourseSetup } from "./school-grading";
@@ -353,10 +353,11 @@ export function standardsView(gb: Gradebook, row: Row | undefined): StandardsVie
   };
 }
 
-/** The period a date falls in, or null. */
-export function periodOn(periods: Period[], isoDay: string): Period | null {
-  return periods.find((p) => isoDay >= p.startsOn && isoDay <= p.endsOn) ?? null;
-}
+/** A gradebook needs only a period's name and dates (its place in the tree doesn't change the maths). */
+type Period = Pick<SchoolPeriod, "id" | "name" | "startsOn" | "endsOn">;
+
+/** The deepest period a date falls in (a quarter before its semester), or null. */
+export { periodOn } from "./periods";
 
 // ---------- the FACTS file ----------
 
