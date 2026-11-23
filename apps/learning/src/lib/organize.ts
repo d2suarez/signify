@@ -287,13 +287,20 @@ export async function undoImport(v: Viewer, courseId: string, importId: string):
       [v.tenantId, courseId, importId, v.userId, keep],
     );
     for (const r of [...ls, ...as]) if (r.thread_post_id) posts.push(String(r.thread_post_id));
-    const us = await q.query(
-      `DELETE FROM units u WHERE u.tenant_id = $1 AND u.course_id = $2 AND u.import_id = $3
-         AND NOT EXISTS (SELECT 1 FROM lessons l WHERE l.unit_id = u.id AND l.archived = false)
-         AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.unit_id = u.id AND a.archived = false)
-       RETURNING id`,
-      [v.tenantId, courseId, importId],
-    );
+    // Empty folders go, innermost first, so a folder holding a kept folder stays.
+    const us: unknown[] = [];
+    for (;;) {
+      const gone = await q.query(
+        `DELETE FROM units u WHERE u.tenant_id = $1 AND u.course_id = $2 AND u.import_id = $3
+           AND NOT EXISTS (SELECT 1 FROM lessons l WHERE l.unit_id = u.id AND l.archived = false)
+           AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.unit_id = u.id AND a.archived = false)
+           AND NOT EXISTS (SELECT 1 FROM units c WHERE c.parent_id = u.id)
+         RETURNING id`,
+        [v.tenantId, courseId, importId],
+      );
+      if (!gone.length) break;
+      us.push(...gone);
+    }
     await q.query("UPDATE course_imports SET undone_at = now() WHERE tenant_id = $1 AND id = $2", [v.tenantId, importId]);
     return { lessons: ls.length, assignments: as.length, units: us.length, kept: keep.length };
   });

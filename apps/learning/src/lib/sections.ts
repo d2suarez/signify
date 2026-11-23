@@ -1,4 +1,5 @@
 import { getDb, type Queryable, type Row } from "./db";
+import { orderTree, subtreeIds } from "./units";
 
 /**
  * Courses that last and their yearly sections (migration 017).
@@ -241,7 +242,7 @@ export async function sourceContents(ctx: Ctx, sourceId: string): Promise<Source
   if (!(await canCopyFrom(ctx, sourceId))) return null;
   const db = await getDb();
   const [units, lessons, assignments, resources] = await Promise.all([
-    db.query("SELECT id, title FROM units WHERE tenant_id = $1 AND course_id = $2 ORDER BY position, created_at", [ctx.tenantId, sourceId]),
+    db.query("SELECT id, course_id, title, position, parent_id FROM units WHERE tenant_id = $1 AND course_id = $2 ORDER BY position, created_at", [ctx.tenantId, sourceId]),
     db.query(`SELECT id, title, unit_id FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
                ORDER BY planned_for NULLS LAST, created_at`, [ctx.tenantId, sourceId]),
     db.query(`SELECT id, title, kind, unit_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
@@ -251,7 +252,8 @@ export async function sourceContents(ctx: Ctx, sourceId: string): Promise<Source
                WHERE r.tenant_id = $1 AND r.course_id = $2 AND r.archived = false ORDER BY r.position, r.created_at`, [ctx.tenantId, sourceId]),
   ]);
   return {
-    units: units.map((u) => ({ id: String(u.id), title: String(u.title) })),
+    // Folders in tree order, each named by its path ("Unit 3 › Chapter 7").
+    units: orderTree(units.map(unitRow)).map((u) => ({ id: u.id, title: u.path })),
     lessons: lessons.map((l) => ({ id: String(l.id), title: String(l.title), unitId: l.unit_id ? String(l.unit_id) : null })),
     assignments: assignments.map((a) => ({ id: String(a.id), title: String(a.title), kind: String(a.kind), unitId: a.unit_id ? String(a.unit_id) : null })),
     resources: resources.map((r) => ({ id: String(r.id), title: String(r.title), kind: String(r.kind) })),
@@ -304,10 +306,14 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
       : [];
     pickLessons = [...new Set([...pickLessons, ...resources.filter((r) => r.lesson_id).map((r) => String(r.lesson_id))])];
 
-    const units = pickUnits.length
-      ? await q.query("SELECT * FROM units WHERE tenant_id = $1 AND course_id = $2 AND id = ANY($3::uuid[]) ORDER BY position, created_at", [T, sourceId, pickUnits])
+    // A picked folder brings every folder inside it; parents come before their folders (tree order).
+    const tree = pickUnits.length
+      ? orderTree((await q.query("SELECT * FROM units WHERE tenant_id = $1 AND course_id = $2 ORDER BY position, created_at", [T, sourceId])).map(unitRow))
       : [];
-    const unitIds = units.map((u) => String(u.id));
+    const picked = new Set<string>();
+    for (const id of pickUnits) if (tree.some((u) => u.id === id)) for (const x of subtreeIds(tree, id)) picked.add(x);
+    const units = tree.filter((u) => picked.has(u.id));
+    const unitIds = units.map((u) => u.id);
     const lessons = await q.query(
       `SELECT * FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
          AND (id = ANY($3::uuid[]) OR unit_id = ANY($4::uuid[])) ORDER BY planned_for NULLS LAST, created_at`,
@@ -324,10 +330,13 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
     // title, else "no unit".
     const unitMap = new Map<string, string>();
     const [{ next }] = await q.query("SELECT COALESCE(max(position) + 1, 0)::int AS next FROM units WHERE tenant_id = $1 AND course_id = $2", [T, targetId]);
-    for (const [i, u] of units.entries()) {
-      const [n] = await q.query("INSERT INTO units (tenant_id, course_id, title, position) VALUES ($1, $2, $3, $4) RETURNING id",
-        [T, targetId, u.title, Number(next) + i]);
-      unitMap.set(String(u.id), String(n.id));
+    let top = Number(next);
+    for (const u of units) {
+      // Inside a folder that is copied too: same place in it. Otherwise a new unit after the target's own.
+      const parent = u.parentId ? unitMap.get(u.parentId) ?? null : null;
+      const [n] = await q.query("INSERT INTO units (tenant_id, course_id, title, position, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        [T, targetId, u.title, parent ? u.position : top++, parent]);
+      unitMap.set(u.id, String(n.id));
     }
     const strays = [...new Set([...lessons, ...assignments].map((r) => r.unit_id).filter((u) => u && !unitMap.has(String(u))).map(String))];
     if (strays.length) {
@@ -582,4 +591,8 @@ export async function answerShare(ctx: Ctx & { admin?: boolean }, requestId: str
       [ctx.tenantId, requestId, status, ctx.userId]);
     return true;
   });
+}
+
+function unitRow(r: Record<string, unknown>) {
+  return { id: String(r.id), courseId: String(r.course_id), title: String(r.title), position: Number(r.position), parentId: r.parent_id ? String(r.parent_id) : null };
 }

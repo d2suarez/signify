@@ -6,7 +6,7 @@ import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang } from "@/lib/access";
 import { getSubmission } from "@/lib/assignments";
 import { gradesFor, listCategories } from "@/lib/grades";
-import { listUnits } from "@/lib/units";
+import { listUnits, unitChoices } from "@/lib/units";
 import { courseGrading, listStandards } from "@/lib/standards";
 import { standardOptions } from "@/lib/standards-library";
 import { dict } from "@/lib/i18n";
@@ -57,7 +57,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         <TopBar crumbs={crumbs} />
         <main className="page">
           <AssignmentEditor initial={a} d={d}
-            units={units.map((u) => ({ id: u.id, name: u.title }))}
+            units={unitChoices(units).map((u) => ({ id: u.id, name: u.label }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
             standards={options}
             attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size} />

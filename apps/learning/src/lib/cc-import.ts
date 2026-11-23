@@ -139,10 +139,16 @@ export async function commitImport(
       }
     };
 
-    for (const [i, unit] of plan.units.entries()) {
+    // Top-level folders go after the course's own units; inner folders (nestedUnits) inside their folder, in order.
+    let top = Number(next);
+    const inner = new Map<number, number>();
+    for (const unit of plan.units) {
+      const parent = unit.parent !== undefined ? unitIds[unit.parent] ?? null : null;
+      let position = top;
+      if (parent) { position = (inner.get(unit.parent!) ?? -1) + 1; inner.set(unit.parent!, position); } else top++;
       const [u] = await t.query(
-        "INSERT INTO units (tenant_id, course_id, title, position, import_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        [ctx.tenantId, courseId, unit.title, Number(next) + i, importId],
+        "INSERT INTO units (tenant_id, course_id, title, position, import_id, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        [ctx.tenantId, courseId, parent ? (unit.name ?? unit.title) : unit.title, position, importId, parent],
       );
       unitIds.push(String(u.id));
       for (const [j, item] of unit.items.entries()) await add(item, String(u.id), j);

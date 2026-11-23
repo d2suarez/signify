@@ -1,11 +1,12 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { courseAccess, ctx, lang, studentsOf, updatesViewer } from "@/lib/access";
 import { isPracticeCourse, fillPractice, clearPractice } from "@/lib/practice";
 import { requireMe } from "@/lib/auth";
 import { listLessons, createLesson, type LessonSummary } from "@/lib/lessons";
-import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit } from "@/lib/units";
+import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit, setUnitParent, subtreeIds, unitChoices, MAX_DEPTH, FolderError, type Unit } from "@/lib/units";
 import { listAssignments, createAssignment, type Assignment } from "@/lib/assignments";
 import { liveLessonId } from "@/lib/live-ticket";
 import { feed, mayPost, courseRules } from "@/lib/updates";
@@ -77,7 +78,9 @@ async function newUnit(formData: FormData) {
   "use server";
   const access = await teacherAccess(formData);
   if (!access) return;
-  await createUnit(ctx(access.me), access.course.id, String(formData.get("title") || ""));
+  // A stale form (the folder was deleted, or is already as deep as folders go) makes nothing.
+  await createUnit(ctx(access.me), access.course.id, String(formData.get("title") || ""), String(formData.get("parentId") || "") || null)
+    .catch((e) => { if (!(e instanceof FolderError)) throw e; });
   revalidatePath(`/courses/${access.course.id}`);
 }
 
@@ -90,6 +93,10 @@ async function unitAction(formData: FormData) {
   if (op === "up" || op === "down") await moveUnit(c, courseId, unitId, op === "up" ? -1 : 1);
   if (op === "rename") await renameUnit(c, courseId, unitId, String(formData.get("title") || ""));
   if (op === "delete") await deleteUnit(c, courseId, unitId);
+  if (op === "parent") {
+    const to = String(formData.get("parentId") || "");
+    await setUnitParent(c, courseId, unitId, to && to !== "top" ? to : null);
+  }
   revalidatePath(`/courses/${courseId}`);
 }
 
@@ -218,13 +225,109 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   await noteTeacher(c, course.id);
   const [catalog, suggested, allCourses] = await Promise.all([catalogOf(c, course.id), suggestedCatalog(c, course.id), schoolCatalog(c)]);
   const fillName = (s: string, name: string) => s.replace("{name}", name);
+  const choices = unitChoices(units);
   const unitSelect = (idFor: string) => (
     // Keyed by the newest unit so a unit just made becomes the choice.
     <select key={units.at(-1)?.id || "none"} id={idFor} name="unitId" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.unit} defaultValue={units.at(-1)?.id || ""}>
       <option value="">{d.noUnit}</option>
-      {units.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
+      {choices.map((u) => <option key={u.id} value={u.id} title={u.title}>{u.label}</option>)}
     </select>
   );
+
+  // Folders inside folders (units.ts): a unit is a card; its folders sit inside it, after its own items.
+  const kidsOf = (id: string | null) => units.filter((u) => u.parentId === id);
+  const heightOf = (u: Unit) => {
+    const inside = subtreeIds(units, u.id);
+    return Math.max(...units.filter((x) => inside.has(x.id)).map((x) => x.depth)) - u.depth + 1;
+  };
+  const arrow = (dir: "up" | "down") => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d={dir === "up" ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"} /></svg>
+  );
+  const renderFolder = (unit: Unit | null): ReactNode => {
+    const items = (unit ? byId.get(unit.id)! : loose).items;
+    if (!unit && items.length === 0) return null;
+    const inner = unit ? kidsOf(unit.id) : [];
+    const nested = !!unit && unit.depth > 0;
+    const sibs = unit ? kidsOf(unit.parentId) : [];
+    const si = unit ? sibs.findIndex((x) => x.id === unit.id) : 0;
+    const headId = `unit-${unit?.id || "loose"}`;
+    const parent = unit?.parentId ? units.find((x) => x.id === unit.parentId) : null;
+    // Where this folder may go: not inside itself, and not deeper than MAX_DEPTH.
+    const inside = unit ? subtreeIds(units, unit.id) : new Set<string>();
+    const targets = unit ? choices.filter((c) => {
+      const t = units.find((x) => x.id === c.id)!;
+      return !inside.has(t.id) && t.depth + 1 + heightOf(unit) <= MAX_DEPTH;
+    }) : [];
+    const Heading = nested ? "h3" : "h2";
+    return (
+      <section key={unit?.id || "loose"} className={nested ? "subfolder" : "card"} aria-labelledby={headId}>
+        <div className="unit-head">
+          {nested && <span className="shape s-square" aria-hidden="true" />}
+          <Heading id={headId} className={nested ? "folder-title" : undefined}>{unit ? unit.title : d.noUnit}</Heading>
+          <span className="spacer" />
+          {unit && (
+            <form action={unitAction} className="row" style={{ gap: 6 }}>
+              <input type="hidden" name="courseId" value={course.id} />
+              <input type="hidden" name="unitId" value={unit.id} />
+              <button className="icon-btn" name="op" value="up" aria-label={`${d.moveUp}: ${unit.title}`} disabled={si === 0}>{arrow("up")}</button>
+              <button className="icon-btn" name="op" value="down" aria-label={`${d.moveDown}: ${unit.title}`} disabled={si === sibs.length - 1}>{arrow("down")}</button>
+            </form>
+          )}
+          {unit && (
+            <details className="menu">
+              <summary className="btn btn-sm">{d.folderMenu}…</summary>
+              <div className="menu-pop card">
+                <form action={unitAction} className="stack" style={{ gap: 8 }}>
+                  <input type="hidden" name="courseId" value={course.id} />
+                  <input type="hidden" name="unitId" value={unit.id} />
+                  <label className="label" htmlFor={`rn-${unit.id}`}>{nested ? d.folderTitle : d.unitTitle}</label>
+                  <input id={`rn-${unit.id}`} name="title" className="field" defaultValue={unit.title} maxLength={200} required />
+                  <button className="btn btn-primary btn-sm" name="op" value="rename">{d.rename}</button>
+                </form>
+                {unit.depth + 1 < MAX_DEPTH && (
+                  <form action={newUnit} className="stack" style={{ gap: 8, marginTop: 14 }}>
+                    <input type="hidden" name="courseId" value={course.id} />
+                    <input type="hidden" name="parentId" value={unit.id} />
+                    <label className="label" htmlFor={`nf-${unit.id}`}>{d.newFolderInside}</label>
+                    <input id={`nf-${unit.id}`} name="title" className="field" placeholder={d.folderTitle} maxLength={200} required />
+                    <button className="btn btn-sm" type="submit">{d.create}</button>
+                  </form>
+                )}
+                <form action={unitAction} className="stack" style={{ gap: 8, marginTop: 14 }}>
+                  <input type="hidden" name="courseId" value={course.id} />
+                  <input type="hidden" name="unitId" value={unit.id} />
+                  <label className="label" htmlFor={`mv-${unit.id}`}>{d.folderMoveInto}</label>
+                  <select id={`mv-${unit.id}`} name="parentId" className="field" defaultValue={unit.parentId || "top"}>
+                    <option value="top">{d.folderTopLevel}</option>
+                    {targets.map((c) => <option key={c.id} value={c.id} title={c.title}>{c.label}</option>)}
+                  </select>
+                  <button className="btn btn-sm" name="op" value="parent">{d.orgMove}</button>
+                </form>
+                <form action={unitAction} className="stack" style={{ gap: 6, marginTop: 14 }}>
+                  <input type="hidden" name="courseId" value={course.id} />
+                  <input type="hidden" name="unitId" value={unit.id} />
+                  <button className="btn btn-sm" name="op" value="delete">{nested ? d.deleteFolder : d.deleteUnit}</button>
+                  <span className="muted" style={{ fontSize: 12 }}>{parent ? d.deleteFolderHint.replace("{parent}", parent.title) : inner.length ? d.deleteUnitFoldersHint : d.deleteUnitHint}</span>
+                </form>
+              </div>
+            </details>
+          )}
+        </div>
+        {organizing && items.length > 0 && <SelectAll group={unit?.id || "loose"} label={d.orgSelectAll} />}
+        {items.length === 0 ? (inner.length ? null : <p className="empty">{nested ? d.emptyFolder : d.emptyUnit}</p>) : (
+          <ul className="list">
+            {items.map((i, ii) => {
+              const org = organizing ? { group: unit?.id || "loose", first: ii === 0, last: ii === items.length - 1 } : null;
+              return i.kind === "lesson"
+                ? <LessonRow key={i.lesson.id} l={i.lesson} live={live === i.lesson.id} d={d} place={placeOf(i)} org={org} />
+                : <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} place={placeOf(i)} org={org} />;
+            })}
+          </ul>
+        )}
+        {inner.map((x) => renderFolder(x))}
+      </section>
+    );
+  };
 
   return (
     <>
@@ -362,7 +465,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <label className="label" htmlFor="org-unit" style={{ margin: 0 }}>{d.orgMoveTo}</label>
               <select id="org-unit" name="toUnit" className="field" style={{ width: "auto", flex: "0 1 240px" }} defaultValue={units[0]?.id || "none"}>
-                {units.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
+                {choices.map((u) => <option key={u.id} value={u.id} title={u.title}>{u.label}</option>)}
                 <option value="none">{d.noUnit}</option>
               </select>
               <button className="btn btn-sm" name="op" value="move">{d.orgMove}</button>
@@ -380,60 +483,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
           </form>
         )}
 
-        {groups.map(({ unit, items }, gi) => {
-          if (!unit && items.length === 0) return null;
-          return (
-            <section key={unit?.id || "loose"} className="card" aria-labelledby={`unit-${gi}`}>
-              <div className="unit-head">
-                <h2 id={`unit-${gi}`}>{unit ? unit.title : d.noUnit}</h2>
-                <span className="spacer" />
-                {unit && (
-                  <form action={unitAction} className="row" style={{ gap: 6 }}>
-                    <input type="hidden" name="courseId" value={course.id} />
-                    <input type="hidden" name="unitId" value={unit.id} />
-                    <button className="icon-btn" name="op" value="up" aria-label={d.moveUp} disabled={gi === 0}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
-                    </button>
-                    <button className="icon-btn" name="op" value="down" aria-label={d.moveDown} disabled={gi === units.length - 1}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-                    </button>
-                  </form>
-                )}
-                {unit && (
-                  <details className="menu">
-                    <summary className="btn btn-sm">{d.rename}…</summary>
-                    <div className="menu-pop card">
-                      <form action={unitAction} className="stack" style={{ gap: 8 }}>
-                        <input type="hidden" name="courseId" value={course.id} />
-                        <input type="hidden" name="unitId" value={unit.id} />
-                        <label className="label" htmlFor={`rn-${unit.id}`}>{d.unitTitle}</label>
-                        <input id={`rn-${unit.id}`} name="title" className="field" defaultValue={unit.title} maxLength={200} required />
-                        <button className="btn btn-primary btn-sm" name="op" value="rename">{d.save}</button>
-                      </form>
-                      <form action={unitAction} className="stack" style={{ gap: 6, marginTop: 14 }}>
-                        <input type="hidden" name="courseId" value={course.id} />
-                        <input type="hidden" name="unitId" value={unit.id} />
-                        <button className="btn btn-sm" name="op" value="delete">{d.deleteUnit}</button>
-                        <span className="muted" style={{ fontSize: 12 }}>{d.deleteUnitHint}</span>
-                      </form>
-                    </div>
-                  </details>
-                )}
-              </div>
-              {organizing && items.length > 0 && <SelectAll group={unit?.id || "loose"} label={d.orgSelectAll} />}
-              {items.length === 0 ? <p className="empty">{d.emptyUnit}</p> : (
-                <ul className="list">
-                  {items.map((i, ii) => {
-                    const org = organizing ? { group: unit?.id || "loose", first: ii === 0, last: ii === items.length - 1 } : null;
-                    return i.kind === "lesson"
-                      ? <LessonRow key={i.lesson.id} l={i.lesson} live={live === i.lesson.id} d={d} place={placeOf(i)} org={org} />
-                      : <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} place={placeOf(i)} org={org} />;
-                  })}
-                </ul>
-              )}
-            </section>
-          );
-        })}
+        {[...units.filter((u) => u.depth === 0), null].map((u) => renderFolder(u))}
       </main>
     </>
   );

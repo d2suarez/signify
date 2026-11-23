@@ -14,7 +14,8 @@ export type PlannerCourse = {
   name: string;
   lessons: PlannerLesson[];
   due: { id: string; title: string; dueOn: Day; dueAt: string | null; draft: boolean }[];
-  units: { id: string; title: string }[];
+  /** Folders in tree order; `within` = the folder and every folder inside it. */
+  units: { id: string; title: string; within?: string[] }[];
   /** The class's resources, for "Start from" in quick-add (optional so older callers still fit). */
   resources?: { id: string; title: string }[];
 };
@@ -115,7 +116,8 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson }: {
               </h2>
               <PlanUnit course={course} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")}
                 onPlan={(unitId, start) => {
-                  const inUnit = course.lessons.filter((l) => l.unitId === unitId);
+                  const within = new Set(course.units.find((u) => u.id === unitId)?.within ?? [unitId]);
+                  const inUnit = course.lessons.filter((l) => !!l.unitId && within.has(l.unitId));
                   const plan = spreadLessons(inUnit, start);
                   if (!plan.length) { setNote({ text: d.planUnitEmpty, bad: true }); return; }
                   if (!window.confirm(`${d.planUnitConfirm} ${plan.length}`)) return;

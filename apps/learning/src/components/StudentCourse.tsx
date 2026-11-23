@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { gpaText } from "@/lib/grade-scale";
 import { finalScore, type Penalty } from "@/lib/late-policy";
-import { listUnits } from "@/lib/units";
+import type { ReactNode } from "react";
+import { listUnits, subtreeIds } from "@/lib/units";
 import { listAssignments, courseSubmissions, isLate, isOverdue, type Assignment } from "@/lib/assignments";
 import { listAnnouncements } from "@/lib/announcements";
 import { buildGradebook, standardsView } from "@/lib/gradebook";
@@ -52,12 +53,66 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   const href = (a: Assignment) => previewing ? `${previewBase}/assignments/${a.id}` : `/assignments/${a.id}`;
 
   type Shown = { kind: "assignment"; a: Assignment; pos: number | null; day: string } | { kind: "lesson"; id: string; title: string; pos: number | null; day: string };
-  const groups = [...units.map((u) => ({ title: u.title, id: u.id, items: [] as Shown[] })), { title: d.noUnit, id: "", items: [] as Shown[] }];
+  const groups = [...units.map((u) => ({ title: u.title, id: u.id, parentId: u.parentId, depth: u.depth, items: [] as Shown[] })), { title: d.noUnit, id: "", parentId: null as string | null, depth: 0, items: [] as Shown[] }];
   const groupOf = (unitId: string | null) => groups.find((g) => g.id && g.id === unitId) || groups[groups.length - 1];
   for (const a of assignments) groupOf(a.unitId).items.push({ kind: "assignment", a, pos: places.get(`assignment:${a.id}`)?.position ?? null, day: a.dueOn || "9999" });
   // Lessons the teacher shows students (organize.ts), read at /lessons/<id>.
   for (const l of lessons) groupOf(l.unitId).items.push({ kind: "lesson", id: l.id, title: l.title, pos: l.position, day: "9999" });
   for (const g of groups) g.items.sort((x, y) => (x.pos !== null || y.pos !== null) ? (x.pos === null ? 1 : y.pos === null ? -1 : x.pos - y.pos) : x.day.localeCompare(y.day));
+
+  // Folders inside folders: shown only when something in them (at any depth) is shown.
+  const hasWork = (id: string): boolean => {
+    if (!id) return groups[groups.length - 1].items.length > 0;
+    const inside = subtreeIds(units, id);
+    return groups.some((g) => g.id && inside.has(g.id) && g.items.length > 0);
+  };
+  const folder = (g: (typeof groups)[number]): ReactNode => {
+    const nested = g.depth > 0;
+    const Heading = nested ? "h3" : "h2";
+    return (
+      <section key={g.id || "loose"} className={nested ? "subfolder" : "card"}>
+        <div className="unit-head">
+          {nested && <span className="shape s-square" aria-hidden="true" />}
+          <Heading className={nested ? "folder-title" : undefined}>{g.title}</Heading>
+        </div>
+        {g.items.length > 0 && (
+          <ul className="list">
+            {g.items.map((it) => {
+              if (it.kind === "lesson") {
+                return (
+                  <li key={it.id}>
+                    <span className="shape s-arch" aria-hidden="true" />
+                    <div className="grow">
+                      <h3>{previewing ? it.title : <Link href={`/lessons/${it.id}`} style={{ color: "inherit" }}>{it.title}</Link>}</h3>
+                      <span className="muted" style={{ fontSize: 13 }}>{d.pcKindLesson}</span>
+                    </div>
+                    {!previewing && <Link className="btn btn-sm" href={`/lessons/${it.id}`}>{d.readerOpen}</Link>}
+                  </li>
+                );
+              }
+              const a = it.a;
+              const s = subBy.get(a.id) || null;
+              const cell = row.cells[a.id];
+              return (
+                <li key={a.id}>
+                  <span className="shape s-tri" aria-hidden="true" />
+                  <div className="grow">
+                    <h3><Link href={href(a)} style={{ color: "inherit" }}>{a.title}</Link></h3>
+                    <span className="muted" style={{ fontSize: 13 }}>
+                      {a.dueAt ? <>{d.due} <When iso={a.dueAt} lang={L} /></> : d.noDue}
+                    </span>
+                  </div>
+                  <StudentStatus a={a} handedIn={!!s?.submittedAt} started={!!s} late={isLate(a, s) || cell?.flag === "late"}
+                    overdue={isOverdue(a, s)} cell={cell} dropped={row.grade.dropped.includes(a.id)} d={d} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {groups.filter((x) => x.id && x.parentId === g.id && g.id && hasWork(x.id)).map((x) => folder(x))}
+      </section>
+    );
+  };
 
   return (
     <>
@@ -94,43 +149,7 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
       )}
 
       {assignments.length === 0 && lessons.length === 0 && <p className="empty">{d.noAssignmentsStudent}</p>}
-      {groups.filter((g) => g.items.length > 0).map((g) => (
-        <section key={g.id || "loose"} className="card">
-          <div className="unit-head"><h2>{g.title}</h2></div>
-          <ul className="list">
-            {g.items.map((it) => {
-              if (it.kind === "lesson") {
-                return (
-                  <li key={it.id}>
-                    <span className="shape s-arch" aria-hidden="true" />
-                    <div className="grow">
-                      <h3>{previewing ? it.title : <Link href={`/lessons/${it.id}`} style={{ color: "inherit" }}>{it.title}</Link>}</h3>
-                      <span className="muted" style={{ fontSize: 13 }}>{d.pcKindLesson}</span>
-                    </div>
-                    {!previewing && <Link className="btn btn-sm" href={`/lessons/${it.id}`}>{d.readerOpen}</Link>}
-                  </li>
-                );
-              }
-              const a = it.a;
-              const s = subBy.get(a.id) || null;
-              const cell = row.cells[a.id];
-              return (
-                <li key={a.id}>
-                  <span className="shape s-tri" aria-hidden="true" />
-                  <div className="grow">
-                    <h3><Link href={href(a)} style={{ color: "inherit" }}>{a.title}</Link></h3>
-                    <span className="muted" style={{ fontSize: 13 }}>
-                      {a.dueAt ? <>{d.due} <When iso={a.dueAt} lang={L} /></> : d.noDue}
-                    </span>
-                  </div>
-                  <StudentStatus a={a} handedIn={!!s?.submittedAt} started={!!s} late={isLate(a, s) || cell?.flag === "late"}
-                    overdue={isOverdue(a, s)} cell={cell} dropped={row.grade.dropped.includes(a.id)} d={d} />
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+      {groups.filter((g) => g.depth === 0 && hasWork(g.id)).map((g) => folder(g))}
     </>
   );
 }

@@ -5,7 +5,7 @@ import { myCourses } from "@/lib/courses";
 import { courseAccess, ctx, lang } from "@/lib/access";
 import { listLessons, createLesson, saveLesson } from "@/lib/lessons";
 import { listAssignments } from "@/lib/assignments";
-import { listUnits } from "@/lib/units";
+import { listUnits, subtreeIds } from "@/lib/units";
 import { listResources, blocksFromResources } from "@/lib/resources";
 import { addDays, isSchoolDay, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
@@ -60,7 +60,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
       lessons: lessons.map((l) => ({ id: l.id, title: l.title, plannedFor: l.plannedFor, version: l.version, unitId: l.unitId })),
       due: assignments.filter((a) => a.dueOn && days.includes(a.dueOn))
         .map((a) => ({ id: a.id, title: a.title, dueOn: a.dueOn!, dueAt: a.dueAt, draft: !a.published })),
-      units: units.map((u) => ({ id: u.id, title: u.title })),
+      units: units.map((u) => ({ id: u.id, title: u.path, within: [...subtreeIds(units, u.id)] })),
       resources: resources.map((r) => ({ id: r.id, title: r.title })),
     };
   }));

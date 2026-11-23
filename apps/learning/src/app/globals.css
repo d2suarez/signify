@@ -771,3 +771,9 @@ html[data-size] .plan-week { grid-template-columns: repeat(auto-fill, minmax(min
 .reader-figure { margin: 0; }
 .reader-figure img { display: block; max-width: 100%; height: auto; border-radius: var(--r-md); }
 .reader-figure figcaption { font-size: 14px; margin-top: 6px; }
+
+/* Folders inside a unit (units.ts, migration 026) */
+.subfolder { margin-top: 14px; padding: 4px 0 2px 14px; border-left: 3px solid var(--line); }
+.subfolder .folder-title { font-size: 18px; }
+.subfolder .unit-head .shape { width: 12px; height: 12px; }
+html[data-contrast="high"] .subfolder { border-left-color: var(--ink); }

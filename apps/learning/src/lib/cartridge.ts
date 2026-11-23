@@ -33,7 +33,7 @@ import type { Quiz } from "./quiz";
  *   folder becomes a lesson holding that one file. Kinds Learning doesn't
  *   keep (see files.ts ACCEPT) are listed as not imported.
  * - Folders inside folders join their top folder's unit, or (nestedUnits)
- *   become units of their own named "Folder › Inner folder".
+ *   stay folders inside that unit (units.ts), named by their path in the plan.
  */
 
 /** A picture or file still to be brought in: `path` inside the export, or `url` for a picture on the web. */
@@ -48,7 +48,8 @@ export type PlanAssignment = {
 };
 export type PlanQuiz = { kind: "quiz"; title: string; instructions: string; quiz: Quiz; skippedQuestions: QtiSkipped[] };
 export type PlanItem = PlanLesson | PlanAssignment | PlanQuiz;
-export type PlanUnit = { title: string; items: PlanItem[] };
+/** `title` is the folder's path ("Folder › Inner folder"); with nestedUnits an inner folder also has its own `name` and its `parent` (index in plan.units). */
+export type PlanUnit = { title: string; items: PlanItem[]; name?: string; parent?: number };
 
 export type SkipKind = "quiz" | "question" | "discussion" | "tool" | "file" | "other";
 export type Skipped = { kind: SkipKind; title: string; unit: string | null };
@@ -201,18 +202,22 @@ function readZip(zip: Zip, tz: string, nested: boolean): Plan {
     // the course itself or "LearningModules"): its children are the real top level.
     if (top.length === 1 && !top[0].attrs.identifierref && kids(top[0], "item").length) top = kids(top[0], "item");
     /** A folder as a unit; with nestedUnits, its inner folders follow it as units of their own. */
-    const unitOf = (item: XmlNode, prefix: string) => {
+    const unitOf = (item: XmlNode, prefix: string, parent?: number, depth = 0) => {
       if (plan.units.length >= PLAN_LIMITS.units) throw new CartridgeError("too-many-items");
       const name = line(textOf(kid(item, "title"))) || "Untitled unit";
       const unit: PlanUnit = { title: line(prefix ? `${prefix} › ${name}` : name), items: [] };
+      if (parent !== undefined) { unit.name = name; unit.parent = parent; }
+      const at = plan.units.length;
       plan.units.push(unit);
+      // Deeper than Learning's folders go (units.ts MAX_DEPTH = 5): the rest joins this folder.
+      if (nested && depth >= 4) { walk(item, unit.title, unit.items); return; }
       if (!nested) { walk(item, unit.title, unit.items); return; }
       const inner: XmlNode[] = [];
       for (const child of kids(item, "item")) {
         if (child.attrs.identifierref) take(child, unit.title, unit.items);
         else inner.push(child);
       }
-      for (const child of inner) unitOf(child, unit.title);
+      for (const child of inner) unitOf(child, unit.title, at, depth + 1);
     };
     for (const item of top) {
       if (item.attrs.identifierref) { take(item, null, plan.loose); continue; }

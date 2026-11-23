@@ -100,6 +100,19 @@ test("import: folders inside folders can be units of their own", () => {
   assert.deepEqual(flat.units.map((u) => [u.title, u.items.length]), [["Week 1", 2]]);
   const nested = readCartridge(EXPORT(), { nestedUnits: true });
   assert.deepEqual(nested.units.map((u) => [u.title, u.items.map((i) => i.title)]), [["Week 1", ["Intro"]], ["Week 1 › Readings", ["Chapter 1"]]]);
+  assert.deepEqual(nested.units.map((u) => [u.name, u.parent]), [[undefined, undefined], ["Readings", 0]]);
+});
+
+test("import: kept folders inside folders arrive as real folders (migration 026), and undo removes them all", async () => {
+  const [solo] = (await myCourses(T, [{ id: "k-nest", name: "Nested", role: "teacher" }], "t1")).map((c) => c.id);
+  const r = await commitImport(C, solo, EXPORT(), "nested.imscc", { keepDates: false, nestedUnits: true, fetcher: fakeWeb });
+  const units = await listUnits(C, solo);
+  assert.deepEqual(units.map((u) => [u.path, u.depth]), [["Week 1", 0], ["Week 1 › Readings", 1]]);
+  const [ch] = await db.query("SELECT unit_id FROM lessons WHERE course_id = $1 AND title = 'Chapter 1'", [solo]);
+  assert.equal(ch.unit_id, units[1].id);
+  const undone = await undoImport(teacher, solo, r.importId);
+  assert.equal(undone?.units, 2, "the inner folder first, then its unit");
+  assert.deepEqual(await listUnits(C, solo), []);
 });
 
 let importId = "";
