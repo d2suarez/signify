@@ -343,6 +343,12 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .choice-opts span { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: var(--r-pill); border: 2px solid var(--faint); font-weight: 700; font-size: 14px; }
 .choice-opts input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .choice-opts input:checked + span::before { content: "✓"; margin-right: 6px; }
+/* Attendance (story 01, D6): one row per student, statuses as words. */
+.att-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.att-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; padding: 12px 0; border-top: 1px solid var(--faint); }
+.att-row:first-child { border-top: 0; }
+.att-row .choice { flex: 1 1 22em; min-width: 0; }
+.att-row .fieldset { flex: 1 1 12em; min-width: 0; }
 .choice-opts input:focus-visible + span { outline: 3px solid var(--p2); outline-offset: 2px; }
 .choice:disabled { opacity: .6; }
 .supports-sample { margin: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--desk); }

@@ -72,6 +72,7 @@ export default async function Home() {
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="c" className="btn btn-sm" href="/catalog">{d.secCatalogTitle}</Link>,
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="s" className="btn btn-sm" href="/standards">{d.standardsLibrary}</Link>,
     isSchoolAdmin(me) && <Link key="sp" className="btn btn-sm" href="/school/plans">{d.spTitle}</Link>,
+    isSchoolAdmin(me) && <Link key="att" className="btn btn-sm" href="/school/attendance">{d.attSchoolTitle}</Link>,
     isSchoolAdmin(me) && <a key="pe" className="btn btn-sm" href="/school/periods">{d.periods}</a>,
     isSchoolAdmin(me) && <a key="g" className="btn btn-sm" href="/school/grading">{d.gradingSetupLink}</a>,
     isSchoolAdmin(me) && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,
