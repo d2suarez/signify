@@ -446,6 +446,11 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
           a.instructions_doc == null ? null : typeof a.instructions_doc === "string" ? a.instructions_doc : JSON.stringify(a.instructions_doc)],
       );
       assignmentMap.set(String(a.id), String(n.id));
+      // Answer keys and grading materials (migration 035) come along, still teacher-only.
+      await q.query(
+        `INSERT INTO grading_materials (tenant_id, assignment_id, role, title, file_id, url, position, created_by)
+         SELECT tenant_id, $3, role, title, file_id, url, position, $4 FROM grading_materials WHERE tenant_id = $1 AND assignment_id = $2`,
+        [T, String(a.id), String(n.id), ctx.userId]);
       for (const link of links.filter((k) => String(k.assignment_id) === String(a.id))) await copyLink(link, null, String(n.id));
     }
 

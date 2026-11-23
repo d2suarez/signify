@@ -9,6 +9,8 @@ import { listGroupSets } from "@/lib/group-sets";
 import { assignmentGroups, groupState, listGroupWork } from "@/lib/group-work";
 import GroupHandIn from "@/components/GroupHandIn";
 import GroupWorkEditor from "@/components/GroupWorkEditor";
+import GradingMaterials from "@/components/GradingMaterials";
+import { listMaterials } from "@/lib/grading-materials";
 import { gradesFor, listCategories } from "@/lib/grades";
 import { listUnits, unitChoices } from "@/lib/units";
 import { courseGrading, listStandards } from "@/lib/standards";
@@ -54,10 +56,11 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     const toolLink = await linkForAssignment(me.tenantId, a.id);
     const tool = toolLink ? await getTool(me.tenantId, toolLink.toolId) : null;
     const sent = toolLink ? await toolScores(me.tenantId, a.id) : [];
-    const [units, categories, placed, options, attempts, sets, groups, work, subs] = await Promise.all([
+    const [units, categories, placed, options, attempts, sets, groups, work, subs, materials] = await Promise.all([
       listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
       standardOptions(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
       listGroupSets(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listSubmissions(c, a.id),
+      listMaterials(c, a.id),
     ]);
     const handed = new Set(subs.filter((s) => s.submittedAt).map((s) => s.studentId));
     return (
@@ -70,6 +73,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             standards={options}
             attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size}
             groupSets={sets.map((g) => ({ id: g.id, name: g.name }))} />
+          {/* Answer keys and grading materials (A11): teacher-only, never part of the assignment students get. */}
+          <GradingMaterials assignmentId={a.id} courseId={course.id} initial={materials} editable canUpload={uploadsOn()} d={d} />
           {groups && (
             <GroupHandIn assignmentId={a.id} mode={a.kind === "online" ? a.groupHandIn : "each"} paper={a.kind !== "online"} submitterBy={a.groupSubmitter} d={d}
               groups={groups.map((g) => ({

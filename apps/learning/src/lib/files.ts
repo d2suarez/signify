@@ -295,6 +295,12 @@ export async function canOpen(
   if (posts && file.uploadedBy && file.uploadedBy === posts.userId) return true;
   if (file.courseId && (await roleIn(file.courseId)) === "teacher") return true;
   const db = await getDb();
+  // An answer key or grading material (migration 035) opens for teachers only, wherever else it is used.
+  const key = await db.query("SELECT a.course_id FROM grading_materials m JOIN assignments a ON a.id = m.assignment_id WHERE m.tenant_id = $1 AND m.file_id = $2", [tenantId, file.id]);
+  if (key.length) {
+    for (const r of key) if ((await roleIn(String(r.course_id))) === "teacher") return true;
+    return false;
+  }
   if (posts) {
     // A picture or file shown in a visible update its reader can see.
     const shown = await db.query(

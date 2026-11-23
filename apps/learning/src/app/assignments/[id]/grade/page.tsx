@@ -12,6 +12,8 @@ import { TopBar } from "@/components/TopBar";
 import GradeDesk, { type DeskStandards, type DeskStudent } from "@/components/GradeDesk";
 import { placements } from "@/lib/lti-dl";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
+import GradingMaterials from "@/components/GradingMaterials";
+import { listMaterials } from "@/lib/grading-materials";
 import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
@@ -29,9 +31,9 @@ export default async function GradePage({ params, searchParams }: {
   await closeQuizForTeacher(access);
   const { me, course, assignment: a } = access;
   const c = ctx(me);
-  const [{ ok, students }, subs, grades, placed, grading, allStandards, groups, work] = await Promise.all([
+  const [{ ok, students }, subs, grades, placed, grading, allStandards, groups, work, materials] = await Promise.all([
     studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), placements(me.tenantId, "assignment", a.id),
-    courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id),
+    courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listMaterials(c, a.id),
   ]);
   // Group work (story 01, F4): each student's group, and the group's shared text where they haven't handed in.
   const groupOf = new Map((groups ?? []).flatMap((g) => g.members.map((m) => [m.id, g] as const)));
@@ -77,6 +79,7 @@ export default async function GradePage({ params, searchParams }: {
           {a.kind === "quiz" && <Link className="btn" href={`/assignments/${a.id}/results`}>{d.quizResults}</Link>}
           <Link className="btn" href={`/courses/${course.id}/gradebook`}>{d.gradebook}</Link>
         </div>
+        <GradingMaterials assignmentId={a.id} courseId={course.id} initial={materials} editable={false} canUpload={false} d={d} />
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}
         {ok && desk.length === 0 && <p className="empty">{d.noStudents}</p>}
         {ok && desk.length > 0 && (
