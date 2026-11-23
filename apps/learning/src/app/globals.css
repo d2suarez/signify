@@ -398,10 +398,21 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
 .plan-add { display: flex; flex-direction: column; gap: 6px; }
 .plan-add input { width: 100%; }
 .plan-add-btn { align-self: flex-start; margin-top: auto; }
+.plan-pick-btn { align-self: flex-start; }
+.plan-mat { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 6px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--p4, var(--p2)) 14%, var(--surface)); font-size: 13px; font-weight: 600; }
+.plan-mat .shape { width: 9px; height: 9px; }
+.plan-mat select { width: 100%; font-size: 12px; min-height: 30px; }
+.plan-mat .plan-title { text-decoration: none; }
+.plan-std { font-size: 12px; }
+.plan-std summary { cursor: pointer; font-weight: 700; padding: 2px 0; }
+.plan-std ul { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.plan-std li { overflow-wrap: anywhere; line-height: 1.35; }
+.plan-std li .muted { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.plan-std select { width: 100%; font-size: 12px; min-height: 30px; }
 .plan-unplanned summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
 .plan-unplanned-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 8px; margin-top: 8px; }
 .plan-unit label { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; }
-html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due { border: 1px solid var(--ink); }
+html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due, html[data-contrast="high"] .plan-mat { border: 1px solid var(--ink); }
 @media (max-width: 760px) {
   .plan-week { grid-template-columns: 1fr; }
   .plan-day { min-height: 0; }

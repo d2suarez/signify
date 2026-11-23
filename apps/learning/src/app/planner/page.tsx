@@ -7,6 +7,8 @@ import { listLessons, createLesson, saveLesson } from "@/lib/lessons";
 import { listAssignments } from "@/lib/assignments";
 import { listUnits, subtreeIds } from "@/lib/units";
 import { listResources, blocksFromResources } from "@/lib/resources";
+import { listStandards } from "@/lib/standards";
+import { weekPlan, plannable, planMaterial, unplanMaterial, movePlanItem, addDayStandard, removeDayStandard, PlanError } from "@/lib/week-plan";
 import { addDays, isSchoolDay, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
@@ -34,6 +36,39 @@ async function addLesson(formData: FormData) {
 }
 
 /**
+ * Picking materials and standards onto a day (story 01, B1/B2). One action,
+ * `op` says which: pick (kind:id), unpick / move (a plan item), std / unstd.
+ * Only the course's teachers; the lib scopes every write to the course.
+ */
+async function planAction(formData: FormData): Promise<{ error?: string }> {
+  "use server";
+  const access = await courseAccess(String(formData.get("courseId") || ""));
+  if (!access || access.course.role !== "teacher") return { error: "forbidden" };
+  const c = ctx(access.me);
+  const course = access.course.id;
+  const day = formData.get("day");
+  try {
+    switch (String(formData.get("op"))) {
+      case "pick": {
+        const [kind, id] = String(formData.get("pick") || "").split(":");
+        await planMaterial(c, course, day, kind, id);
+        break;
+      }
+      case "unpick": await unplanMaterial(c, course, formData.get("item")); break;
+      case "move": await movePlanItem(c, course, formData.get("item"), day); break;
+      case "std": await addDayStandard(c, course, day, formData.get("standard")); break;
+      case "unstd": await removeDayStandard(c, course, day, formData.get("standard")); break;
+      default: return { error: "missing" };
+    }
+  } catch (e) {
+    if (e instanceof PlanError) return { error: e.code };
+    throw e;
+  }
+  revalidatePath("/planner");
+  return {};
+}
+
+/**
  * The week planner: every course a teacher teaches, Monday to Friday, with
  * the lessons planned for each day and the work due. Lessons move by drag or
  * by a "Move to" list (keyboard and phone); each move is one version-checked
@@ -51,9 +86,11 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
   const c = ctx(me);
 
   const courses: PlannerCourse[] = await Promise.all(teaching.map(async (course) => {
-    const [lessons, assignments, units, resources] = await Promise.all([
+    const [lessons, assignments, units, resources, plan, pickable, standards] = await Promise.all([
       listLessons(c, course.id), listAssignments(c, course.id), listUnits(c, course.id), listResources({ ...c, role: "teacher" }, course.id),
+      weekPlan(c, course.id, days), plannable(c, course.id), listStandards(c, course.id),
     ]);
+    const folder = new Map(units.map((u) => [u.id, u.path]));
     return {
       id: course.id,
       name: course.name,
@@ -62,6 +99,9 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
         .map((a) => ({ id: a.id, title: a.title, dueOn: a.dueOn!, dueAt: a.dueAt, draft: !a.published })),
       units: units.map((u) => ({ id: u.id, title: u.path, within: [...subtreeIds(units, u.id)] })),
       resources: resources.map((r) => ({ id: r.id, title: r.title })),
+      plan: Object.fromEntries(plan.map((p) => [p.day, { materials: p.materials, standards: p.standards }])),
+      pickable: pickable.map((m) => ({ key: `${m.kind}:${m.id}`, title: m.title, sub: m.sub, kind: m.kind, folder: m.unitId ? folder.get(m.unitId) ?? "" : "" })),
+      standards: standards.map((x) => ({ id: x.id, code: x.code, description: x.description })),
     };
   }));
 
@@ -86,7 +126,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
         {!ok && <div className="notice notice-bad" role="alert">{d.classesFailed} <a href="/planner">{d.tryAgain}</a></div>}
         {ok && courses.length === 0
           ? <p className="empty">{d.plannerEmpty}</p>
-          : <WeekPlanner courses={courses} days={days} today={today} L={L} d={d} addLesson={addLesson} />}
+          : <WeekPlanner courses={courses} days={days} today={today} L={L} d={d} addLesson={addLesson} planAction={planAction} />}
       </main>
     </>
   );

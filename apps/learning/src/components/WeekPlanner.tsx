@@ -7,6 +7,7 @@ import { addSchoolDays, pushBack, spreadLessons } from "@/lib/planner";
 import { onSabbath, type Day } from "@/lib/calendar";
 import type { Dict, Lang } from "@/lib/i18n";
 import { localTime } from "./CourseCalendar";
+import type { PlanMaterial, PlanStandard } from "@/lib/week-plan";
 
 export type PlannerLesson = { id: string; title: string; plannedFor: Day | null; version: number; unitId: string | null };
 export type PlannerCourse = {
@@ -18,7 +19,15 @@ export type PlannerCourse = {
   units: { id: string; title: string; within?: string[] }[];
   /** The class's resources, for "Start from" in quick-add (optional so older callers still fit). */
   resources?: { id: string; title: string }[];
+  /** Story 01 B1/B2: materials picked onto each day and the day's standards. */
+  plan?: Record<Day, { materials: PlanMaterial[]; standards: PlanStandard[] }>;
+  /** What can be picked onto a day ("assignment:id" / "resource:id"), with its folder path. */
+  pickable?: { key: string; title: string; sub: string; kind: "assignment" | "resource"; folder: string }[];
+  /** The course's standards, to add to a day by hand. */
+  standards?: { id: string; code: string; description: string }[];
 };
+
+export type PlanAction = (formData: FormData) => Promise<{ error?: string }>;
 
 const NONE = "none";
 
@@ -27,9 +36,10 @@ const NONE = "none";
  * the version it started from (PUT /api/lessons/[id]); if a lesson was changed
  * elsewhere in the meantime the save is refused, the page says so and reloads.
  */
-export default function WeekPlanner({ courses, days, today, L, d, addLesson }: {
+export default function WeekPlanner({ courses, days, today, L, d, addLesson, planAction }: {
   courses: PlannerCourse[]; days: Day[]; today: Day; L: Lang; d: Dict;
   addLesson: (formData: FormData) => Promise<void>;
+  planAction?: PlanAction;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -153,6 +163,17 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson }: {
                         {onSabbath(a.dueOn, localTime(a.dueAt)) && <span className="chip chip-late">⚠ {d.sabbath}</span>}
                       </Link>
                     ))}
+                    {planAction && course.plan && (
+                      <DayPlan course={course} day={day} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")}
+                        act={async (fd) => {
+                          setBusy(true);
+                          try {
+                            const r = await planAction(fd);
+                            setNote(r.error ? { text: r.error === "full" ? d.planFull : d.plannerFailed, bad: true } : null);
+                          } catch { setNote({ text: d.plannerFailed, bad: true }); }
+                          finally { setBusy(false); router.refresh(); }
+                        }} />
+                    )}
                     {adding === key ? (
                       <form action={async (fd) => { await addLesson(fd); setAdding(null); }} className="plan-add">
                         <input type="hidden" name="courseId" value={course.id} />
@@ -212,5 +233,107 @@ function PlanUnit({ course, days, d, busy, dayName, onPlan }: {
       <button className="btn btn-sm btn-primary" disabled={busy}>{d.planUnitGo}</button>
       <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>{d.cancel}</button>
     </form>
+  );
+}
+
+const SUB_ICON: Record<string, string> = { quiz: "?", lesson: "◗", link: "↗", file: "📎", video: "▶", board: "▦", text: "¶" };
+
+/**
+ * One day's picked materials and standards (story 01, B1/B2). Materials are
+ * pointers to the folder tree; a standard comes from what's on the day, or by
+ * hand. Every change is one small form posted to the page's planAction.
+ */
+function DayPlan({ course, day, days, d, busy, dayName, act }: {
+  course: PlannerCourse; day: Day; days: Day[]; d: Dict; busy: boolean; dayName: (day: Day) => string;
+  act: (fd: FormData) => Promise<void>;
+}) {
+  const [picking, setPicking] = useState(false);
+  const plan = course.plan?.[day] ?? { materials: [], standards: [] };
+  const send = (fields: Record<string, string>) => {
+    const fd = new FormData();
+    fd.set("courseId", course.id);
+    fd.set("day", day);
+    for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+    return act(fd);
+  };
+  const groups = new Map<string, NonNullable<PlannerCourse["pickable"]>>();
+  for (const m of course.pickable ?? []) {
+    const g = m.folder || d.notInFolder;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g)!.push(m);
+  }
+  const onDay = new Set(plan.materials.map((m) => `${m.kind}:${m.id}`));
+  const unused = (course.standards ?? []).filter((s) => !plan.standards.some((x) => x.id === s.id));
+  const label = `${course.name}, ${dayName(day)}`;
+
+  return (
+    <>
+      {plan.materials.map((m) => (
+        <div key={m.itemId} className="plan-mat">
+          <span className={`shape ${m.kind === "assignment" ? "s-tri" : "s-square"}`} aria-hidden="true" />
+          <Link href={m.href} className="plan-title">
+            {SUB_ICON[m.sub] && m.sub !== "online" && m.sub !== "offline" ? <span aria-hidden="true">{SUB_ICON[m.sub]} </span> : null}
+            {m.title || d.untitled}
+          </Link>
+          {m.hidden && <span className="pill pill-draft">{m.kind === "assignment" ? d.draft : d.pcHiddenFromStudents}</span>}
+          <select aria-label={`${d.moveTo}: ${m.title}`} value="" disabled={busy}
+            onChange={(e) => { const v = e.target.value; if (v === "off") send({ op: "unpick", item: m.itemId }); else if (v) { const fd = new FormData(); fd.set("courseId", course.id); fd.set("day", v); fd.set("op", "move"); fd.set("item", m.itemId); act(fd); } }}>
+            <option value="" disabled>{d.moveTo}…</option>
+            {days.filter((x) => x !== day).map((x) => <option key={x} value={x}>{dayName(x)}</option>)}
+            <option value="off">{d.planTakeOff}</option>
+          </select>
+        </div>
+      ))}
+
+      {picking ? (
+        <form className="plan-add" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("pick"); if (v) send({ op: "pick", pick: String(v) }).then(() => setPicking(false)); }}>
+          <select name="pick" required autoFocus aria-label={`${d.planPickMaterial}: ${label}`} defaultValue="">
+            <option value="" disabled>{d.planPickMaterial}…</option>
+            {[...groups.entries()].map(([g, list]) => (
+              <optgroup key={g} label={g}>
+                {list.map((m) => (
+                  <option key={m.key} value={m.key} disabled={onDay.has(m.key)}>
+                    {m.kind === "assignment" ? (m.sub === "quiz" ? `${d.kindQuiz}: ` : `${d.pcKindAssignment}: `) : ""}{m.title || d.untitled}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn btn-sm btn-primary" disabled={busy}>{d.add}</button>
+            <button type="button" className="btn btn-sm" onClick={() => setPicking(false)}>{d.cancel}</button>
+          </div>
+        </form>
+      ) : !!course.pickable?.length && (
+        <button type="button" className="link-btn plan-pick-btn" onClick={() => setPicking(true)} aria-label={`${d.planPickMaterial}: ${label}`}>+ {d.matMaterial}</button>
+      )}
+
+      {(plan.standards.length > 0 || unused.length > 0) && (
+        <details className="plan-std">
+          <summary>{d.planStandards} ({plan.standards.length})</summary>
+          {plan.standards.length === 0 && <p className="muted" style={{ margin: "4px 0", fontSize: 12 }}>{d.planNoStandards}</p>}
+          <ul>
+            {plan.standards.map((s) => (
+              <li key={s.id} title={`${s.description}${s.from.length ? `\n${d.planFrom}: ${s.from.join(", ")}` : ""}`}>
+                <b>{s.code}</b> <span className="muted">{s.description}</span>
+                {s.byHand && (
+                  <button type="button" className="link-btn" disabled={busy} aria-label={`${d.remove}: ${s.code}, ${dayName(day)}`}
+                    onClick={() => send({ op: "unstd", standard: s.id })}>×</button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {unused.length > 0 && (
+            <form className="plan-add" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("standard"); if (v) send({ op: "std", standard: String(v) }); }}>
+              <select name="standard" required aria-label={`${d.planAddStandard}: ${label}`} defaultValue="">
+                <option value="" disabled>{d.planAddStandard}…</option>
+                {unused.map((s) => <option key={s.id} value={s.id}>{s.code} {s.description.slice(0, 80)}</option>)}
+              </select>
+              <button className="btn btn-sm" disabled={busy}>{d.add}</button>
+            </form>
+          )}
+        </details>
+      )}
+    </>
   );
 }
