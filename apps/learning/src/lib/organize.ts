@@ -1,6 +1,6 @@
 import { getDb, type Queryable } from "./db";
 import type { Block } from "./blocks";
-import { videoFromUrl, type DocNode, type PostDoc, DOC_LIMITS } from "./post-doc";
+import { videoFromUrl, normalizeDoc, type DocNode, type PostDoc, DOC_LIMITS } from "./post-doc";
 import { createPosts, moderatePost, type Viewer } from "./updates";
 
 /**
@@ -166,9 +166,18 @@ export function lessonDoc(lesson: { id: string; title: string; blocks: Block[] }
   return { v: 1, nodes };
 }
 
-export function assignmentDoc(a: { id: string; title: string; instructions: string }): PostDoc {
+export function assignmentDoc(a: { id: string; title: string; instructions: string; instructionsDoc?: PostDoc | null }): PostDoc {
   const nodes: DocNode[] = [];
-  for (const chunk of a.instructions.split(/\n{2,}/).slice(0, DOC_LIMITS.nodes - 1)) if (chunk.trim()) nodes.push({ type: "p", content: [{ text: chunk }] });
+  if (a.instructionsDoc) {
+    // Rich instructions as written, leaving room for the link to the assignment.
+    let embeds = 0;
+    for (const n of a.instructionsDoc.nodes) {
+      if (nodes.length >= DOC_LIMITS.nodes - 1) break;
+      if (n.type === "material") continue;
+      if (n.type === "file" || n.type === "video") { if (embeds >= DOC_LIMITS.embeds - 1) continue; embeds++; }
+      nodes.push(n);
+    }
+  } else for (const chunk of a.instructions.split(/\n{2,}/).slice(0, DOC_LIMITS.nodes - 1)) if (chunk.trim()) nodes.push({ type: "p", content: [{ text: chunk }] });
   nodes.push({ type: "material", kind: "assignment", id: a.id, title: a.title });
   return { v: 1, nodes };
 }
@@ -218,7 +227,7 @@ export async function setAssignmentThread(v: Viewer, courseId: string, ids: unkn
   if (!want.length) return 0;
   const db = await getDb();
   const rows = await db.query(
-    "SELECT id, title, instructions, published, thread_post_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND id = ANY($3::uuid[]) AND archived = false",
+    "SELECT id, title, instructions, instructions_doc, published, thread_post_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND id = ANY($3::uuid[]) AND archived = false",
     [v.tenantId, courseId, want],
   );
   let n = 0;
@@ -226,7 +235,10 @@ export async function setAssignmentThread(v: Viewer, courseId: string, ids: unkn
     const id = String(r.id);
     let post: string | null = r.thread_post_id ? String(r.thread_post_id) : null;
     if (on && !post && r.published) {
-      const [p] = await createPosts(v, { to: [courseId], title: String(r.title), doc: assignmentDoc({ id, title: String(r.title), instructions: String(r.instructions ?? "") }) });
+      const [p] = await createPosts(v, { to: [courseId], title: String(r.title), doc: assignmentDoc({
+        id, title: String(r.title), instructions: String(r.instructions ?? ""),
+        instructionsDoc: r.instructions_doc ? normalizeDoc(typeof r.instructions_doc === "string" ? JSON.parse(r.instructions_doc) : r.instructions_doc) : null,
+      }) });
       post = p.id;
       n++;
     } else if (!on && post) {

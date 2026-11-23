@@ -4,6 +4,7 @@ import { cleanTitle, unitInCourse } from "./units";
 import { normalizeRubric, rubricMax, type Rubric } from "./rubric";
 import { standardsInCourse } from "./standards";
 import { DEFAULT_SETTINGS, normalizeQuiz, quizPoints, type Quiz } from "./quiz";
+import { docFileIds, docIsEmpty, docText, filterDoc, normalizeDoc, type PostDoc } from "./post-doc";
 
 /**
  * Assignments and the work students hand in for them.
@@ -27,6 +28,12 @@ export type Assignment = {
   categoryId: string | null;
   title: string;
   instructions: string;
+  /**
+   * Rich instructions (migration 028): the Updates document. Null for plain
+   * text only (older or imported assignments); then `instructions` is shown
+   * as written. When set, `instructions` is its words.
+   */
+  instructionsDoc: PostDoc | null;
   kind: AssignmentKind;
   points: number;
   dueOn: string | null;
@@ -71,6 +78,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     categoryId: r.category_id ? String(r.category_id) : null,
     title: String(r.title),
     instructions: String(r.instructions ?? ""),
+    instructionsDoc: r.instructions_doc ? normalizeDoc(typeof r.instructions_doc === "string" ? JSON.parse(r.instructions_doc) : r.instructions_doc) : null,
     kind: r.kind === "offline" ? "offline" : r.kind === "quiz" ? "quiz" : "online",
     points: Number(r.points),
     dueOn: day(r.due_on),
@@ -168,6 +176,8 @@ export type AssignmentInput = {
   baseVersion: number;
   title?: unknown;
   instructions?: unknown;
+  /** Rich instructions (the Updates document); wins over `instructions`, whose text it then sets. */
+  instructionsDoc?: unknown;
   kind?: unknown;
   points?: unknown;
   dueOn?: unknown;
@@ -206,10 +216,15 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const due = input.dueOn === undefined && input.dueAt === undefined
       ? { dueOn: cur.dueOn, dueAt: cur.dueAt }
       : cleanDue(input.dueOn, input.dueAt);
+    const instr = input.instructionsDoc !== undefined
+      ? await cleanInstructionsDoc(ctx, input.instructionsDoc, t)
+      : input.instructions !== undefined
+        ? { instructions: String(input.instructions).slice(0, LIMITS.instructions), instructionsDoc: null }
+        : { instructions: cur.instructions, instructionsDoc: cur.instructionsDoc };
     const next: Assignment = {
       ...cur,
+      ...instr,
       title: input.title === undefined ? cur.title : cleanTitle(input.title, "Untitled assignment"),
-      instructions: input.instructions === undefined ? cur.instructions : String(input.instructions).slice(0, LIMITS.instructions),
       kind: input.kind === undefined ? cur.kind : cleanKind(input.kind),
       points: input.points === undefined ? cur.points : cleanPoints(input.points, cur.points),
       ...due,
@@ -250,10 +265,11 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);
     const standardsChanged = JSON.stringify(next.standards) !== JSON.stringify(cur.standards);
     const quizChanged = JSON.stringify(next.quiz) !== JSON.stringify(cur.quiz);
-    const changed = rubricChanged || standardsChanged || quizChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
+    const docChanged = JSON.stringify(next.instructionsDoc) !== JSON.stringify(cur.instructionsDoc);
+    const changed = rubricChanged || standardsChanged || quizChanged || docChanged || SNAPSHOT_KEYS.some((k) => next[k] !== cur[k]);
     if (!changed) return { ok: true, assignment: cur, changed: false } as const;
 
-    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric, standards: cur.standards, quiz: cur.quiz };
+    const snapshot = { ...Object.fromEntries(SNAPSHOT_KEYS.map((k) => [k, cur[k]])), rubric: cur.rubric, standards: cur.standards, quiz: cur.quiz, instructionsDoc: cur.instructionsDoc };
     await t.query(
       `INSERT INTO assignment_versions (tenant_id, assignment_id, version, snapshot, saved_by, saved_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6) ON CONFLICT (assignment_id, version) DO NOTHING`,
@@ -267,15 +283,32 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
               unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb, standards = $15::jsonb,
-              quiz = $16::jsonb, version = version + 1, updated_by = $13, updated_at = now()
+              quiz = $16::jsonb, instructions_doc = $17::jsonb, version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
         next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
         next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null,
-        next.quiz ? JSON.stringify(next.quiz) : null],
+        next.quiz ? JSON.stringify(next.quiz) : null, next.instructionsDoc ? JSON.stringify(next.instructionsDoc) : null],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });
+}
+
+/**
+ * Rich instructions as saved: only known shapes (normalizeDoc), pictures and
+ * files only this school's own uploads, and no links to other Learning
+ * materials (an assignment's page has no per-viewer resolver for them). The
+ * text beside it is its words, so everything that reads `instructions` works.
+ */
+export async function cleanInstructionsDoc(ctx: Ctx, input: unknown, q: Queryable): Promise<{ instructions: string; instructionsDoc: PostDoc | null }> {
+  let doc = normalizeDoc(input);
+  const ids = docFileIds(doc);
+  const ours = ids.length
+    ? new Set((await q.query("SELECT id FROM course_files WHERE tenant_id = $1 AND id = ANY($2::uuid[])", [ctx.tenantId, ids])).map((r) => String(r.id)))
+    : new Set<string>();
+  doc = filterDoc(doc, (n) => n.type !== "material" && (n.type !== "file" || ours.has(n.fileId)));
+  if (docIsEmpty(doc)) return { instructions: "", instructionsDoc: null };
+  return { instructions: docText(doc).slice(0, LIMITS.instructions), instructionsDoc: doc };
 }
 
 /**

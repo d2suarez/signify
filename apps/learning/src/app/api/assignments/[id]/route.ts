@@ -14,7 +14,7 @@ async function teacher(id: string) {
   return { access };
 }
 
-/** Save an assignment. Body: { baseVersion, title?, instructions?, kind?, points?, dueOn?, dueAt?, unitId?, categoryId?, published?, gradesReleased?, rubric?, standards?, quiz? }. */
+/** Save an assignment. Body: { baseVersion, title?, instructions?, instructionsDoc?, kind?, points?, dueOn?, dueAt?, unitId?, categoryId?, published?, gradesReleased?, rubric?, standards?, quiz? }. */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { access, error } = await teacher(id);
@@ -31,7 +31,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   const r = await saveAssignment(ctx(access.me), id, {
     baseVersion: Number(body.baseVersion),
-    title: body.title, instructions: body.instructions, kind: body.kind, points: body.points,
+    title: body.title, instructions: body.instructions, instructionsDoc: body.instructionsDoc, kind: body.kind, points: body.points,
     dueOn: body.dueOn, dueAt: body.dueAt, unitId: body.unitId, categoryId: body.categoryId,
     published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric, standards: body.standards, quiz: body.quiz,
   });

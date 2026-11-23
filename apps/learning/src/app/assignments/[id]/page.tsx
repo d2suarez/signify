@@ -13,9 +13,11 @@ import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { When } from "@/components/When";
 import AssignmentEditor from "@/components/AssignmentEditor";
+import { uploadsOn } from "@/lib/files";
 import SubmissionEditor from "@/components/SubmissionEditor";
 import ReadAloud from "@/components/ReadAloud";
 import RubricView from "@/components/RubricView";
+import Instructions from "@/components/Instructions";
 import SchoologyScores from "@/components/SchoologyScores";
 import { placements } from "@/lib/lti-dl";
 import { StandardsList } from "@/components/Work";
@@ -56,7 +58,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
       <>
         <TopBar crumbs={crumbs} />
         <main className="page">
-          <AssignmentEditor initial={a} d={d}
+          <AssignmentEditor initial={a} d={d} canUpload={uploadsOn()}
             units={unitChoices(units).map((u) => ({ id: u.id, name: u.label }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
             standards={options}
@@ -143,7 +145,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
           <section className="card stack" style={{ gap: 8 }}>
             <p className="label">{d.instructions}</p>
             <ReadAloud text={`${a.title}.\n${a.instructions}`} d={d} />
-            <div className="body-text" style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.6 }}>{a.instructions}</div>
+            <Instructions text={a.instructions} doc={a.instructionsDoc} d={d} L={L} />
           </section>
         )}
 

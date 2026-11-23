@@ -354,19 +354,19 @@ export default function PostComposer({ places, preselected = [], materials = [],
 }
 
 /** A toolbar button. Pressing it never takes the caret out of the editor. */
-function Tool({ on, label, onClick, children }: { on?: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
+export function Tool({ on, label, onClick, children }: { on?: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" className={`rt-tool${on ? " is-on" : ""}`} aria-label={label} title={label} aria-pressed={on === undefined ? undefined : on}
       onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{children}</button>
   );
 }
 
-function Icon({ d }: { d: string }) {
+export function Icon({ d }: { d: string }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={d} fill="currentColor" /></svg>;
 }
 
 /** A saved node back into the editor, so an update can be changed. */
-function nodeEl(n: DocNode, d: Dict): HTMLElement {
+export function nodeEl(n: DocNode, d: Dict): HTMLElement {
   const runs = (parent: HTMLElement, rs: Inline[]) => {
     for (const r of rs) {
       let el: Node = document.createDocumentFragment();
@@ -401,7 +401,7 @@ function nodeEl(n: DocNode, d: Dict): HTMLElement {
 }
 
 /** The non-editable box for a picture, file, video or Learning link inside the editor. */
-function embedEl(node: DocNode, d: Dict): HTMLElement {
+export function embedEl(node: DocNode, d: Dict): HTMLElement {
   const box = document.createElement("div");
   box.className = `rt-embed rt-embed-${node.type}`;
   box.contentEditable = "false";
@@ -443,7 +443,7 @@ function embedEl(node: DocNode, d: Dict): HTMLElement {
 const BLOCKS = new Set(["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "BLOCKQUOTE", "PRE"]);
 
 /** What's in the editor → the post document's nodes. Only known shapes come out. */
-function serialize(root: HTMLElement): DocNode[] {
+export function serialize(root: HTMLElement): DocNode[] {
   const out: DocNode[] = [];
   let loose: Inline[] | null = null;
   const flush = () => { if (loose && loose.some((r) => r.text.trim())) out.push({ type: "p", content: trim(loose) }); loose = null; };

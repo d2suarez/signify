@@ -304,7 +304,7 @@ export async function canOpen(
     if (shown.some((r) => posts.reads(r.course_id ? String(r.course_id) : null))) return true;
   }
   if (!file.courseId) return false;
-  const [res, les] = await Promise.all([
+  const [res, les, asg] = await Promise.all([
     db.query(
       `SELECT course_id, bool_or(visible AND NOT archived) AS shown FROM class_resources
         WHERE tenant_id = $1 AND kind = 'block' AND block->>'type' = 'file' AND block->>'fileId' = $2 GROUP BY course_id`,
@@ -314,9 +314,18 @@ export async function canOpen(
       "SELECT DISTINCT course_id FROM lessons WHERE tenant_id = $1 AND archived = false AND blocks @> $2::jsonb",
       [tenantId, JSON.stringify([{ type: "file", fileId: file.id }])],
     ),
+    // Rich assignment instructions (migration 028): students once it's published.
+    db.query(
+      `SELECT course_id, bool_or(published) AS shown FROM assignments
+        WHERE tenant_id = $1 AND archived = false AND instructions_doc->'nodes' @> $2::jsonb GROUP BY course_id`,
+      [tenantId, JSON.stringify([{ type: "file", fileId: file.id }])],
+    ),
   ]);
-  const studentOk = new Set([...res.filter((r) => r.shown === true).map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id))]);
-  const courses = new Set([...res.map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id))]);
+  const studentOk = new Set([
+    ...res.filter((r) => r.shown === true).map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id)),
+    ...asg.filter((r) => r.shown === true).map((r) => String(r.course_id)),
+  ]);
+  const courses = new Set([...res.map((r) => String(r.course_id)), ...les.map((r) => String(r.course_id)), ...asg.map((r) => String(r.course_id))]);
   const own = file.courseId;
   courses.delete(own);
   if (studentOk.has(own) && (await roleIn(own)) === "student") return true;

@@ -17,6 +17,7 @@ import { PreviewFrame, PreviewFailed } from "@/components/Preview";
 import { When } from "@/components/When";
 import { StandardsList } from "@/components/Work";
 import RubricView from "@/components/RubricView";
+import Instructions from "@/components/Instructions";
 
 export const dynamic = "force-dynamic";
 
@@ -95,7 +96,7 @@ export default async function PreviewAssignment({ params }: { params: Promise<{ 
       {a.instructions && (
         <section className="card stack" style={{ gap: 8 }}>
           <p className="label">{d.instructions}</p>
-          <div className="body-text" style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.6 }}>{a.instructions}</div>
+          <Instructions text={a.instructions} doc={a.instructionsDoc} d={d} L={L} />
         </section>
       )}
 

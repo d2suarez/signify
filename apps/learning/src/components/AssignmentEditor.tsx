@@ -10,6 +10,8 @@ import RubricEditor from "./RubricEditor";
 import QuizEditor from "./QuizEditor";
 import StandardsPicker, { type StandardOption } from "./StandardsPicker";
 import { DEFAULT_SETTINGS, quizPoints } from "@/lib/quiz";
+import { docFromText, type DocNode } from "@/lib/post-doc";
+import DocEditor from "./DocEditor";
 
 type Option = { id: string; name: string };
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
@@ -25,8 +27,10 @@ function localTime(iso: string | null): string {
  * The teacher's form for one assignment. Saved with an explicit Save (it is
  * a form, not a document), version-checked like lessons.
  */
-export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, d }: {
+export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, canUpload = false, d }: {
   initial: Assignment; units: Option[]; categories: Option[];
+  /** Whether pictures and files can be uploaded into the instructions (the file store is on). */
+  canUpload?: boolean;
   /** The course's standards (any course may align work; only a standards course grades by them). */
   standards?: StandardOption[];
   /** A quiz: how many students have handed in an attempt. */
@@ -36,6 +40,10 @@ export default function AssignmentEditor({ initial, units, categories, standards
   const [time, setTime] = useState("23:59");
   const [status, setStatus] = useState<Status>("saved");
   const [regraded, setRegraded] = useState("");
+  // Rich instructions (A12): sent only once the teacher has changed them, so an
+  // old plain-text assignment stays plain text until its instructions are edited.
+  const [doc, setDoc] = useState<DocNode[] | null>(null);
+  const [docStart] = useState<DocNode[]>(() => initial.instructionsDoc?.nodes ?? docFromText(initial.instructions).nodes);
 
   useEffect(() => { setTime(localTime(initial.dueAt)); }, [initial.dueAt]);
 
@@ -57,7 +65,8 @@ export default function AssignmentEditor({ initial, units, categories, standards
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          baseVersion: a.version, title: next.title, instructions: next.instructions, kind: next.kind,
+          baseVersion: a.version, title: next.title,
+          ...(doc ? { instructionsDoc: { v: 1, nodes: doc } } : { instructions: next.instructions }), kind: next.kind,
           points: next.points, dueOn: next.dueOn, dueAt, unitId: next.unitId || null, categoryId: next.categoryId || null,
           published: next.published, gradesReleased: next.gradesReleased, rubric: next.kind === "quiz" ? null : next.rubric,
           ...(next.kind === "quiz" ? { quiz: next.quiz ?? { settings: DEFAULT_SETTINGS, items: [] } } : {}),
@@ -68,6 +77,7 @@ export default function AssignmentEditor({ initial, units, categories, standards
       if (!res.ok) throw new Error(String(res.status));
       const body = await res.json();
       setA(body.assignment);
+      setDoc(null);
       setStatus("saved");
       const r = body.regraded;
       setRegraded(r ? (r.roster ? d.quizRegraded : d.quizRegradedNoRoster).replace("{a}", String(r.attempts)).replace("{g}", String(r.grades)) : "");
@@ -108,9 +118,9 @@ export default function AssignmentEditor({ initial, units, categories, standards
           <input id="a-title" className="title-input" value={a.title} maxLength={200} onChange={(e) => set({ title: e.target.value })} />
           <div className="card">
             <div className="fieldset" style={{ marginTop: 0 }}>
-              <label htmlFor="a-instr">{d.instructions}</label>
-              <textarea id="a-instr" className="field" rows={10} value={a.instructions} maxLength={20000}
-                onChange={(e) => set({ instructions: e.target.value })} />
+              <span className="label" id="a-instr-label">{d.instructions}</span>
+              <DocEditor initial={docStart} canUpload={canUpload} uploadUrl={`/api/courses/${a.courseId}/files`} label={d.instructionsPlaceholder} d={d}
+                onChange={(nodes) => { setDoc(nodes); if (status !== "conflict") setStatus("dirty"); }} />
             </div>
             <div className="fieldset">
               <label htmlFor="a-kind">{d.kind}</label>
