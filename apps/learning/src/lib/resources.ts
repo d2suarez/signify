@@ -66,7 +66,8 @@ function teacherOnly(who: Who) {
 /** A resource's one block, through the same door as every lesson block. Null if it isn't one. */
 export function normalizeResourceBlock(input: unknown): Block | null {
   const [b] = normalizeBlocks(Array.isArray(input) ? input.slice(0, 1) : [input]);
-  return b ?? null;
+  // An assignment is a material of its own, never a resource's block.
+  return b && b.type !== "assignment" ? b : null;
 }
 
 /** Whether students may ever see this resource. */
@@ -80,7 +81,7 @@ export function defaultTitle(b: Block): string {
     case "text": return b.title || b.body.split("\n")[0].slice(0, 80);
     case "poll": return b.question.split("\n")[0].slice(0, 80);
     case "timer": case "picker": case "noise": return b.label;
-    case "board": case "link": case "tool": return b.title;
+    case "board": case "link": case "tool": case "assignment": return b.title;
     case "file": return b.title || b.name;
   }
 }

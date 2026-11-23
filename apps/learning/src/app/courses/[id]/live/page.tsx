@@ -23,7 +23,7 @@ export default async function FollowLive({ params }: { params: Promise<{ id: str
     <>
       <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} />
       <main className="page">
-        <Follower courseId={course.id} courseName={course.name} ticket={ticket} d={dict(L)} />
+        <Follower courseId={course.id} courseName={course.name} ticket={ticket} d={dict(L)} L={L} />
       </main>
     </>
   );

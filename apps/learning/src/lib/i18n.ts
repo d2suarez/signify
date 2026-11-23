@@ -1507,6 +1507,19 @@ const en = {
   svPillHidden: "Hidden from students",
   svPillList: "Students can open",
   svPillThread: "In Updates",
+  blockAssignment: "Assignment or quiz",
+  asgSlideChoose: "Which assignment or quiz",
+  asgSlidePick: "Pick one…",
+  asgSlideHint: "Publish it from this slide while you present: students' screens open it.",
+  asgSlideDraft: "Draft: students can't see it yet.",
+  asgSlidePublished: "Published: students' screens have it open.",
+  asgSlidePublish: "Publish now",
+  asgSlidePublishing: "Publishing…",
+  asgSlideFailed: "Couldn't publish it. Try again.",
+  asgSlideGone: "This assignment was removed from the class.",
+  asgSlideWaiting: "Your teacher will open this assignment soon.",
+  asgSlideOpenPage: "Open its own page",
+  asgSlideLoading: "Loading…",
 };
 
 export type Key = keyof typeof en;
@@ -3000,6 +3013,19 @@ const es: Partial<Record<Key, string>> = {
   svPillHidden: "Oculto a los estudiantes",
   svPillList: "Los estudiantes pueden abrirlo",
   svPillThread: "En Novedades",
+  blockAssignment: "Tarea o prueba",
+  asgSlideChoose: "Qué tarea o prueba",
+  asgSlidePick: "Elige una…",
+  asgSlideHint: "Publícala desde esta diapositiva mientras presentas: las pantallas de los estudiantes la abren.",
+  asgSlideDraft: "Borrador: los estudiantes aún no la ven.",
+  asgSlidePublished: "Publicada: las pantallas de los estudiantes la tienen abierta.",
+  asgSlidePublish: "Publicar ahora",
+  asgSlidePublishing: "Publicando…",
+  asgSlideFailed: "No se pudo publicar. Inténtalo de nuevo.",
+  asgSlideGone: "Esta tarea fue quitada de la clase.",
+  asgSlideWaiting: "Tu maestro abrirá esta tarea pronto.",
+  asgSlideOpenPage: "Abrir su propia página",
+  asgSlideLoading: "Cargando…",
 };
 
 const dicts = { en, es } as const;

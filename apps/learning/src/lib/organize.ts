@@ -160,6 +160,9 @@ export function lessonDoc(lesson: { id: string; title: string; blocks: Block[] }
         if (b.title) para(b.title, "h");
         nodes.push({ type: "video", ...v }); embeds++;
       } else if (room()) nodes.push({ type: "p", content: [{ text: b.title || b.url, href: b.url }] });
+    } else if (b.type === "assignment" && b.assignmentId && room()) {
+      // The assignment itself, as a link; its title is filled in per reader (a student sees a draft's only once it's published).
+      nodes.push({ type: "material", kind: "assignment", id: b.assignmentId, title: "" });
     }
   }
   nodes.push({ type: "material", kind: "lesson", id: lesson.id, title: lesson.title });

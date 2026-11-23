@@ -22,8 +22,12 @@ const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "
 /** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
 export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
 
-export default function LessonEditor({ initial, courseId, units = [], tools = [], resources = [], d }: {
-  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; resources?: ResourceChoice[]; d: Dict;
+/** One of the course's assignments or quizzes, for an assignment slide. */
+export type AssignmentChoice = { id: string; title: string; kind: string; published: boolean };
+
+export default function LessonEditor({ initial, courseId, units = [], tools = [], resources = [], assignments = [], d }: {
+  initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; resources?: ResourceChoice[];
+  assignments?: AssignmentChoice[]; d: Dict;
 }) {
   const [title, setTitle] = useState(initial.title);
   const [blocks, setBlocks] = useState<Block[]>(initial.blocks);
@@ -203,21 +207,23 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
                 <button type="button" className="icon-btn" aria-label={d.moveDown} disabled={i === blocks.length - 1} onClick={() => move(i, 1)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
                 </button>
-                <button type="button" className="icon-btn" aria-label={`${d.resSaveBlock}: ${i + 1}`} title={d.resSaveBlock} onClick={() => saveToResources(b)}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
-                </button>
+                {b.type !== "assignment" && (
+                  <button type="button" className="icon-btn" aria-label={`${d.resSaveBlock}: ${i + 1}`} title={d.resSaveBlock} onClick={() => saveToResources(b)}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
+                  </button>
+                )}
                 <button type="button" className="icon-btn" aria-label={d.remove} onClick={() => remove(i)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                 </button>
               </div>
-              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} courseId={courseId} />
+              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} courseId={courseId} assignments={assignments} />
             </section>
           ))}
 
           <div className="card" style={{ padding: "14px 16px" }}>
             <p className="label">{d.addBlock}</p>
             <div className="row" style={{ marginTop: 10 }}>
-              {ADD.map((type) => (
+              {(assignments.length ? [...ADD, "assignment" as const] : ADD).map((type) => (
                 <button key={type} type="button" className="btn" onClick={() => add(type)}><span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}</button>
               ))}
             </div>
@@ -296,11 +302,32 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
   );
 }
 
-export function BlockFields({ block: b, d, onChange, idBase, courseId }: {
+export function BlockFields({ block: b, d, onChange, idBase, courseId, assignments = [] }: {
   block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string;
   /** Where an uploaded file belongs (file blocks). */
   courseId?: string;
+  /** The course's assignments and quizzes (assignment slides). */
+  assignments?: AssignmentChoice[];
 }) {
+  if (b.type === "assignment") {
+    const known = assignments.some((a) => a.id === b.assignmentId);
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-a`}>{d.asgSlideChoose}</label>
+          <select id={`${idBase}-a`} className="field" value={b.assignmentId}
+            onChange={(e) => onChange({ assignmentId: e.target.value, title: assignments.find((a) => a.id === e.target.value)?.title ?? "" } as Partial<Block>)}>
+            <option value="">{d.asgSlidePick}</option>
+            {b.assignmentId && !known && <option value={b.assignmentId}>{b.title || d.blockAssignment}</option>}
+            {assignments.map((a) => (
+              <option key={a.id} value={a.id}>{a.title} · {a.kind === "quiz" ? d.quizWord : d.pcKindAssignment}{a.published ? "" : ` · ${d.pcDraft}`}</option>
+            ))}
+          </select>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.asgSlideHint}</p>
+      </>
+    );
+  }
   if (b.type === "file") return <FileFields block={b} d={d} onChange={onChange} idBase={idBase} courseId={courseId} />;
   if (b.type === "text") {
     return (

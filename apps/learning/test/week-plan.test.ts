@@ -138,7 +138,8 @@ test("present this day: the day's lessons then materials become one lesson, open
   await planMaterial(T, cls, day, "assignment", sheet.id);
 
   const { blocks } = await dayBlocks(T, cls, day);
-  assert.deepEqual(blocks.map((b) => [b.type, (b as { title?: string }).title]), [["text", "Welcome"], ["link", "Video"], ["text", "Assignment: Worksheet"]]);
+  assert.deepEqual(blocks.map((b) => [b.type, (b as { title?: string }).title]), [["text", "Welcome"], ["link", "Video"], ["assignment", "Worksheet"]]);
+  assert.equal((blocks[2] as { assignmentId?: string }).assignmentId, sheet.id, "the assignment itself, published from the slide (D3)");
   assert.ok(blocks.every((b) => b.id !== "x1"), "fresh ids: the day's lessons never change");
 
   const made = await presentDay(T, cls, day, "Bible 10 · Wednesday");

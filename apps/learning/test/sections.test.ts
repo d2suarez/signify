@@ -225,3 +225,31 @@ test("sections: class resources copy too, hidden from students; a lesson resourc
   assert.equal(clubCopy.assignments, 0, "assignments never go into a club");
   assert.ok(clubCopy.lessons > 0);
 });
+
+test("sections: a copied lesson's assignment slides bring their assignment and point at the copy (story 01, D3)", async () => {
+  const { createAssignment } = await import("../src/lib/assignments");
+  const quiz = await createAssignment(ana, bible25, { title: "Slide quiz", kind: "quiz" });
+  const lesson = await createLesson(ana, bible25, "Quiz day", [
+    { id: "a1", type: "text", title: "Warm up", body: "" },
+    { id: "a2", type: "assignment", title: "old title", assignmentId: quiz.id },
+  ] as never);
+  assert.equal((lesson.blocks[1] as { title: string }).title, "Slide quiz", "the slide's title comes from the assignment");
+  const before = Number((await db.query("SELECT count(*)::int AS n FROM assignments WHERE course_id = $1", [bible26]))[0].n);
+  const r = await copyContent(ana, bible25, bible26, { lessons: [lesson.id] });
+  assert.equal(r.assignments, 1, "the slide's assignment came along");
+  const [copy] = await db.query("SELECT id FROM assignments WHERE course_id = $1 AND title = 'Slide quiz'", [bible26]);
+  assert.ok(copy && Number((await db.query("SELECT count(*)::int AS n FROM assignments WHERE course_id = $1", [bible26]))[0].n) === before + 1);
+  const [l] = await db.query("SELECT blocks FROM lessons WHERE course_id = $1 AND title = 'Quiz day'", [bible26]);
+  const blocks = typeof l.blocks === "string" ? JSON.parse(l.blocks) : l.blocks;
+  assert.deepEqual(blocks.map((b: { type: string }) => b.type), ["text", "assignment"]);
+  assert.equal(blocks[1].assignmentId, String(copy.id), "points at this class's copy, never last year's");
+
+  // Into a club: no assignments go, so the slide is dropped rather than left pointing at the old class.
+  const [club] = await db.query("INSERT INTO courses (tenant_id, id_class_id, name, kind) VALUES ($1, 'club-d3', 'Choir', 'club') RETURNING id", [T]);
+  await copyContent(ana, bible25, String(club.id), { lessons: [lesson.id] });
+  {
+    const [cl] = await db.query("SELECT blocks FROM lessons WHERE course_id = $1 AND title = 'Quiz day'", [club.id]);
+    const cb = typeof cl.blocks === "string" ? JSON.parse(cl.blocks) : cl.blocks;
+    assert.deepEqual(cb.map((b: { type: string }) => b.type), ["text"]);
+  }
+});

@@ -1,5 +1,5 @@
-import { getDb } from "./db";
-import { type Block, normalizeBlocks } from "./blocks";
+import { getDb, type Queryable } from "./db";
+import { type Block, assignmentIdsIn, normalizeBlocks } from "./blocks";
 import { unitInCourse } from "./units";
 import { standardsInCourse } from "./standards";
 
@@ -82,16 +82,36 @@ export async function listLessons(ctx: Ctx, courseId: string): Promise<LessonSum
   }));
 }
 
+/**
+ * Assignment slides only for this course's own (unarchived) assignments: one
+ * pointing anywhere else is dropped. Each kept slide's title is refreshed
+ * from the assignment. Every lesson save goes through here.
+ */
+export async function ownAssignments(q: Queryable, tenantId: string, courseId: string, blocks: Block[]): Promise<Block[]> {
+  const want = assignmentIdsIn(blocks);
+  if (!want.length) return blocks;
+  const rows = await q.query(
+    "SELECT id, title FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND id = ANY($3::uuid[])",
+    [tenantId, courseId, want]);
+  const titles = new Map(rows.map((r) => [String(r.id), String(r.title)]));
+  return blocks.flatMap((b) => {
+    if (b.type !== "assignment" || !b.assignmentId) return [b];
+    const title = titles.get(b.assignmentId);
+    return title === undefined ? [] : [{ ...b, title: title.slice(0, 200) }];
+  });
+}
+
 export async function createLesson(
   ctx: Ctx, courseId: string, title: string, blocks: Block[] = [], unitId: unknown = null,
 ): Promise<Lesson> {
   const db = await getDb();
   const clean = title.replace(/\s+/g, " ").trim().slice(0, 200) || "Untitled lesson";
   const unit = await unitInCourse(ctx, courseId, unitId);
+  const own = await ownAssignments(db, ctx.tenantId, courseId, normalizeBlocks(blocks));
   const rows = await db.query(
     `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by)
      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6) RETURNING *`,
-    [ctx.tenantId, courseId, clean, JSON.stringify(normalizeBlocks(blocks)), unit, ctx.userId],
+    [ctx.tenantId, courseId, clean, JSON.stringify(own), unit, ctx.userId],
   );
   return toLesson(rows[0]);
 }
@@ -156,7 +176,7 @@ export async function saveLesson(ctx: Ctx, id: string, input: SaveInput): Promis
       title: input.title === undefined
         ? current.title
         : String(input.title).replace(/\s+/g, " ").trim().slice(0, 200) || "Untitled lesson",
-      blocks: input.blocks === undefined ? current.blocks : normalizeBlocks(input.blocks),
+      blocks: input.blocks === undefined ? current.blocks : await ownAssignments(t, ctx.tenantId, current.courseId, normalizeBlocks(input.blocks)),
       plannedFor: input.plannedFor === undefined
         ? current.plannedFor
         : (typeof input.plannedFor === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.plannedFor) ? input.plannedFor : null),

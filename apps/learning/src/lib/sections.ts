@@ -1,5 +1,6 @@
 import { getDb, type Queryable, type Row } from "./db";
 import { orderTree, subtreeIds } from "./units";
+import { type Block, assignmentIdsIn, normalizeBlocks, remapAssignments } from "./blocks";
 
 /**
  * Courses that last and their yearly sections (migration 017).
@@ -274,6 +275,10 @@ function remap<T>(value: T, map: Map<string, string>): T {
   return JSON.parse(s) as T;
 }
 
+function blocksOf(v: unknown): Block[] {
+  try { return normalizeBlocks(typeof v === "string" ? JSON.parse(v) : v ?? []); } catch { return []; }
+}
+
 function uuidsIn(value: unknown): string[] {
   if (value == null) return [];
   return [...new Set((JSON.stringify(value).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || []).map((s) => s.toLowerCase()))];
@@ -331,7 +336,8 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
     const assignments = club ? [] : await q.query(
       `SELECT * FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
          AND (id = ANY($3::uuid[]) OR unit_id = ANY($4::uuid[])) ORDER BY due_on NULLS LAST, created_at`,
-      [T, sourceId, pickAssignments, unitIds],
+      // A lesson's assignment slides bring their assignments with it.
+      [T, sourceId, [...new Set([...pickAssignments, ...lessons.flatMap((l) => assignmentIdsIn(blocksOf(l.blocks)))])], unitIds],
     );
 
     // Units: picked ones are copied after the target's own. A single item
@@ -425,6 +431,24 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
       return String(n.id);
     };
 
+    // Assignments before lessons, so a lesson's assignment slides can point at the copies.
+    const assignmentMap = new Map<string, string>();
+    for (const a of assignments) {
+      const [n] = await q.query(
+        `INSERT INTO assignments (tenant_id, course_id, unit_id, category_id, title, instructions, kind, points,
+                                  rubric, quiz, standards, published, grades_released, created_by, updated_by, instructions_doc)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, false, false, $12, $12, $13::jsonb) RETURNING id`,
+        [T, targetId, unitFor(a.unit_id), a.category_id ? catMap.get(String(a.category_id)) ?? null : null,
+          a.title, a.instructions, a.kind, a.points,
+          a.rubric == null ? null : JSON.stringify(remap(a.rubric, stdMap)),
+          a.quiz == null ? null : JSON.stringify(remap(a.quiz, stdMap)),
+          a.standards == null ? null : JSON.stringify(remap(a.standards, stdMap)), ctx.userId,
+          a.instructions_doc == null ? null : typeof a.instructions_doc === "string" ? a.instructions_doc : JSON.stringify(a.instructions_doc)],
+      );
+      assignmentMap.set(String(a.id), String(n.id));
+      for (const link of links.filter((k) => String(k.assignment_id) === String(a.id))) await copyLink(link, null, String(n.id));
+    }
+
     const lessonMap = new Map<string, string>();
     for (const l of lessons) {
       const [n] = await q.query(
@@ -441,22 +465,7 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
         if (link) linkMap.set(linkId, await copyLink(link, newId, null));
       }
       await q.query("UPDATE lessons SET blocks = $3::jsonb WHERE tenant_id = $1 AND id = $2",
-        [T, newId, JSON.stringify(remap(l.blocks ?? [], linkMap))]);
-    }
-
-    for (const a of assignments) {
-      const [n] = await q.query(
-        `INSERT INTO assignments (tenant_id, course_id, unit_id, category_id, title, instructions, kind, points,
-                                  rubric, quiz, standards, published, grades_released, created_by, updated_by, instructions_doc)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, false, false, $12, $12, $13::jsonb) RETURNING id`,
-        [T, targetId, unitFor(a.unit_id), a.category_id ? catMap.get(String(a.category_id)) ?? null : null,
-          a.title, a.instructions, a.kind, a.points,
-          a.rubric == null ? null : JSON.stringify(remap(a.rubric, stdMap)),
-          a.quiz == null ? null : JSON.stringify(remap(a.quiz, stdMap)),
-          a.standards == null ? null : JSON.stringify(remap(a.standards, stdMap)), ctx.userId,
-          a.instructions_doc == null ? null : typeof a.instructions_doc === "string" ? a.instructions_doc : JSON.stringify(a.instructions_doc)],
-      );
-      for (const link of links.filter((k) => String(k.assignment_id) === String(a.id))) await copyLink(link, null, String(n.id));
+        [T, newId, JSON.stringify(remapAssignments(remap(blocksOf(l.blocks), linkMap), assignmentMap))]);
     }
 
     const [{ rpos }] = await q.query("SELECT COALESCE(max(position) + 1, 0)::int AS rpos FROM class_resources WHERE tenant_id = $1 AND course_id = $2", [T, targetId]);

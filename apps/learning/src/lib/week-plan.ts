@@ -282,8 +282,7 @@ export async function presentationLessonIds(ctx: Ctx, courseId: string): Promise
 /**
  * The slides for a day, in order: each lesson planned for it (its blocks),
  * then each picked material (a class resource's block(s), as "Present
- * ticked" makes them; an assignment or quiz as a slide with its title and
- * instructions). Copies with fresh ids, so the day's lessons never change.
+ * ticked" makes them; an assignment or quiz as its own assignment slide). Copies with fresh ids, so the day's lessons never change.
  */
 export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{ blocks: Block[]; sources: number; onlyLesson: string | null }> {
   const [plan] = await weekPlan(ctx, courseId, [day]);
@@ -296,8 +295,8 @@ export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{
   for (const m of plan.materials) {
     if (m.kind === "resource") blocks.push(...await blocksFromResources({ ...ctx, role: "teacher" }, courseId, [m.id]));
     else {
-      const [a] = await db.query("SELECT title, instructions, kind FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false", [ctx.tenantId, courseId, m.id]);
-      if (a) blocks.push(assignmentSlide(m.id, String(a.title), String(a.instructions ?? ""), String(a.kind)));
+      const [a] = await db.query("SELECT title FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false", [ctx.tenantId, courseId, m.id]);
+      if (a) blocks.push(assignmentSlide(m.id, String(a.title)));
     }
     if (blocks.length >= BLOCK_LIMITS.blocks) break;
   }
@@ -309,9 +308,9 @@ export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{
   };
 }
 
-/** An assignment or quiz on a slide: its title and the words of its instructions. */
-export function assignmentSlide(_id: string, title: string, instructions: string, kind: string): Block {
-  return { id: newId(), type: "text", title: `${kind === "quiz" ? "Quiz" : "Assignment"}: ${title}`.slice(0, 200), body: instructions.slice(0, 20_000) };
+/** An assignment or quiz on a slide: the assignment itself, published from the presenter (story 01, D3/D10). */
+export function assignmentSlide(id: string, title: string): Block {
+  return { id: newId(), type: "assignment", title: title.slice(0, 200), assignmentId: id };
 }
 
 /**

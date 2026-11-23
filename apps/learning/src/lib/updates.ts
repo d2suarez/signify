@@ -213,7 +213,8 @@ async function attachMaterials(v: Viewer, posts: Post[]): Promise<void> {
     const role = v.courses.get(String(a.course_id));
     const open = !a.archived && (role === "teacher" || (role === "student" && !!a.published));
     found.set(`assignment:${a.id}`, {
-      kind: "assignment", title: String(a.title), courseName: String(a.course_name), href: open ? `/assignments/${a.id}` : null,
+      // A draft's title is the teacher's until it's published.
+      kind: "assignment", title: open || role === "teacher" ? String(a.title) : "", courseName: String(a.course_name), href: open ? `/assignments/${a.id}` : null,
       dueAt: a.due_at ? iso(a.due_at) : null, draft: !a.published, gone: !!a.archived,
     });
   }

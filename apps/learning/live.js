@@ -73,6 +73,7 @@ function publicState(s) {
     pick: s.pick && s.pick.blockId === block ? s.pick : null,
     noise: s.noise,
     pace: s.pace,
+    published: s.published || 0,
     serverNow: Date.now(),
   };
 }
@@ -189,6 +190,8 @@ function attach(server, { secret, whoIs }) {
           // studentId -> block index, when students move on their own.
           at: same ? prev.at : new Map(),
           startedBy: t.sub,
+          // Bumped when the teacher publishes an assignment from a slide.
+          published: same ? prev.published || 0 : 0,
         });
         pushAll(courseId);
       });
@@ -275,6 +278,15 @@ function attach(server, { secret, whoIs }) {
         s.noise = level;
         s.noiseAt = now;
         io.to(room(courseId)).emit('live:noise', { level });
+      });
+
+      // The teacher published an assignment from its slide (through the
+      // assignment's own save route): every screen asks for it again.
+      socket.on('live:published', () => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson) return;
+        s.published = (s.published || 0) + 1;
+        pushAll(courseId);
       });
 
       socket.on('live:end', () => {

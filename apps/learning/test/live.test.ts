@@ -89,6 +89,24 @@ test("live: students follow the teacher; only the teacher sees who answered what
   assert.equal("students" in st, false);
 });
 
+test("live: publishing an assignment from a slide tells every screen to ask again; only the teacher can (story 01, D3)", async () => {
+  const teacher = await join("td", ticket("td", "teacher", "course-d3", "lesson-d3"));
+  const student = await join("sd", ticket("sd", "student", "course-d3"));
+  const started = next<{ live: boolean; published: number }>(student, "live:state", (m) => m.live);
+  teacher.emit("live:start", { count: 2, blockId: "a" });
+  assert.equal((await started).published, 0);
+  student.emit("live:published");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(live.sessions.get("course-d3").published, 0, "a student can't");
+  const bumped = next<{ published: number }>(student, "live:state", (m) => m.published === 1);
+  teacher.emit("live:published");
+  await bumped;
+  // The teacher's laptop reconnecting keeps the count, so screens don't ask again for nothing.
+  const restarted = next<{ published: number; index: number }>(student, "live:state", (m) => m.published === 1 && m.index === 0);
+  teacher.emit("live:start", { count: 2, blockId: "a" });
+  await restarted;
+});
+
 test("live: a student cannot move the lesson, and a teacher cannot start a lesson their ticket doesn't name", async () => {
   const teacher = await join("t2", ticket("t2", "teacher", "course-2")); // no lesson on the ticket
   const student = await join("s2", ticket("s2", "student", "course-2"));

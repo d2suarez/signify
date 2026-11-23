@@ -22,6 +22,8 @@ export type LiveState = {
   noise?: number | null;
   /** teacher: everyone on the teacher's block; review: may look back; self: own pace. */
   pace?: Pace;
+  /** Goes up each time the teacher publishes an assignment from a slide. */
+  published?: number;
   serverNow?: number;
 };
 

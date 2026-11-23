@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { type Block, blockSpeech } from "@/lib/blocks";
-import type { Dict } from "@/lib/i18n";
+import type { Dict, Lang } from "@/lib/i18n";
 import { useLive, useTimerLeft } from "./useLive";
 import { Stage } from "./Presenter";
 import ReadAloud from "./ReadAloud";
 
 type LiveLesson = { id: string; title: string; version: number; blocks: Block[] };
 
-export default function Follower({ courseId, courseName, teacherName, ticket, d }: {
-  courseId: string; courseName: string; teacherName?: string; ticket: string; d: Dict;
+export default function Follower({ courseId, courseName, teacherName, ticket, d, L = "en" }: {
+  courseId: string; courseName: string; teacherName?: string; ticket: string; d: Dict; L?: Lang;
 }) {
   const { state, connected, clockSkew, pickedMe, emit } = useLive(ticket);
   const [lesson, setLesson] = useState<LiveLesson | null>(null);
@@ -88,12 +88,14 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d 
 
       {block && <ReadAloud text={speech(block, d, pickState, withTeacher && block.type === "noise" ? state.noise ?? null : null)} d={d} />}
 
-      <section className="card" aria-live="polite" style={{ padding: block?.type === "poll" ? "28px 30px" : 12 }}>
+      {/* An assignment slide holds the student's own work: not read out on every keystroke. */}
+      <section className="card" aria-live={block?.type === "assignment" ? "off" : "polite"} style={{ padding: block?.type === "poll" ? "28px 30px" : 12 }}>
         {!state.live || !block ? (
           <p className="empty" style={{ fontSize: "1.2em", padding: "40px 12px", textAlign: "center" }}>{d.waitingForTeacher}</p>
         ) : (
           <Stage block={block} tally={tally} timerLeft={withTeacher ? timerLeft : null} mine={mine[block.id] ?? null} onAnswer={block.type === "poll" ? answer : undefined} d={d}
-            pickState={pickState} noise={withTeacher && block.type === "noise" ? state.noise ?? null : null} />
+            pickState={pickState} noise={withTeacher && block.type === "noise" ? state.noise ?? null : null}
+            L={L} stamp={state.published ?? 0} />
         )}
       </section>
     </div>

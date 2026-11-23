@@ -118,7 +118,8 @@ export async function commitImport(
         const [l] = await t.query(
           `INSERT INTO lessons (tenant_id, course_id, title, blocks, unit_id, created_by, updated_by, position, student_view, import_id)
            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6, $7, $8, $9) RETURNING id`,
-          [ctx.tenantId, courseId, item.title, JSON.stringify(item.blocks), unitId, ctx.userId, position, view, importId],
+          // A cartridge never points a slide at one of our assignments: any such block is dropped.
+          [ctx.tenantId, courseId, item.title, JSON.stringify(item.blocks.filter((b) => b.type !== "assignment")), unitId, ctx.userId, position, view, importId],
         );
         lessonIds.push(String(l.id));
       } else if (item.kind === "quiz") {

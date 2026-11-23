@@ -65,10 +65,19 @@ export type FileBlock = {
   kind: "image" | "pdf" | "audio" | "video" | "doc" | ""; alt: string;
 };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock;
+/**
+ * One of the course's assignments or quizzes, on a slide (story 01, D3/D10).
+ * Points at the assignment by id; it lives in its folder, never here. `title`
+ * is a copy for the teacher's outline; what a student sees comes from the
+ * assignment itself, and only once it is published (lesson-assignments.ts).
+ * A lesson saved with another course's assignment loses the block.
+ */
+export type AssignmentBlock = { id: string; type: "assignment"; title: string; assignmentId: string };
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment"];
 const FILE_KINDS = ["image", "pdf", "audio", "video", "doc"] as const;
 
 export const LIMITS = {
@@ -91,6 +100,7 @@ export const LIMITS = {
 export class BlockError extends Error {}
 
 const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -150,6 +160,8 @@ export function newBlock(type: BlockType): Block {
       return { id: newId(), type, title: "", linkId: "", display: "tab" };
     case "file":
       return { id: newId(), type, title: "", fileId: "", name: "", kind: "", alt: "" };
+    case "assignment":
+      return { id: newId(), type, title: "", assignmentId: "" };
   }
 }
 
@@ -227,6 +239,12 @@ export function normalizeBlocks(input: unknown): Block[] {
         });
         break;
       }
+      case "assignment": {
+        // Only the id's shape here ("" while the teacher hasn't picked one); saving a lesson drops one that isn't this course's (lessons.ts).
+        const assignmentId = typeof b.assignmentId === "string" && UUID_RE.test(b.assignmentId) ? b.assignmentId.toLowerCase() : "";
+        out.push({ id: uniqueId(b.id, used), type: "assignment", title: line(b.title, LIMITS.title), assignmentId });
+        break;
+      }
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -254,6 +272,7 @@ export function blockSummary(b: Block): string {
     case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
     case "file": return b.title || b.name;
+    case "assignment": return b.title;
   }
 }
 
@@ -265,7 +284,26 @@ export function blockSpeech(b: Block): string {
     case "timer": case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
     case "file": return [b.title || b.name, b.alt].filter(Boolean).join(".\n");
+    case "assignment": return b.title;
   }
+}
+
+/** The assignment ids a lesson's slides point at, once each. */
+export function assignmentIdsIn(blocks: Block[]): string[] {
+  return [...new Set(blocks.flatMap((b) => (b.type === "assignment" && b.assignmentId ? [b.assignmentId] : [])))];
+}
+
+/**
+ * Assignment slides pointed at another assignment: `map` old id -> new id
+ * (a copy into another course). A slide whose assignment has no new id is
+ * dropped, never left pointing at the old course.
+ */
+export function remapAssignments(blocks: Block[], map: Map<string, string>): Block[] {
+  return blocks.flatMap((b) => {
+    if (b.type !== "assignment" || !b.assignmentId) return [b];
+    const to = map.get(b.assignmentId);
+    return to ? [{ ...b, assignmentId: to }] : [];
+  });
 }
 
 /** Where a file block's file opens (the route checks who may). */

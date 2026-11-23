@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type Block, fileUrl, webLink } from "@/lib/blocks";
 import { videoFromUrl, videoSrc } from "@/lib/post-doc";
 import { googleEmbed } from "@/lib/embeds";
@@ -72,6 +73,16 @@ function ReaderBlock({ b, d }: { b: Block; d: Dict }) {
         </a>
       );
     }
+    case "assignment":
+      // A student's copy of a draft's slide has no assignment: nothing to show yet.
+      if (!b.assignmentId) return null;
+      return (
+        <Link className="reader-link card" href={`/assignments/${b.assignmentId}`}>
+          <span className="shape s-tri" aria-hidden="true" />
+          <span className="grow" style={{ minWidth: 0 }}><b>{b.title || d.blockAssignment}</b></span>
+          <span aria-hidden="true">→</span>
+        </Link>
+      );
     default:
       return <p className="reader-live muted">{d.readerInClass.replace("{what}", liveName(b, d))}</p>;
   }

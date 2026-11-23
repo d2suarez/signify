@@ -7,6 +7,7 @@ import { dict } from "@/lib/i18n";
 import { asView, setStudentView } from "@/lib/organize";
 import { TopBar } from "@/components/TopBar";
 import LessonReader from "@/components/LessonReader";
+import { studentBlocks } from "@/lib/lesson-assignments";
 import { StudentViewSelect } from "@/components/Organize";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,7 @@ export default async function ReadLesson({ params }: { params: Promise<{ id: str
             <StudentViewSelect id="sv-one" name="view" value={lesson.studentView ?? "hidden"} d={d} autoSubmit />
           </form>
         )}
-        <LessonReader blocks={lesson.blocks} d={d} />
+        <LessonReader blocks={teacher ? lesson.blocks : await studentBlocks(access.me.tenantId, course.id, lesson.blocks)} d={d} />
       </main>
     </>
   );

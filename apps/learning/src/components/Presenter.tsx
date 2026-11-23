@@ -6,7 +6,8 @@ import { type Block, type FileBlock, blockSummary, fileUrl, formatSeconds, webLi
 import { boardLink } from "@/lib/boards";
 import { videoFromUrl, videoSrc } from "@/lib/post-doc";
 import { googleEmbed, type GoogleEmbed } from "@/lib/embeds";
-import type { Dict } from "@/lib/i18n";
+import type { Dict, Lang } from "@/lib/i18n";
+import { StudentAssignmentStage, TeacherAssignmentStage } from "./AssignmentSlide";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
 import { useLive, useTimerLeft, type Pace } from "./useLive";
@@ -23,7 +24,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -179,7 +180,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
             {block
               ? <Stage block={block} teacherView tally={tally} timerLeft={timerLeft} d={d}
                   pickName={pickedName} rolling={!!rolling} turnsLeft={block.type === "picker" && block.repeat === "turns" ? turnsLeft(pool, picked) : null}
-                  noise={noise.listening ? noise.level : null} />
+                  noise={noise.listening ? noise.level : null} onPublished={() => emit("live:published")} />
               : <div className="stage"><h1>{d.emptyLesson}</h1></div>}
             {full && (
               <div className="present-full-bar">
@@ -261,7 +262,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
   );
 }
 
-export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d, pickName, rolling, turnsLeft: left, pickState, noise }: {
+export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d, pickName, rolling, turnsLeft: left, pickState, noise, L, stamp, onPublished }: {
   block: Block;
   teacherView?: boolean;
   tally?: { counts: Record<string, number>; answered: number } | null;
@@ -277,7 +278,17 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
   pickState?: "none" | "someone" | "you";
   /** Noise meter: the level 0-100, or null while the microphone is off. */
   noise?: number | null;
+  L?: Lang;
+  /** Assignment slide, student's screen: the live session's publish count (asks again when it goes up). */
+  stamp?: number;
+  /** Assignment slide, presenter: shows Publish; called once it is published. */
+  onPublished?: () => void;
 }) {
+  if (block.type === "assignment") {
+    return teacherView
+      ? <TeacherAssignmentStage block={block} d={d} L={L} onPublished={onPublished} />
+      : <StudentAssignmentStage block={block} d={d} L={L ?? "en"} stamp={stamp ?? 0} />;
+  }
   if (block.type === "text") {
     return (
       <div className="stage" style={{ background: "var(--p4)" }}>
