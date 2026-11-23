@@ -253,6 +253,29 @@ export async function afterClass(v: Viewer, courseId: string, lessonId: string, 
   return "hidden";
 }
 
+export const TELL_LIMIT = 1_000;
+
+/**
+ * "Tell the class what changed" (story 01, E2): after saving a lesson
+ * students can already open, the teacher posts a short note to the class's
+ * Updates, as themselves, with the lesson linked under it. Null when the
+ * lesson isn't this course's or students can't see it (nothing to tell).
+ * The caller checks the teacher role; posting checks again.
+ */
+export async function tellClass(v: Viewer, courseId: string, lessonId: string, note: unknown, title: string): Promise<string | null> {
+  if (!UUID.test(lessonId)) return null;
+  const db = await getDb();
+  const [r] = await db.query(
+    "SELECT id, title, student_view FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false",
+    [v.tenantId, courseId, lessonId]);
+  if (!r || r.student_view === "hidden") return null;
+  const text = typeof note === "string" ? note.replace(/\r\n/g, "\n").trim().slice(0, TELL_LIMIT) : "";
+  const nodes: DocNode[] = text.split(/\n{2,}/).filter((c) => c.trim()).map((c) => ({ type: "p" as const, content: [{ text: c.trim() }] }));
+  nodes.push({ type: "material", kind: "lesson", id: String(r.id), title: String(r.title) });
+  const [p] = await createPosts(v, { to: [courseId], title, doc: { v: 1, nodes } });
+  return p.id;
+}
+
 /** Shows published assignments in the class's Updates (on) or takes them out. Drafts are never posted. */
 export async function setAssignmentThread(v: Viewer, courseId: string, ids: unknown[], on: boolean): Promise<number> {
   const want = [...new Set(ids.map(String).filter((x) => UUID.test(x)))];

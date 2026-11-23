@@ -1524,6 +1524,12 @@ const en = {
   afterKeepOn: "When you end, the class can open this lesson from its list. Untick to keep it hidden.",
   afterKeepAlready: "Students can already open this lesson. Untick to hide it when you end.",
   afterKeepOff: "When you end, this lesson stays hidden from students.",
+  tellLabel: "Tell the class what changed",
+  tellHint: "Students can already open this lesson. If you like, post a short note to the class's Updates; the lesson is linked under it.",
+  tellPost: "Post to Updates",
+  tellDone: "Posted to the class's Updates.",
+  tellFailed: "Couldn't post it. Try again.",
+  tellTitle: "Updated",
 };
 
 export type Key = keyof typeof en;
@@ -3034,6 +3040,12 @@ const es: Partial<Record<Key, string>> = {
   afterKeepOn: "Al terminar, la clase puede abrir esta lección desde su lista. Desmarca para mantenerla oculta.",
   afterKeepAlready: "Los estudiantes ya pueden abrir esta lección. Desmarca para ocultarla al terminar.",
   afterKeepOff: "Al terminar, esta lección queda oculta para los estudiantes.",
+  tellLabel: "Cuéntale a la clase qué cambió",
+  tellHint: "Los estudiantes ya pueden abrir esta lección. Si quieres, publica una nota corta en las Novedades de la clase; la lección queda enlazada debajo.",
+  tellPost: "Publicar en Novedades",
+  tellDone: "Publicado en las Novedades de la clase.",
+  tellFailed: "No se pudo publicar. Inténtalo de nuevo.",
+  tellTitle: "Actualizado",
 };
 
 const dicts = { en, es } as const;

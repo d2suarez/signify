@@ -13,7 +13,7 @@ import { readCartridge } from "../src/lib/cartridge";
 import { commitImport } from "../src/lib/cc-import";
 import { isPublicAddress, fetchPicture } from "../src/lib/import-media";
 import {
-  itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, shownLessons, lessonDoc, listImports, undoImport, parseKey, afterClass,
+  itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, shownLessons, lessonDoc, listImports, undoImport, parseKey, afterClass, tellClass,
 } from "../src/lib/organize";
 
 // ---------- a stored (uncompressed) zip, for small exports ----------
@@ -249,4 +249,23 @@ test("after class (story 01, E1): ending a presentation leaves the slides open u
   assert.equal(await afterClass(teacher, course, c.id, true), "thread", "a view set by hand is left alone");
   assert.equal(await afterClass(teacher, course, c.id, false), "hidden", "turning it off hides it");
   assert.equal(await afterClass({ ...teacher, tenantId: "school-b" }, course, a.id, true), null, "another school can't");
+});
+
+test("tell the class (story 01, E2): a short note to Updates for a lesson students can open, the lesson linked", async () => {
+  const { createLesson } = await import("../src/lib/lessons");
+  const l = await createLesson(C, course, "Thursday slides");
+  assert.equal(await tellClass(teacher, course, l.id, "Fixed slide 3", "Updated: Thursday slides"), null, "hidden: nothing to tell");
+  await setStudentView(teacher, course, [l.id], "list");
+  const id = await tellClass(teacher, course, l.id, "Fixed slide 3.\r\n\r\nAdded the answer key link.", "Updated: Thursday slides");
+  assert.ok(id);
+  const [p] = await db.query("SELECT title, doc, author_id FROM posts WHERE id = $1", [id]);
+  const doc = typeof p.doc === "string" ? JSON.parse(p.doc) : p.doc;
+  assert.equal(p.title, "Updated: Thursday slides");
+  assert.deepEqual(doc.nodes, [
+    { type: "p", content: [{ text: "Fixed slide 3." }] },
+    { type: "p", content: [{ text: "Added the answer key link." }] },
+    { type: "material", kind: "lesson", id: l.id, title: "Thursday slides" },
+  ]);
+  assert.ok(await tellClass(teacher, course, l.id, "", "Updated"), "the note is optional: just the link");
+  assert.equal(await tellClass({ ...teacher, tenantId: "school-b" }, course, l.id, "x", "x"), null);
 });

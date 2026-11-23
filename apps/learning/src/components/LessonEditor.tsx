@@ -275,6 +275,10 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
             </div>
           </div>
 
+          {initial.studentView && initial.studentView !== "hidden" && version > initial.version && (
+            <TellClass lessonId={initial.id} d={d} />
+          )}
+
           <div className="card">
             <div className="row">
               <p className="label">{d.earlierVersions}</p>
@@ -551,5 +555,35 @@ function FileFields({ block: b, d, onChange, idBase, courseId }: {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * "Tell the class what changed" (story 01, E2): once a lesson students can
+ * already open has been changed and saved, an optional short note posted to
+ * the class's Updates, with the lesson linked under it.
+ */
+function TellClass({ lessonId, d }: { lessonId: string; d: Dict }) {
+  const [note, setNote] = useState("");
+  const [state, setState] = useState<"idle" | "busy" | "done" | "failed">("idle");
+  const post = async () => {
+    setState("busy");
+    const r = await fetch(`/api/lessons/${lessonId}/tell`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note }),
+    }).catch(() => null);
+    if (r?.ok) { setNote(""); setState("done"); } else setState("failed");
+  };
+  return (
+    <div className="card stack" style={{ gap: 8 }}>
+      <label className="label" htmlFor="tell-note">{d.tellLabel}</label>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.tellHint}</p>
+      <textarea id="tell-note" className="field" rows={3} maxLength={1000} value={note}
+        onChange={(e) => { setNote(e.target.value); if (state !== "busy") setState("idle"); }} />
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <button type="button" className="btn btn-primary" disabled={state === "busy"} onClick={post}>{state === "busy" ? d.asgSlidePublishing : d.tellPost}</button>
+        {state === "done" && <span role="status">{d.tellDone}</span>}
+        {state === "failed" && <span role="alert" className="notice" style={{ margin: 0 }}>{d.tellFailed}</span>}
+      </div>
+    </div>
   );
 }
