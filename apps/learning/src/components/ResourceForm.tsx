@@ -16,15 +16,17 @@ const STUDENT_KINDS: BlockType[] = ["text", "link", "board", "file"];
  * lesson editor's own fields, so a resource is exactly a lesson block. Saves
  * through /api/courses/[id]/resources, which runs normalizeBlocks.
  */
-export default function ResourceForm({ courseId, initial, d, idBase = "res", unitId }: {
+export default function ResourceForm({ courseId, initial, d, idBase = "res", unitId, kinds = KINDS, start, doneHref }: {
   courseId: string;
+  /** The Create menu (class page): which kinds to offer, the one picked to start with, and where to go once made. */
+  kinds?: BlockType[]; start?: BlockType; doneHref?: string;
   /** New resources go into this folder too (migration 027). */
   unitId?: string;
   initial?: { id: string; title: string; note: string; visible: boolean; block: Block | null };
   d: Dict; idBase?: string;
 }) {
   const router = useRouter();
-  const [block, setBlock] = useState<Block | null>(initial?.block ?? null);
+  const [block, setBlock] = useState<Block | null>(initial?.block ?? (start ? newBlock(start) : null));
   const [title, setTitle] = useState(initial?.title ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [visible, setVisible] = useState(initial?.visible ?? false);
@@ -44,6 +46,7 @@ export default function ResourceForm({ courseId, initial, d, idBase = "res", uni
         body: JSON.stringify({ block, title, note, visible: canShow && visible, ...(initial ? {} : { unitId }) }),
       });
       if (!res.ok) throw new Error(String(res.status));
+      if (doneHref) { router.push(doneHref); router.refresh(); return; }
       if (!initial) { setBlock(null); setTitle(""); setNote(""); setVisible(false); }
       router.refresh();
     } catch {
@@ -55,11 +58,11 @@ export default function ResourceForm({ courseId, initial, d, idBase = "res", uni
 
   return (
     <form className="stack" style={{ gap: 10 }} onSubmit={save}>
-      {!initial && (
+      {!initial && kinds.length > 1 && (
         <fieldset className="choice" style={{ margin: 0 }}>
           <legend className="label">{d.resKind}</legend>
           <div className="row" style={{ marginTop: 8 }}>
-            {KINDS.map((type) => (
+            {kinds.map((type) => (
               <button key={type} type="button" className="btn" aria-pressed={block?.type === type}
                 onClick={() => setBlock(block?.type === type ? block : newBlock(type))}>
                 <span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}

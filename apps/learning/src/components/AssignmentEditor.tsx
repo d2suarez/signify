@@ -9,6 +9,7 @@ import { rubricMax } from "@/lib/rubric";
 import RubricEditor from "./RubricEditor";
 import QuizEditor from "./QuizEditor";
 import StandardsPicker, { type StandardOption } from "./StandardsPicker";
+import GroupSetMaker from "./GroupSetMaker";
 import { DEFAULT_SETTINGS, quizPoints } from "@/lib/quiz";
 import { docFromText, type DocNode } from "@/lib/post-doc";
 import DocEditor from "./DocEditor";
@@ -41,6 +42,7 @@ export default function AssignmentEditor({ initial, units, categories, standards
   graded?: boolean; d: Dict;
 }) {
   const [a, setA] = useState(initial);
+  const [sets, setSets] = useState(groupSets);
   // The rubric as last saved: the parts editor compares against it.
   const [savedRubric, setSavedRubric] = useState(initial.rubric);
   const [saveNote, setSaveNote] = useState("");
@@ -232,12 +234,15 @@ export default function AssignmentEditor({ initial, units, categories, standards
                 <label htmlFor="a-groups">{d.gaGroupWork}</label>
                 <select id="a-groups" className="field" value={a.groupSetId || ""} onChange={(e) => set({ groupSetId: e.target.value || null })}>
                   <option value="">{d.gaAlone}</option>
-                  {a.groupSetId && !groupSets.some((g) => g.id === a.groupSetId) && <option value={a.groupSetId}>{d.gaArchivedSet}</option>}
-                  {groupSets.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  {a.groupSetId && !sets.some((g) => g.id === a.groupSetId) && <option value={a.groupSetId}>{d.gaArchivedSet}</option>}
+                  {sets.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
                 <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
-                  {groupSets.length ? d.gaHint : d.gaNoSets} <Link href={`/courses/${a.courseId}/groups`}>{d.grpTitle}</Link>
+                  {sets.length ? d.gaHint : d.gsNoneYet}
+                  {a.groupSetId && sets.some((g) => g.id === a.groupSetId) && <> <Link href={`/courses/${a.courseId}/groups/${a.groupSetId}`}>{d.gsChangeWho}</Link></>}
+                  {sets.length > 0 && <> · <Link href={`/courses/${a.courseId}/groups`}>{d.gsAllSaved}</Link></>}
                 </p>
+                <GroupSetMaker courseId={a.courseId} d={d} onMade={(g) => { setSets((s) => [g, ...s]); set({ groupSetId: g.id }); }} />
               </div>
               {a.groupSetId && a.kind === "online" && (
                 <>

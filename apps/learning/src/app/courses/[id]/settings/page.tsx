@@ -13,7 +13,8 @@ import { courseSetup, setCoursePolicy } from "@/lib/school-grading";
 import { gpaText } from "@/lib/grade-scale";
 import { LATE_KINDS, ruleText, type LateKind } from "@/lib/late-policy";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
+import ClassPicture from "@/components/ClassPicture";
 
 export const dynamic = "force-dynamic";
 
@@ -70,10 +71,21 @@ export default async function SettingsPage({ params, searchParams }: {
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="settings" heading />} />
       <main className="page stack" style={{ maxWidth: 860 }}>
-        <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-        <CourseNav courseId={course.id} current="settings" d={d} />
+        <section className="card stack" aria-labelledby="cp-title" style={{ gap: 10 }} id="picture">
+          <h2 id="cp-title" className="label">{d.cpTitle}</h2>
+          <div className="row" style={{ gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <div className="class-pic" style={{ width: 72, height: 72 }}>
+              {course.pictureFileId
+                // eslint-disable-next-line @next/next/no-img-element -- our own checked file
+                ? <img src={`/files/${course.pictureFileId}`} alt={d.cpTitle} />
+                : <span className="class-pic-none" aria-hidden="true">{(course.name.trim()[0] || "?").toUpperCase()}</span>}
+            </div>
+            <ClassPicture courseId={course.id} has={!!course.pictureFileId}
+              w={{ cpChange: d.cpChange, cpAdd: d.cpAdd, cpRemove: d.cpRemove, cpBusy: d.cpBusy, cpFailed: d.cpFailed, cpRefused: d.cpRefused, cpOff: d.cpOff, cpHint: d.cpHint }} />
+          </div>
+        </section>
 
         <form action={act} className="card stack" style={{ gap: 10 }}>
           <input type="hidden" name="courseId" value={course.id} />

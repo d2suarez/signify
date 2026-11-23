@@ -7,7 +7,7 @@ import { addDays, addSchoolDays, isSchoolDay, parseDay, todayIn } from "@/lib/pl
 import { SCHOOL_TZ } from "@/lib/school-grading";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import { When } from "@/components/When";
 import { listPeriods } from "@/lib/grades";
 import {
@@ -57,7 +57,7 @@ export default async function AttendancePage({ params, searchParams }: {
   const view = asView(askedView);
   const head = (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="attendance" heading />} />
     </>
   );
   if (view !== "day") {
@@ -65,11 +65,6 @@ export default async function AttendancePage({ params, searchParams }: {
       <>
         {head}
         <main className="page stack">
-          <div>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-            <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-          </div>
-          <CourseNav courseId={course.id} current="attendance" d={d} club={course.kind === "club"} />
           <ClassRange access={access} view={view} asked={asked} term={term} today={today} L={L} d={d} />
         </main>
       </>
@@ -91,12 +86,6 @@ export default async function AttendancePage({ params, searchParams }: {
     <>
       {head}
       <main className="page stack">
-        <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-        </div>
-        <CourseNav courseId={course.id} current="attendance" d={d} club={course.kind === "club"} />
-
         <section className="card stack" aria-labelledby="att-title" style={{ gap: 12 }}>
           <div className="row" style={{ flexWrap: "wrap", gap: 8, justifyContent: "space-between" }}>
             <ViewNav base={`/courses/${course.id}/attendance`} view="day" d={d} />

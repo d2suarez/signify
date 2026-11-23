@@ -236,7 +236,7 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
             <div style={{ marginTop: 14 }}>
               <label className="label" htmlFor="res-pick">{d.resFromResources}</label>
               {resources.length === 0
-                ? <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>{d.resNoneInEditor} <Link href={`/courses/${courseId}/resources`}>{d.resTitle}</Link></p>
+                ? <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>{d.resNoneInEditor} <Link href={`/courses/${courseId}`}>{d.resTitle}</Link></p>
                 : (
                   <div className="row" style={{ marginTop: 8 }}>
                     <select id="res-pick" className="field" style={{ flex: "1 1 220px", width: "auto" }} value={resPick} onChange={(e) => setResPick(e.target.value)}>

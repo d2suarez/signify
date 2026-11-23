@@ -110,3 +110,15 @@ export function showGroups(name: string, groups: Group[], viewer: { studentId: s
   if (!viewer.studentId || viewer.live) return { name, groups: all, mine, onlyMine: false };
   return { name, groups: mine == null ? [] : [all[mine]], mine: mine == null ? null : 0, onlyMine: true };
 }
+
+/**
+ * A new set's groups, as a teacher asks for them (the groups page and an
+ * assignment's "Make new groups"): `count` groups or groups of `size` at
+ * random from the class, or `hand` = that many empty groups to fill by hand.
+ * `n` is kept between 1 and 40.
+ */
+export function startingGroups(people: GroupMember[], how: unknown, n: unknown, word = "Group", rand: () => number = Math.random): Group[] {
+  const k = Math.max(1, Math.min(40, Math.floor(Number(n)) || 1));
+  if (how === "hand") return Array.from({ length: k }, (_, i) => ({ id: newGroupId(), name: groupName(word, i), members: [] }));
+  return randomGroups(people, how === "size" ? { size: k } : { count: k }, word, rand);
+}

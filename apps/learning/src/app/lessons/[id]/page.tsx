@@ -6,6 +6,7 @@ import { lessonAccess, lang, updatesViewer } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { asView, setStudentView } from "@/lib/organize";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import LessonReader from "@/components/LessonReader";
 import { studentBlocks, teacherBlocks } from "@/lib/lesson-assignments";
 import { StudentViewSelect } from "@/components/Organize";
@@ -41,7 +42,7 @@ export default async function ReadLesson({ params }: { params: Promise<{ id: str
   if (!teacher && (course.role !== "student" || lesson.studentView === "hidden" || !lesson.studentView)) notFound();
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack" style={{ maxWidth: 900 }}>
         <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}>
           <div style={{ flex: "1 1 16em", minWidth: 0 }}>

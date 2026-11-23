@@ -6,7 +6,7 @@ import { addDays, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { plannerCourse, SCHOOL_TZ } from "@/lib/planner-data";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import WeekPlanner from "@/components/WeekPlanner";
 import { addLesson, planAction, presentAction } from "@/app/planner/actions";
 
@@ -33,13 +33,8 @@ export default async function ClassPlannerPage({ params, searchParams }: { param
   const range = `${new Date(`${days[0]}T12:00:00Z`).toLocaleDateString(locale, { month: "long", day: "numeric", timeZone: "UTC" })} – ${new Date(`${days[4]}T12:00:00Z`).toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="planner" heading />} />
       <main className="page page-wide stack">
-        <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-        </div>
-        <CourseNav courseId={course.id} current="planner" d={d} club={course.kind === "club"} />
         <div className="row">
           <div className="grow">
             <h2 style={{ fontSize: 24 }}>{d.planner}</h2>

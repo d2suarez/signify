@@ -6,7 +6,7 @@ import { listLessons } from "@/lib/lessons";
 import { listAssignments } from "@/lib/assignments";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import CourseCalendar, { type CalendarItem } from "@/components/CourseCalendar";
 import { coverage } from "@/lib/course-standards";
 import { todayIn } from "@/lib/planner";
@@ -48,13 +48,8 @@ export default async function CalendarPage({ params, searchParams }: { params: P
   ];
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="calendar" heading />} />
       <main className="page stack">
-        <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-        </div>
-        {teacher && <CourseNav courseId={course.id} current="calendar" d={d} club={course.kind === "club"} />}
         {teacher && course.kind !== "club" && (
           <p style={{ margin: 0 }}>
             <Link className="btn btn-sm" href={showStandards ? `/courses/${course.id}/calendar` : `/courses/${course.id}/calendar?standards=1`} aria-pressed={showStandards}>

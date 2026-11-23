@@ -6,8 +6,8 @@ import { courseAccess, ctx, lang, studentsOf, updatesViewer } from "@/lib/access
 import { isPracticeCourse, fillPractice, clearPractice } from "@/lib/practice";
 import { requireMe } from "@/lib/auth";
 import { listLessons, createLesson, type LessonSummary } from "@/lib/lessons";
-import { listUnits, createUnit, renameUnit, moveUnit, deleteUnit, setUnitParent, subtreeIds, unitChoices, MAX_DEPTH, FolderError, type Unit } from "@/lib/units";
-import { listAssignments, createAssignment, type Assignment } from "@/lib/assignments";
+import { listUnits, renameUnit, moveUnit, deleteUnit, setUnitParent, subtreeIds, unitChoices, MAX_DEPTH, type Unit } from "@/lib/units";
+import { listAssignments, type Assignment } from "@/lib/assignments";
 import { liveLessonId } from "@/lib/live-ticket";
 import { feed, mayPost, courseRules } from "@/lib/updates";
 import { dict, type Dict, type Lang } from "@/lib/i18n";
@@ -19,11 +19,12 @@ import { myCourses } from "@/lib/courses";
 import { myClasses } from "@/lib/auth";
 import { StudentCourse } from "@/components/StudentCourse";
 import { myPreviewPeople } from "@/lib/preview";
-import { CourseNav } from "@/components/CourseNav";
 import { LiveJoin } from "@/components/LiveJoin";
+import { ClassHeader } from "@/components/ClassHeader";
+import { CreateMenu } from "@/components/CreateMenu";
+import { pickedBlocks } from "@/lib/present-picked";
 import { CourseMenu } from "@/components/CourseMenu";
 import { When } from "@/components/When";
-import ToolPicker from "@/components/ToolPicker";
 import { toolChoices } from "@/lib/lti-platform";
 import { catalogOf, suggestedCatalog, schoolCatalog, noteTeacher } from "@/lib/sections";
 import { moveToCourse } from "./section-actions";
@@ -35,7 +36,7 @@ import { SCHOOL_TZ } from "@/lib/school-grading";
 import { ClubEvents, ClubMembers, ClubSwitch } from "@/components/Club";
 import { itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, parseKey, asView, type Place } from "@/lib/organize";
 import { SelectAll, SelectedCount } from "@/components/Organize";
-import { listResources, updateResource, studentCanSee, type Resource } from "@/lib/resources";
+import { listResources, updateResource, archiveResource, studentCanSee, type Resource } from "@/lib/resources";
 import { BLOCK_SHAPE } from "@/lib/block-kinds";
 import { materialKind } from "@/lib/material-kind";
 
@@ -60,31 +61,12 @@ async function practiceWork(formData: FormData) {
   revalidatePath(`/courses/${access.course.id}`);
 }
 
-async function newLesson(formData: FormData) {
+/** Archived materials (the Resources page's job until 2026-11-23): bring one back. */
+async function restoreMaterial(formData: FormData) {
   "use server";
   const access = await teacherAccess(formData);
   if (!access) return;
-  const lesson = await createLesson(ctx(access.me), access.course.id, String(formData.get("title") || ""), [], formData.get("unitId"));
-  redirect(`/lessons/${lesson.id}/edit`);
-}
-
-async function newAssignment(formData: FormData) {
-  "use server";
-  const access = await teacherAccess(formData);
-  if (!access) return;
-  const a = await createAssignment(ctx(access.me), access.course.id, {
-    title: formData.get("title"), unitId: formData.get("unitId"), kind: formData.get("kind"),
-  });
-  redirect(`/assignments/${a.id}`);
-}
-
-async function newUnit(formData: FormData) {
-  "use server";
-  const access = await teacherAccess(formData);
-  if (!access) return;
-  // A stale form (the folder was deleted, or is already as deep as folders go) makes nothing.
-  await createUnit(ctx(access.me), access.course.id, String(formData.get("title") || ""), String(formData.get("parentId") || "") || null)
-    .catch((e) => { if (!(e instanceof FolderError)) throw e; });
+  await archiveResource({ ...ctx(access.me), role: "teacher" }, access.course.id, String(formData.get("id") || ""), false);
   revalidatePath(`/courses/${access.course.id}`);
 }
 
@@ -118,6 +100,15 @@ async function organize(formData: FormData) {
     const to = String(formData.get("toUnit") || "");
     await moveItemsToUnit(c, courseId, picked, to && to !== "none" ? to : null);
   }
+  // Present ticked / make a page from ticked (the Resources page's job until 2026-11-23): in the page's order.
+  if ((op === "present" || op === "makepage") && picked.length) {
+    const { blocks, onlyLesson } = await pickedBlocks(c, courseId, picked);
+    if (!blocks.length) redirect(`${`/courses/${courseId}`}?organize=1&none=1`);
+    if (onlyLesson && op === "present") redirect(`/lessons/${onlyLesson}/present`);
+    const title = String(formData.get("title") || "").trim() || String(formData.get("fallback") || "Presentation");
+    const lesson = await createLesson(c, courseId, title, blocks);
+    redirect(op === "makepage" ? `/lessons/${lesson.id}/edit` : `/lessons/${lesson.id}/present`);
+  }
   const view = asView(formData.get("view"));
   if (op === "view" && view && picked.length) {
     const viewer = await updatesViewer();
@@ -140,7 +131,7 @@ function itemDate(i: Item): string {
 }
 const itemKey = (i: Item) => (i.kind === "lesson" ? `lesson:${i.lesson.id}` : i.kind === "assignment" ? `assignment:${i.assignment.id}` : `resource:${i.resource.id}`);
 
-export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string; organize?: string }> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string; organize?: string; none?: string }> }) {
   await requireMe();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const L = await lang();
@@ -175,15 +166,10 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
     // A club as a member sees it: its updates and dates. No grades, no work.
     return (
       <>
-        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} />
+        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} below={<ClassHeader course={access.course} d={dict(L)} tab="plan" heading />} />
         <main className="page stack">
-          <div>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{dict(L).clubLabel}</p>
-            <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)" }}>{access.course.name}</h1>
-          </div>
           {await updatesSection(false)}
           <ClubEvents courseId={access.course.id} events={events!} sponsor={false} L={L} d={dict(L)} />
-          <p><Link className="btn" href={`/courses/${access.course.id}/resources`}>{dict(L).resources}</Link></p>
         </main>
       </>
     );
@@ -191,7 +177,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   if (access.course.role === "student") {
     return (
       <>
-        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} />
+        <TopBar crumbs={<Link href="/">{dict(L).myCourses}</Link>} below={<ClassHeader course={access.course} d={dict(L)} tab="plan" heading />} />
         <main className="page stack">
           <StudentCourse course={access.course} c={ctx(access.me)} person={{ id: access.me.id, name: access.me.name }} L={L} updates={await updatesSection(false)} />
         </main>
@@ -213,6 +199,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
     listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), updatesSection(true), itemPlaces(c, course.id),
     listResources({ ...c, role: "teacher" }, course.id),
   ]);
+  const archivedMaterials = await listResources({ ...c, role: "teacher" }, course.id, { archived: true });
   const organizing = sp.organize === "1";
   const placeOf = (i: Item): Place => places.get(itemKey(i)) ?? { position: null, studentView: "hidden", threadPostId: null };
 
@@ -221,8 +208,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const loose = groups[groups.length - 1];
   for (const lesson of lessons) (byId.get(lesson.unitId || "") || loose).items.push({ kind: "lesson", lesson });
   for (const assignment of assignments) (byId.get(assignment.unitId || "") || loose).items.push({ kind: "assignment", assignment });
-  // Materials (migration 027) show only inside a folder; the rest are the Resources list's.
-  for (const resource of resources) if (resource.unitId && byId.has(resource.unitId)) byId.get(resource.unitId)!.items.push({ kind: "resource", resource });
+  // Materials (migration 027) sit in their folder; with no folder they are "Not in a folder" like anything else (no Resources tab since 2026-11-23).
+  for (const resource of resources) (byId.get(resource.unitId || "") || loose).items.push({ kind: "resource", resource });
   // Placed by hand first (organize.ts), then by date, as the course always sorted.
   for (const g of groups) g.items.sort((a, b) => {
     const pa = placeOf(a).position, pb = placeOf(b).position;
@@ -235,15 +222,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   await noteTeacher(c, course.id);
   const [catalog, suggested, allCourses] = await Promise.all([catalogOf(c, course.id), suggestedCatalog(c, course.id), schoolCatalog(c)]);
   const fillName = (s: string, name: string) => s.replace("{name}", name);
+  const today = new Date().toLocaleDateString(L === "es" ? "es" : "en-US", { month: "short", day: "numeric" });
   const choices = unitChoices(units);
-  const unitSelect = (idFor: string) => (
-    // Keyed by the newest unit so a unit just made becomes the choice.
-    <select key={units.at(-1)?.id || "none"} id={idFor} name="unitId" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.unit} defaultValue={units.at(-1)?.id || ""}>
-      <option value="">{d.noUnit}</option>
-      {choices.map((u) => <option key={u.id} value={u.id} title={u.title}>{u.label}</option>)}
-    </select>
-  );
-
   // Folders inside folders (units.ts): a unit is a card; its folders sit inside it, after its own items.
   const kidsOf = (id: string | null) => units.filter((u) => u.parentId === id);
   const heightOf = (u: Unit) => {
@@ -275,6 +255,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
           {nested && <span className="shape s-square" aria-hidden="true" />}
           <Heading id={headId} className={nested ? "folder-title" : undefined}>{unit ? unit.title : d.noUnit}</Heading>
           <span className="spacer" />
+          {unit && !organizing && <CreateMenu courseId={course.id} unitId={unit.id} club={isClub} tools={tools.length > 0} d={d} here />}
           {unit && (
             <form action={unitAction} className="row" style={{ gap: 6 }}>
               <input type="hidden" name="courseId" value={course.id} />
@@ -287,7 +268,6 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             <details className="menu">
               <summary className="btn btn-sm">{d.folderMenu}…</summary>
               <div className="menu-pop card">
-                <Link className="btn btn-sm" href={`/courses/${course.id}/resources?unit=${unit.id}#res-add`} style={{ marginBottom: 14 }}>+ {d.matAddHere}</Link>
                 <form action={unitAction} className="stack" style={{ gap: 8 }}>
                   <input type="hidden" name="courseId" value={course.id} />
                   <input type="hidden" name="unitId" value={unit.id} />
@@ -295,15 +275,6 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
                   <input id={`rn-${unit.id}`} name="title" className="field" defaultValue={unit.title} maxLength={200} required />
                   <button className="btn btn-primary btn-sm" name="op" value="rename">{d.rename}</button>
                 </form>
-                {unit.depth + 1 < MAX_DEPTH && (
-                  <form action={newUnit} className="stack" style={{ gap: 8, marginTop: 14 }}>
-                    <input type="hidden" name="courseId" value={course.id} />
-                    <input type="hidden" name="parentId" value={unit.id} />
-                    <label className="label" htmlFor={`nf-${unit.id}`}>{d.newFolderInside}</label>
-                    <input id={`nf-${unit.id}`} name="title" className="field" placeholder={d.folderTitle} maxLength={200} required />
-                    <button className="btn btn-sm" type="submit">{d.create}</button>
-                  </form>
-                )}
                 <form action={unitAction} className="stack" style={{ gap: 8, marginTop: 14 }}>
                   <input type="hidden" name="courseId" value={course.id} />
                   <input type="hidden" name="unitId" value={unit.id} />
@@ -344,21 +315,18 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
 
   return (
     <>
-      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="plan" heading />} />
       <main className="page stack">
-        <div className="row" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div className="row" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div style={{ flex: "1 1 16em", minWidth: 0 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{isClub ? d.clubLabel : course.subject}</p>
-            <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)" }}>{course.name}</h1>
             {catalog && (
-              <p className="row" style={{ margin: "4px 0 0", gap: 8, fontSize: 14 }}>
+              <p className="row" style={{ margin: 0, gap: 8, fontSize: 14 }}>
                 <span className="muted">{d.secOf}</span>
                 <Link href={`/catalog/${catalog.id}`}>{catalog.name}</Link>
                 <span className="muted">· {course.schoolYear || d.secNoYear}</span>
               </p>
             )}
-          </div>
-          <CourseMenu label={d.courseMore} title={d.courseMoreTitle}>
+          </div>          <CourseMenu label={d.courseMore} title={d.courseMoreTitle}>
             {previewable.length > 0 && (
               <section className="stack" style={{ gap: 6 }} aria-labelledby="preview-title">
                 <h2 id="preview-title" className="label" style={{ margin: 0 }}>{d.previewAsStudent}</h2>
@@ -401,42 +369,6 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             </form>
           </div>
         )}
-        <CourseNav courseId={course.id} current="plan" d={d} club={course.kind === "club"} />
-
-        <div className="card stack" style={{ padding: "14px 16px", gap: 10 }}>
-          <form action={newLesson} className="row">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label htmlFor="new-title" className="label" style={{ flex: "0 0 130px" }}><span className="shape s-arch" style={{ marginRight: 8 }} />{d.newLesson}</label>
-            <input id="new-title" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.lessonTitle} maxLength={200} required />
-            {unitSelect("new-lesson-unit")}
-            <button className="btn btn-primary" type="submit">{d.create}</button>
-          </form>
-          {!isClub && <form action={newAssignment} className="row">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label htmlFor="new-assignment" className="label" style={{ flex: "0 0 130px" }}><span className="shape s-tri" style={{ marginRight: 8 }} />{d.newAssignment}</label>
-            <input id="new-assignment" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.assignmentTitle} maxLength={200} required />
-            {unitSelect("new-assignment-unit")}
-            <select name="kind" className="field" style={{ width: "auto", flex: "0 1 200px" }} aria-label={d.kind} defaultValue="online">
-              <option value="online">{d.kindOnline}</option>
-              <option value="offline">{d.kindOffline}</option>
-              <option value="quiz">{d.kindQuiz}</option>
-            </select>
-            <button className="btn btn-primary" type="submit">{d.create}</button>
-          </form>}
-          <form action={newUnit} className="row">
-            <input type="hidden" name="courseId" value={course.id} />
-            <label htmlFor="new-unit" className="label" style={{ flex: "0 0 130px" }}><span className="shape s-square" style={{ marginRight: 8 }} />{d.newUnit}</label>
-            <input id="new-unit" name="title" className="field" style={{ flex: "1 1 220px", width: "auto" }} placeholder={d.unitTitle} maxLength={200} required />
-            <button className="btn" type="submit">{d.create}</button>
-          </form>
-          {!isClub && tools.length > 0 && (
-            <div>
-              <p className="label"><span className="shape s-tri" style={{ marginRight: 8 }} />{d.toolAddAssignment}</p>
-              <ToolPicker tools={tools} courseId={course.id} d={d} />
-            </div>
-          )}
-        </div>
-
         {isPracticeCourse(course) && (
           <section className="card stack" aria-labelledby="practice-title" style={{ gap: 8 }}>
             <h2 id="practice-title" className="label">{d.practiceTitle}</h2>
@@ -460,16 +392,16 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
         {isClub && <ClubEvents courseId={course.id} events={events!} sponsor L={L} d={d} error={sp.eventError} />}
         {isClub && <ClubMembers ok={clubRoster!.ok} members={clubRoster!.members} d={d} />}
 
-        {lessons.length === 0 && assignments.length === 0 && units.length === 0 && <p className="empty">{d.noLessons}</p>}
-
-        {(lessons.length > 0 || assignments.length > 0) && (
-          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-            <h2 className="label grow" style={{ margin: 0 }}>{d.orgMaterials}</h2>
-            <Link className={`btn btn-sm${organizing ? " btn-primary" : ""}`} href={organizing ? here : `${here}?organize=1`} scroll={false}>
+        <div className="row materials-head" style={{ gap: 10, flexWrap: "wrap" }}>
+          <h2 className="grow" style={{ margin: 0, fontSize: 22 }}>{d.orgMaterials}</h2>
+          {!organizing && <CreateMenu courseId={course.id} club={isClub} tools={tools.length > 0} d={d} />}
+          {(lessons.length > 0 || assignments.length > 0 || resources.length > 0) && (
+            <Link className={`btn${organizing ? " btn-primary" : ""}`} href={organizing ? here : `${here}?organize=1`} scroll={false}>
               {organizing ? d.orgDone : d.orgStart}
             </Link>
-          </div>
-        )}
+          )}
+        </div>
+        {lessons.length === 0 && assignments.length === 0 && units.length === 0 && resources.length === 0 && <p className="empty">{d.crEmpty}</p>}
         {organizing && (
           <form id="org" action={organize} className="card org-bar stack" style={{ gap: 8 }} aria-label={d.orgStart}>
             <input type="hidden" name="courseId" value={course.id} />
@@ -493,10 +425,37 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <button className="btn btn-sm" name="op" value="view">{d.orgApply}</button>
             </div>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.orgAssignNote}</p>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+              <label className="label" htmlFor="org-ptitle" style={{ margin: 0 }}>{d.resPresentTitle}</label>
+              <input id="org-ptitle" name="title" className="field" style={{ flex: "1 1 200px", width: "auto" }} maxLength={200} placeholder={`${d.resPresentation} · ${today}`} />
+              <input type="hidden" name="fallback" value={`${d.resPresentation} · ${today}`} />
+              <button className="btn btn-sm btn-primary" name="op" value="present">{d.resPresentSel}</button>
+              <button className="btn btn-sm" name="op" value="makepage">{d.crMakePageSel}</button>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.crPresentHint}</p>
+            {sp.none && <p className="notice" role="alert" style={{ margin: 0 }}>{d.resNoneTicked}</p>}
           </form>
         )}
 
         {[...units.filter((u) => u.depth === 0), null].map((u) => renderFolder(u))}
+
+        {archivedMaterials.length > 0 && (
+          <details className="card">
+            <summary className="label">{d.resArchived} ({archivedMaterials.length})</summary>
+            <ul className="list" style={{ marginTop: 8 }}>
+              {archivedMaterials.map((r) => (
+                <li key={r.id}>
+                  <span className="grow">{r.title} <span className="muted" style={{ fontSize: 13 }}>· {r.kind === "lesson" ? d.lesson : r.block ? materialKind(r.block, d) : d.matMaterial}</span></span>
+                  <form action={restoreMaterial}>
+                    <input type="hidden" name="courseId" value={course.id} />
+                    <input type="hidden" name="id" value={r.id} />
+                    <button className="btn btn-sm" name="op" value="restore">{d.resRestore}</button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </main>
     </>
   );
@@ -563,7 +522,7 @@ function AssignmentRow({ a, d, L, place, org }: { a: Assignment; d: Dict; L: Lan
   );
 }
 
-/** A class resource placed in a folder (migration 027): opens its own page; edited on the Resources tab. */
+/** A class material (migration 027): opens its own page, where the teacher edits, shows/hides or archives it. */
 function MaterialRow({ r, courseId, d, org }: { r: Resource; courseId: string; d: Dict; org: Org }) {
   const kind = r.kind === "lesson" ? d.lesson : r.block ? materialKind(r.block, d) : d.matMaterial;
   const shape = r.kind === "lesson" ? "s-arch" : r.block ? BLOCK_SHAPE[r.block.type] : "s-circle";
@@ -577,7 +536,7 @@ function MaterialRow({ r, courseId, d, org }: { r: Resource; courseId: string; d
           ? <span className={`pill${r.visible ? "" : " pill-draft"}`} style={{ marginLeft: 6 }}>{r.visible ? d.resShown : d.resHidden}</span>
           : <span className="pill pill-draft" style={{ marginLeft: 6 }}>{d.svPillHidden}</span>}
       </div>
-      {!org && <Link className="btn" href={`/courses/${courseId}/resources`}>{d.edit}</Link>}
+      {!org && r.kind === "block" && <Link className="btn" href={`/courses/${courseId}/materials/${r.id}?edit=1`}>{d.edit}</Link>}
       {!org && <Link className="btn btn-primary" href={`/courses/${courseId}/materials/${r.id}`}>{d.matOpen}</Link>}
     </li>
   );

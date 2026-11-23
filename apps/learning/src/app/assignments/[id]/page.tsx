@@ -19,6 +19,7 @@ import { courseGrading, listStandards } from "@/lib/standards";
 import { standardOptions } from "@/lib/standards-library";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import { When } from "@/components/When";
 import AssignmentEditor from "@/components/AssignmentEditor";
 import { uploadsOn } from "@/lib/files";
@@ -51,7 +52,8 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   if (!access) notFound();
   const { me, course, assignment: a } = access;
   const c = ctx(me);
-  const crumbs = <><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>;
+  const crumbs = <Link href="/">{d.myCourses}</Link>;
+  const below = <ClassHeader course={course} d={d} />;
 
   if (course.role === "teacher") {
     await closeQuizForTeacher(access);
@@ -70,7 +72,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     const handed = new Set(subs.filter((s) => s.submittedAt).map((s) => s.studentId));
     return (
       <>
-        <TopBar crumbs={crumbs} />
+        <TopBar crumbs={crumbs} below={below} />
         <main className="page">
           <AssignmentEditor initial={a} d={d} canUpload={uploadsOn()}
             units={unitChoices(units).map((u) => ({ id: u.id, name: u.label }))}
@@ -137,7 +139,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
   return (
     <>
-      <TopBar crumbs={crumbs} />
+      <TopBar crumbs={crumbs} below={below} />
       <main className="page stack" style={{ maxWidth: 860 }}>
         <div>
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>

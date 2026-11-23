@@ -6,6 +6,7 @@ import { dict, t } from "@/lib/i18n";
 import { signTicket } from "@/lib/live-ticket";
 import { teacherBlocks } from "@/lib/lesson-assignments";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import Presenter from "@/components/Presenter";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function PresentLesson({ params }: { params: Promise<{ id: 
     : null;
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{t("myCourses", L)}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} below={<ClassHeader course={course} d={dict(L)} tabs={false} />} />
       <main className="page">
         <Presenter
           lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks) }}

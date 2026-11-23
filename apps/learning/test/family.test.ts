@@ -111,7 +111,7 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
 test("week: Monday to Sunday at the school, with next week after it", () => {
   const now = new Date("2026-10-29T15:00:00Z");     // a Thursday
   const work: CourseWork[] = [{
-    course: { id: "c", tenantId: "t", idClassId: "k", name: "Course", subject: "", catalogId: "", schoolYear: "", kind: "class", role: "student", covering: false, lessonCount: 0 },
+    course: { id: "c", tenantId: "t", idClassId: "k", name: "Course", subject: "", catalogId: "", schoolYear: "", kind: "class", pictureFileId: null, role: "student", covering: false, lessonCount: 0 },
     whole: null, letter: null,
     items: [
       item({ title: "Mon", dueOn: "2026-10-26", dueAt: "2026-10-26T20:00:00Z", status: "overdue" }),

@@ -48,9 +48,8 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   const self = { id: person.id, name: person.name, sortKey: "", factsName: person.name };
   const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
   // Class resources the teacher chose to show (never in a preview: that page isn't one of the preview's).
-  // Shown materials (migration 027): in their folders here; the Resources page lists them all.
+  // Shown materials (migration 027): in their folders here, or "Not in a folder".
   const visibleResources = await listResources({ ...c, role: "student" }, course.id);
-  const shared = previewing ? 0 : visibleResources.length;
   const myGroupCount = previewing ? 0 : (await myGroups(c, course.id, person.id)).length;
   const row = gb.rows[0];
   const sv = standardsView(gb, row);
@@ -66,7 +65,8 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   // Lessons the teacher shows students (organize.ts), read at /lessons/<id>.
   for (const l of lessons) groupOf(l.unitId).items.push({ kind: "lesson", id: l.id, title: l.title, pos: l.position, day: "9999" });
   for (const r of visibleResources) {
-    if (!r.unitId || !r.block || !groups.some((g) => g.id === r.unitId)) continue;
+    // A shown material with no folder is "Not in a folder" (no Resources page since 2026-11-23).
+    if (!r.block) continue;
     groupOf(r.unitId).items.push({ kind: "material", id: r.id, title: r.title, pos: places.get(`resource:${r.id}`)?.position ?? null, day: "9999", what: materialKind(r.block, d) });
   }
   for (const g of groups) g.items.sort((x, y) => (x.pos !== null || y.pos !== null) ? (x.pos === null ? 1 : y.pos === null ? -1 : x.pos - y.pos) : x.day.localeCompare(y.day));
@@ -142,8 +142,9 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
     <>
       <div className="row" style={{ alignItems: "flex-end" }}>
         <div className="grow" style={{ flex: 1 }}>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
+          {/* The class header (ClassHeader.tsx) names the class on its own page; a preview still has its own title. */}
+          {previewing && <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>}
+          {previewing && <h1 style={{ fontSize: 34 }}>{course.name}</h1>}
         </div>
         <div className="card grade-badge">
           <span className="label">{d.courseGrade}</span>
@@ -161,7 +162,6 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
           {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
           <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
           <Link className="btn" href={`/courses/${course.id}/my-attendance`}>{d.attMine}</Link>
-          {shared > 0 && <Link className="btn" href={`/courses/${course.id}/resources`}>{d.resTitle} ({shared})</Link>}
           {myGroupCount > 0 && <Link className="btn" href={`/courses/${course.id}/groups`}>{d.grpYourGroups} ({myGroupCount})</Link>}
         </div>
       )}

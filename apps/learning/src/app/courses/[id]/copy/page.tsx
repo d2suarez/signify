@@ -5,6 +5,7 @@ import { courseAccess, ctx, lang } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { copySources, sourceContents, askableSections, myRequests, noteTeacher } from "@/lib/sections";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import { CopyForm } from "@/components/CopyForm";
 import { copyInto, askToShare, answerRequest } from "../section-actions";
 
@@ -45,7 +46,7 @@ export default async function CopyPage({ params, searchParams }: {
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack">
         <h1 style={{ fontSize: 30 }}>{fill(d.secCopyTitle, { name: course.name })}</h1>
         <p className="muted" style={{ margin: 0 }}>{d.secCopyHint}</p>

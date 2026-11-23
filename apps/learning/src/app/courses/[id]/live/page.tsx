@@ -5,6 +5,7 @@ import { courseAccess, lang } from "@/lib/access";
 import { dict, t } from "@/lib/i18n";
 import { signTicket } from "@/lib/live-ticket";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import Follower from "@/components/Follower";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function FollowLive({ params }: { params: Promise<{ id: str
   const ticket = signTicket({ sub: me.id, name: me.name, course: course.id, role: "student" });
   return (
     <>
-      <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} />
+      <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} below={<ClassHeader course={course} d={dict(L)} tabs={false} />} />
       <main className="page">
         <Follower courseId={course.id} courseName={course.name} ticket={ticket} d={dict(L)} L={L} />
       </main>

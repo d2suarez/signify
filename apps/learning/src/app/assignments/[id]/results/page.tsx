@@ -7,6 +7,7 @@ import { handGraded, keptAttempt, responseText, type Quiz } from "@/lib/quiz";
 import { attemptsOf, listAccommodations, quizAnalysis } from "@/lib/quiz-store";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import QuizByQuestion, { type ByQuestionItem } from "@/components/QuizByQuestion";
 import Accommodations from "@/components/Accommodations";
 
@@ -45,7 +46,7 @@ export default async function QuizResultsPage({ params }: { params: Promise<{ id
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link> · <Link href={`/assignments/${a.id}`}>{a.title}</Link></>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/assignments/${a.id}`}>{a.title}</Link></>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack">
         <div className="row">
           <h1 style={{ fontSize: 30 }} className="grow">{d.quizResults}: {a.title}</h1>

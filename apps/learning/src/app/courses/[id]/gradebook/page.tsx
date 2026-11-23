@@ -9,7 +9,7 @@ import { listAssignments } from "@/lib/assignments";
 import { syncToolScores } from "@/lib/lti-tool-sync";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import GradebookGrid from "@/components/GradebookGrid";
 import StandardsGradebook from "@/components/StandardsGradebook";
 import { levelLabel, levelWords, topLevel } from "@/lib/standards-math";
@@ -43,11 +43,11 @@ export default async function GradebookPage({ params, searchParams }: {
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="gradebook" />} />
       <main className="page page-wide stack">
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div className="grow" style={{ flex: 1 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.name} · {d.gradebook}</p>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.gradebook}</p>
             <h1 style={{ fontSize: 30 }}>{period ? `${period.name} · ${shortDay(period.startsOn, L)} – ${shortDay(period.endsOn, L)}` : d.wholeYear}</h1>
             {period && childrenOf(periods, period.id).length > 0 && (
               <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.periodCountsAll.replace("{list}", childrenOf(periods, period.id).map((k) => k.name).join(", "))}</p>
@@ -61,7 +61,6 @@ export default async function GradebookPage({ params, searchParams }: {
             <Link href="?period=year" aria-current={!period ? "page" : undefined} className="seg-link">{d.wholeYear}</Link>
           </nav>
         </div>
-        <CourseNav courseId={course.id} current="gradebook" d={d} />
 
         {periods.length === 0 && (
           <p className="notice">

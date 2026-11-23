@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Dict } from "@/lib/i18n";
+import { fileIntoFolder } from "@/app/courses/[id]/create-actions";
 
 export type ToolChoice = { id: string; name: string; picker: boolean };
 export type PlacedItem = { linkId: string; title: string; display: "tab" | "frame"; assignmentId?: string };
@@ -13,8 +14,10 @@ export type PlacedItem = { linkId: string; title: string; display: "tab" | "fram
  * Choosing in the tool happens in a new tab; this asks every two seconds
  * whether the tool has answered.
  */
-export default function ToolPicker({ tools, courseId, lessonId, onPlaced, d }: {
+export default function ToolPicker({ tools, courseId, lessonId, onPlaced, d, unitId, doneHref }: {
   tools: ToolChoice[]; courseId: string; lessonId?: string; onPlaced?: (items: PlacedItem[]) => void; d: Dict;
+  /** The Create menu: new assignments go into this folder, then the page goes to `doneHref` (several) or the one assignment. */
+  unitId?: string; doneHref?: string;
 }) {
   const router = useRouter();
   const [toolId, setToolId] = useState(tools[0]?.id || "");
@@ -24,7 +27,10 @@ export default function ToolPicker({ tools, courseId, lessonId, onPlaced, d }: {
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const tool = tools.find((t) => t.id === toolId);
 
-  const placed = (items: PlacedItem[]) => {
+  const placed = async (items: PlacedItem[]) => {
+    const made = items.map((i) => i.assignmentId).filter((x): x is string => !!x);
+    if (!lessonId && unitId && made.length) await fileIntoFolder(courseId, unitId, made.map((id) => `assignment:${id}`)).catch(() => 0);
+    if (!lessonId && doneHref && made.length !== 1 && items.length) { router.push(doneHref); return; }
     setState("idle");
     setNote(items.length ? d.toolAdded.replace("{n}", String(items.length)) : d.toolPickedNothing);
     if (onPlaced) onPlaced(items);

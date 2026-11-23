@@ -5,6 +5,7 @@ import { requireMe } from "@/lib/auth";
 import { copyGroupSet, getGroupSet, saveGroupSet } from "@/lib/group-sets";
 import { dict, t } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import GroupsEditor from "@/components/GroupsEditor";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export default async function GroupSetPage({ params }: { params: Promise<{ id: s
   const { ok, students } = await studentsOf(access);
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link> · <Link href={`/courses/${course.id}/groups`}>{d.grpTitle}</Link></>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}/groups`}>{d.grpTitle}</Link></>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack">
         {!ok && <p className="notice" role="alert">{d.grpRosterFailed}</p>}
         <GroupsEditor courseId={course.id} initial={set} people={ok ? students.map((s) => ({ id: s.id, name: s.name })) : null} d={d} />

@@ -979,6 +979,69 @@ html[data-contrast="high"] .drawer { border-right: 2px solid var(--ink); }
 html[data-contrast="high"] .drawer-link[aria-current="page"] { outline: 2px solid var(--ink); }
 .drawer .btn { min-height: 44px; }
 
+
+/* ---------- the class header (ClassHeader.tsx): in the sticky top bar on every page inside a class ---------- */
+.top:has(.class-head) { background: var(--bg); }
+.class-head { max-width: 1280px; margin: 0 auto; padding: 2px 20px 0; border-top: 1px solid var(--line); }
+.class-head-in { display: flex; align-items: center; gap: 14px; padding: 10px 0 8px; min-width: 0; transition: padding .18s var(--ease); }
+.class-pic { position: relative; flex: 0 0 auto; width: 56px; height: 56px; transition: width .18s var(--ease), height .18s var(--ease); }
+.class-pic img, .class-pic-none { width: 100%; height: 100%; border-radius: var(--r-md); display: block; }
+.class-pic img { object-fit: cover; background: var(--desk); }
+.class-pic-none { background: var(--p2); color: var(--p2-ink); font-family: var(--display); font-weight: 800; font-size: 26px; display: grid; place-items: center; line-height: 1; }
+.class-pic-edit { position: absolute; right: -8px; bottom: -8px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow-1); cursor: pointer; }
+.class-pic-edit::before { content: ""; position: absolute; inset: -8px; } /* a 44px target */
+.class-pic-edit:hover { color: var(--link); }
+.class-pic-edit.is-busy { opacity: .6; cursor: progress; }
+.class-pic-note { position: absolute; left: 0; top: calc(100% + 10px); z-index: 2; width: max-content; max-width: min(320px, 80vw); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px; font-size: 13px; box-shadow: var(--shadow-3); }
+.class-head-text { display: flex; flex-direction: column; min-width: 0; }
+.class-head-kicker { font-size: 13px; color: var(--muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.class-head-name { margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(22px, 5vw, 30px); line-height: 1.12; letter-spacing: -0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: font-size .18s var(--ease); }
+.class-head-name a { color: inherit; text-decoration: none; }
+.class-head-name a:hover { text-decoration: underline; }
+/* The tabs: one row, never wrapping, the same on every page; a narrow screen scrolls it sideways. */
+.class-head-tabs { margin: 0 -20px; padding: 0 20px; }
+.class-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; position: relative; border-bottom: 0; scrollbar-width: none; gap: 2px; }
+.class-tabs::-webkit-scrollbar { display: none; }
+.class-tabs a { flex: 0 0 auto; white-space: nowrap; min-height: 44px; display: flex; align-items: center; padding: 8px 14px; }
+html[data-class-small="1"] .class-head-in { padding: 6px 0 4px; }
+html[data-class-small="1"] .class-pic { width: 32px; height: 32px; }
+html[data-class-small="1"] .class-pic-none { font-size: 16px; }
+html[data-class-small="1"] .class-head-kicker { display: none; }
+html[data-class-small="1"] .class-head-name { font-size: 19px; }
+html[data-class-small="1"] .class-pic-edit { display: none; }
+@media (max-width: 600px) {
+  .class-head { padding: 0 16px; }
+  .class-head-tabs { margin: 0 -16px; padding: 0 8px; }
+  .class-head-in { gap: 10px; padding: 8px 0 6px; }
+  .class-pic { width: 40px; height: 40px; }
+  .class-pic-none { font-size: 20px; }
+  .class-head-name { font-size: 20px; }
+  .class-tabs a { padding: 8px 11px; font-size: 14px; }
+}
+/* A phone: the class header names where you are, so the crumb goes; scrolled, the top bar packs into one row. */
+@media (max-width: 600px) {
+  .top:has(.class-head) .crumbs { display: none; }
+  html[data-class-small="1"] .top:has(.class-head) .brand-name { display: none; }
+  html[data-class-small="1"] .top:has(.class-head) .top-in { padding-top: 6px; padding-bottom: 6px; gap: 6px 8px; }
+  html[data-class-small="1"] .top:has(.class-head) .top-in .btn { white-space: nowrap; }
+  html[data-class-small="1"] .class-pic { width: 28px; height: 28px; }
+  html[data-class-small="1"] .class-head-name { font-size: 17px; }
+}
+@media (max-height: 520px) { .class-head-kicker { display: none; } .class-pic { width: 32px; height: 32px; } .class-head-name { font-size: 18px; } }
+@media (prefers-reduced-motion: reduce) { .class-head-in, .class-pic, .class-head-name { transition: none; } }
+@media print { .class-head-tabs, .class-pic-edit { display: none !important; } }
+
+/* The Create menu (CreateMenu.tsx) */
+.create-menu > .menu-pop { width: min(400px, calc(100vw - 32px)); padding: 6px; max-height: min(70vh, 640px); overflow: auto; }
+.materials-head .create-menu > .menu-pop { right: auto; left: 0; z-index: 6; }
+.create-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.create-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 10px; border-radius: var(--r-sm); color: inherit; text-decoration: none; min-height: 44px; }
+.create-item:hover, .create-item:focus-visible { background: var(--desk); }
+.create-item .shape { margin-top: 3px; flex: 0 0 auto; }
+.create-words { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.create-words .muted { font-size: 13px; line-height: 1.35; }
+.create-menu > summary { cursor: pointer; }
+
 /* Phone width (375px) with Larger text and the dyslexia font: nothing may push the page wider.
    Screen-reader-only text inside a sideways scroller is placed against the body unless the
    scroller is positioned, and then makes the whole page scroll. */

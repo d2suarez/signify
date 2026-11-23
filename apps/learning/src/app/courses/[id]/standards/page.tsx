@@ -10,7 +10,7 @@ import { getDb } from "@/lib/db";
 import { todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import { Notices } from "@/components/FrameworkInfo";
 import PrintButton from "@/components/PrintButton";
 
@@ -91,13 +91,14 @@ export default async function ClassStandards({ params, searchParams }: { params:
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="standards" heading />} />
       <main className="page stack" style={{ maxWidth: 1000 }}>
         <div className="row">
-          <h1 style={{ fontSize: 34 }} className="grow">{course.name}</h1>
+          {/* The class header is the title on screen; printed, the top bar is left out, so the name prints here. */}
+          <p style={{ fontSize: 34, margin: 0 }} className="grow print-only">{course.name}</p>
+          <span className="spacer no-print" />
           <span className="no-print"><PrintButton label={d.csPrint} /></span>
         </div>
-        <div className="no-print"><CourseNav courseId={course.id} current="standards" d={d} /></div>
         <h2 className="print-only" style={{ fontSize: 22 }}>{d.csTitle} · {date(today)}</h2>
 
         <section className="card stack" aria-labelledby="cov-sum" style={{ gap: 10 }}>

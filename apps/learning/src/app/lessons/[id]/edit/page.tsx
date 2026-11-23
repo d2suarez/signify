@@ -5,6 +5,7 @@ import { lessonAccess, lang, ctx } from "@/lib/access";
 import { listUnits, unitChoices } from "@/lib/units";
 import { dict, t } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import LessonEditor from "@/components/LessonEditor";
 import { toolChoices } from "@/lib/lti-platform";
 import { standardOptions } from "@/lib/standards-library";
@@ -28,7 +29,7 @@ export default async function EditLesson({ params }: { params: Promise<{ id: str
   ]);
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{t("myCourses", L)}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} below={<ClassHeader course={course} d={dict(L)} />} />
       <main className="page">
         <LessonEditor initial={lesson} courseId={course.id} units={unitChoices(units).map((u) => ({ id: u.id, title: u.label }))} tools={tools} resources={resources}
           assignments={assignments.map((a) => ({ id: a.id, title: a.title, kind: a.kind, published: a.published }))}

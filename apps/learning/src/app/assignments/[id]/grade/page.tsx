@@ -10,6 +10,7 @@ import { dict } from "@/lib/i18n";
 import { courseGrading, listStandards } from "@/lib/standards";
 import { alignedStandards, levelLabel, levelWords, topLevel } from "@/lib/standards-math";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import GradeDesk, { type DeskStandards, type DeskStudent } from "@/components/GradeDesk";
 import { placements } from "@/lib/lti-dl";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
@@ -84,7 +85,7 @@ export default async function GradePage({ params, searchParams }: {
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link> · <Link href={`/assignments/${a.id}`}>{a.title}</Link></>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/assignments/${a.id}`}>{a.title}</Link></>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack">
         {/* Sorted by group on a group assignment, so a group's members sit together. */}
         <div className="row">

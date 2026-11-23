@@ -301,6 +301,9 @@ export async function canOpen(
     for (const r of key) if ((await roleIn(String(r.course_id))) === "teacher") return true;
     return false;
   }
+  // A class picture (migration 043): anyone in that class, in its header.
+  const pictured = await db.query("SELECT id FROM courses WHERE tenant_id = $1 AND picture_file_id = $2", [tenantId, file.id]);
+  for (const r of pictured) if (await roleIn(String(r.id))) return true;
   if (posts) {
     // A picture or file shown in a visible update its reader can see.
     const shown = await db.query(

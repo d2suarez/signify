@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { courseAccess, ctx, lang, studentsOf } from "@/lib/access";
 import { requireMe } from "@/lib/auth";
 import { createGroupSet, listGroupSets, myGroups, saveGroupSet } from "@/lib/group-sets";
-import { groupName, randomGroups, newGroupId } from "@/lib/groups";
+import { startingGroups } from "@/lib/groups";
 import { dict, t } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +32,7 @@ async function makeSet(formData: FormData) {
   const { ok, students } = await studentsOf(access);
   if (!ok) redirect(`/courses/${access.course.id}/groups?id=failed`);
   const people = students.map((s) => ({ id: s.id, name: s.name }));
-  const how = String(formData.get("how") || "count");
-  const n = Math.max(1, Math.min(40, Math.floor(Number(formData.get("n")) || 1)));
-  const groups = how === "hand"
-    ? Array.from({ length: n }, (_, i) => ({ id: newGroupId(), name: groupName(word, i), members: [] }))
-    : randomGroups(people, how === "size" ? { size: n } : { count: n }, word);
+  const groups = startingGroups(people, String(formData.get("how") || "count"), formData.get("n"), word);
   const name = String(formData.get("name") || "").trim() || `${t("grpTitle", L)} · ${new Date().toLocaleDateString(L === "es" ? "es" : "en-US", { month: "short", day: "numeric" })}`;
   const set = await createGroupSet(ctx(access.me), access.course.id, { name, groups }, new Map(people.map((p) => [p.id, p.name])), word);
   redirect(`/courses/${access.course.id}/groups/${set.id}`);
@@ -64,13 +60,14 @@ export default async function GroupsPage({ params, searchParams }: {
   const access = await courseAccess(id);
   if (!access) notFound();
   const { me, course } = access;
-  const crumbs = <><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>;
+  const crumbs = <Link href="/">{d.myCourses}</Link>;
+  const below = <ClassHeader course={course} d={d} />;
 
   if (course.role !== "teacher") {
     const mine = await myGroups(ctx(me), course.id, me.id);
     return (
       <>
-        <TopBar crumbs={crumbs} />
+        <TopBar crumbs={crumbs} below={below} />
         <main className="page stack">
           <h1 style={{ fontSize: 34 }}>{d.grpYourGroups}</h1>
           {mine.length === 0 ? <p className="empty">{d.grpNoneStudent}</p> : (
@@ -92,16 +89,10 @@ export default async function GroupsPage({ params, searchParams }: {
   const [sets, archived] = await Promise.all([listGroupSets(ctx(me), course.id), listGroupSets(ctx(me), course.id, { archived: true })]);
   return (
     <>
-      <TopBar crumbs={crumbs} />
+      <TopBar crumbs={crumbs} below={below} />
       <main className="page stack">
-        <div>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>{course.subject}</p>
-          <h1 style={{ fontSize: 34 }}>{course.name}</h1>
-        </div>
-        <CourseNav courseId={course.id} current="groups" d={d} club={course.kind === "club"} />
-
         <section className="card stack" aria-labelledby="grp-title" style={{ gap: 12 }}>
-          <h2 id="grp-title" style={{ fontSize: 24 }}>{d.grpTitle}</h2>
+          <h1 id="grp-title" style={{ fontSize: 26 }}>{d.grpTitle}</h1>
           <p className="muted" style={{ margin: 0 }}>{d.grpIntro}</p>
           {problem === "failed" && <p className="notice" role="alert" style={{ margin: 0 }}>{d.grpRosterFailed}</p>}
           {sets.length === 0 ? <p className="empty">{d.grpEmpty2}</p> : (

@@ -7,7 +7,7 @@ import { listImports, undoImport } from "@/lib/organize";
 import { dict } from "@/lib/i18n";
 import { MAX_UPLOAD } from "@/lib/cc-import";
 import { TopBar } from "@/components/TopBar";
-import { CourseNav } from "@/components/CourseNav";
+import { ClassHeader } from "@/components/ClassHeader";
 import ImportCourse from "@/components/ImportCourse";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +35,9 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
   const past = await listImports(ctx(access.me), course.id);
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} tab="settings" />} />
       <main className="page stack" style={{ maxWidth: 860 }}>
         <h1 style={{ fontSize: 34 }}>{d.importCourse}</h1>
-        <CourseNav courseId={course.id} current="settings" d={d} />
         <ImportCourse courseId={course.id} courseName={course.name} maxBytes={MAX_UPLOAD} d={d} />
         {past.length > 0 && (
           <section className="card stack" aria-labelledby="past-imports" style={{ gap: 8 }}>

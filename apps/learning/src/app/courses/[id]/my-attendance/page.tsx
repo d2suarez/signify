@@ -5,6 +5,7 @@ import { requireMe } from "@/lib/auth";
 import { studentAttendance } from "@/lib/my-attendance";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
+import { ClassHeader } from "@/components/ClassHeader";
 import { AttendanceSummary } from "@/components/AttendanceSummary";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function MyAttendancePage({ params }: { params: Promise<{ i
   const a = (await studentAttendance(me.tenantId, [course.id], me.id)).get(course.id)!;
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
+      <TopBar crumbs={<Link href="/">{d.myCourses}</Link>} below={<ClassHeader course={course} d={d} />} />
       <main className="page stack" style={{ maxWidth: 720 }}>
         <h1 style={{ fontSize: 30 }}>{d.attMine}</h1>
         <section className="card"><AttendanceSummary a={a} d={d} L={L} /></section>

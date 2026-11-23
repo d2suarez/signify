@@ -19,6 +19,8 @@ export type Course = {
   schoolYear: string;
   /** 'class' (academic) or 'club' (a group with no academics; migration 020). */
   kind: CourseKind;
+  /** The class picture (migration 043): one of the class's own picture files, or null. */
+  pictureFileId: string | null;
 };
 
 export type CourseKind = "class" | "club";
@@ -47,6 +49,7 @@ function toCourse(r: Record<string, unknown>): Course {
     catalogId: r.catalog_id ? String(r.catalog_id) : "",
     schoolYear: String(r.school_year ?? ""),
     kind: r.kind === "club" ? "club" : "class",
+    pictureFileId: r.picture_file_id ? String(r.picture_file_id) : null,
   };
 }
 
@@ -134,4 +137,21 @@ export async function courseFor(
   const cls = classes.find((c) => c.id === course.idClassId);
   const role = cls ? roleInClass(cls) : null;
   return role ? { ...course, role } : null;
+}
+
+/**
+ * Sets or clears a class's picture (migration 043). Only a picture file
+ * (by its bytes, files.ts) uploaded to this same class in this school is
+ * kept; anything else answers false and changes nothing. The caller checks
+ * the person teaches the class.
+ */
+export async function setCoursePicture(tenantId: string, courseId: string, fileId: string | null): Promise<boolean> {
+  const db = await getDb();
+  if (fileId !== null) {
+    if (!/^[0-9a-f-]{36}$/i.test(fileId)) return false;
+    const f = await db.query("SELECT 1 FROM course_files WHERE tenant_id = $1 AND id = $2 AND course_id = $3 AND kind = 'image'", [tenantId, fileId, courseId]);
+    if (!f.length) return false;
+  }
+  const rows = await db.query("UPDATE courses SET picture_file_id = $3 WHERE tenant_id = $1 AND id = $2 RETURNING id", [tenantId, courseId, fileId]);
+  return rows.length > 0;
 }
