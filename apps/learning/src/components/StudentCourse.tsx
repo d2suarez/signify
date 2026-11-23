@@ -160,6 +160,7 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
         <div className="row">
           {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
           <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
+          <Link className="btn" href={`/courses/${course.id}/my-attendance`}>{d.attMine}</Link>
           {shared > 0 && <Link className="btn" href={`/courses/${course.id}/resources`}>{d.resTitle} ({shared})</Link>}
           {myGroupCount > 0 && <Link className="btn" href={`/courses/${course.id}/groups`}>{d.grpYourGroups} ({myGroupCount})</Link>}
         </div>

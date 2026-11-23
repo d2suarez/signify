@@ -6,6 +6,8 @@ import { studentWork } from "@/lib/family";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
 import { CourseWorkCard } from "@/components/Work";
+import { AttendanceSummary } from "@/components/AttendanceSummary";
+import { studentAttendance } from "@/lib/my-attendance";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,8 @@ export default async function ChildPage({ params }: { params: Promise<{ childId:
   const child = children.find((c) => c.id === childId);
   if (!child) notFound();
   const work = await studentWork(ctx(me), child.classes, child.id);
+  // Attendance in each class (story 01, D6): the child's own record, no teacher notes.
+  const att = await studentAttendance(me.tenantId, work.map((w) => w.course.id), child.id);
 
   return (
     <>
@@ -45,7 +49,15 @@ export default async function ChildPage({ params }: { params: Promise<{ childId:
         </div>
         <p className="muted" style={{ margin: 0 }}>{d.parentNote}</p>
         {work.length === 0 && <p className="empty">{d.noCoursesChild}</p>}
-        {work.map((w) => <CourseWorkCard key={w.course.id} w={w} d={d} L={L} />)}
+        {work.map((w) => (
+          <div key={w.course.id} className="stack" style={{ gap: 8 }}>
+            <CourseWorkCard w={w} d={d} L={L} />
+            <details className="card">
+              <summary>{d.attMine}: {w.course.name}{att.get(w.course.id)!.days ? ` · ${d.attAbsent} ${att.get(w.course.id)!.counts.absent} · ${d.attTardy} ${att.get(w.course.id)!.counts.tardy}` : ""}</summary>
+              <div style={{ marginTop: 8 }}><AttendanceSummary a={att.get(w.course.id)!} d={d} L={L} /></div>
+            </details>
+          </div>
+        ))}
       </main>
     </>
   );
