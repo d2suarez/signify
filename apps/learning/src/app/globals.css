@@ -399,6 +399,9 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
 .plan-add input { width: 100%; }
 .plan-add-btn { align-self: flex-start; margin-top: auto; }
 .plan-pick-btn { align-self: flex-start; }
+.plan-present { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.plan-present .btn { white-space: normal; text-align: left; }
+.plan-present-more { display: flex; gap: 8px; font-size: 12px; }
 .plan-mat { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 6px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--p4, var(--p2)) 14%, var(--surface)); font-size: 13px; font-weight: 600; }
 .plan-mat .shape { width: 9px; height: 9px; }
 .plan-mat select { width: 100%; font-size: 12px; min-height: 30px; }

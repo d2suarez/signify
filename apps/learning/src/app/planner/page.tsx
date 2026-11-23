@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireMe, myClasses } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
@@ -8,7 +9,7 @@ import { listAssignments } from "@/lib/assignments";
 import { listUnits, subtreeIds } from "@/lib/units";
 import { listResources, blocksFromResources } from "@/lib/resources";
 import { listStandards } from "@/lib/standards";
-import { weekPlan, plannable, planMaterial, unplanMaterial, movePlanItem, addDayStandard, removeDayStandard, PlanError } from "@/lib/week-plan";
+import { weekPlan, plannable, presentDay, presentationLessonIds, planMaterial, unplanMaterial, movePlanItem, addDayStandard, removeDayStandard, PlanError } from "@/lib/week-plan";
 import { addDays, isSchoolDay, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
 import { TopBar } from "@/components/TopBar";
@@ -69,6 +70,26 @@ async function planAction(formData: FormData): Promise<{ error?: string }> {
 }
 
 /**
+ * "Present this day" (story 01, B3): the day's lessons and picked materials
+ * become one lesson (or the one there was), opened in the live presenter,
+ * the same path as Resources' "Present ticked". `again` makes it anew.
+ */
+async function presentAction(formData: FormData) {
+  "use server";
+  const access = await courseAccess(String(formData.get("courseId") || ""));
+  if (!access || access.course.role !== "teacher") return;
+  const title = String(formData.get("title") || "").trim().slice(0, 200) || "Presentation";
+  let id: string | null = null;
+  try {
+    id = await presentDay(ctx(access.me), access.course.id, formData.get("day"), title, formData.get("again") === "1");
+  } catch (e) {
+    if (!(e instanceof PlanError)) throw e;
+  }
+  if (!id) redirect("/planner");
+  redirect(formData.get("op") === "edit" ? `/lessons/${id}/edit` : `/lessons/${id}/present`);
+}
+
+/**
  * The week planner: every course a teacher teaches, Monday to Friday, with
  * the lessons planned for each day and the work due. Lessons move by drag or
  * by a "Move to" list (keyboard and phone); each move is one version-checked
@@ -90,16 +111,18 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
       listLessons(c, course.id), listAssignments(c, course.id), listUnits(c, course.id), listResources({ ...c, role: "teacher" }, course.id),
       weekPlan(c, course.id, days), plannable(c, course.id), listStandards(c, course.id),
     ]);
+    // A day's presentation lesson shows on its day, not in "Not scheduled".
+    const shows = await presentationLessonIds(c, course.id);
     const folder = new Map(units.map((u) => [u.id, u.path]));
     return {
       id: course.id,
       name: course.name,
-      lessons: lessons.map((l) => ({ id: l.id, title: l.title, plannedFor: l.plannedFor, version: l.version, unitId: l.unitId })),
+      lessons: lessons.filter((l) => !shows.has(l.id)).map((l) => ({ id: l.id, title: l.title, plannedFor: l.plannedFor, version: l.version, unitId: l.unitId })),
       due: assignments.filter((a) => a.dueOn && days.includes(a.dueOn))
         .map((a) => ({ id: a.id, title: a.title, dueOn: a.dueOn!, dueAt: a.dueAt, draft: !a.published })),
       units: units.map((u) => ({ id: u.id, title: u.path, within: [...subtreeIds(units, u.id)] })),
       resources: resources.map((r) => ({ id: r.id, title: r.title })),
-      plan: Object.fromEntries(plan.map((p) => [p.day, { materials: p.materials, standards: p.standards }])),
+      plan: Object.fromEntries(plan.map((p) => [p.day, { materials: p.materials, standards: p.standards, presentation: p.presentation, lessons: p.lessons.length }])),
       pickable: pickable.map((m) => ({ key: `${m.kind}:${m.id}`, title: m.title, sub: m.sub, kind: m.kind, folder: m.unitId ? folder.get(m.unitId) ?? "" : "" })),
       standards: standards.map((x) => ({ id: x.id, code: x.code, description: x.description })),
     };
@@ -126,7 +149,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
         {!ok && <div className="notice notice-bad" role="alert">{d.classesFailed} <a href="/planner">{d.tryAgain}</a></div>}
         {ok && courses.length === 0
           ? <p className="empty">{d.plannerEmpty}</p>
-          : <WeekPlanner courses={courses} days={days} today={today} L={L} d={d} addLesson={addLesson} planAction={planAction} />}
+          : <WeekPlanner courses={courses} days={days} today={today} L={L} d={d} addLesson={addLesson} planAction={planAction} presentAction={presentAction} />}
       </main>
     </>
   );

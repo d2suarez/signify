@@ -20,7 +20,7 @@ export type PlannerCourse = {
   /** The class's resources, for "Start from" in quick-add (optional so older callers still fit). */
   resources?: { id: string; title: string }[];
   /** Story 01 B1/B2: materials picked onto each day and the day's standards. */
-  plan?: Record<Day, { materials: PlanMaterial[]; standards: PlanStandard[] }>;
+  plan?: Record<Day, { materials: PlanMaterial[]; standards: PlanStandard[]; presentation?: { id: string; title: string } | null; lessons?: number }>;
   /** What can be picked onto a day ("assignment:id" / "resource:id"), with its folder path. */
   pickable?: { key: string; title: string; sub: string; kind: "assignment" | "resource"; folder: string }[];
   /** The course's standards, to add to a day by hand. */
@@ -36,10 +36,12 @@ const NONE = "none";
  * the version it started from (PUT /api/lessons/[id]); if a lesson was changed
  * elsewhere in the meantime the save is refused, the page says so and reloads.
  */
-export default function WeekPlanner({ courses, days, today, L, d, addLesson, planAction }: {
+export default function WeekPlanner({ courses, days, today, L, d, addLesson, planAction, presentAction }: {
   courses: PlannerCourse[]; days: Day[]; today: Day; L: Lang; d: Dict;
   addLesson: (formData: FormData) => Promise<void>;
   planAction?: PlanAction;
+  /** "Present this day": redirects to the presenter (B3). */
+  presentAction?: (formData: FormData) => Promise<void>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -164,7 +166,7 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson, pla
                       </Link>
                     ))}
                     {planAction && course.plan && (
-                      <DayPlan course={course} day={day} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")}
+                      <DayPlan course={course} day={day} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")} presentAction={presentAction}
                         act={async (fd) => {
                           setBusy(true);
                           try {
@@ -243,9 +245,10 @@ const SUB_ICON: Record<string, string> = { quiz: "?", lesson: "◗", link: "↗"
  * pointers to the folder tree; a standard comes from what's on the day, or by
  * hand. Every change is one small form posted to the page's planAction.
  */
-function DayPlan({ course, day, days, d, busy, dayName, act }: {
+function DayPlan({ course, day, days, d, busy, dayName, act, presentAction }: {
   course: PlannerCourse; day: Day; days: Day[]; d: Dict; busy: boolean; dayName: (day: Day) => string;
   act: (fd: FormData) => Promise<void>;
+  presentAction?: (formData: FormData) => Promise<void>;
 }) {
   const [picking, setPicking] = useState(false);
   const plan = course.plan?.[day] ?? { materials: [], standards: [] };
@@ -266,8 +269,30 @@ function DayPlan({ course, day, days, d, busy, dayName, act }: {
   const unused = (course.standards ?? []).filter((s) => !plan.standards.some((x) => x.id === s.id));
   const label = `${course.name}, ${dayName(day)}`;
 
+  const show = plan.presentation ?? null;
+  const hasSomething = (plan.lessons ?? 0) + plan.materials.length > 0;
+  const presentTitle = `${course.name} · ${dayName(day)}`;
+
   return (
     <>
+      {presentAction && (show || hasSomething) && (
+        <form action={presentAction} className="plan-present">
+          <input type="hidden" name="courseId" value={course.id} />
+          <input type="hidden" name="day" value={day} />
+          <input type="hidden" name="title" value={presentTitle} />
+          <button className="btn btn-sm btn-primary" name="op" value="present" disabled={busy}
+            aria-label={`${d.planPresentDay}: ${label}`}>▶ {show ? d.present : d.planPresentDay}</button>
+          {show && (
+            <span className="plan-present-more">
+              <button className="link-btn" name="op" value="edit" disabled={busy} aria-label={`${d.edit}: ${show.title}`}>{d.edit}</button>
+              {hasSomething && (
+                <button className="link-btn" name="again" value="1" disabled={busy} title={d.planPresentAgainHint}
+                  onClick={(e) => { if (!window.confirm(d.planPresentAgainConfirm)) e.preventDefault(); }}>{d.planPresentAgain}</button>
+              )}
+            </span>
+          )}
+        </form>
+      )}
       {plan.materials.map((m) => (
         <div key={m.itemId} className="plan-mat">
           <span className={`shape ${m.kind === "assignment" ? "s-tri" : "s-square"}`} aria-hidden="true" />

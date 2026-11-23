@@ -1,4 +1,7 @@
 import { getDb, type Queryable } from "./db";
+import { type Block, LIMITS as BLOCK_LIMITS, newId, normalizeBlocks } from "./blocks";
+import { createLesson, getLesson } from "./lessons";
+import { blocksFromResources } from "./resources";
 import { isSchoolDay } from "./planner";
 import type { Day } from "./calendar";
 
@@ -45,6 +48,8 @@ export type PlanDay = {
   materials: PlanMaterial[];
   due: { id: string; title: string; dueAt: string | null; draft: boolean; href: string }[];
   standards: PlanStandard[];
+  /** The day's presentation (B3), if one was made and still exists. */
+  presentation: { id: string; title: string } | null;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,10 +75,11 @@ export async function weekPlan(ctx: Ctx, courseId: string, days: Day[], q?: Quer
   const db = q ?? await getDb();
   const T = ctx.tenantId;
   if (!days.length) return [];
-  const [lessons, items, due, hand, standards] = await Promise.all([
+  const [lessons, items, due, hand, standards, shows] = await Promise.all([
     db.query(
       `SELECT id, title, planned_for, standards FROM lessons
-        WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND planned_for = ANY($3::date[]) ORDER BY planned_for, created_at`,
+        WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND planned_for = ANY($3::date[])
+          AND id NOT IN (SELECT lesson_id FROM plan_days WHERE course_id = $2 AND lesson_id IS NOT NULL) ORDER BY planned_for, created_at`,
       [T, courseId, days],
     ),
     db.query(
@@ -95,6 +101,11 @@ export async function weekPlan(ctx: Ctx, courseId: string, days: Day[], q?: Quer
     ),
     db.query("SELECT day, standard_id FROM plan_day_standards WHERE tenant_id = $1 AND course_id = $2 AND day = ANY($3::date[]) ORDER BY created_at", [T, courseId, days]),
     db.query("SELECT id, code, description FROM standards WHERE tenant_id = $1 AND course_id = $2 AND archived = false", [T, courseId]),
+    db.query(
+      `SELECT p.day, l.id, l.title FROM plan_days p JOIN lessons l ON l.id = p.lesson_id AND l.archived = false AND l.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND p.course_id = $2 AND p.day = ANY($3::date[])`,
+      [T, courseId, days],
+    ),
   ]);
   const std = new Map(standards.map((s) => [String(s.id), { code: String(s.code), description: String(s.description ?? "") }]));
 
@@ -144,6 +155,7 @@ export async function weekPlan(ctx: Ctx, courseId: string, days: Day[], q?: Quer
         id: String(a.id), title: String(a.title), dueAt: a.due_at ? new Date(String(a.due_at)).toISOString() : null, draft: !a.published, href: `/assignments/${a.id}`,
       })),
       standards: [...found.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })),
+      presentation: (() => { const p = shows.find((x) => dayOf(x.day) === day); return p ? { id: String(p.id), title: String(p.title) } : null; })(),
     };
   });
 }
@@ -258,4 +270,74 @@ export async function plannable(ctx: Ctx, courseId: string): Promise<{ kind: Pla
     ...a.map((x) => ({ kind: "assignment" as const, id: String(x.id), title: String(x.title), sub: String(x.kind), unitId: x.unit_id ? String(x.unit_id) : null })),
     ...r.map((x) => ({ kind: "resource" as const, id: String(x.id), title: String(x.title), sub: x.kind === "lesson" ? "lesson" : String(x.type ?? "text"), unitId: x.unit_id ? String(x.unit_id) : null })),
   ];
+}
+
+/** Lessons that are some day's presentation (the planner leaves them out of "Not scheduled"). */
+export async function presentationLessonIds(ctx: Ctx, courseId: string): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.query("SELECT lesson_id FROM plan_days WHERE tenant_id = $1 AND course_id = $2 AND lesson_id IS NOT NULL", [ctx.tenantId, courseId]);
+  return new Set(rows.map((r) => String(r.lesson_id)));
+}
+
+/**
+ * The slides for a day, in order: each lesson planned for it (its blocks),
+ * then each picked material (a class resource's block(s), as "Present
+ * ticked" makes them; an assignment or quiz as a slide with its title and
+ * instructions). Copies with fresh ids, so the day's lessons never change.
+ */
+export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{ blocks: Block[]; sources: number; onlyLesson: string | null }> {
+  const [plan] = await weekPlan(ctx, courseId, [day]);
+  const blocks: Block[] = [];
+  for (const l of plan.lessons) {
+    const lesson = await getLesson(ctx, l.id);
+    if (lesson && lesson.courseId === courseId) blocks.push(...lesson.blocks.map((b) => ({ ...b, id: newId() })));
+  }
+  const db = await getDb();
+  for (const m of plan.materials) {
+    if (m.kind === "resource") blocks.push(...await blocksFromResources({ ...ctx, role: "teacher" }, courseId, [m.id]));
+    else {
+      const [a] = await db.query("SELECT title, instructions, kind FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false", [ctx.tenantId, courseId, m.id]);
+      if (a) blocks.push(assignmentSlide(m.id, String(a.title), String(a.instructions ?? ""), String(a.kind)));
+    }
+    if (blocks.length >= BLOCK_LIMITS.blocks) break;
+  }
+  const sources = plan.lessons.length + plan.materials.length;
+  return {
+    blocks: normalizeBlocks(blocks.slice(0, BLOCK_LIMITS.blocks)),
+    sources,
+    onlyLesson: plan.lessons.length === 1 && plan.materials.length === 0 ? plan.lessons[0].id : null,
+  };
+}
+
+/** An assignment or quiz on a slide: its title and the words of its instructions. */
+export function assignmentSlide(_id: string, title: string, instructions: string, kind: string): Block {
+  return { id: newId(), type: "text", title: `${kind === "quiz" ? "Quiz" : "Assignment"}: ${title}`.slice(0, 200), body: instructions.slice(0, 20_000) };
+}
+
+/**
+ * "Present this day": the day's presentation lesson, made now if there is
+ * none (or `again`). A day with just one lesson presents that lesson itself.
+ * Null when nothing is on the day. The caller checks the teacher role.
+ */
+export async function presentDay(ctx: Ctx, courseId: string, day: unknown, title: string, again = false): Promise<string | null> {
+  const d = checkDay(day);
+  const db = await getDb();
+  if (!again) {
+    const [had] = await db.query(
+      `SELECT l.id FROM plan_days p JOIN lessons l ON l.id = p.lesson_id AND l.archived = false
+        WHERE p.tenant_id = $1 AND p.course_id = $2 AND p.day = $3`,
+      [ctx.tenantId, courseId, d],
+    );
+    if (had) return String(had.id);
+  }
+  const { blocks, onlyLesson } = await dayBlocks(ctx, courseId, d);
+  if (onlyLesson) return onlyLesson;
+  if (!blocks.length) return null;
+  const lesson = await createLesson(ctx, courseId, title, blocks);
+  await db.query(
+    `INSERT INTO plan_days (tenant_id, course_id, day, lesson_id, made_by) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (course_id, day) DO UPDATE SET lesson_id = EXCLUDED.lesson_id, made_by = EXCLUDED.made_by, made_at = now()`,
+    [ctx.tenantId, courseId, d, lesson.id, ctx.userId],
+  );
+  return lesson.id;
 }

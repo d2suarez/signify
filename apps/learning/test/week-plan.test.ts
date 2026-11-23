@@ -119,3 +119,43 @@ test("week plan: a day holds at most so many materials", async () => {
   const extra = await createAssignment(T, other, { title: "One more" });
   await assert.rejects(planMaterial(T, other, day, "assignment", extra.id), (e: PlanError) => e.code === "full");
 });
+
+test("present this day: the day's lessons then materials become one lesson, opened again until made again", async () => {
+  const { presentDay, dayBlocks, weekPlan: wp, presentationLessonIds } = await import("../src/lib/week-plan");
+  const { getLesson } = await import("../src/lib/lessons");
+  const day = "2026-12-02";
+  const cls = (await myCourses("school-a", [{ id: "w-p", name: "Bible 10", role: "teacher" }], "t1"))[0].id;
+  assert.equal(await presentDay(T, cls, day, "Nothing"), null, "an empty day has nothing to present");
+
+  const l1 = await createLesson(T, cls, "Opening", [{ id: "x1", type: "text", title: "Welcome", body: "Pray" }] as never);
+  await saveLesson(T, l1.id, { baseVersion: l1.version, plannedFor: day });
+  assert.equal(await presentDay(T, cls, day, "One"), l1.id, "a day with just one lesson presents that lesson");
+
+  const video = await createResource({ ...T, role: "teacher" }, cls, { block: { type: "link", title: "Video", url: "https://example.org/v" } });
+  const sheet = await createAssignment(T, cls, { title: "Worksheet" });
+  await saveAssignment(T, sheet.id, { baseVersion: sheet.version, instructions: "Answer 1-5." });
+  await planMaterial(T, cls, day, "resource", video.id);
+  await planMaterial(T, cls, day, "assignment", sheet.id);
+
+  const { blocks } = await dayBlocks(T, cls, day);
+  assert.deepEqual(blocks.map((b) => [b.type, (b as { title?: string }).title]), [["text", "Welcome"], ["link", "Video"], ["text", "Assignment: Worksheet"]]);
+  assert.ok(blocks.every((b) => b.id !== "x1"), "fresh ids: the day's lessons never change");
+
+  const made = await presentDay(T, cls, day, "Bible 10 · Wednesday");
+  assert.ok(made && made !== l1.id);
+  const lesson = await getLesson(T, made!);
+  assert.equal(lesson?.title, "Bible 10 · Wednesday");
+  assert.equal(lesson?.plannedFor, null, "the presentation itself stays unscheduled");
+  assert.equal(lesson?.blocks.length, 3);
+  assert.equal(await presentDay(T, cls, day, "Again?"), made, "pressing it again opens the same one");
+  const [p] = await wp(T, cls, [day]);
+  assert.deepEqual(p.presentation, { id: made, title: "Bible 10 · Wednesday" });
+  assert.deepEqual(p.lessons.map((l) => l.title), ["Opening"]);
+  assert.ok((await presentationLessonIds(T, cls)).has(made!));
+
+  const again = await presentDay(T, cls, day, "Remade", true);
+  assert.ok(again && again !== made, "made again on request");
+  assert.ok(!(await presentationLessonIds(T, cls)).has(made!), "the earlier one is an ordinary lesson again");
+  await assert.rejects(presentDay(T, cls, "2026-12-05", "Sabbath"), (e: PlanError) => e.code === "day");
+  assert.equal(await presentDay(B, cls, day, "Theirs"), null, "another school sees nothing on our day");
+});
