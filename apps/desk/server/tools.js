@@ -19,6 +19,10 @@ const WIDGETS = path.join(__dirname, '..', 'public', 'js', 'widgets');
 // catalogue does. Kept in step by a test.
 const GROUPS = { time: 'Time', class: 'Your class', board: 'On the board', calm: 'Sound and calm', other: 'Odds and ends' };
 
+// Each widget's own definition as its file made it, for the few pure helpers
+// the server borrows (seating geometry). Never its mount().
+const RAW = new Map();
+
 function load() {
   const defs = [];
   const noop = () => {};
@@ -26,7 +30,9 @@ function load() {
   const sandbox = { console, setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, TextEncoder };
   sandbox.window = sandbox;
   sandbox.document = node();
-  sandbox.Desk = new Proxy({ widget: (def) => { defs.push(def); } }, {
+  // A real clamp, so a widget's own pure helpers (the seating plan's
+  // geometry, served to Signify Learning by server/learning.js) work here.
+  sandbox.Desk = new Proxy({ widget: (def) => { defs.push(def); }, clamp: (n, lo, hi) => Math.min(hi, Math.max(lo, n)) }, {
     get: (t, k) => (k in t ? t[k] : node()),
   });
   vm.createContext(sandbox);
@@ -40,6 +46,7 @@ function load() {
     // without anyone remembering to list it.
     if (/Desk\.roster\b/.test(src)) for (const d of defs.slice(before)) readsRoster.add(d.type);
   }
+  for (const d of defs) RAW.set(d.type, d);
   return defs.map((d) => ({
     type: d.type,
     name: d.name || d.type,
@@ -64,4 +71,4 @@ const FEATURES = [...TOOLS].sort((a, b) => ORDER.indexOf(a.category) - ORDER.ind
 // The tools behind the class-list routes; the routes refuse anyone with none.
 const ROSTER_TOOLS = TOOLS.filter((t) => t.readsRoster).map((t) => t.type);
 
-module.exports = { TOOLS, BY_TYPE, FEATURES, ROSTER_TOOLS, GROUPS };
+module.exports = { TOOLS, BY_TYPE, FEATURES, ROSTER_TOOLS, GROUPS, RAW };

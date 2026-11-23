@@ -763,6 +763,59 @@ describe('a colour for every pupil', () => {
   });
 });
 
+// ===================================================================
+// Signify Learning's seating slide (server/learning.js): the teacher's own
+// plan, drawn by the widget's geometry, asked for by Learning's server with
+// a Signify ID token minted for Learning, and one seat moved back through
+// the normal rev-checked save.
+describe('seating plans for Signify Learning', () => {
+  const crypto = require('crypto');
+  const signify = require('../signify-auth');
+  const learning = require('../server/learning');
+  const realFetch = global.fetch;
+  const desk1 = { id: 'dA', shape: 'row', seats: 2, facing: 'up', x: 4, y: 6 };
+  const desk2 = { id: 'dB', shape: 'table', seats: 4, facing: 'up', x: 20, y: 6 };
+  const plan = () => ({ desks: [desk1, desk2], objects: [{ id: 'o1', shape: 'strip', x: 0, y: 0, w: 12, h: 2, label: 'Board' }], front: 'top', seats: { 'dA#0': 'p1', 'dA#1': 'p2', 'dB#0': 'gone' } });
+  const students = [{ id: 'p1', name: 'Ana Ruiz' }, { id: 'p2', name: 'Ana Smith' }, { id: 'p3', name: 'Ben Ode' }];
+  const seatingItem = (plans, extra = {}) => ({ id: 'wS', type: 'seating', x: 0, y: 0, w: 6, h: 7, state: { classKey: 'signify:c1', plans, room: 'medium', ...extra } });
+
+  it('draws the plan with the widget\'s own geometry, naming only pupils still in the class', () => {
+    const out = learning._chartOf({ rev: 7, items: [seatingItem({ 'signify:c1': plan() })] }, 'signify:c1', students);
+    const def = require('../server/tools').RAW.get('seating');
+    const l = def._layout(desk2);
+    equal(out.chart.widgetId, 'wS');
+    equal(out.chart.rev, 7);
+    equal(out.chart.desks[1].seats.length, 4);
+    equal(out.chart.desks[1].seats[0].w, l.seats[0].w, 'seat sizes come from layout()');
+    equal(out.chart.desks[0].seats.map((x) => x.pupil), ['p1', 'p2']);
+    equal(out.chart.desks[1].seats[0].pupil, null, 'someone no longer in the class is not drawn');
+    equal(out.chart.objects[0].label, 'Board');
+    equal(out.pupils.map((p) => p.short), ['Ana R.', 'Ana S.', 'Ben'], 'the chairs\' short names');
+  });
+
+  it('flips with the card, and says when there is no plan for the class', () => {
+    const flipped = learning._chartOf({ rev: 1, items: [seatingItem({ 'signify:c1': plan() }, { flipped: true })] }, 'signify:c1', students);
+    assert(flipped.chart.flipped && flipped.chart.desks[0].x !== desk1.x, 'a flipped card is drawn flipped');
+    const none = learning._chartOf({ rev: 1, items: [seatingItem({ 'signify:c2': plan() })] }, 'signify:c1', students);
+    equal(none.chart, null);
+    equal(none.pupils.length, 3);
+  });
+
+  it('moves a pupil as tap-then-seat does: swap seat to seat, else the one displaced is unseated', () => {
+    const items = [seatingItem({ 'signify:c1': plan() })];
+    const at = (r) => r.items[0].state.plans['signify:c1'].seats;
+    const sorted = (o) => Object.fromEntries(Object.entries(o).sort());
+    equal(sorted(at(learning._moveIn(items, { widgetId: 'wS', key: 'signify:c1', pupil: 'p1', seat: 'dA#1' }, students))), { 'dA#0': 'p2', 'dA#1': 'p1', 'dB#0': 'gone' });
+    equal(at(learning._moveIn(items, { widgetId: 'wS', key: 'signify:c1', pupil: 'p3', seat: 'dA#0' }, students)), { 'dA#0': 'p3', 'dA#1': 'p2', 'dB#0': 'gone' });
+    equal(at(learning._moveIn(items, { widgetId: 'wS', key: 'signify:c1', pupil: 'p2', seat: null }, students)), { 'dA#0': 'p1', 'dB#0': 'gone' });
+    equal(items[0].state.plans['signify:c1'].seats['dA#0'], 'p1', 'the board itself is not touched');
+    equal(learning._moveIn(items, { widgetId: 'wS', key: 'signify:c1', pupil: 'nobody', seat: 'dA#0' }, students).error, 'pupil');
+    equal(learning._moveIn(items, { widgetId: 'wS', key: 'signify:c1', pupil: 'p1', seat: 'dA#9' }, students).error, 'seat');
+    equal(learning._moveIn(items, { widgetId: 'wX', key: 'signify:c1', pupil: 'p1', seat: 'dA#0' }, students).error, 'plan');
+  });
+
+});
+
 describe('seating a class at random', () => {
   const shareOut = loadWidget('seating')._shareOut;
 

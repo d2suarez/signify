@@ -26,6 +26,7 @@ const weather = require('./server/weather');
 const visitors = require('./server/visitors');
 const tools = require('./server/tools');
 const policy = require('./server/policy');
+const learning = require('./server/learning');
 const createBackups = require('./server/backup');
 const lti = require('./server/lti');
 
@@ -141,6 +142,11 @@ app.use((req, res, next) => {
 // Signify cookie the browser also has (server/lti.js).
 const ltiTool = lti.mount(app, { canonicalHost: CANONICAL_HOST, indexFile: path.join(__dirname, 'public', 'index.html') });
 app.use(ltiTool.identify);
+
+// Signify Learning's server, asking for a teacher's seating plan with the
+// token it holds for them (server/learning.js). Before the tool policy, which
+// reads req.user.
+app.use('/api/learning', learning.bearer);
 
 app.use(auth.devMiddleware);
 
@@ -354,6 +360,13 @@ app.delete('/api/groupings/:id', (req, res) => {
   if (!groups.remove(u, req.params.id)) return bad(res, 404, 'That grouping is not yours.');
   ok(res, { deleted: true });
 });
+
+// ---------------- seating plans, for Signify Learning ----------------
+// A lesson slide shows the teacher's own plan for the class and moves a seat
+// back here (server/learning.js). Only Learning's server, for a teacher of
+// that class, per Signify ID.
+app.get('/api/learning/seating/:classId', wrap(learning.getSeating));
+app.put('/api/learning/seating/:classId', wrap(learning.putSeating));
 
 // ---------------- room templates ----------------
 // Furniture without pupils, so a teacher sets their room up once and seats

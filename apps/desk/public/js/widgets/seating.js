@@ -181,6 +181,75 @@
 
   const seatId = (deskId, i) => `${deskId}#${i}`;
 
+  // The three wall sizes a teacher picks from (see viewOf in mount).
+  const ROOMS = [
+    { key: 'small', label: 'Small', cols: 24 },
+    { key: 'medium', label: 'Medium', cols: 34 },
+    { key: 'large', label: 'Large', cols: COLS },
+  ];
+  const ROOM_RATIO = ROWS / COLS;
+
+  /** How big the walls are for this plan: the chosen room, never smaller than the furniture in it. */
+  function roomView(p, roomKey) {
+    const chosen = ROOMS.find((r) => r.key === roomKey) || ROOMS[1];
+    let cols = chosen.cols;
+    let rows = Math.round(cols * ROOM_RATIO);
+    for (const d of (p ? p.desks || [] : [])) {
+      const l = layout(d);
+      cols = Math.max(cols, d.x + l.w);
+      rows = Math.max(rows, d.y + l.h);
+    }
+    for (const o of (p ? p.objects || [] : [])) {
+      cols = Math.max(cols, o.x + o.w);
+      rows = Math.max(rows, o.y + o.h);
+    }
+    return { cols: clamp(Math.ceil(cols), 12, COLS), rows: clamp(Math.ceil(rows), 8, ROWS), ox: 0, oy: 0 };
+  }
+
+  /**
+   * A plan as it is drawn, in room cells, with nothing else to work out:
+   * every desk's place and surface, every seat's rectangle and who sits in
+   * it, the furniture, the walls. What the card shows, flipped or not, so
+   * Signify Learning can draw the same room on a slide without carrying a
+   * copy of this file (server/learning.js serves it). Pure.
+   */
+  function drawPlan(p, { room = 'medium', flipped = false } = {}) {
+    const front = FRONTS.includes(p && p.front) ? p.front : 'top';
+    const desks = Array.isArray(p && p.desks) ? p.desks : [];
+    const objects = Array.isArray(p && p.objects) ? p.objects : [];
+    const seats = (p && p.seats && typeof p.seats === 'object') ? p.seats : {};
+    const view = roomView({ desks, objects }, room);
+    const axis = frontIsSide(front) ? 'y' : 'x';
+    return {
+      cols: view.cols,
+      rows: view.rows,
+      front,
+      flipped: !!flipped,
+      desks: desks.map((desk) => {
+        const l = flipped ? mirror(layout(desk), axis) : layout(desk);
+        return {
+          id: desk.id,
+          x: flipped && axis === 'x' ? COLS - desk.x - l.w : desk.x,
+          y: flipped && axis === 'y' ? ROWS - desk.y - l.h : desk.y,
+          w: l.w,
+          h: l.h,
+          surface: l.body ? { ...l.body } : null,
+          circle: l.circle ? { ...l.circle } : null,
+          seats: l.seats.map((r, i) => ({ id: seatId(desk.id, i), x: r.x, y: r.y, w: r.w, h: r.h, pupil: seats[seatId(desk.id, i)] || null })),
+        };
+      }),
+      objects: objects.map((o) => ({
+        id: o.id,
+        shape: OBJECTS[o.shape] ? o.shape : 'rect',
+        x: flipped && axis === 'x' ? COLS - o.x - o.w : o.x,
+        y: flipped && axis === 'y' ? ROWS - o.y - o.h : o.y,
+        w: o.w,
+        h: o.h,
+        label: String(o.label || ''),
+      })),
+    };
+  }
+
   /**
    * Tidies a plan against the class list, in place.
    *
@@ -683,6 +752,9 @@
     _lastArrangement: lastArrangement,
     _seatAvoiding: seatAvoiding,
     _prunePlan: prunePlan,
+    _layout: layout,
+    _drawPlan: drawPlan,
+    _shortNames: shortNames,
     _keepHistory: keepHistory,
     _dropEmptyHistory: dropEmptyHistory,
     _KEEP_HISTORY: KEEP_HISTORY,
@@ -741,28 +813,7 @@
        * The room is never smaller than the furniture standing in it, or a
        * desk would be outside the wall.
        */
-      const ROOMS = [
-        { key: 'small', label: 'Small', cols: 24 },
-        { key: 'medium', label: 'Medium', cols: 34 },
-        { key: 'large', label: 'Large', cols: COLS },
-      ];
-      const ROOM_RATIO = ROWS / COLS;
-
-      function viewOf(p) {
-        const chosen = ROOMS.find((r) => r.key === s.room) || ROOMS[1];
-        let cols = chosen.cols;
-        let rows = Math.round(cols * ROOM_RATIO);
-        for (const d of (p ? p.desks : [])) {
-          const l = layout(d);
-          cols = Math.max(cols, d.x + l.w);
-          rows = Math.max(rows, d.y + l.h);
-        }
-        for (const o of (p ? p.objects : [])) {
-          cols = Math.max(cols, o.x + o.w);
-          rows = Math.max(rows, o.y + o.h);
-        }
-        return { cols: clamp(Math.ceil(cols), 12, COLS), rows: clamp(Math.ceil(rows), 8, ROWS), ox: 0, oy: 0 };
-      }
+      function viewOf(p) { return roomView(p, s.room); }
 
       // The walls only move when the teacher moves them, or when a piece of
       // furniture would otherwise end up outside them.
