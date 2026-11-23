@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { isParts, partsScore } from "@/lib/rubric";
 import { assignmentPenalties } from "@/lib/gradebook";
 import { finalScore } from "@/lib/late-policy";
@@ -59,7 +60,7 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     const tool = toolLink ? await getTool(me.tenantId, toolLink.toolId) : null;
     const sent = toolLink ? await toolScores(me.tenantId, a.id) : [];
     const [units, categories, placed, options, attempts, sets, groups, work, subs, materials, graded] = await Promise.all([
-      listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
+      listUnits(c, course.id), listCategories(c, course.id), (ltiToolMode() ? placements(me.tenantId, "assignment", a.id) : Promise.resolve([])) /* Schoology status only while tool mode is on */,
       standardOptions(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
       listGroupSets(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listSubmissions(c, a.id),
       listMaterials(c, a.id),

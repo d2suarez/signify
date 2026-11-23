@@ -1,3 +1,4 @@
+import { ltiToolMode } from "./lti-switch";
 import crypto from "node:crypto";
 import { getDb, type Queryable } from "./db";
 import { signAsTool, type Platform } from "./lti";
@@ -341,6 +342,8 @@ const worker: Worker = ((globalThis as unknown as { __learningAgs?: Worker }).__
 
 /** Sends now (not awaited by the caller) and keeps a one-minute retry loop going. Never throws. */
 export function kickScores(): void {
+  // Tool mode is off (src/lib/lti-switch.ts): nothing goes to Schoology.
+  if (!ltiToolMode()) return;
   if (!worker.timer) {
     worker.timer = setInterval(() => kickScores(), 60_000);
     worker.timer.unref?.();

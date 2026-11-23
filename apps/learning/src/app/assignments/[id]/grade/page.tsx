@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang, studentsOf } from "@/lib/access";
@@ -37,7 +38,7 @@ export default async function GradePage({ params, searchParams }: {
   const { me, course, assignment: a } = access;
   const c = ctx(me);
   const [{ ok, students }, subs, grades, placed, grading, allStandards, groups, work, materials] = await Promise.all([
-    studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), placements(me.tenantId, "assignment", a.id),
+    studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), (ltiToolMode() ? placements(me.tenantId, "assignment", a.id) : Promise.resolve([])) /* Schoology status only while tool mode is on */,
     courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listMaterials(c, a.id),
   ]);
   const review = isParts(a.rubric);

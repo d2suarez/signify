@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -56,7 +57,7 @@ export default async function ToolsPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · {me.tenantName} · <Link href="/school/lti">{d.ltiTitle}</Link></>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · {me.tenantName}{ltiToolMode() && <> · <Link href="/school/lti">{d.ltiTitle}</Link></>}</>} />
       <main className="page stack" style={{ maxWidth: 820 }}>
         <h1 style={{ fontSize: 34 }}>{d.toolsTitle}</h1>
         <p className="muted" style={{ margin: 0 }}>{d.toolsHint}</p>

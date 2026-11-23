@@ -107,4 +107,81 @@ describe('seating plans for Signify Learning', () => {
   });
 });
 
+describe('the rail frame, signed in by Learning (server/embed.js)', () => {
+  const embed = require('../server/embed');
+  const auth = require('../server/auth');
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const tok = `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
+  const resOf = () => ({ code: 200, headers: {}, cookies: [], body: null,
+    status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; },
+    set(k, v) { this.headers[k] = v; return this; }, append(k, v) { if (k === 'Set-Cookie') this.cookies.push(v); return this; } });
+  const vouched = (role, extra = {}) => ({ headers: {}, signifyToken: tok,
+    user: { id: `u-${role}`, email: `${role}@school.test`, role, tenantId: 't1', perms: {}, vouchedBy: 'signify-learning', ...extra } });
+  const mint = async (req, isOpen = async () => true) => { const res = resOf(); await embed.mintTicket(req, res, { isOpen }); return res; };
+  const hdr = (h) => (k) => h[k.toLowerCase()];
+  const redeemReq = (ticket, h = { 'sec-fetch-site': 'same-origin' }) => ({ body: { ticket }, get: hdr(h), protocol: 'https', headers: h });
+  const pageReq = (cookie, referer, path = '/api/board') => {
+    const h = { cookie, host: 'desk.test', ...(referer ? { referer } : {}) };
+    return { path, headers: h, get: hdr(h), user: null };
+  };
+
+  it('gives Learning a one-use ticket only for a person Signify ID lets open the desk', async () => {
+    equal((await mint({ headers: {}, user: { id: 'x', role: 'teacher', perms: {} }, signifyToken: tok })).code, 401, 'a desk cookie is not Learning');
+    equal((await mint(vouched('guardian'))).code, 403, 'parents get no desk');
+    equal((await mint(vouched('teacher'), async () => false)).code, 403, 'the desk app is off for them in Signify ID');
+    equal((await mint(vouched('teacher'), async () => null)).code, 502, 'ID down is not "no"');
+    const ok = await mint(vouched('teacher'));
+    equal(ok.code, 200);
+    assert(/^[\w-]{40,}$/.test(ok.body.ticket), 'a long random ticket');
+    equal(ok.body.until, exp * 1000, 'lasts as long as Learning\'s token');
+    equal(ok.headers['Cache-Control'], 'no-store');
+  });
+
+  it('trades a ticket once, same origin only, for a cookie the /embed page alone uses', async () => {
+    const { ticket } = (await mint(vouched('teacher'))).body;
+    equal((() => { const r = resOf(); embed.redeem(redeemReq(ticket, { 'sec-fetch-site': 'cross-site' }), r); return r.code; })(), 403, 'another site cannot plant it');
+    const { ticket: t2 } = (await mint(vouched('teacher'))).body;
+    const r = resOf(); embed.redeem(redeemReq(t2), r);
+    equal(r.code, 200);
+    const sid = /desk_emb=([\w-]+)/.exec(r.cookies[0])[1];
+    assert(/HttpOnly/.test(r.cookies[0]) && /SameSite=Lax/.test(r.cookies[0]), 'HttpOnly, Lax (signify.one siblings are one site)');
+    const again = resOf(); embed.redeem(redeemReq(t2), again);
+    equal(again.code, 401, 'a ticket works once');
+
+    const fromEmbed = pageReq(`desk_emb=${sid}`, 'https://desk.test/embed?tools=timer&from=x');
+    embed.identify(fromEmbed, {}, () => {});
+    equal(fromEmbed.user && fromEmbed.user.id, 'u-teacher', 'the /embed page is that person');
+    equal(fromEmbed.signifyToken, tok, 'class lists are asked for with Learning\'s token');
+    equal(fromEmbed.user.vouchedBy, undefined, 'and it is not Learning\'s server door');
+    equal(auth.canOpen(fromEmbed), true, 'staff may open their desk');
+    equal(auth.can(fromEmbed, 'desk:behaviour', 'class'), false, 'but behaviour notes need the desk\'s own sign-in');
+
+    for (const [what, req] of [
+      ['a desk tab', pageReq(`desk_emb=${sid}`, 'https://desk.test/')],
+      ['no Referer', pageReq(`desk_emb=${sid}`, null)],
+      ['another host', pageReq(`desk_emb=${sid}`, 'https://evil.test/embed')],
+      ['Learning\'s server door', pageReq(`desk_emb=${sid}`, 'https://desk.test/embed', '/api/learning/seating/c1')],
+      ['an unknown session', pageReq('desk_emb=nope', 'https://desk.test/embed')],
+    ]) { embed.identify(req, {}, () => {}); equal(req.user, null, `not for ${what}`); }
+
+    const signedIn = { ...pageReq(`desk_emb=${sid}`, 'https://desk.test/embed'), user: { id: 'own-desk-sign-in' } };
+    embed.identify(signedIn, {}, () => {});
+    equal(signedIn.user.id, 'own-desk-sign-in', 'a real desk sign-in wins');
+  });
+
+  it('a student comes with no permissions: their school\'s student tools decide', async () => {
+    const { ticket } = (await mint(vouched('student'))).body;
+    const r = resOf(); embed.redeem(redeemReq(ticket), r);
+    const sid = /desk_emb=([\w-]+)/.exec(r.cookies[0])[1];
+    const req = pageReq(`desk_emb=${sid}`, 'https://desk.test/embed');
+    embed.identify(req, {}, () => {});
+    equal(req.user.role, 'student');
+    equal(JSON.stringify(req.user.perms), '{}');
+    req.deskTools = new Set();
+    equal(auth.canOpen(req), false, 'every tool off for students closes it');
+    req.deskTools = new Set(['timer']);
+    equal(auth.canOpen(req), true);
+  });
+});
+
 report();

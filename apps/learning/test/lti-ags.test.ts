@@ -13,6 +13,10 @@ import { pickables, placeItems, takeResponse, placements } from "../src/lib/lti-
 import { queueGrades, sendDue, retryScores, scoreStatuses, scoreToSend, scoresUrl, setAgsFetch, BACKOFF_MIN } from "../src/lib/lti-ags";
 import { defaultSettings, normalizeSettings } from "../src/lib/standards-math";
 
+// LTI tool mode (Schoology launching Learning) is OFF in the app (src/lib/lti-switch.ts,
+// Desmond 2026-11-23). Its code is kept, so its tests still run, with the switch on.
+process.env.LEARNING_LTI_TOOL_MODE = "1";
+
 // A fake Schoology: its own keys, an OAuth token endpoint that checks our
 // signed client assertion against our published JWKS, a Names and Roles
 // list, a line items list, and a scores endpoint that records what it got.

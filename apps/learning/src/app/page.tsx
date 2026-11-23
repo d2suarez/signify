@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { noteTeacherName } from "@/lib/school-plans";
 import { requireMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
@@ -78,7 +79,9 @@ export default async function Home() {
       <Link key="att" className="btn btn-sm" href={courses.some((c) => c.role === "teacher") ? "/attendance" : "/school/attendance"}>{d.attSchoolTitle}</Link>,
     isSchoolAdmin(me) && <a key="pe" className="btn btn-sm" href="/school/periods">{d.periods}</a>,
     isSchoolAdmin(me) && <a key="g" className="btn btn-sm" href="/school/grading">{d.gradingSetupLink}</a>,
-    isSchoolAdmin(me) && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,
+    // Schoology (tool mode) only while it is on (src/lib/lti-switch.ts); outside tools always.
+    isSchoolAdmin(me) && ltiToolMode() && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,
+    isSchoolAdmin(me) && <a key="ot" className="btn btn-sm" href="/school/tools">{d.toolsTitle}</a>,
     isSchoolAdmin(me) && <a key="wg" className="btn btn-sm" href="/school/widgets">{d.wgSchoolLink}</a>,
   ].filter(Boolean);
 

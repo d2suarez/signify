@@ -48,6 +48,49 @@
     sendHeight();
   }
 
+  // ---------- signed in by Learning (server/embed.js) ----------
+  // No desk sign-in in this browser: the framing app's server vouches for the
+  // person. We ask the parent for a one-use ticket, and trade it here for a
+  // session cookie that only this page's requests use. Renewed shortly
+  // before it ends, and on any 401 (api.js).
+  let renewing = null;
+  let renewTimer = null;
+  function askParent() {
+    return new Promise((resolve) => {
+      const done = (v) => { clearTimeout(t); window.removeEventListener('message', on); resolve(v); };
+      const on = (e) => {
+        if (e.origin !== parentOrigin || e.source !== window.parent) return;
+        const m = e.data;
+        if (m && m.desk === 1 && 'ticket' in m) done(typeof m.ticket === 'string' ? m.ticket : null);
+      };
+      const t = setTimeout(() => done(null), 12000);
+      window.addEventListener('message', on);
+      tell({ want: 'session' });
+    });
+  }
+  async function vouch() {
+    if (!parentOrigin || window.parent === window) return false;
+    const ticket = await askParent();
+    if (!ticket) return false;
+    try {
+      const res = await fetch('/embed/session', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ticket }),
+      });
+      if (!res.ok) return false;
+      const { until } = await res.json();
+      clearTimeout(renewTimer);
+      // A minute and a half early, but never sooner than in 20 seconds.
+      const wait = Math.max(20000, Number(until) - Date.now() - 90000);
+      if (Number.isFinite(wait)) renewTimer = setTimeout(() => { Desk.embedRenew(); }, wait);
+      return true;
+    } catch { return false; }
+  }
+  function renew() {
+    if (!renewing) renewing = vouch().finally(() => { renewing = null; });
+    return renewing;
+  }
+
   let lastHeight = 0;
   function sendHeight() {
     const h = Math.ceil(document.getElementById('app').getBoundingClientRect().height) + 2;
@@ -67,6 +110,13 @@
       me = (await Desk.api.me()).user;
     } catch (e) {
       if (e.status !== 401) return note('Teacher’s Desk is not answering.', 'Try again in a moment.');
+      // Learning signs the person in for us when it can.
+      if (await renew()) {
+        Desk.embedRenew = renew;
+        try { me = (await Desk.api.me()).user; } catch { me = null; }
+      }
+    }
+    if (!me) {
       // Signing in can't happen inside a frame (Signify ID refuses to be framed).
       return note('Sign in to Teacher’s Desk to use your tools here.', 'It opens in a new window; come back to this page afterwards.',
         { href: (Desk.config && Desk.config.signInUrl) || '/auth/login', text: 'Sign in' });

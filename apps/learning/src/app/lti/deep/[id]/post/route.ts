@@ -1,3 +1,4 @@
+import { ltiToolMode } from "@/lib/lti-switch";
 import { takeResponse } from "@/lib/lti-dl";
 import { deepLinkPostPage, framePage } from "@/lib/lti-html";
 import { dict } from "@/lib/i18n";
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 /** The platform opened us in a window: the teacher's tab posts the answer back itself. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const { id } = await params;
   const lang = langOf(req);
   const d = dict(lang);

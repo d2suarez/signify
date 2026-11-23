@@ -1,3 +1,4 @@
+import { ltiToolMode } from "./lti-switch";
 import "server-only";
 import { token } from "./auth";
 import { membersOf } from "./roster";
@@ -14,6 +15,8 @@ import type { AssignmentAccess } from "./access";
  * fail because of it.
  */
 export async function passBack(access: AssignmentAccess, only?: string): Promise<void> {
+  // Tool mode is off (src/lib/lti-switch.ts): nothing is queued for Schoology.
+  if (!ltiToolMode()) return;
   try {
     const { me, course, assignment: a } = access;
     const [{ members }, grades, grading] = await Promise.all([

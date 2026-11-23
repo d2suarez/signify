@@ -1,3 +1,4 @@
+import { ltiToolMode } from "@/lib/lti-switch";
 import { checkLaunch } from "@/lib/lti";
 import { cookieStates, ourOrigin } from "@/lib/lti-http";
 import { deepLinkFramePage, framePage } from "@/lib/lti-html";
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic";
  * straight on.
  */
 export async function POST(req: Request) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const form = await req.formData().catch(() => null);
   const idToken = String(form?.get("id_token") ?? "");
   const state = String(form?.get("state") ?? "");

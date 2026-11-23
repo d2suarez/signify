@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { revalidatePath } from "next/cache";
 import { requireMe, readMe } from "@/lib/auth";
 import { isSchoolAdmin, lang } from "@/lib/access";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 
 async function act(formData: FormData) {
   "use server";
+  if (!ltiToolMode()) notFound(); // tool mode is off (src/lib/lti-switch.ts)
   const me = await readMe();
   if (!me || !isSchoolAdmin(me)) return;
   const op = String(formData.get("op") || "");
@@ -37,6 +39,7 @@ function Copy({ label, value }: { label: string; value: string }) {
 
 /** School admins register Schoology (or another LMS) as an LTI 1.3 platform. */
 export default async function LtiPage({ searchParams }: { searchParams: Promise<{ e?: string }> }) {
+  if (!ltiToolMode()) notFound(); // tool mode is off (src/lib/lti-switch.ts)
   const me = await requireMe();
   const d = dict(await lang());
   const { e } = await searchParams;

@@ -1,3 +1,4 @@
+import { ltiToolMode } from "@/lib/lti-switch";
 import { startLogin } from "@/lib/lti";
 import { cookieStates, ourOrigin, stateCookie } from "@/lib/lti-http";
 import { ltiHeaders, refuse } from "../respond";
@@ -22,10 +23,14 @@ async function login(req: Request, params: URLSearchParams) {
 }
 
 export async function GET(req: Request) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   return login(req, new URL(req.url).searchParams);
 }
 
 export async function POST(req: Request) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const form = await req.formData().catch(() => null);
   const params = new URLSearchParams();
   form?.forEach((v, k) => { if (typeof v === "string") params.set(k, v); });

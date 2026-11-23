@@ -56,7 +56,9 @@ function setAside(frame: HTMLElement): () => void {
 /**
  * The rail's tools are Teacher's Desk's own: one frame of desk.signify.one/embed
  * showing the person's real cards (the same timer, the same seating plans as
- * on their desk), drawn and saved by Desk with the person's own Desk sign-in.
+ * on their desk), drawn and saved by Desk with the person's own Desk sign-in,
+ * or, when Desk has none in this browser, one our server vouches for (the
+ * frame asks with { want: "session" }; /api/rail/desk-session).
  * One frame for all of them, so it is one desk tab, never several racing
  * each other's saves. Desk tells us (postMessage, checked against its
  * origin) how tall it is and when a card opens larger; then the frame fills
@@ -105,8 +107,20 @@ export function DeskFrame({ d, kinds, idClassId, hidden }: { d: Dict; kinds: Wid
     };
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== DESK_ORIGIN || e.source !== frame.current?.contentWindow) return;
-      const m = e.data as { desk?: number; height?: number; stage?: boolean | "closing"; rect?: unknown };
+      const m = e.data as { desk?: number; height?: number; stage?: boolean | "closing"; rect?: unknown; want?: string };
       if (!m || m.desk !== 1) return;
+      // Desk has no sign-in of its own in this browser: our server asks Desk
+      // for a one-use ticket with the person's Signify ID token, and the frame
+      // trades it for a frame-only session (apps/desk/server/embed.js).
+      if (m.want === "session") {
+        const to = e.source as Window;
+        fetch("/api/rail/desk-session", { method: "POST", cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          .then((b: { ticket?: unknown } | null) => {
+            try { to.postMessage({ desk: 1, ticket: b && typeof b.ticket === "string" ? b.ticket : null }, DESK_ORIGIN); } catch { /* gone */ }
+          });
+        return;
+      }
       // While a card fills the window the board behind it is window-wide; its height means nothing to the rail.
       if (typeof m.height === "number" && m.height > 0 && !bigNow.current) setHeight(Math.min(4000, Math.round(m.height)));
       if (m.stage === true) {

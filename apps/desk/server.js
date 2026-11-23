@@ -27,6 +27,7 @@ const visitors = require('./server/visitors');
 const tools = require('./server/tools');
 const policy = require('./server/policy');
 const learning = require('./server/learning');
+const embed = require('./server/embed');
 const createBackups = require('./server/backup');
 const lti = require('./server/lti');
 
@@ -142,6 +143,11 @@ app.use((req, res, next) => {
 // Signify cookie the browser also has (server/lti.js).
 const ltiTool = lti.mount(app, { canonicalHost: CANONICAL_HOST, indexFile: path.join(__dirname, 'public', 'index.html') });
 app.use(ltiTool.identify);
+
+// Learning's rail frame, signed in automatically (server/embed.js): a cookie
+// that counts only on requests the /embed page makes, when there is no desk
+// sign-in of its own.
+app.use(embed.identify);
 
 // Signify Learning's server, asking for a teacher's seating plan with the
 // token it holds for them (server/learning.js). Before the tool policy, which
@@ -367,6 +373,9 @@ app.delete('/api/groupings/:id', (req, res) => {
 // that class, per Signify ID.
 app.get('/api/learning/seating/:classId', wrap(learning.getSeating));
 app.put('/api/learning/seating/:classId', wrap(learning.putSeating));
+// The rail frame's ticket (server/embed.js): Learning's server asks, the frame trades it.
+app.post('/api/learning/embed-ticket', wrap(embed.mintTicket));
+app.post('/embed/session', express.json({ limit: '2kb' }), embed.redeem);
 
 // ---------------- room templates ----------------
 // Furniture without pupils, so a teacher sets their room up once and seats

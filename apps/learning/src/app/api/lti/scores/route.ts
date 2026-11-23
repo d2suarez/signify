@@ -1,3 +1,4 @@
+import { ltiToolMode } from "@/lib/lti-switch";
 import { NextResponse } from "next/server";
 import { assignmentAccess, studentsOf } from "@/lib/access";
 import { kickScores, retryScores, scoreStatuses } from "@/lib/lti-ags";
@@ -12,6 +13,8 @@ async function teacher(assignmentId: string) {
 
 /** Where this assignment is placed in Schoology and how each grade's sending went. ?assignmentId= (&studentId=) */
 export async function GET(req: Request) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const url = new URL(req.url);
   const access = await teacher(url.searchParams.get("assignmentId") || "");
   if (!access) return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -32,6 +35,8 @@ export async function GET(req: Request) {
 
 /** Retry now. Body: { assignmentId, studentId? } */
 export async function POST(req: Request) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const body = await req.json().catch(() => ({})) as { assignmentId?: string; studentId?: string };
   const access = await teacher(String(body.assignmentId || ""));
   if (!access) return NextResponse.json({ error: "Not found." }, { status: 404 });

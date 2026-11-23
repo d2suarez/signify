@@ -1,3 +1,4 @@
+import { ltiToolMode } from "@/lib/lti-switch";
 import { takeResponse } from "@/lib/lti-dl";
 import { ltiHeaders } from "../../respond";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
  * only key, and only the frame and the teacher's tab have it.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  // Tool mode is off (src/lib/lti-switch.ts): as if this route did not exist.
+  if (!ltiToolMode()) return new Response("Not found", { status: 404 });
   const { id } = await params;
   const r = await takeResponse(id);
   const body = r.state === "ready" ? { state: r.state, returnUrl: r.returnUrl, jwt: r.jwt } : { state: r.state };

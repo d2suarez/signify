@@ -10,6 +10,10 @@ import {
 } from "../src/lib/lti";
 import { dict } from "../src/lib/i18n";
 
+// LTI tool mode (Schoology launching Learning) is OFF in the app (src/lib/lti-switch.ts,
+// Desmond 2026-11-23). Its code is kept, so its tests still run, with the switch on.
+process.env.LEARNING_LTI_TOOL_MODE = "1";
+
 // A fake Schoology: its own key pair, its JWKS, and tokens it signs.
 const ORIGIN = "https://learn.example.test";
 const ISS = "https://platform.example.test";

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { ltiToolMode } from "@/lib/lti-switch";
 import { requireMe, readMe, myClasses } from "@/lib/auth";
 import { lang } from "@/lib/access";
 import { linkLaunch, resolveLaunch } from "@/lib/lti";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 
 async function link(formData: FormData) {
   "use server";
+  if (!ltiToolMode()) notFound(); // tool mode is off (src/lib/lti-switch.ts)
   const me = await readMe();
   if (!me) return;
   const id = String(formData.get("launchId") || "");
@@ -27,6 +29,7 @@ async function link(formData: FormData) {
 
 async function place(formData: FormData) {
   "use server";
+  if (!ltiToolMode()) notFound(); // tool mode is off (src/lib/lti-switch.ts)
   const me = await readMe();
   if (!me) return;
   const id = String(formData.get("launchId") || "");
@@ -49,6 +52,7 @@ async function place(formData: FormData) {
 export default async function LaunchPage({ params, searchParams }: {
   params: Promise<{ id: string }>; searchParams: Promise<{ e?: string; w?: string; placed?: string }>;
 }) {
+  if (!ltiToolMode()) notFound(); // tool mode is off (src/lib/lti-switch.ts)
   const { id } = await params;
   const { e, w, placed } = await searchParams;
   const me = await requireMe();

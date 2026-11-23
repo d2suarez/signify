@@ -7,7 +7,7 @@ window.Desk = window.Desk || {};
 (function (Desk) {
   'use strict';
 
-  async function request(method, path, body) {
+  async function request(method, path, body, again) {
     const headers = body ? { 'content-type': 'application/json' } : {};
     // A desk opened from Schoology carries its session in a header, not a
     // cookie (js/lti-boot.js).
@@ -23,6 +23,12 @@ window.Desk = window.Desk || {};
     try { data = await res.json(); } catch { /* an empty body is fine */ }
 
     if (!res.ok) {
+      // Inside Signify Learning's rail with no desk sign-in of its own, the
+      // frame's session comes from Learning and lasts minutes: get a fresh
+      // one and try once more (js/embed.js).
+      if (res.status === 401 && !again && typeof Desk.embedRenew === 'function' && await Desk.embedRenew()) {
+        return request(method, path, body, true);
+      }
       if (res.status === 401) sessionEnded();
       const err = new Error((data && data.error) || `The server said ${res.status}.`);
       err.status = res.status;
