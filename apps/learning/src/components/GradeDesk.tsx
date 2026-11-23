@@ -225,6 +225,9 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           : assignment.kind === "online"
           ? (s.body ? <div className="work-text">{s.body}</div> : <p className="empty">{d.noWork}</p>)
           : <p className="muted">{d.kindOffline}</p>}
+        {assignment.kind === "online" && s.body && (
+          <p style={{ margin: "8px 0 0" }}><a href={`/api/assignments/${assignment.id}/download?student=${encodeURIComponent(s.id)}`} download className="btn btn-sm">⬇ {d.zipOne}</a></p>
+        )}
         {assignment.kind === "online" && s.body !== null && (
           // Loaded on request, for one student at a time.
           <details className="writing-process" key={s.id} onToggle={(e) => setShowWriting(e.currentTarget.open)}>

@@ -81,6 +81,7 @@ export default async function GradePage({ params, searchParams }: {
           <span className="muted">{a.points} {d.pts}</span>
           {a.kind === "quiz" && <Link className="btn" href={`/assignments/${a.id}/results`}>{d.quizResults}</Link>}
           <Link className="btn" href={`/courses/${course.id}/gradebook`}>{d.gradebook}</Link>
+          {a.kind === "online" && <a className="btn" href={`/api/assignments/${a.id}/download`} download>⬇ {d.zipAll}</a>}
         </div>
         <GradingMaterials assignmentId={a.id} courseId={course.id} initial={materials} editable={false} canUpload={false} d={d} />
         {!ok && <div className="notice notice-bad" role="alert">{d.rosterFailed}</div>}
