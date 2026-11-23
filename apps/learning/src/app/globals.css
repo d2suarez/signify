@@ -594,6 +594,11 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .lightbox-fig { position: relative; }
 .lightbox-hint { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 1; margin: 0; padding: 8px 12px; border-radius: var(--r-md); background: var(--ink); color: var(--bg); border: 2px solid var(--bg); font-size: 14px; font-weight: 700; text-align: center; pointer-events: none; animation: lightbox-hint 5s ease forwards; }
 @keyframes lightbox-hint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+/* Press and hold the picture: its caption, big, over the whole overlay until let go. */
+.lightbox-in { position: relative; }
+.lightbox-fig img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.lightbox-peek { position: absolute; inset: 0; z-index: 2; display: flex; align-items: safe center; justify-content: center; padding: 24px; overflow: auto; border-radius: var(--r-lg); background: var(--ink); color: var(--bg); pointer-events: none; }
+.lightbox-peek p { margin: 0; max-width: 30ch; font-size: 30px; line-height: 1.35; font-weight: 700; text-align: center; overflow-wrap: anywhere; }
 .lightbox-orig { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 700; }
 .lightbox-fig figcaption { flex: none; max-width: 70ch; text-align: center; overflow-wrap: anywhere; }
 .lightbox-nav { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-export type LightboxLabels = { title: string; close: string; prev: string; next: string; count: string; original: string; zoomIn: string; zoomOut: string; hintOne: string; hintMany: string };
+export type LightboxLabels = { title: string; close: string; prev: string; next: string; count: string; original: string; zoomIn: string; zoomOut: string; hintOne: string; hintMany: string; hintHold: string };
 
 type Pic = { href: string; src: string; alt: string };
 
@@ -33,7 +33,8 @@ function takeHint(): boolean {
  * pictures with buttons, arrow keys or a sideways swipe. Focus goes to the
  * close button and back to the picture that opened it; Esc, the backdrop and
  * a swipe down (the picture follows the finger) close. A swipe up opens the
- * original in a new tab, like the "Open original" link.
+ * original in a new tab, like the "Open original" link. Pressing and holding
+ * the picture shows its caption large until it's let go.
  *
  * Zoom: pinch, double-tap/double-click, the + and − buttons or the + − 0
  * keys. Zoomed, the picture sits in a scroll box of the size it had, so a
@@ -90,12 +91,13 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
 
   // Close and give focus back to the picture that opened it. Our own closes
   // do it at once; Esc closes natively and comes through onClose.
-  function backToOpener() { resetZoom(); setHint(false); const o = opener.current; opener.current = null; o?.focus(); }
+  function backToOpener() { resetZoom(); setHint(false); endHold(); const o = opener.current; opener.current = null; o?.focus(); }
   function shut() { dialog.current?.close(); backToOpener(); }
 
   function go(step: number) {
     if (pics.length < 2) return;
     resetZoom();
+    endHold();
     setAt((n) => (n + step + pics.length) % pics.length);
   }
 
@@ -241,15 +243,66 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
     toggleAt(e.clientX, e.clientY);
   }
 
+  /* ---------- press and hold: the caption, big ---------- */
+
+  const [peek, setPeek] = useState(false);
+  const peeking = useRef(false);
+  const hold = useRef<{ x: number; y: number; id: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  function startHold(e: React.PointerEvent) {
+    endHold();
+    if (!pic?.alt || e.target !== img.current || (e.pointerType === "mouse" && e.button !== 0) || !e.isPrimary) return;
+    const id = e.pointerId;
+    hold.current = {
+      x: e.clientX, y: e.clientY, id,
+      timer: setTimeout(() => {
+        peeking.current = true;
+        // The finger lifting after reading is not a swipe. Pointer events come
+        // before touch events, so the hold has ended by touchend: drop the swipe now.
+        touch.current = null;
+        setPeek(true);
+        setHint(false);
+        drag(0);
+        navigator.vibrate?.(10);
+      }, 500),
+    };
+  }
+  // The biggest text that fits the overlay without splitting words (long
+  // captions, Larger text): step down from 30px; at 16px allow splitting.
+  const peekBox = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const box = peekBox.current, p = box?.firstElementChild as HTMLElement | null;
+    if (!box || !p) return;
+    p.style.overflowWrap = "normal";
+    let size = 30;
+    p.style.fontSize = `${size}px`;
+    while (size > 16 && (box.scrollHeight > box.clientHeight + 1 || p.scrollWidth > p.clientWidth + 1)) {
+      size -= 2;
+      p.style.fontSize = `${size}px`;
+    }
+    if (p.scrollWidth > p.clientWidth + 1) p.style.overflowWrap = "anywhere";
+  }, [peek, at]);
+
+  function moveHold(e: React.PointerEvent) {
+    const h = hold.current;
+    if (h && !peeking.current && (e.pointerId !== h.id || Math.hypot(e.clientX - h.x, e.clientY - h.y) > 10)) endHold();
+  }
+  function endHold() {
+    if (hold.current) clearTimeout(hold.current.timer);
+    hold.current = null;
+    if (peeking.current) { peeking.current = false; setPeek(false); }
+  }
+
   // Zoomed, the mouse can drag the picture around too (the wheel and scroll bars also work).
   const mouse = useRef<{ x: number; y: number } | null>(null);
   function onPointerDown(e: React.PointerEvent) {
+    startHold(e);
     if (e.pointerType !== "mouse" || e.button !== 0 || zoom.current <= 1) return;
     e.preventDefault();
     mouse.current = { x: e.clientX, y: e.clientY };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }
   function onPointerMove(e: React.PointerEvent) {
+    moveHold(e);
     const m = mouse.current, st = stage.current;
     if (!m || !st) return;
     const f = st.getBoundingClientRect().width / st.offsetWidth || 1;
@@ -288,6 +341,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
   }
   function onTouchStart(e: React.TouchEvent<HTMLElement>) {
     setHint(false);
+    if (e.touches.length > 1) endHold(); // a pinch, not a hold
     const t = e.touches[0], f = e.currentTarget;
     touch.current = e.touches.length === 1 && zoom.current <= 1
       ? { x: t.clientX, y: t.clientY, atTop: f.scrollTop <= 0, atBottom: f.scrollTop + f.clientHeight >= f.scrollHeight - 1 }
@@ -297,6 +351,7 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
     const s = touch.current;
     if (!s) return;
     if (e.touches.length !== 1) { touch.current = null; drag(0); return; }
+    if (peeking.current) return; // holding to read: the picture stays put
     const dx = e.touches[0].clientX - s.x, dy = e.touches[0].clientY - s.y;
     const vertical = Math.abs(dy) > Math.abs(dx);
     drag(vertical && ((dy > 0 && s.atTop) || (dy < 0 && s.atBottom)) ? dy : 0);
@@ -340,16 +395,21 @@ export function Lightbox({ labels, children }: { labels: LightboxLabels; childre
             onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             onTouchCancel={() => { touch.current = null; drag(0); }}>
             {/* Only for touch screens; the buttons do all of this too, so screen readers skip it. */}
-            {hint && <p className="lightbox-hint" aria-hidden="true">{many ? labels.hintMany : labels.hintOne}</p>}
+            {hint && <p className="lightbox-hint" aria-hidden="true">{many ? labels.hintMany : labels.hintOne}{pic?.alt ? ` ${labels.hintHold}` : ""}</p>}
             <div ref={stage} className="lightbox-stage"
               onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-              onPointerUp={() => { mouse.current = null; }} onPointerCancel={() => { mouse.current = null; }}>
+              onPointerUp={() => { mouse.current = null; endHold(); }} onPointerCancel={() => { mouse.current = null; endHold(); }}
+              onPointerLeave={(e) => { if (e.pointerType === "mouse" && !mouse.current) endHold(); }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {pic && <img ref={img} key={pic.src} src={pic.src} alt={pic.alt} onDoubleClick={onDoubleClick} draggable={false} />}
+              {pic && <img ref={img} key={pic.src} src={pic.src} alt={pic.alt} onDoubleClick={onDoubleClick} draggable={false}
+                // A phone's own long-press menu would cover the big caption; only while holding.
+                onContextMenu={(e) => { if (hold.current || peeking.current) e.preventDefault(); }} />}
             </div>
             {pic?.alt && <figcaption>{pic.alt}</figcaption>}
             {pic && <a className="lightbox-orig" href={pic.href} target="_blank" rel="noopener">{labels.original}</a>}
           </figure>
+          {/* The same words as the caption below, so screen readers skip this copy. */}
+          {peek && pic?.alt && <div ref={peekBox} className="lightbox-peek" aria-hidden="true"><p>{pic.alt}</p></div>}
           {many && (
             <div className="lightbox-nav">
               <button type="button" className="btn" onClick={() => go(-1)}><span aria-hidden="true">←</span> {labels.prev}</button>
