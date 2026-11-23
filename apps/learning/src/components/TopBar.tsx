@@ -7,7 +7,7 @@ import Supports from "./Supports";
 import CourseDrawer, { type DrawerWords } from "./CourseDrawer";
 
 const DRAWER_KEYS = ["cdButton", "cdTitle", "cdHint", "cdFilter", "cdNoMatch", "cdLoading", "cdFailed", "cdHere", "cdGoHome", "close", "tryAgain",
-  "teaching", "learning", "clubsTitle", "yourChildren", "seeAllWork", "liveNow", "joinLive", "covering", "clubSponsors", "clubLabel",
+  "teaching", "learning", "clubsTitle", "yourChildren", "seeAllWork", "liveNow", "joinLive", "liveNowJoin", "covering", "clubSponsors", "clubLabel",
   "noCourses", "childrenFailed"] as const;
 
 export function Marks() {

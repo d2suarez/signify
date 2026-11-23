@@ -5,6 +5,7 @@ import { openPglite, migrate, useDb, type Db } from "../src/lib/db";
 import { myCourses } from "../src/lib/courses";
 import { createAssignment } from "../src/lib/assignments";
 import { createLesson } from "../src/lib/lessons";
+import { createUnit } from "../src/lib/units";
 import { feed, thread, createPosts, createPost, editPost, addComment, materialChoices, postablePlaces, setCourseRules, UpdateError, type Viewer } from "../src/lib/updates";
 import { normalizeDoc, docText, safeHref, videoFromUrl, videoSrc, docFromText } from "../src/lib/post-doc";
 import { memoryStore, useFileStore, saveFile, canOpen } from "../src/lib/files";
@@ -156,6 +157,48 @@ test("rich updates: links to Learning material: only the poster's own classes; s
   const after = (await feed(s1, { courseId: p1 })).find((p) => p.id === post.id)!;
   assert.equal(after.materials[pub.id].gone, true);
   assert.equal(after.materials[pub.id].href, null);
+});
+
+test("rich updates: material links only into their own class, and only to that one class (Desmond, 2026-11-23)", async () => {
+  const node = (kind: string, id: string, title: string) => ({ type: "material", kind, id, title });
+  const doc = (...n: unknown[]) => ({ v: 1, nodes: [{ type: "p", content: [{ text: "See:" }] }, ...n] });
+  const inP1 = await createAssignment(teacher, p1, { title: "P1 essay" });
+  const inP3 = await createAssignment(teacher, p3, { title: "P3 essay" });
+  await db.query("UPDATE assignments SET published = true WHERE id = ANY($1::uuid[])", [[inP1.id, inP3.id]]);
+  const folder = await createUnit(teacher, p1, "Unit 4");
+  const count = async () => Number((await db.query("SELECT count(*) AS n FROM posts"))[0].n);
+  const before = await count();
+  const refused = (e: UpdateError) => e.code === "material";
+  await assert.rejects(createPosts(teacher, { to: [p1], doc: doc(node("assignment", inP3.id, "P3 essay")) }), refused, "another class's material into this class");
+  await assert.rejects(createPosts(teacher, { to: [p1, p3], doc: doc(node("assignment", inP1.id, "P1 essay")) }), refused, "material to more than one class");
+  await assert.rejects(createPosts(teacher, { to: [p1], doc: doc(node("assignment", inP1.id, "a"), node("assignment", inP3.id, "b")) }), refused, "materials from two classes");
+  await assert.rejects(createPosts({ ...teacher, canPostSchool: true }, { to: ["school"], doc: doc(node("assignment", inP1.id, "P1 essay")) }), refused, "whole-school posts carry no class material");
+  assert.equal(await count(), before, "nothing was posted");
+  const [ok] = await createPosts(teacher, { to: [p1], doc: doc(node("assignment", inP1.id, "P1 essay"), node("folder", folder.id, "Unit 4")) });
+  assert.ok((await materialChoices(teacher)).some((c) => c.kind === "folder" && c.id === folder.id && c.courseId === p1), "folders are offered");
+  const forS1 = (await feed(s1, { courseId: p1 })).find((p) => p.id === ok.id)!;
+  assert.equal(forS1.materials[folder.id].href, `/courses/${p1}#unit-${folder.id}`, "a folder opens on its class page");
+  assert.equal(forS1.materials[inP1.id].href, `/assignments/${inP1.id}`);
+
+  // An update made before the rule (like Desmond's of 2026-11-23): another class's material shows, opens for no one.
+  const [old] = await db.query(
+    `INSERT INTO posts (tenant_id, course_id, title, body, author_id, author_name, author_kind, doc)
+     VALUES ($1, $2, '', 'See', 't1', 'Ms Teach', 'staff', $3) RETURNING id`,
+    [T, p1, JSON.stringify(doc(node("assignment", inP3.id, "P3 essay")))]);
+  const oldForS1 = (await feed(s1, { courseId: p1 })).find((p) => p.id === old.id)!;
+  assert.equal(oldForS1.materials[inP3.id].elsewhere, true);
+  assert.equal(oldForS1.materials[inP3.id].href, null, "a P1 student can't open P3's work from P1");
+  assert.equal(oldForS1.materials[inP3.id].title, "", "nor see its title");
+  const oldForT = (await feed(teacher, { courseId: p1 })).find((p) => p.id === old.id)!;
+  assert.equal(oldForT.materials[inP3.id].href, null);
+  assert.equal(oldForT.materials[inP3.id].title, "P3 essay", "its own teacher still sees what it is");
+  // Fixing it: the author removes the link, or the save is refused.
+  await assert.rejects(editPost(teacher, String(old.id), { doc: doc(node("assignment", inP3.id, "P3 essay")) }), refused);
+  assert.equal((await editPost(teacher, String(old.id), { doc: doc(node("assignment", inP1.id, "P1 essay")) })).doc.nodes.length, 2);
+
+  // Editing a multi-class update can't add material.
+  const group = await createPosts(teacher, { to: [p1, p3], body: "Trip" });
+  await assert.rejects(editPost(teacher, group[0].id, { doc: doc(node("assignment", inP1.id, "P1 essay")) }), refused);
 });
 
 test("rich updates: pictures: only the poster's own uploads or their classes' files; readers of the post may open them", async () => {

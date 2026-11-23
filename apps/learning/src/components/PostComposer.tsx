@@ -26,8 +26,8 @@ const MAX = 25 * 1024 * 1024;
 export default function PostComposer({ places, preselected = [], materials = [], canUpload, uploadFallback, d, placeholder, back, editing }: {
   places: ComposerPlace[]; preselected?: string[]; materials?: MaterialChoice[];
   canUpload: boolean; uploadFallback?: string | null; d: Dict; placeholder: string; back: string;
-  /** Changing an existing update: its id, title and document; the places stay as they are. */
-  editing?: { postId: string; title: string; nodes: DocNode[]; placeNames: string[] };
+  /** Changing an existing update: its id, title and document; the places stay as they are ("school" = the whole school). */
+  editing?: { postId: string; title: string; nodes: DocNode[]; placeNames: string[]; placeIds: string[] };
 }) {
   const router = useRouter();
   const ed = useRef<HTMLDivElement>(null);
@@ -46,6 +46,12 @@ export default function PostComposer({ places, preselected = [], materials = [],
 
   const names = useMemo(() => new Map(places.map((p) => [p.id, p.name])), [places]);
   const classes = places.filter((p) => p.kind !== "school");
+  // "Link from Learning" needs exactly one class the person teaches, and lists
+  // only that class's materials; once one is linked, the places are locked to
+  // that class until it's removed (Desmond, 2026-11-23; the server refuses too).
+  const chosen = editing ? editing.placeIds : [...to];
+  const matClass = chosen.length === 1 && places.some((p) => p.id === chosen[0] && p.teach && p.kind !== "school") ? chosen[0] : null;
+  const hasMat = nodes.some((n) => n.type === "material");
 
   const sync = useCallback(() => { if (ed.current) setNodes(serialize(ed.current)); }, []);
 
@@ -178,24 +184,24 @@ export default function PostComposer({ places, preselected = [], materials = [],
     fd.set("back", back);
     const r = await (editing ? editRichUpdate(fd) : postRichUpdate(fd)).catch(() => ({ error: "failed" as const }));
     setBusy("");
-    if ("error" in r) { setNote({ bad: true, text: ({ off: d.updErrOff, empty: d.updErrEmpty, forbidden: d.updErrForbidden, noplace: d.pcPickPlace, notfound: d.updErrForbidden } as Record<string, string>)[r.error] ?? d.fileFailed }); return; }
+    if ("error" in r) { setNote({ bad: true, text: ({ off: d.updErrOff, empty: d.updErrEmpty, forbidden: d.updErrForbidden, noplace: d.pcPickPlace, notfound: d.updErrForbidden, material: d.pcErrMaterial } as Record<string, string>)[r.error] ?? d.fileFailed }); return; }
     if (editing) { router.push(back); router.refresh(); return; }
     reset();
     setNote({ bad: false, text: r.count > 1 ? d.pcPostedMany.replace("{n}", String(r.count)) : d.pcPosted });
     router.refresh();
   };
 
-  const toggle = (id: string) => setTo((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggle = (id: string) => { if (hasMat) return; setTo((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const allOn = classes.length > 0 && classes.every((c) => to.has(c.id));
 
   const shownMaterials = useMemo(() => {
-    const picked = [...to].filter((id) => id !== "school");
+    if (!matClass) return [];
     const q = query.trim().toLowerCase();
     return materials
-      .filter((m) => !picked.length || picked.includes(m.courseId))
-      .filter((m) => !q || m.title.toLowerCase().includes(q) || (names.get(m.courseId) || "").toLowerCase().includes(q))
-      .slice(0, 60);
-  }, [materials, to, query, names]);
+      .filter((m) => m.courseId === matClass)
+      .filter((m) => !q || m.title.toLowerCase().includes(q))
+      .slice(0, 80);
+  }, [materials, matClass, query]);
 
   return (
     <div className={`composer${open ? " is-open" : ""}`}>
@@ -234,7 +240,11 @@ export default function PostComposer({ places, preselected = [], materials = [],
           )}
           {materials.length > 0 && (
             <button type="button" className={`rt-tool rt-tool-wide${panel === "material" ? " is-on" : ""}`} aria-pressed={panel === "material"}
-              onMouseDown={(e) => e.preventDefault()} onClick={() => { setPanel(panel === "material" ? null : "material"); setQuery(""); }}>
+              aria-disabled={!matClass} title={matClass ? undefined : d.pcOneClassFirst}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => {
+                if (!matClass) { setPanel(null); setNote({ bad: false, text: d.pcOneClassFirst }); return; }
+                setPanel(panel === "material" ? null : "material"); setQuery("");
+              }}>
               <span className="shape s-tri" aria-hidden="true" /> {d.pcFromLearning}
             </button>
           )}
@@ -252,8 +262,9 @@ export default function PostComposer({ places, preselected = [], materials = [],
         </div>
       )}
 
-      {open && panel === "material" && (
+      {open && panel === "material" && matClass && (
         <div className="rt-panel stack" style={{ gap: 8 }}>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.pcMaterialsOf.replace("{c}", names.get(matClass) || "")}</p>
           <label htmlFor={`${idBase}-mq`} className="sr-only">{d.pcFindMaterial}</label>
           <input id={`${idBase}-mq`} className="field" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={d.pcFindMaterial}
             onKeyDown={(e) => { if (e.key === "Escape") setPanel(null); }} />
@@ -266,8 +277,7 @@ export default function PostComposer({ places, preselected = [], materials = [],
                     <span className="grow" style={{ minWidth: 0 }}>
                       <span className="rt-mat-title">{m.title || d.untitled}</span>
                       <span className="muted rt-mat-sub">
-                        {m.kind === "assignment" ? d.pcKindAssignment : m.kind === "lesson" ? d.pcKindLesson : d.pcKindResource}
-                        {" · "}{names.get(m.courseId) || ""}
+                        {m.kind === "assignment" ? d.pcKindAssignment : m.kind === "lesson" ? d.pcKindLesson : m.kind === "folder" ? d.pcKindFolder : d.pcKindResource}
                         {m.draft && ` · ${m.kind === "resource" ? d.pcHiddenFromStudents : d.pcDraft}`}
                         {m.dueAt && <> · {d.due} {new Date(m.dueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</>}
                       </span>
@@ -319,13 +329,13 @@ export default function PostComposer({ places, preselected = [], materials = [],
           <legend className="label">{d.pcPostTo}</legend>
           <div className="row" style={{ gap: 6 }}>
             {places.map((p) => (
-              <label key={p.id} className={`to-chip${to.has(p.id) ? " is-on" : ""}`}>
-                <input type="checkbox" checked={to.has(p.id)} onChange={() => toggle(p.id)} />
+              <label key={p.id} className={`to-chip${to.has(p.id) ? " is-on" : ""}${hasMat ? " is-locked" : ""}`}>
+                <input type="checkbox" checked={to.has(p.id)} onChange={() => toggle(p.id)} disabled={hasMat} />
                 <span className={`shape ${p.kind === "school" ? "s-circle" : p.kind === "club" ? "s-arch" : "s-square"}`} aria-hidden="true" />
                 {p.name}
               </label>
             ))}
-            {classes.length > 1 && (
+            {classes.length > 1 && !hasMat && (
               <button type="button" className="btn btn-sm" onClick={() => setTo((s) => {
                 const n = new Set(s);
                 for (const c of classes) { if (allOn) n.delete(c.id); else n.add(c.id); }
@@ -333,6 +343,7 @@ export default function PostComposer({ places, preselected = [], materials = [],
               })}>{allOn ? d.pcNone : d.pcAllClasses}</button>
             )}
           </div>
+          {hasMat && <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.pcPlacesLocked.replace("{c}", [...to].map((id) => names.get(id)).filter(Boolean).join(", "))}</p>}
         </fieldset>
       )}
 
@@ -419,7 +430,7 @@ export function embedEl(node: DocNode, d: Dict): HTMLElement {
   } else {
     const label = document.createElement("span");
     label.className = "rt-embed-label";
-    const icon = node.type === "video" ? "▶" : node.type === "material" ? (node.kind === "assignment" ? "▲" : node.kind === "lesson" ? "◗" : "■") : "📎";
+    const icon = node.type === "video" ? "▶" : node.type === "material" ? (node.kind === "assignment" ? "▲" : node.kind === "lesson" ? "◗" : node.kind === "folder" ? "▤" : "■") : "📎";
     const what = node.type === "video" ? `${d.pcVideo} · ${node.provider === "youtube" ? "YouTube" : "Vimeo"}`
       : node.type === "material" ? node.title || d.untitled
       : node.type === "file" ? node.name : "";

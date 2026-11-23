@@ -32,3 +32,13 @@ export function liveLessonId(courseId: string): string | null {
   const sessions = (globalThis as unknown as { __learningLive?: Map<string, LiveSession> }).__learningLive;
   return sessions?.get(courseId)?.lessonId ?? null;
 }
+
+/**
+ * Where "Live now" joins the class's live lesson (null = not live): students
+ * to the follow view, teachers (covering ones too) back to the presenter.
+ */
+export function liveJoinHref(courseId: string, role: "teacher" | "student"): string | null {
+  const lesson = liveLessonId(courseId);
+  if (!lesson) return null;
+  return role === "teacher" ? `/lessons/${lesson}/present` : `/courses/${courseId}/live`;
+}

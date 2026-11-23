@@ -20,6 +20,7 @@ import { myClasses } from "@/lib/auth";
 import { StudentCourse } from "@/components/StudentCourse";
 import { myPreviewPeople } from "@/lib/preview";
 import { CourseNav } from "@/components/CourseNav";
+import { LiveJoin } from "@/components/LiveJoin";
 import { CourseMenu } from "@/components/CourseMenu";
 import { When } from "@/components/When";
 import ToolPicker from "@/components/ToolPicker";
@@ -535,7 +536,7 @@ function LessonRow({ l, live, d, place, org }: { l: LessonSummary; live: boolean
           {l.plannedFor ? `${l.plannedFor} · ` : ""}{l.durationMin} min · {l.blockCount} {d.blocks}
         </span>
         <ViewPill view={place.studentView} d={d} />
-        {live && <span className="pill" style={{ marginLeft: 6 }}><span className="live-dot" />{d.liveNow}</span>}
+        {live && <span style={{ marginLeft: 6 }}><LiveJoin href={`/lessons/${l.id}/present`} label={`${d.joinLive}: ${l.title}`} text={d.liveNowJoin} /></span>}
       </div>
       {!org && <Link className="btn" href={`/lessons/${l.id}/edit`}>{d.edit}</Link>}
       {!org && <Link className="btn btn-primary" href={`/lessons/${l.id}/present`}>{d.present}</Link>}

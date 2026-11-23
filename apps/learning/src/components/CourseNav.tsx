@@ -3,13 +3,15 @@ import type { Dict } from "@/lib/i18n";
 
 /** The teacher's tabs for one course. */
 export function CourseNav({ courseId, current, d, club }: {
-  courseId: string; current: "plan" | "calendar" | "resources" | "groups" | "attendance" | "gradebook" | "settings";
-  d: Pick<Dict, "plan" | "calendar" | "resources" | "grpTitle" | "attTitle" | "gradebook" | "settings" | "courseSections" | "clubHome">;
+  courseId: string; current: "plan" | "planner" | "calendar" | "resources" | "groups" | "attendance" | "gradebook" | "settings";
+  d: Pick<Dict, "plan" | "planner" | "calendar" | "resources" | "grpTitle" | "attTitle" | "gradebook" | "settings" | "courseSections" | "clubHome">;
   /** A club has no gradebook or grading settings. */
   club?: boolean;
 }) {
   const all = [
     { key: "plan", href: `/courses/${courseId}`, label: d.plan },
+    // The Planner for this class alone (Desmond, 2026-11-23); /planner has every class taught.
+    { key: "planner", href: `/courses/${courseId}/planner`, label: d.planner },
     { key: "calendar", href: `/courses/${courseId}/calendar`, label: d.calendar },
     { key: "resources", href: `/courses/${courseId}/resources`, label: d.resources },
     { key: "groups", href: `/courses/${courseId}/groups`, label: d.grpTitle },

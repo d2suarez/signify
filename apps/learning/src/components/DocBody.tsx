@@ -52,17 +52,17 @@ export function PostBody({ post, d, L }: { post: Pick<Post, "doc" | "materials">
             );
           case "material": {
             const m = post.materials[n.id];
-            const kindWord = n.kind === "assignment" ? d.pcKindAssignment : n.kind === "lesson" ? d.pcKindLesson : d.pcKindResource;
+            const kindWord = n.kind === "assignment" ? d.pcKindAssignment : n.kind === "lesson" ? d.pcKindLesson : n.kind === "folder" ? d.pcKindFolder : d.pcKindResource;
             const shape = n.kind === "assignment" ? "s-tri" : n.kind === "lesson" ? "s-arch" : "s-square";
             const inner = (
               <>
                 <span className={`shape ${shape}`} aria-hidden="true" />
                 <span className="grow" style={{ minWidth: 0 }}>
-                  <span className="post-mat-title">{m?.title || n.title || d.untitled}</span>
+                  <span className="post-mat-title">{m?.elsewhere ? m.title || kindWord : m?.title || n.title || d.untitled}</span>
                   <span className="muted post-mat-sub">
                     {kindWord}{m?.courseName ? ` · ${m.courseName}` : ""}
                     {m?.dueAt && <> · {d.due} <When iso={m.dueAt} lang={L} /></>}
-                    {m?.gone ? ` · ${d.pcGone}` : m && !m.href ? ` · ${d.pcNotOpen}` : m?.draft ? ` · ${n.kind === "assignment" ? d.pcDraft : d.pcHiddenFromStudents}` : ""}
+                    {m?.elsewhere ? ` · ${d.pcElsewhere}` : m?.gone ? ` · ${d.pcGone}` : m && !m.href ? ` · ${d.pcNotOpen}` : m?.draft ? ` · ${n.kind === "assignment" ? d.pcDraft : d.pcHiddenFromStudents}` : ""}
                   </span>
                 </span>
                 {m?.href && <span aria-hidden="true">→</span>}

@@ -8,7 +8,7 @@ import { Feed } from "@/components/Updates";
 import PostComposer from "@/components/PostComposer";
 import { composerSetup } from "@/lib/composer";
 import { myPreviewPeople } from "@/lib/preview";
-import { liveLessonId } from "@/lib/live-ticket";
+import { liveJoinHref } from "@/lib/live-ticket";
 import { TopBar } from "@/components/TopBar";
 import { ShareRequests } from "@/components/ShareRequests";
 import { requestsToAnswer } from "@/lib/sections";
@@ -18,6 +18,7 @@ import { studentWork } from "@/lib/family";
 import { todayIn } from "@/lib/planner";
 import { SCHOOL_TZ } from "@/lib/school-grading";
 import { TodoPanel } from "@/components/Todo";
+import { LiveJoin } from "@/components/LiveJoin";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export default async function Home() {
   const buttons = [
     (learning.length > 0 || isParent) && <Link key="w" className="btn btn-sm" href="/week">{d.thisWeek}</Link>,
     teaching.length > 0 && <Link key="p" className="btn btn-sm" href="/planner">{d.planner}</Link>,
-    (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="c" className="btn btn-sm" href="/catalog">{d.secCatalogTitle}</Link>,
+    // No "Courses" button here: the Courses drawer in the top bar and the class list already lead there (Desmond, 2026-11-23).
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="s" className="btn btn-sm" href="/standards">{d.standardsLibrary}</Link>,
     isSchoolAdmin(me) && <Link key="sp" className="btn btn-sm" href="/school/plans">{d.spTitle}</Link>,
     isSchoolAdmin(me) && <Link key="att" className="btn btn-sm" href="/school/attendance">{d.attSchoolTitle}</Link>,
@@ -80,18 +81,19 @@ export default async function Home() {
   ].filter(Boolean);
 
   const ClassLink = ({ c, sub }: { c: (typeof courses)[number]; sub?: string }) => {
-    const live = !!liveLessonId(c.id);
+    // "Live now" is a button that joins the live lesson (Desmond, 2026-11-23).
+    const join = liveJoinHref(c.id, c.role);
     return (
-      <li>
-        <Link href={live && c.role === "student" ? `/courses/${c.id}/live` : `/courses/${c.id}`} className="class-link">
+      <li className="class-row">
+        <Link href={`/courses/${c.id}`} className="class-link">
           <span className={`shape ${c.kind === "club" ? "s-arch" : c.role === "teacher" ? "s-square" : "s-arch"}`} aria-hidden="true" />
           <span className="grow" style={{ minWidth: 0 }}>
             <span className="class-name">{c.name}</span>
             {(sub || c.subject || c.schoolYear) && <span className="muted class-sub">{sub || [c.subject, c.schoolYear].filter(Boolean).join(" · ")}</span>}
           </span>
           {c.covering && <span className="pill">{d.covering}</span>}
-          {live && <span className="pill"><span className="live-dot" />{c.role === "student" ? d.joinLive : d.liveNow}</span>}
         </Link>
+        {join && <LiveJoin href={join} label={`${d.joinLive}: ${c.name}`} text={d.liveNowJoin} />}
       </li>
     );
   };
@@ -119,10 +121,8 @@ export default async function Home() {
           </aside>
 
           <section className="home-feed stack" aria-labelledby="home-updates" style={{ gap: 14 }}>
-            <div className="row">
-              <h2 id="home-updates" className="label grow">{d.updTitle}</h2>
-              <Link className="btn btn-sm" href="/updates">{d.updAll}</Link>
-            </div>
+            {/* No "All updates" button: this IS every update (Desmond, 2026-11-23); /updates stays for a class's "see all". */}
+            <h2 id="home-updates" className="label">{d.updTitle}</h2>
             {setup && setup.places.length > 0 && (
               <div className="card composer-card">
                 <PostComposer places={setup.places} materials={setup.materials} canUpload={setup.canUpload} uploadFallback={setup.uploadFallback}

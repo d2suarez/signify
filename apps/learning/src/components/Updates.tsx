@@ -30,7 +30,7 @@ export function CourseRulesForm({ courseId, rules, d }: { courseId: string; rule
   );
 }
 
-const ERRORS: Record<string, keyof Dict> = { off: "updErrOff", empty: "updErrEmpty", forbidden: "updErrForbidden", notfound: "updErrForbidden" };
+const ERRORS: Record<string, keyof Dict> = { off: "updErrOff", empty: "updErrEmpty", forbidden: "updErrForbidden", notfound: "updErrForbidden", material: "pcErrMaterial" };
 export function UpdateErrorNote({ code, d }: { code?: string; d: Dict }) {
   if (!code || !ERRORS[code]) return null;
   return <div className="notice notice-bad" role="alert">{d[ERRORS[code]]}</div>;

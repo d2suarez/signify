@@ -10,7 +10,7 @@
  */
 
 export type Inline = { text: string; b?: true; i?: true; u?: true; href?: string };
-export type MaterialKind = "assignment" | "lesson" | "resource";
+export type MaterialKind = "assignment" | "lesson" | "resource" | "folder";
 export type DocNode =
   | { type: "p" | "h" | "quote"; content: Inline[] }
   | { type: "ul" | "ol"; items: Inline[][] }
@@ -23,7 +23,7 @@ export const DOC_LIMITS = { nodes: 120, items: 60, runs: 200, text: 20_000, embe
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FILE_KINDS = new Set(["image", "pdf", "audio", "video", "doc"]);
-const MATERIAL_KINDS = new Set(["assignment", "lesson", "resource"]);
+const MATERIAL_KINDS = new Set(["assignment", "lesson", "resource", "folder"]);
 
 /** Only web and mail links survive; anything else (javascript:, data:, relative) is dropped. */
 export function safeHref(raw: unknown): string | null {

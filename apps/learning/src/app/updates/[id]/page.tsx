@@ -54,7 +54,7 @@ export default async function UpdateThread({ params, searchParams }: { params: P
           <div className="card composer-card">
             <PostComposer places={setup.places} materials={setup.materials} canUpload={setup.canUpload} uploadFallback={post.courseId && v.courses.get(post.courseId) === "teacher" ? post.courseId : setup.uploadFallback}
               d={d} placeholder={d.pcPlaceholderTeacher} back={backTo}
-              editing={{ postId: post.id, title: post.title, nodes: post.doc.nodes, placeNames: post.places.map((pl) => (pl.courseId ? pl.courseName : d.updWholeSchool)) }} />
+              editing={{ postId: post.id, title: post.title, nodes: post.doc.nodes, placeNames: post.places.map((pl) => (pl.courseId ? pl.courseName : d.updWholeSchool)), placeIds: post.places.map((pl) => pl.courseId ?? "school") }} />
           </div>
         )}
         {!setup && <article className="card stack post-thread" style={{ gap: 10 }}>

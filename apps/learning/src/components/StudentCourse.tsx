@@ -81,7 +81,7 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
     const nested = g.depth > 0;
     const Heading = nested ? "h3" : "h2";
     return (
-      <section key={g.id || "loose"} className={nested ? "subfolder" : "card"}>
+      <section key={g.id || "loose"} id={g.id ? `unit-${g.id}` : undefined} className={nested ? "subfolder" : "card"}>
         <div className="unit-head">
           {nested && <span className="shape s-square" aria-hidden="true" />}
           <Heading className={nested ? "folder-title" : undefined}>{g.title}</Heading>

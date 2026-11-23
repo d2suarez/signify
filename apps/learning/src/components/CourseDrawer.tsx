@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import type { DrawerCourse, DrawerData } from "@/app/api/my-courses/route";
+import { LiveJoin } from "./LiveJoin";
 
 export type DrawerWords = Record<
   "cdButton" | "cdTitle" | "cdHint" | "cdFilter" | "cdNoMatch" | "cdLoading" | "cdFailed" | "cdHere" | "cdGoHome" | "close" | "tryAgain"
-  | "teaching" | "learning" | "clubsTitle" | "yourChildren" | "seeAllWork" | "liveNow" | "joinLive" | "covering" | "clubSponsors" | "clubLabel"
+  | "teaching" | "learning" | "clubsTitle" | "yourChildren" | "seeAllWork" | "liveNow" | "joinLive" | "liveNowJoin" | "covering" | "clubSponsors" | "clubLabel"
   | "noCourses" | "childrenFailed",
   string
 >;
@@ -67,10 +68,10 @@ export default function CourseDrawer({ w }: { w: DrawerWords }) {
   const children = data ? data.children.filter((k) => match(k.name)) : [];
   const shown = teaching.length + learning.length + clubs.length + children.length;
 
-  const Row = ({ href, name, sub, shape, pills }: { href: string; name: string; sub?: string; shape: string; pills?: React.ReactNode }) => {
+  const Row = ({ href, name, sub, shape, pills, after }: { href: string; name: string; sub?: string; shape: string; pills?: React.ReactNode; after?: React.ReactNode }) => {
     const cur = here(href);
     return (
-      <li>
+      <li className="class-row">
         <Link href={href} className="class-link drawer-link" aria-current={cur ? "page" : undefined} onClick={close}>
           <span className={`shape ${shape}`} aria-hidden="true" />
           <span className="grow" style={{ minWidth: 0 }}>
@@ -80,6 +81,7 @@ export default function CourseDrawer({ w }: { w: DrawerWords }) {
           </span>
           {pills}
         </Link>
+        {after}
       </li>
     );
   };
@@ -87,10 +89,8 @@ export default function CourseDrawer({ w }: { w: DrawerWords }) {
     <Row key={c.id} href={c.href} name={c.name}
       sub={c.club ? (c.role === "teacher" ? w.clubSponsors : w.clubLabel) : c.sub}
       shape={c.club ? "s-arch" : c.role === "teacher" ? "s-square" : "s-arch"}
-      pills={<>
-        {c.covering && <span className="pill">{w.covering}</span>}
-        {c.live && <span className="pill"><span className="live-dot" aria-hidden="true" />{c.role === "student" ? w.joinLive : w.liveNow}</span>}
-      </>} />
+      pills={c.covering ? <span className="pill">{w.covering}</span> : undefined}
+      after={c.liveHref ? <LiveJoin href={c.liveHref} label={`${w.joinLive}: ${c.name}`} text={w.liveNowJoin} onClick={close} /> : undefined} />
   );
   const Group = ({ id, title, children: kids }: { id: string; title: string; children: React.ReactNode }) => (
     <section aria-labelledby={id} className="drawer-group">

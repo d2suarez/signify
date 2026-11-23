@@ -461,7 +461,7 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
   html[data-contrast="high"] :focus-visible { outline-color: #fff; box-shadow: 0 0 0 7px #ffd400; }
 }
 
-/* week planner */
+/* the Planner */
 .link-btn { background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; font-weight: 600; color: var(--link); cursor: pointer; text-decoration: underline; min-height: 24px; }
 .link-btn:disabled { color: var(--muted); cursor: default; }
 .plan-course { display: flex; flex-direction: column; gap: 12px; }
@@ -710,6 +710,10 @@ html[data-contrast="high"] .sbg-l1, html[data-contrast="high"] .sbg-l4 { backgro
 .class-list, .todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .class-link, .todo-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px; margin: 0 -8px; border-radius: var(--r-sm); color: inherit; text-decoration: none; }
 .class-link:hover, .todo-item:hover { background: var(--desk); }
+.class-row { display: flex; align-items: center; gap: 6px; }
+.class-row > .class-link { flex: 1; min-width: 0; margin-right: 0; }
+.btn-live { flex: none; gap: 8px; border: 1px solid color-mix(in srgb, var(--good) 55%, var(--line)); background: color-mix(in srgb, var(--good) 12%, var(--surface)); min-height: 40px; }
+.btn-live:hover { background: color-mix(in srgb, var(--good) 22%, var(--surface)); }
 .class-name, .todo-title { display: block; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .class-sub, .todo-sub { display: block; font-size: 12.5px; line-height: 1.3; }
 .todo-group { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
@@ -831,6 +835,9 @@ a.post-mat:hover { background: var(--desk); }
 .to-chip input { width: 18px; height: 18px; margin: 0; accent-color: var(--p2); }
 .to-chip.is-on { border-color: var(--p2); background: color-mix(in srgb, var(--p2) 10%, var(--surface)); }
 .to-chip:has(input:focus-visible) { outline: 3px solid var(--p2); outline-offset: 2px; }
+.to-chip.is-locked { cursor: not-allowed; }
+.to-chip.is-locked:not(.is-on) { opacity: .55; }
+.rt-tool[aria-disabled="true"] { opacity: .6; }
 .composer-actions { gap: 8px; }
 .composer-note { margin: 0; font-size: 14px; color: var(--good); font-weight: 600; }
 .composer-note.is-bad { color: var(--bad); }

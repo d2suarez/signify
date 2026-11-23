@@ -36,8 +36,12 @@ const NONE = "none";
  * the version it started from (PUT /api/lessons/[id]); if a lesson was changed
  * elsewhere in the meantime the save is refused, the page says so and reloads.
  */
-export default function WeekPlanner({ courses, days, today, L, d, addLesson, planAction, presentAction }: {
+export default function WeekPlanner({ courses, days, today, L, d, addLesson, planAction, presentAction, back = "/planner", single = false }: {
   courses: PlannerCourse[]; days: Day[]; today: Day; L: Lang; d: Dict;
+  /** The page to come back to when a day can't be presented. */
+  back?: string;
+  /** A class's own Planner tab: one class, so no heading linking to it. */
+  single?: boolean;
   addLesson: (formData: FormData) => Promise<void>;
   planAction?: PlanAction;
   /** "Present this day": redirects to the presenter (B3). */
@@ -123,9 +127,10 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson, pla
         return (
           <section key={course.id} className="card plan-course" aria-labelledby={`pc-${course.id}`}>
             <div className="row">
-              <h2 id={`pc-${course.id}`} className="grow" style={{ fontSize: 22 }}>
+              <h2 id={`pc-${course.id}`} className={single ? "grow sr-only" : "grow"} style={{ fontSize: 22 }}>
                 <Link href={`/courses/${course.id}`}>{course.name}</Link>
               </h2>
+              {single && <span className="grow" />}
               <PlanUnit course={course} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")}
                 onPlan={(unitId, start) => {
                   const within = new Set(course.units.find((u) => u.id === unitId)?.within ?? [unitId]);
@@ -166,7 +171,7 @@ export default function WeekPlanner({ courses, days, today, L, d, addLesson, pla
                       </Link>
                     ))}
                     {planAction && course.plan && (
-                      <DayPlan course={course} day={day} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")} presentAction={presentAction}
+                      <DayPlan course={course} day={day} days={days} d={d} busy={busy} dayName={(x) => dayName(x, "long")} presentAction={presentAction} back={back}
                         act={async (fd) => {
                           setBusy(true);
                           try {
@@ -245,8 +250,8 @@ const SUB_ICON: Record<string, string> = { quiz: "?", lesson: "◗", link: "↗"
  * pointers to the folder tree; a standard comes from what's on the day, or by
  * hand. Every change is one small form posted to the page's planAction.
  */
-function DayPlan({ course, day, days, d, busy, dayName, act, presentAction }: {
-  course: PlannerCourse; day: Day; days: Day[]; d: Dict; busy: boolean; dayName: (day: Day) => string;
+function DayPlan({ course, day, days, d, busy, dayName, act, presentAction, back }: {
+  course: PlannerCourse; day: Day; days: Day[]; d: Dict; busy: boolean; dayName: (day: Day) => string; back: string;
   act: (fd: FormData) => Promise<void>;
   presentAction?: (formData: FormData) => Promise<void>;
 }) {
@@ -278,6 +283,7 @@ function DayPlan({ course, day, days, d, busy, dayName, act, presentAction }: {
       {presentAction && (show || hasSomething) && (
         <form action={presentAction} className="plan-present">
           <input type="hidden" name="courseId" value={course.id} />
+          <input type="hidden" name="back" value={back} />
           <input type="hidden" name="day" value={day} />
           <input type="hidden" name="title" value={presentTitle} />
           <button className="btn btn-sm btn-primary" name="op" value="present" disabled={busy}

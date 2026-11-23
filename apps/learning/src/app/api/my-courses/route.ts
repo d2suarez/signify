@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { readMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
-import { liveLessonId } from "@/lib/live-ticket";
+import { liveJoinHref } from "@/lib/live-ticket";
 
 export const dynamic = "force-dynamic";
 
-export type DrawerCourse = { id: string; name: string; sub: string; href: string; live: boolean; covering: boolean; role: "teacher" | "student"; club: boolean };
+export type DrawerCourse = { id: string; name: string; sub: string; href: string; live: boolean; liveHref: string | null; covering: boolean; role: "teacher" | "student"; club: boolean };
 export type DrawerData = {
   ok: boolean;
   childrenOk: boolean;
@@ -29,11 +29,11 @@ export async function GET() {
   const [{ ok, classes }, family] = await Promise.all([myClasses(), myChildren()]);
   const courses = await myCourses(me.tenantId, classes, me.id);
   const one = (c: (typeof courses)[number]): DrawerCourse => {
-    const live = !!liveLessonId(c.id);
+    const liveHref = liveJoinHref(c.id, c.role);
     return {
       id: c.id, name: c.name, sub: [c.subject, c.schoolYear].filter(Boolean).join(" · "),
-      href: live && c.role === "student" ? `/courses/${c.id}/live` : `/courses/${c.id}`,
-      live, covering: c.covering, role: c.role, club: c.kind === "club",
+      href: `/courses/${c.id}`,
+      live: !!liveHref, liveHref, covering: c.covering, role: c.role, club: c.kind === "club",
     };
   };
   const data: DrawerData = {
