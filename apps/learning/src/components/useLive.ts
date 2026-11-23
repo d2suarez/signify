@@ -25,6 +25,8 @@ export type LiveState = {
   pace?: Pace;
   /** Goes up each time the teacher publishes an assignment from a slide. */
   published?: number;
+  /** Goes up each time a Random groups slide deals the class again: screens fetch the lesson again. */
+  groups?: number;
   /** The seating slide's room and chairs' names (never ids or attendance), from the teacher's screen. */
   seating?: { blockId: string; chart: ShownChart | null } | null;
   serverNow?: number;

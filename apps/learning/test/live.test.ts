@@ -107,6 +107,23 @@ test("live: publishing an assignment from a slide tells every screen to ask agai
   await restarted;
 });
 
+test("live: a Random groups deal tells every screen to ask again; only the teacher can (story 01, D4)", async () => {
+  const teacher = await join("tg", ticket("tg", "teacher", "course-d4", "lesson-d4"));
+  const student = await join("sg", ticket("sg", "student", "course-d4"));
+  const started = next<{ live: boolean; groups: number }>(student, "live:state", (m) => m.live);
+  teacher.emit("live:start", { count: 1, blockId: "a" });
+  assert.equal((await started).groups, 0);
+  student.emit("live:groups");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(live.sessions.get("course-d4").groups, 0, "a student can't");
+  const bumped = next<{ groups: number }>(student, "live:state", (m) => m.groups === 1);
+  teacher.emit("live:groups");
+  await bumped;
+  const restarted = next<{ groups: number }>(student, "live:state", (m) => m.groups === 1);
+  teacher.emit("live:start", { count: 1, blockId: "a" });
+  await restarted;
+});
+
 test("live: a student cannot move the lesson, and a teacher cannot start a lesson their ticket doesn't name", async () => {
   const teacher = await join("t2", ticket("t2", "teacher", "course-2")); // no lesson on the ticket
   const student = await join("s2", ticket("s2", "student", "course-2"));

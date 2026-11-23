@@ -74,6 +74,7 @@ function publicState(s) {
     noise: s.noise,
     pace: s.pace,
     published: s.published || 0,
+    groups: s.groups || 0,
     seating: s.seating || null,
     serverNow: Date.now(),
   };
@@ -219,6 +220,8 @@ function attach(server, { secret, whoIs }) {
           startedBy: t.sub,
           // Bumped when the teacher publishes an assignment from a slide.
           published: same ? prev.published || 0 : 0,
+          // Bumped when a Random groups slide deals the class again.
+          groups: same ? prev.groups || 0 : 0,
           // The seating slide's chart, as students may see it.
           seating: same ? prev.seating || null : null,
         });
@@ -315,6 +318,15 @@ function attach(server, { secret, whoIs }) {
         const s = sessions.get(courseId);
         if (!s || s.lessonId !== t.lesson) return;
         s.published = (s.published || 0) + 1;
+        pushAll(courseId);
+      });
+
+      // A Random groups slide dealt the class again (saved through Next's
+      // /api/lessons/[id]/shuffle): every screen asks for the lesson again.
+      socket.on('live:groups', () => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson) return;
+        s.groups = (s.groups || 0) + 1;
         pushAll(courseId);
       });
 

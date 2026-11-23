@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!lessonId) return NextResponse.json({ live: false });
   const lesson = await getLesson(ctx(access.me), lessonId);
   if (!lesson || lesson.courseId !== id) return NextResponse.json({ live: false });
-  const blocks = access.course.role === "teacher" ? await teacherBlocks(access.me.tenantId, id, lesson.blocks) : await studentBlocks(access.me.tenantId, id, lesson.blocks, { studentId: access.me.id, live: true });
+  const blocks = access.course.role === "teacher" ? await teacherBlocks(access.me.tenantId, id, lesson.blocks, lesson.id) : await studentBlocks(access.me.tenantId, id, lesson.blocks, { studentId: access.me.id, live: true }, lesson.id);
   return NextResponse.json(
     { live: true, lesson: { id: lesson.id, title: lesson.title, version: lesson.version, blocks } },
     { headers: { "Cache-Control": "no-store" } },

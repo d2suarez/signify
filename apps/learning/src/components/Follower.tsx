@@ -7,7 +7,7 @@ import { useLive, useTimerLeft } from "./useLive";
 import { Stage } from "./Presenter";
 import ReadAloud from "./ReadAloud";
 
-type LiveLesson = { id: string; title: string; version: number; blocks: Block[] };
+type LiveLesson = { id: string; title: string; version: number; blocks: Block[]; groups?: number };
 
 export default function Follower({ courseId, courseName, teacherName, ticket, d, L = "en" }: {
   courseId: string; courseName: string; teacherName?: string; ticket: string; d: Dict; L?: Lang;
@@ -18,16 +18,18 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d,
   // The block this student is looking at, when the teacher lets them move.
   const [own, setOwn] = useState(0);
 
-  // Fetch the lesson whenever a different one (or a newer save of it) goes live.
+  // Fetch the lesson whenever a different one (or a newer save of it) goes
+  // live, and again when a Random groups slide deals new groups.
+  const dealt = state.groups ?? 0;
   useEffect(() => {
     if (!state.live || !state.lessonId) { setLesson(null); return; }
-    if (lesson && lesson.id === state.lessonId && lesson.version === state.lessonVersion) return;
+    if (lesson && lesson.id === state.lessonId && lesson.version === state.lessonVersion && (lesson.groups ?? 0) === dealt) return;
     let gone = false;
     fetch(`/api/courses/${courseId}/live-lesson`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((body) => { if (!gone && body?.live) setLesson(body.lesson); });
+      .then((body) => { if (!gone && body?.live) setLesson({ ...body.lesson, groups: dealt }); });
     return () => { gone = true; };
-  }, [state.live, state.lessonId, state.lessonVersion, courseId, lesson]);
+  }, [state.live, state.lessonId, state.lessonVersion, dealt, courseId, lesson]);
 
   const pace = state.pace ?? "teacher";
   const teacherIndex = state.index ?? 0;

@@ -28,7 +28,7 @@ export default async function PresentLesson({ params }: { params: Promise<{ id: 
       <TopBar crumbs={<Link href="/">{t("myCourses", L)}</Link>} below={<ClassHeader course={course} d={dict(L)} tabs={false} />} />
       <main className="page">
         <Presenter
-          lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks) }}
+          lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks, lesson.id) }}
           courseId={course.id} courseName={course.name} ticket={ticket} roster={roster}
           afterClass={{ view: lesson.studentView ?? "hidden", byHand: !!lesson.studentViewByHand }} d={dict(L)} />
       </main>

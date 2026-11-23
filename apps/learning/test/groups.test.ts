@@ -140,3 +140,41 @@ test("group slide: normalized, never stored with groups, only the class's own se
   const row = await db.query("SELECT blocks::text AS b FROM lessons WHERE id = $1", [lesson.id]);
   assert.ok(!String(row[0].b).includes("Ben"), "group names are never written into the lesson");
 });
+
+test("random groups slide (D4): normalized, deals saved as the class's set linked to the slide, per viewer", async () => {
+  const { shuffleSet, slideSets } = await import("../src/lib/group-sets");
+  const { dealPool } = await import("../src/lib/shuffle");
+  const [b] = normalizeBlocks([{ type: "shuffle", title: " Lab teams ", by: "count", n: 99, from: "here", shown: { name: "x", groups: [{ name: "Z", members: ["Mallory"] }] } }]);
+  assert.deepEqual(b, { id: b.id, type: "shuffle", title: "Lab teams", by: "count", n: 20, from: "here" }, "n capped, shown never kept");
+  assert.deepEqual(normalizeBlocks([{ type: "shuffle", by: "?", n: "x", from: "?" }]).map(({ id: _i, ...r }) => r), [{ type: "shuffle", title: "", by: "size", n: 4, from: "class" }]);
+
+  // Who is dealt: the class, cut to who is here (never added to), less the absent.
+  const absent = new Set(["s2"]);
+  assert.deepEqual(dealPool(people, { from: "class", absent }).map((p) => p.id), ["s1", "s3", "s4", "s5"]);
+  assert.deepEqual(dealPool(people, { from: "here", here: ["s1", "s2", "s3", "stranger", 5], absent }).map((p) => p.id), ["s1", "s3"]);
+  assert.deepEqual(dealPool(people, { from: "here", here: "junk", absent }), []);
+
+  const lesson = await createLesson(T, course, "Lab day", [{ type: "shuffle", title: "Lab teams", by: "size", n: 2, from: "class" }] as never);
+  const blockId = lesson.blocks[0].id;
+  const first = await shuffleSet(T, course, lesson.id, blockId, "Lab teams · Lab day", randomGroups(people, { size: 2 }), roster);
+  const again = await shuffleSet(T, course, lesson.id, blockId, "ignored", randomGroups([...people, { id: "intruder", name: "Mallory" }], { size: 2 }), roster);
+  assert.equal(again.id, first.id, "shuffling again saves the same set");
+  assert.equal(again.version, first.version + 1);
+  assert.equal(again.groups.flatMap((g) => g.members).length, 5, "only the class's students are kept");
+  assert.ok((await listGroupSets(T, course)).some((s) => s.id === first.id), "it is one of the class's group sets");
+
+  const teacher = await teacherBlocks(T.tenantId, course, lesson.blocks, lesson.id);
+  assert.equal((teacher[0] as { shown?: { groups: unknown[] } }).shown?.groups.length, 3);
+  assert.equal((await teacherBlocks(T.tenantId, course, lesson.blocks)) [0].type, "shuffle", "without the lesson, nothing is filled");
+  const live = await studentBlocks(T.tenantId, course, lesson.blocks, { studentId: "s4", live: true }, lesson.id);
+  assert.equal((live[0] as { shown?: { groups: unknown[] } }).shown?.groups.length, 3);
+  const later = await studentBlocks(T.tenantId, course, lesson.blocks, { studentId: "s4", live: false }, lesson.id);
+  assert.equal((later[0] as { shown?: { groups: unknown[]; onlyMine: boolean } }).shown?.groups.length, 1, "afterwards, only their own group");
+  assert.equal((await slideSets(B.tenantId, course, lesson.id, { studentId: null, live: true })).size, 0, "another school learns nothing");
+
+  // Archived by the teacher: the next deal starts a new set.
+  await saveGroupSet(T, course, first.id, { baseVersion: again.version, archived: true }, roster);
+  const fresh = await shuffleSet(T, course, lesson.id, blockId, "Lab teams · Lab day", randomGroups(people, { count: 2 }), roster);
+  assert.notEqual(fresh.id, first.id);
+  assert.equal((forStudent(teacher[0]) as { shown?: unknown }).shown, undefined);
+});

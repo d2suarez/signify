@@ -13,6 +13,7 @@ import GroupsView from "./GroupsView";
 import SeatingDesk from "./SeatingDesk";
 import SeatingView from "./SeatingView";
 import type { ShownChart } from "@/lib/seating";
+import type { GroupsShown } from "@/lib/groups";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
 import { useLive, useTimerLeft, type Pace } from "./useLive";
@@ -31,7 +32,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri", groups: "s-square", seating: "s-square",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri", groups: "s-square", seating: "s-square", shuffle: "s-square",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -65,7 +66,13 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
 
   const ours = state.live && state.lessonId === lesson.id;
   const index = ours ? state.index ?? 0 : 0;
-  const block = blocks[index];
+  // ---------- random groups ----------
+  // Each deal this screen made, by slide (the server saved it as the class's group set).
+  const [deals, setDeals] = useState<Record<string, GroupsShown>>({});
+  const [dealing, setDealing] = useState(false);
+  const [dealNote, setDealNote] = useState<{ blockId: string; text: string; bad?: boolean } | null>(null);
+  const raw = blocks[index];
+  const block = raw && raw.type === "shuffle" && deals[raw.id] ? { ...raw, shown: deals[raw.id] } : raw;
   const go = (i: number) => {
     if (i < 0 || i >= blocks.length) return;
     emit("live:goto", { index: i, blockId: blocks[i].id });
@@ -121,6 +128,27 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
     roll();
   };
 
+  const deal = async () => {
+    if (!block || block.type !== "shuffle" || dealing) return;
+    setDealing(true);
+    try {
+      const r = await fetch(`/api/lessons/${lesson.id}/shuffle`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ blockId: block.id, here: students.map((s) => s.id) }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok || !body?.shown) {
+        setDealNote({ blockId: block.id, bad: true, text: body?.error === "nobody" ? d.shufNobody : body?.error === "roster" ? d.shufRoster : d.shufFailed });
+        return;
+      }
+      setDeals((m) => ({ ...m, [block.id]: body.shown }));
+      setDealNote({ blockId: block.id, text: `${body.dealt} ${d.shufDealt}${body.leftOut ? ` · ${body.leftOut} ${d.shufLeftOut}` : ""}` });
+      emit("live:groups");
+    } finally {
+      setDealing(false);
+    }
+  };
+
   // ---------- full screen ----------
   // The slide alone fills the screen (no names, no controls but back/next),
   // for a teacher whose laptop IS the classroom screen. Arrow keys still move it.
@@ -173,6 +201,11 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
             <button type="button" className="btn" onClick={() => emit("live:pick-reset", { blockId: block.id })}>{d.pickReset}</button>
           )}
         </>
+      )}
+      {block?.type === "shuffle" && (
+        <button type="button" className="btn btn-primary" disabled={dealing} onClick={deal}>
+          {dealing ? d.shufDealing : block.shown?.groups.length ? d.shufAgain : d.shufMake}
+        </button>
       )}
       {block?.type === "noise" && (
         <button type="button" className="btn btn-primary" aria-pressed={noise.listening} onClick={() => (noise.listening ? noise.stop() : noise.start())}>
@@ -253,6 +286,11 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
               </span>
             </span>
           </label>
+          {block?.type === "shuffle" && (
+            <p className={dealNote?.blockId === block.id && dealNote.bad ? "notice" : "muted"} role="status" style={{ margin: 0 }}>
+              {dealNote?.blockId === block.id ? dealNote.text : block.from === "here" ? d.shufHintHere : d.shufHintClass}
+            </p>
+          )}
           {block?.type === "picker" && classFailed && <p className="notice" role="status" style={{ margin: 0 }}>{d.rosterFallback}</p>}
           {block?.type === "picker" && !pool.length && <p className="muted" style={{ margin: 0 }}>{d.pickNobody}</p>}
           {block?.type === "noise" && (
@@ -266,7 +304,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
               {blocks.map((b, i) => (
                 <button key={b.id} type="button" aria-current={i === index} onClick={() => go(i)}>
                   <small><span className={`shape ${KIND[b.type]}`} style={{ width: 8, height: 8, marginRight: 4 }} />{i + 1}</small>
-                  <b>{blockSummary(b) || (b.type === "seating" ? d.blockSeating : "—")}</b>
+                  <b>{blockSummary(b) || (b.type === "seating" ? d.blockSeating : b.type === "shuffle" ? d.blockShuffle : "—")}</b>
                   {pace !== "teacher" && onBlock(i) > 0 && <span className="strip-count" aria-label={`${onBlock(i)} ${d.studentsHere}`}>{onBlock(i)}</span>}
                 </button>
               ))}
@@ -344,14 +382,18 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
       ? <TeacherAssignmentStage block={block} d={d} L={L} onPublished={onPublished} />
       : <StudentAssignmentStage block={block} d={d} L={L ?? "en"} stamp={stamp ?? 0} />;
   }
-  if (block.type === "groups") {
+  if (block.type === "groups" || block.type === "shuffle") {
+    const how = block.type === "shuffle" ? (block.by === "count" ? `${block.n} ${d.shufGroups}` : `${d.shufGroupsOf} ${block.n}`) : "";
     return (
       <div className="stage" style={{ background: "var(--p2)" }}>
         <div className="row" style={{ gap: 8 }}>
           <span className="shape s-square" style={{ background: "#fff" }} />
-          <span className="stage-kicker">{block.title || d.blockGroups}</span>
+          <span className="stage-kicker">{block.title || (block.type === "shuffle" ? d.blockShuffle : d.blockGroups)}</span>
+          {how && <span className="stage-kicker" style={{ opacity: 0.8 }}>· {how}</span>}
         </div>
-        <GroupsView shown={block.shown} title={block.title} d={d} stage />
+        {block.type === "shuffle" && !block.shown?.groups.length
+          ? <p className="stage-foot" role="status">{d.shufWaiting}</p>
+          : <GroupsView shown={block.shown} title={block.title} d={d} stage />}
       </div>
     );
   }

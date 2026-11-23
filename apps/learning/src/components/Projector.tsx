@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Block } from "@/lib/blocks";
 import type { Dict } from "@/lib/i18n";
 import { useLive, useTimerLeft } from "./useLive";
@@ -26,6 +26,13 @@ export default function Projector({ lesson, courseId, ticket, roster, d }: {
   useEffect(() => {
     if (ours && state.lessonVersion && state.lessonVersion !== lesson.version) router.refresh();
   }, [ours, state.lessonVersion, lesson.version, router]);
+  // A Random groups slide dealt new groups: load them (the first count seen is where this screen started).
+  const dealt = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ours || state.groups === undefined) return;
+    if (dealt.current !== null && dealt.current !== state.groups) router.refresh();
+    dealt.current = state.groups;
+  }, [ours, state.groups, router]);
 
   useEffect(() => {
     const on = () => setFull(!!document.fullscreenElement);

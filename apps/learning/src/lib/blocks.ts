@@ -91,10 +91,23 @@ export type GroupsBlock = { id: string; type: "groups"; title: string; groupSetI
  */
 export type SeatingBlock = { id: string; type: "seating"; title: string };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock | GroupsBlock | SeatingBlock;
+/**
+ * The group randomizer, on a slide (story 01, D4): while the lesson is live
+ * the teacher deals the class into `n` groups (`by: "count"`) or groups of
+ * `n` (`by: "size"`), from the whole class or only the students connected
+ * now; students marked absent today are always left out. Each deal is saved
+ * as one of the class's group sets, linked to this slide (migration 041,
+ * group-sets.ts `shuffleSet`), so `shown` is filled by the server exactly as
+ * for a groups slide and is never stored.
+ */
+export type ShuffleBlock = {
+  id: string; type: "shuffle"; title: string; by: "count" | "size"; n: number; from: "class" | "here"; shown?: GroupsShown;
+};
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock | GroupsBlock | SeatingBlock | ShuffleBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment", "groups", "seating"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment", "groups", "seating", "shuffle"];
 const FILE_KINDS = ["image", "pdf", "audio", "video", "doc"] as const;
 
 export const LIMITS = {
@@ -112,6 +125,8 @@ export const LIMITS = {
   maxNoise: 95,
   url: 2_000,
   alt: 300,
+  minGroupN: 2,
+  maxGroupN: 20,
 };
 
 export class BlockError extends Error {}
@@ -183,6 +198,8 @@ export function newBlock(type: BlockType): Block {
       return { id: newId(), type, title: "", groupSetId: "" };
     case "seating":
       return { id: newId(), type, title: "" };
+    case "shuffle":
+      return { id: newId(), type, title: "", by: "size", n: 4, from: "class" };
   }
 }
 
@@ -275,6 +292,17 @@ export function normalizeBlocks(input: unknown): Block[] {
       case "seating":
         out.push({ id: uniqueId(b.id, used), type: "seating", title: line(b.title, LIMITS.title) });
         break;
+      case "shuffle": {
+        // `shown` is the server's, per viewer: never kept from a browser.
+        const n = Math.round(Number(b.n));
+        out.push({
+          id: uniqueId(b.id, used), type: "shuffle", title: line(b.title, LIMITS.title),
+          by: b.by === "count" ? "count" : "size",
+          n: Number.isFinite(n) ? Math.min(LIMITS.maxGroupN, Math.max(LIMITS.minGroupN, n)) : 4,
+          from: b.from === "here" ? "here" : "class",
+        });
+        break;
+      }
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -289,7 +317,7 @@ export function normalizeBlocks(input: unknown): Block[] {
  * the server for a student, live or otherwise.
  */
 export function forStudent(b: Block): Block {
-  if (b.type === "groups") { const { shown: _s, ...rest } = b; return rest; }
+  if (b.type === "groups" || b.type === "shuffle") { const { shown: _s, ...rest } = b; return rest as Block; }
   if (b.type !== "poll") return b;
   return { ...b, choices: b.choices.map((c) => ({ ...c, correct: false })) };
 }
@@ -303,7 +331,7 @@ export function blockSummary(b: Block): string {
     case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
     case "file": return b.title || b.name;
-    case "assignment": case "groups": case "seating": return b.title;
+    case "assignment": case "groups": case "seating": case "shuffle": return b.title;
   }
 }
 
@@ -316,7 +344,7 @@ export function blockSpeech(b: Block): string {
     case "board": case "link": case "tool": return b.title;
     case "file": return [b.title || b.name, b.alt].filter(Boolean).join(".\n");
     case "assignment": return b.title;
-    case "groups": return [b.title, ...(b.shown?.groups ?? []).map((g) => `${g.name}: ${g.members.join(", ")}`)].filter(Boolean).join(".\n");
+    case "groups": case "shuffle": return [b.title, ...(b.shown?.groups ?? []).map((g) => `${g.name}: ${g.members.join(", ")}`)].filter(Boolean).join(".\n");
     case "seating": return b.title;
   }
 }

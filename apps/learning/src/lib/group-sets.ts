@@ -147,3 +147,59 @@ export async function shownSets(
   }
   return out;
 }
+
+/**
+ * A Random groups slide's deal (story 01, D4), saved as the class's group
+ * set linked to the slide (migration 041): the first deal makes the set,
+ * every later one saves the same set again (a new version). `groups` must
+ * already be the class's students (randomGroups over the ID roster). A set
+ * the teacher archived is left alone and a new one is made.
+ */
+export async function shuffleSet(
+  ctx: Ctx, courseId: string, lessonId: string, blockId: string, name: string, groups: Group[], roster: Map<string, string>, word = "Group",
+): Promise<GroupSet> {
+  const db = await getDb();
+  const clean = normalizeGroups(groups, roster, word);
+  return db.tx(async (t) => {
+    const rows = await t.query(
+      `SELECT * FROM group_sets WHERE tenant_id = $1 AND course_id = $2 AND lesson_id = $3 AND block_id = $4 AND archived = false
+        ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`,
+      [ctx.tenantId, courseId, lessonId, blockId],
+    );
+    if (rows[0]) {
+      const saved = await t.query(
+        `UPDATE group_sets SET groups = $2::jsonb, version = version + 1, updated_by = $3, updated_at = now() WHERE id = $1 RETURNING *`,
+        [rows[0].id, JSON.stringify(clean), ctx.userId],
+      );
+      return toSet(saved[0]);
+    }
+    const made = await t.query(
+      `INSERT INTO group_sets (tenant_id, course_id, name, groups, students_see, created_by, updated_by, lesson_id, block_id)
+       VALUES ($1, $2, $3, $4::jsonb, true, $5, $5, $6, $7) RETURNING *`,
+      [ctx.tenantId, courseId, cleanName(name, "Groups"), JSON.stringify(clean), ctx.userId, lessonId, blockId],
+    );
+    return toSet(made[0]);
+  });
+}
+
+/**
+ * The latest deal of each Random groups slide of a lesson, shown for one
+ * viewer as shownSets does (blockId -> what that viewer sees).
+ */
+export async function slideSets(
+  tenantId: string, courseId: string, lessonId: string, viewer: { studentId: string | null; live: boolean },
+): Promise<Map<string, GroupsShown>> {
+  const out = new Map<string, GroupsShown>();
+  if (!UUID.test(lessonId)) return out;
+  const db = await getDb();
+  const rows = await db.query(
+    `SELECT * FROM group_sets WHERE tenant_id = $1 AND course_id = $2 AND lesson_id = $3 AND archived = false ORDER BY updated_at ASC`,
+    [tenantId, courseId, lessonId],
+  );
+  for (const r of rows) {
+    const s = toSet(r);
+    if (viewer.studentId && !viewer.live && !s.studentsSee) continue;
+    out.set(String(r.block_id), showGroups(s.name, s.groups, viewer));
+  }
+  return out;
+}

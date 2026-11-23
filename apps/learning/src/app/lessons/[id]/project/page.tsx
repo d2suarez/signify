@@ -26,7 +26,7 @@ export default async function ProjectLesson({ params }: { params: Promise<{ id: 
     ? await studentsOf(access).then(({ students }) => students.map((s) => ({ id: s.id, name: s.name })))
     : [];
   return (
-    <Projector lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks) }}
+    <Projector lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks, lesson.id) }}
       courseId={course.id} ticket={ticket} roster={roster} d={dict(L)} />
   );
 }

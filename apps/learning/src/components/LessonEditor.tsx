@@ -18,7 +18,7 @@ const SAVE_DELAY = 800;
 const SHAPE = BLOCK_SHAPE;
 const NAME = BLOCK_NAME;
 /** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
-const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "seating", "board", "link", "file"];
+const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "seating", "shuffle", "board", "link", "file"];
 
 /** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
 export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
@@ -425,6 +425,41 @@ export function BlockFields({ block: b, d, onChange, idBase, courseId, assignmen
             <option value="never">{d.never}</option>
           </select>
         </div>
+      </>
+    );
+  }
+  if (b.type === "shuffle") {
+    return (
+      <>
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="fieldset" style={{ flex: "2 1 200px" }}>
+            <label htmlFor={`${idBase}-t`}>{d.title}</label>
+            <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} placeholder={d.blockShuffle}
+              onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+          </div>
+          <div className="fieldset" style={{ flex: "1 1 160px" }}>
+            <label htmlFor={`${idBase}-by`}>{d.shufHow}</label>
+            <select id={`${idBase}-by`} className="field" value={b.by} onChange={(e) => onChange({ by: e.target.value } as Partial<Block>)}>
+              <option value="size">{d.shufBySize}</option>
+              <option value="count">{d.shufByCount}</option>
+            </select>
+          </div>
+          <div className="fieldset" style={{ flex: "1 1 110px" }}>
+            <label htmlFor={`${idBase}-n`}>{b.by === "count" ? d.shufCountLabel : d.shufSizeLabel}</label>
+            <input id={`${idBase}-n`} className="field" type="number" inputMode="numeric" min={LIMITS.minGroupN} max={LIMITS.maxGroupN} value={b.n}
+              onChange={(e) => onChange({ n: Math.min(LIMITS.maxGroupN, Math.max(LIMITS.minGroupN, Number(e.target.value) || LIMITS.minGroupN)) } as Partial<Block>)} />
+          </div>
+          <div className="fieldset" style={{ flex: "1 1 200px" }}>
+            <label htmlFor={`${idBase}-f`}>{d.pickFrom}</label>
+            <select id={`${idBase}-f`} className="field" value={b.from} onChange={(e) => onChange({ from: e.target.value } as Partial<Block>)}>
+              <option value="class">{d.pickClass}</option>
+              <option value="here">{d.pickHere}</option>
+            </select>
+          </div>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          {d.shufSlideHint} {courseId && <Link href={`/courses/${courseId}/groups`}>{d.grpTitle}</Link>}
+        </p>
       </>
     );
   }

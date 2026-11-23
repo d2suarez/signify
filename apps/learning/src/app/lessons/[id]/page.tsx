@@ -63,7 +63,7 @@ export default async function ReadLesson({ params }: { params: Promise<{ id: str
             <StudentViewSelect id="sv-one" name="view" value={lesson.studentView ?? "hidden"} d={d} autoSubmit />
           </form>
         )}
-        <LessonReader blocks={teacher ? await teacherBlocks(access.me.tenantId, course.id, lesson.blocks) : await studentBlocks(access.me.tenantId, course.id, lesson.blocks, { studentId: access.me.id, live: false })} d={d} />
+        <LessonReader blocks={teacher ? await teacherBlocks(access.me.tenantId, course.id, lesson.blocks, lesson.id) : await studentBlocks(access.me.tenantId, course.id, lesson.blocks, { studentId: access.me.id, live: false }, lesson.id)} d={d} />
       </main>
     </>
   );
