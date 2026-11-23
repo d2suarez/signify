@@ -306,6 +306,19 @@ html[data-contrast="high"] .cal-item { border: 1px solid var(--ink); }
 .desk-list button[aria-current="true"] { background: var(--desk); box-shadow: inset 3px 0 0 var(--p2); font-weight: 700; }
 .desk-list .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desk-form { position: sticky; top: 76px; }
+/* Student file hand-in (story 01 A7): the student's list and the desk's view. */
+.wf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wf-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.wf-thumb { flex: none; width: 64px; height: 64px; border-radius: var(--r-sm); overflow: hidden; background: var(--desk); display: grid; place-items: center; text-decoration: none; }
+.wf-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.wf-icon { font-size: 30px; }
+.wf-name { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.wf-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.wf-tools .btn { min-width: 44px; min-height: 44px; }
+.desk-photo { margin: 0; }
+.desk-photo img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; }
+.desk-photo figcaption { font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+.desk-pdf iframe { display: block; width: 100%; height: min(80vh, 900px); border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; }
 .score-input { font-family: var(--display); font-size: 28px; font-weight: 800; max-width: 140px; font-variant-numeric: tabular-nums; }
 
 /* ---------- gradebook ---------- */

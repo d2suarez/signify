@@ -4,6 +4,7 @@ import { cleanTitle, unitInCourse } from "./units";
 import { normalizeRubric, rubricMax, shortSections, type Rubric } from "./rubric";
 import { standardsInCourse } from "./standards";
 import { DEFAULT_SETTINGS, normalizeQuiz, quizPoints, type Quiz } from "./quiz";
+import { handedFiles, snapshotHandIn, studentOwner, type WorkFile } from "./hand-in-files";
 import { docFileIds, docIsEmpty, docText, filterDoc, normalizeDoc, type PostDoc } from "./post-doc";
 
 /**
@@ -22,6 +23,8 @@ import { docFileIds, docIsEmpty, docText, filterDoc, normalizeDoc, type PostDoc 
 export type AssignmentKind = "online" | "offline" | "quiz";
 export type GroupHandIn = "each" | "one";
 export type GroupSubmitter = "group" | "teacher";
+/** What an online assignment takes (migration 040): the writing box, files (photos, PDFs, Office), or both. */
+export type HandIn = "text" | "files" | "both";
 
 export type Assignment = {
   id: string;
@@ -54,6 +57,8 @@ export type Assignment = {
   groupHandIn: GroupHandIn;
   /** With "one": the group chooses who, or the teacher sets it. */
   groupSubmitter: GroupSubmitter;
+  /** Online only: what students hand in (story 01 A7). */
+  handIn: HandIn;
   version: number;
   updatedAt: string;
 };
@@ -99,6 +104,7 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     groupSetId: r.group_set_id ? String(r.group_set_id) : null,
     groupHandIn: r.group_hand_in === "one" ? "one" : "each",
     groupSubmitter: r.group_submitter === "teacher" ? "teacher" : "group",
+    handIn: cleanHandIn(r.hand_in),
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
@@ -114,6 +120,10 @@ function cleanIdList(v: unknown): string[] | null {
 export function forStudent(a: Assignment): StudentAssignment {
   const { version: _v, updatedAt: _u, published: _p, ...rest } = a;
   return { ...rest, quiz: null };
+}
+
+function cleanHandIn(v: unknown): HandIn {
+  return v === "files" ? "files" : v === "both" ? "both" : "text";
 }
 
 function cleanKind(v: unknown): AssignmentKind {
@@ -207,6 +217,8 @@ export type AssignmentInput = {
   groupSetId?: unknown;
   groupHandIn?: unknown;
   groupSubmitter?: unknown;
+  /** "text" | "files" | "both" (online only). */
+  handIn?: unknown;
 };
 
 export type AssignmentSave =
@@ -216,7 +228,7 @@ export type AssignmentSave =
   /** A changed sections-and-parts rubric with a section of fewer than 2 parts. */
   | { ok: false; reason: "short-sections" };
 
-const SNAPSHOT_KEYS = ["title", "instructions", "kind", "points", "dueOn", "dueAt", "unitId", "categoryId", "published", "gradesReleased", "groupSetId", "groupHandIn", "groupSubmitter"] as const;
+const SNAPSHOT_KEYS = ["title", "instructions", "kind", "points", "dueOn", "dueAt", "unitId", "categoryId", "published", "gradesReleased", "groupSetId", "groupHandIn", "groupSubmitter", "handIn"] as const;
 
 export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInput): Promise<AssignmentSave> {
   if (!UUID.test(id)) return { ok: false, reason: "missing" };
@@ -273,6 +285,7 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     }
     if (input.groupHandIn !== undefined) next.groupHandIn = input.groupHandIn === "one" ? "one" : "each";
     if (input.groupSubmitter !== undefined) next.groupSubmitter = input.groupSubmitter === "teacher" ? "teacher" : "group";
+    if (input.handIn !== undefined) next.handIn = cleanHandIn(input.handIn);
     if (next.kind === "quiz") next.groupSetId = null;
     // With a rubric, the points are what it can give at most.
     if (next.rubric) next.points = Math.min(LIMITS.maxPoints, rubricMax(next.rubric));
@@ -312,14 +325,14 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
               unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb, standards = $15::jsonb,
-              quiz = $16::jsonb, instructions_doc = $17::jsonb, group_set_id = $18, group_hand_in = $19, group_submitter = $20,
+              quiz = $16::jsonb, instructions_doc = $17::jsonb, group_set_id = $18, group_hand_in = $19, group_submitter = $20, hand_in = $21,
               version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
         next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
         next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null,
         next.quiz ? JSON.stringify(next.quiz) : null, next.instructionsDoc ? JSON.stringify(next.instructionsDoc) : null,
-        next.groupSetId, next.groupHandIn, next.groupSubmitter],
+        next.groupSetId, next.groupHandIn, next.groupSubmitter, next.handIn],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });
@@ -374,6 +387,8 @@ export type Submission = {
   version: number;
   submittedAt: string | null;
   updatedAt: string;
+  /** The files handed in with it (migration 040), in order; null = none. */
+  files?: WorkFile[] | null;
 };
 
 function toSubmission(r: Record<string, unknown>): Submission {
@@ -384,6 +399,7 @@ function toSubmission(r: Record<string, unknown>): Submission {
     version: Number(r.version),
     submittedAt: iso(r.submitted_at),
     updatedAt: iso(r.updated_at) as string,
+    files: handedFiles(r.files),
   };
 }
 
@@ -513,6 +529,8 @@ export async function setHandedIn(ctx: Ctx, a: Assignment, handIn: boolean, base
     );
     // What was handed in is always the last thing the replay shows.
     if (handIn) await record(t, ctx.tenantId, String(saved[0].id), String(saved[0].body ?? ""), [], true);
+    // The files handed in with it (story 01 A7): the student's list as it is now.
+    if (handIn) saved[0].files = await snapshotHandIn(t, ctx.tenantId, a.id, studentOwner(ctx.userId), [String(saved[0].id)]).then((f) => f.length ? f : null);
     return { ok: true, submission: toSubmission(saved[0]) } as const;
   });
 }

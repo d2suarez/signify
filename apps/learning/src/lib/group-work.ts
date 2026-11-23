@@ -3,6 +3,7 @@ import { getGroupSet } from "./group-sets";
 import type { Group } from "./groups";
 import { LIMITS, type Assignment, type Submission } from "./assignments";
 import { cleanPastes, record } from "./writing";
+import { groupOwner, snapshotHandIn, studentOwner } from "./hand-in-files";
 
 /**
  * Group assignments (migration 034, story 01 A10/F4). An assignment with a
@@ -180,6 +181,8 @@ export async function groupHandIn(ctx: Ctx, a: Assignment, handIn: boolean): Pro
         [ctx.tenantId, a.id, id, handIn ? cur.body : String(row.body ?? "")]);
       // What was handed in is the last thing the hand-in's own replay shows.
       if (handIn && id === ctx.userId) await record(t, ctx.tenantId, String(saved[0].id), cur.body, [], true);
+      // Files (story 01 A7): the group's in "one" mode, the member's own in "each".
+      if (handIn) await snapshotHandIn(t, ctx.tenantId, a.id, a.groupHandIn === "one" ? groupOwner(group.id) : studentOwner(id), [String(saved[0].id)]);
     }
     const work = a.groupHandIn === "one"
       ? toWork((await t.query(

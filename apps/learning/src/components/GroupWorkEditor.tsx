@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GroupState, GroupWork } from "@/lib/group-work";
 import type { Dict } from "@/lib/i18n";
 import ReadAloud from "./ReadAloud";
+import WorkFilesBox from "./WorkFilesBox";
+import type { WorkFile } from "@/lib/hand-in-files";
 
 type Status = "saved" | "dirty" | "saving" | "error" | "behind";
 const SAVE_DELAY = 1000;
@@ -17,9 +19,12 @@ const LOOK_EVERY = 5000;
  * newest text to copy in: nothing is ever written over. (Typing together
  * live is the Google Docs step.)
  */
-export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d }: {
+export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d, text = true, files = null }: {
   assignmentId: string; initial: GroupState; myId: string; locked: boolean; d: Dict;
+  /** Story 01 A7: whether the shared text shows, and the files (the group's in "one" mode, own in "each"). */
+  text?: boolean; files?: WorkFile[] | null;
 }) {
+  const [fileCount, setFileCount] = useState(files?.length ?? 0);
   const [state, setState] = useState(initial);
   const [body, setBody] = useState(initial.work.body);
   const [status, setStatus] = useState<Status>("saved");
@@ -144,7 +149,7 @@ export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d
           : d.gaEachHandsIn}
       </p>
       <div className="row">
-        <label htmlFor="gwork" className="label">{d.gaGroupText}</label>
+        {text ? <label htmlFor="gwork" className="label">{d.gaGroupText}</label> : <span className="label">{d.yourWork}</span>}
         <span className="spacer" style={{ flex: 1 }} />
         {!handedIn && <span className="save-state" role="status" aria-live="polite">{stateText}</span>}
         {handedIn && when && <span className="chip chip-done">{d.handedIn} · <time suppressHydrationWarning>{new Date(when).toLocaleString()}</time></span>}
@@ -159,14 +164,15 @@ export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d
           </div>
         </div>
       )}
-      <textarea id="gwork" className="field writing" rows={16} value={body} maxLength={100000}
+      {text && <><textarea id="gwork" className="field writing" rows={16} value={body} maxLength={100000}
         readOnly={readOnly} onChange={(e) => onType(e.target.value)} spellCheck aria-describedby="gwork-note"
         onPaste={(e) => {
           const text = e.clipboardData.getData("text/plain");
           if (text && !readOnly) pastes.current.push({ at: Date.now(), chars: text.length, text: text.slice(0, 5000) });
         }} />
       <p id="gwork-note" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.gaWritingNote}</p>
-      <ReadAloud text={body} d={d} label={d.readMyWriting} />
+      <ReadAloud text={body} d={d} label={d.readMyWriting} /></>}
+      {files && <WorkFilesBox assignmentId={assignmentId} initial={files} locked={handedIn || locked} group={one} d={d} onCount={setFileCount} />}
       {note && <p className="notice" role="alert">{note}</p>}
       {!locked && (
         <div className="row">
@@ -175,7 +181,7 @@ export default function GroupWorkEditor({ assignmentId, initial, myId, locked, d
           )}
           {(!one || iSubmit) && (handedIn
             ? <button type="button" className="btn" onClick={() => act("take-back")}>{d.takeBack}</button>
-            : <button type="button" className="btn btn-primary" disabled={status === "behind" || body.trim() === ""} onClick={() => act("hand-in")}>
+            : <button type="button" className="btn btn-primary" disabled={status === "behind" || ((!text || body.trim() === "") && fileCount === 0)} onClick={() => act("hand-in")}>
                 {one ? d.gaHandInGroup : d.handIn}
               </button>)}
         </div>

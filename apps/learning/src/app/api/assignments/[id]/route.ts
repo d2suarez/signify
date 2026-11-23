@@ -34,7 +34,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     title: body.title, instructions: body.instructions, instructionsDoc: body.instructionsDoc, kind: body.kind, points: body.points,
     dueOn: body.dueOn, dueAt: body.dueAt, unitId: body.unitId, categoryId: body.categoryId,
     published: body.published, gradesReleased: body.gradesReleased, rubric: body.rubric, standards: body.standards, quiz: body.quiz,
-    groupSetId: body.groupSetId, groupHandIn: body.groupHandIn, groupSubmitter: body.groupSubmitter,
+    groupSetId: body.groupSetId, groupHandIn: body.groupHandIn, groupSubmitter: body.groupSubmitter, handIn: body.handIn,
   });
   if (r.ok) {
     // A quiz whose answer key changed: every handed-in attempt is scored again and grades rewritten (history kept).

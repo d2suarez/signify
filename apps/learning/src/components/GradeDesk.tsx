@@ -11,6 +11,8 @@ import type { Grade } from "@/lib/grades";
 import { feedbackFromParts, isParts, partsScore, rubricScore, type PartMarks, type PartNotes, type Rubric, type RubricSelection } from "@/lib/rubric";
 import PartsGrader from "./PartsGrader";
 import ReviewWork from "./ReviewWork";
+import DeskFiles from "./DeskFiles";
+import type { WorkFile } from "@/lib/hand-in-files";
 import PartZoom from "./PartZoom";
 import IntegrityDrawer from "./IntegrityDrawer";
 import type { Concern } from "@/lib/integrity";
@@ -34,6 +36,8 @@ export type DeskStudent = {
   parts?: PartMarks | null; notes?: PartNotes | null;
   /** The review screen: when the teacher marked this grade reviewed (null = not yet). */
   reviewedAt?: string | null;
+  /** Story 01 A7: the files handed in (or so far), in order. */
+  files?: WorkFile[] | null;
 };
 type Sort = "name" | "low" | "todo";
 
@@ -350,7 +354,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           <h2 id="desk-name" className="grow" style={{ fontSize: 22 }}>{s.name}{s.group && <span className="muted" style={{ display: "block", fontSize: 14, fontWeight: 400 }}>{s.group.name} · {students.filter((x) => s.group!.ids.includes(x.id)).map((x) => x.name).join(", ")}</span>}</h2>
           {assignment.kind !== "offline" && (s.submittedAt
             ? <span className={`chip ${s.late ? "chip-late" : "chip-done"}`}>{d.handedIn} · <time suppressHydrationWarning>{new Date(s.submittedAt).toLocaleString()}</time>{s.late ? ` · ${d.late}` : ""}</span>
-            : <span className="chip">{s.body ? d.workingOn : d.notHandedIn}</span>)}
+            : <span className="chip">{s.body || s.files?.length ? d.workingOn : d.notHandedIn}</span>)}
         </div>
         {assignment.kind === "quiz"
           ? <QuizReview key={s.id} assignmentId={assignment.id} studentId={s.id} points={assignment.points} onGrade={quizGrade} d={d} />
@@ -358,9 +362,12 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           ? (s.body
             ? (review ? <ReviewWork key={s.id} rubric={assignment.rubric!} body={s.body} marks={marks} current={zoom} onOpen={setZoom} d={d} />
               : <div className="work-text">{s.body}</div>)
-            : <p className="empty">{d.noWork}</p>)
+            : s.files?.length ? null : <p className="empty">{d.noWork}</p>)
           : <p className="muted">{d.kindOffline}</p>}
-        {assignment.kind === "online" && s.body && (
+        {assignment.kind === "online" && !!s.files?.length && (
+          <DeskFiles key={`f-${s.id}`} assignmentId={assignment.id} studentId={s.id} files={s.files} handed={!!s.submittedAt} d={d} />
+        )}
+        {assignment.kind === "online" && (s.body || !!s.files?.length) && (
           <p style={{ margin: "8px 0 0" }}><a href={`/api/assignments/${assignment.id}/download?student=${encodeURIComponent(s.id)}`} download className="btn btn-sm">⬇ {d.zipOne}</a></p>
         )}
         {assignment.kind === "online" && s.body !== null && (

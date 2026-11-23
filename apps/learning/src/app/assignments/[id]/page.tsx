@@ -22,6 +22,7 @@ import { When } from "@/components/When";
 import AssignmentEditor from "@/components/AssignmentEditor";
 import { uploadsOn } from "@/lib/files";
 import SubmissionEditor from "@/components/SubmissionEditor";
+import { myFiles, takesFiles, takesText } from "@/lib/work-files";
 import ReadAloud from "@/components/ReadAloud";
 import RubricView from "@/components/RubricView";
 import Instructions from "@/components/Instructions";
@@ -111,10 +112,12 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   await syncMyToolScore(access, a);
   const toolLink = await linkForAssignment(me.tenantId, a.id);
   const quizView = a.kind === "quiz" ? await studentQuiz(c, a) : null;
-  const [submission, grades, grading, allStandards, group] = await Promise.all([
+  const [submission, grades, grading, allStandards, group, files] = await Promise.all([
     getSubmission(c, a.id, me.id), gradesFor(c, a.id), courseGrading(c, course.id), listStandards(c, course.id),
     a.groupSetId ? groupState(c, a, me.id) : Promise.resolve(null),
+    takesFiles(a) ? myFiles(c, a).then((f) => f.files) : Promise.resolve(null),
   ]);
+  const text = takesText(a);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   const shown = a.gradesReleased ? mine : null;
   // A parts rubric not every part of which is scored yet: the card says so (there is no score until it is).
@@ -186,9 +189,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
         {quizView
           ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} />
           : a.kind === "online" && group
-          ? <section className="card"><GroupWorkEditor assignmentId={a.id} initial={group} myId={me.id} locked={locked} d={d} /></section>
+          ? <section className="card"><GroupWorkEditor assignmentId={a.id} initial={group} myId={me.id} locked={locked} d={d} text={text} files={files} /></section>
           : a.kind === "online"
-          ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} /></section>
+          ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} text={text} files={files} /></section>
           : toolLink
           ? <section className="card stack" style={{ gap: 8 }}><p style={{ margin: 0 }}>{d.toolStudentHint}</p>
               <div><a className="btn btn-primary" href={`/lti/tool/launch?link=${toolLink.id}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a></div></section>

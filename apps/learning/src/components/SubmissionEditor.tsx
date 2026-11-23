@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Submission } from "@/lib/assignments";
 import type { Dict } from "@/lib/i18n";
 import ReadAloud from "./ReadAloud";
+import WorkFilesBox from "./WorkFilesBox";
+import type { WorkFile } from "@/lib/hand-in-files";
 
 type Status = "saved" | "dirty" | "saving" | "error" | "conflict";
 const SAVE_DELAY = 1000;
@@ -12,9 +14,12 @@ const SAVE_DELAY = 1000;
  * A student's writing box: saves as they type (version-checked, so a second
  * Chromebook can't overwrite the first), then hands in.
  */
-export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
+export default function SubmissionEditor({ assignmentId, initial, locked, d, text = true, files = null }: {
   assignmentId: string; initial: Submission | null; locked: boolean; d: Dict;
+  /** Story 01 A7: whether the writing box shows, and the student's files when the assignment takes them. */
+  text?: boolean; files?: WorkFile[] | null;
 }) {
+  const [fileCount, setFileCount] = useState(files?.length ?? 0);
   const [body, setBody] = useState(initial?.body ?? "");
   const [version, setVersion] = useState(initial?.version ?? 0);
   const [submittedAt, setSubmittedAt] = useState<string | null>(initial?.submittedAt ?? null);
@@ -109,7 +114,7 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
   return (
     <div className="stack" style={{ gap: 10 }}>
       <div className="row">
-        <label htmlFor="work" className="label">{d.yourWork}</label>
+        {text ? <label htmlFor="work" className="label">{d.yourWork}</label> : <span className="label">{d.yourWork}</span>}
         <span className="spacer" style={{ flex: 1 }} />
         {!handedIn && <span className="save-state" role="status" aria-live="polite">{stateText}</span>}
         {handedIn && <span className="chip chip-done">{d.handedIn} · <time suppressHydrationWarning>{new Date(submittedAt).toLocaleString()}</time></span>}
@@ -119,7 +124,7 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
           {d.conflict} <button className="btn btn-sm" type="button" onClick={() => location.reload()}>{d.reload}</button>
         </div>
       )}
-      <textarea id="work" className="field writing" rows={16} value={body} maxLength={100000}
+      {text && <><textarea id="work" className="field writing" rows={16} value={body} maxLength={100000}
         readOnly={handedIn || locked} onChange={(e) => onType(e.target.value)} spellCheck aria-describedby="work-note"
         onPaste={(e) => {
           const text = e.clipboardData.getData("text/plain");
@@ -127,13 +132,14 @@ export default function SubmissionEditor({ assignmentId, initial, locked, d }: {
         }} />
       <p id="work-note" className="muted" style={{ margin: 0, fontSize: 13 }}>{d.writingStudentNote}</p>
       {/* Hearing your own writing back is how many students catch what they meant to write. */}
-      <ReadAloud text={body} d={d} label={d.readMyWriting} />
+      <ReadAloud text={body} d={d} label={d.readMyWriting} /></>}
+      {files && <WorkFilesBox assignmentId={assignmentId} initial={files} locked={handedIn || locked} group={false} d={d} onCount={setFileCount} />}
       {note && <p className="notice" role="alert">{note}</p>}
       {!locked && (
         <div className="row">
           {handedIn
             ? <button type="button" className="btn" onClick={() => handIn("take-back")}>{d.takeBack}</button>
-            : <button type="button" className="btn btn-primary" disabled={status === "conflict" || body.trim() === ""} onClick={() => handIn("hand-in")}>{d.handIn}</button>}
+            : <button type="button" className="btn btn-primary" disabled={status === "conflict" || ((!text || body.trim() === "") && fileCount === 0)} onClick={() => handIn("hand-in")}>{d.handIn}</button>}
         </div>
       )}
     </div>

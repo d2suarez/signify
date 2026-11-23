@@ -79,6 +79,7 @@ export default function AssignmentEditor({ initial, units, categories, standards
           ...(next.kind === "quiz" ? { quiz: next.quiz ?? { settings: DEFAULT_SETTINGS, items: [] } } : {}),
           ...(standards ? { standards: next.standards ?? [] } : {}),
           groupSetId: next.kind === "quiz" ? null : next.groupSetId, groupHandIn: next.groupHandIn, groupSubmitter: next.groupSubmitter,
+          handIn: next.handIn,
         }),
       });
       if (res.status === 409) { setStatus("conflict"); return; }
@@ -150,6 +151,16 @@ export default function AssignmentEditor({ initial, units, categories, standards
                 <option value="quiz">{d.kindQuiz}</option>
               </select>
             </div>
+            {a.kind === "online" && (
+              <div className="fieldset">
+                <label htmlFor="a-handin">{d.wfHandInLabel}</label>
+                <select id="a-handin" className="field" value={a.handIn} onChange={(e) => set({ handIn: e.target.value as Assignment["handIn"] })}>
+                  <option value="text">{d.wfText}</option>
+                  <option value="files">{d.wfFiles}</option>
+                  <option value="both">{d.wfBoth}</option>
+                </select>
+              </div>
+            )}
           </div>
           {standards && (
             <StandardsPicker options={standards} value={a.standards ?? []} onChange={(ids) => set({ standards: ids.length ? ids : null })}

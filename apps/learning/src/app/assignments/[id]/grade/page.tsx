@@ -19,6 +19,7 @@ import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
 import { reviewedFor } from "@/lib/grade-review";
 import { listConcerns } from "@/lib/integrity";
 import { openSuggestions } from "@/lib/suggestions";
+import { filesForStudents } from "@/lib/work-files";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,8 @@ export default async function GradePage({ params, searchParams }: {
   const late = await assignmentPenalties(c, a, grades);
   const subBy = new Map(subs.map((s) => [s.studentId, s]));
   const gradeBy = new Map(grades.map((g) => [g.studentId, g]));
+  // Story 01 A7: each student's files (what they handed in, else their list so far).
+  const filesBy = await filesForStudents(c, a, students.map((s) => s.id), subBy);
 
   const order = groups ? [...students].sort((x, y) => {
     const gx = groups.findIndex((g) => g.id === groupOf.get(x.id)?.id), gy = groups.findIndex((g) => g.id === groupOf.get(y.id)?.id);
@@ -74,6 +77,7 @@ export default async function GradePage({ params, searchParams }: {
       score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null, levels: g?.levels ?? null,
       autoDays: late.byStudent.get(s.id)?.autoDays ?? null, lateOverride: g?.lateOverride ?? null,
       parts: g?.parts ?? null, notes: notesBy.get(s.id) ?? null, reviewedAt: reviewed.get(s.id) ?? null,
+      files: filesBy.get(s.id) ?? null,
     };
   });
 

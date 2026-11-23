@@ -436,14 +436,14 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
     for (const a of assignments) {
       const [n] = await q.query(
         `INSERT INTO assignments (tenant_id, course_id, unit_id, category_id, title, instructions, kind, points,
-                                  rubric, quiz, standards, published, grades_released, created_by, updated_by, instructions_doc)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, false, false, $12, $12, $13::jsonb) RETURNING id`,
+                                  rubric, quiz, standards, published, grades_released, created_by, updated_by, instructions_doc, hand_in)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, false, false, $12, $12, $13::jsonb, $14) RETURNING id`,
         [T, targetId, unitFor(a.unit_id), a.category_id ? catMap.get(String(a.category_id)) ?? null : null,
           a.title, a.instructions, a.kind, a.points,
           a.rubric == null ? null : JSON.stringify(remap(a.rubric, stdMap)),
           a.quiz == null ? null : JSON.stringify(remap(a.quiz, stdMap)),
           a.standards == null ? null : JSON.stringify(remap(a.standards, stdMap)), ctx.userId,
-          a.instructions_doc == null ? null : typeof a.instructions_doc === "string" ? a.instructions_doc : JSON.stringify(a.instructions_doc)],
+          a.instructions_doc == null ? null : typeof a.instructions_doc === "string" ? a.instructions_doc : JSON.stringify(a.instructions_doc), a.hand_in ?? "text"],
       );
       assignmentMap.set(String(a.id), String(n.id));
       // Answer keys and grading materials (migration 035) come along, still teacher-only.
