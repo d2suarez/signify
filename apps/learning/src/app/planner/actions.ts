@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { courseAccess, ctx } from "@/lib/access";
-import { createLesson, saveLesson } from "@/lib/lessons";
+import { createLesson, saveLesson, getLesson, setLessonStandards } from "@/lib/lessons";
+import { getAssignment, saveAssignment } from "@/lib/assignments";
 import { blocksFromResources } from "@/lib/resources";
 import { presentDay, planMaterial, unplanMaterial, movePlanItem, addDayStandard, removeDayStandard, PlanError } from "@/lib/week-plan";
 import { isSchoolDay, parseDay } from "@/lib/planner";
@@ -60,7 +61,22 @@ export async function planAction(formData: FormData): Promise<{ error?: string }
       }
       case "unpick": await unplanMaterial(c, course, formData.get("item")); break;
       case "move": await movePlanItem(c, course, formData.get("item"), day); break;
-      case "std": await addDayStandard(c, course, day, formData.get("standard")); break;
+      case "std": {
+        // To the day itself, or straight onto a lesson or assignment of this class.
+        const [kind, ref] = String(formData.get("target") || "day").split(":");
+        const sid = String(formData.get("standard") || "");
+        if (kind === "lesson") {
+          const l = await getLesson(c, ref);
+          if (!l || l.courseId !== course) return { error: "missing" };
+          if (!(await setLessonStandards(c, l.id, [...(l.standards ?? []), sid]))) return { error: "missing" };
+        } else if (kind === "assignment") {
+          const a = await getAssignment(c, ref);
+          if (!a || a.courseId !== course) return { error: "missing" };
+          const r = await saveAssignment(c, a.id, { baseVersion: a.version, standards: [...(a.standards ?? []), sid] });
+          if (!r.ok) return { error: "missing" };
+        } else await addDayStandard(c, course, day, sid);
+        break;
+      }
       case "unstd": await removeDayStandard(c, course, day, formData.get("standard")); break;
       default: return { error: "missing" };
     }

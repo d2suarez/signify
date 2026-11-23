@@ -100,7 +100,7 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
 
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · {courseId ? <Link href={`/courses/${courseId}/settings`}>{course?.name}</Link> : me.tenantName}</>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · {courseId ? <Link href={`/courses/${courseId}/standards`}>{course?.name}</Link> : me.tenantName}</>} />
       <main className="page stack" style={{ maxWidth: 1000 }}>
         <div className="row">
           <h1 style={{ fontSize: 34 }} className="grow">{d.standardsLibrary}</h1>
@@ -109,7 +109,7 @@ export default async function StandardsLibrary({ searchParams }: { searchParams:
         <p className="muted" style={{ margin: 0 }}>{d.standardsLibraryHint}</p>
         {courseId && (
           <p className="notice" role="status">
-            {d.addingTo.replace("{course}", course?.name ?? "")} <Link href={`/courses/${courseId}/settings`}>{d.backToSettings}</Link>
+            {d.csAddingToClass.replace("{course}", course?.name ?? "")} <Link href={`/courses/${courseId}/standards`}>{d.csBackToClass}</Link>
             {sp.added !== undefined && <><br /><b>{d.addedCount.replace("{n}", String(Number(sp.added) || 0))}</b></>}
           </p>
         )}

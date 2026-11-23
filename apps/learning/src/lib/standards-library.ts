@@ -272,6 +272,8 @@ export type SchoolStandards = {
   settings: StandardsSettings | null;
   teacherFrameworks: boolean;
   courseSettings: boolean;
+  /** Teachers may choose their courses' sets (course-standards.ts). */
+  teacherCourseSets: boolean;
   /** Keys of 'school' library sets this school turned on. */
   enabledSets: string[];
   /** Keys of library sets the school follows: listed first, and the library's default view. */
@@ -293,6 +295,7 @@ export async function schoolStandards(tenantId: string, q?: Queryable): Promise<
     settings: raw ? normalizeSettings(typeof raw === "string" ? JSON.parse(raw) : raw) : null,
     teacherFrameworks: r ? !!r.teacher_frameworks : true,
     courseSettings: r ? !!r.course_settings : true,
+    teacherCourseSets: r ? r.teacher_course_sets !== false : true,
     enabledSets: sets.map((s) => s.framework_key),
     followedSets: followed.map((s) => s.framework_key),
     jurisdictions: r ? arr(r.jurisdictions) : [],
@@ -300,17 +303,17 @@ export async function schoolStandards(tenantId: string, q?: Queryable): Promise<
 }
 
 /** School admins only (the caller checks). `settings: null` = back to the built-in default. */
-export async function saveSchoolStandards(ctx: Ctx, input: { settings?: unknown; teacherFrameworks?: boolean; courseSettings?: boolean; jurisdictions?: unknown }): Promise<SchoolStandards> {
+export async function saveSchoolStandards(ctx: Ctx, input: { settings?: unknown; teacherFrameworks?: boolean; courseSettings?: boolean; teacherCourseSets?: boolean; jurisdictions?: unknown }): Promise<SchoolStandards> {
   const db = await getDb();
   const cur = await schoolStandards(ctx.tenantId, db);
   const settings = input.settings === undefined ? cur.settings : input.settings === null ? null : normalizeSettings(input.settings);
   const places = input.jurisdictions === undefined ? cur.jurisdictions
     : [...new Set((Array.isArray(input.jurisdictions) ? input.jurisdictions : []).map(jurisdictionCode).filter((j): j is string => !!j))].sort().slice(0, 20);
   await db.query(
-    `INSERT INTO school_standards_settings (tenant_id, settings, teacher_frameworks, course_settings, jurisdictions, updated_by, updated_at)
-     VALUES ($1, $2::jsonb, $3, $4, $5::text[], $6, now())
-     ON CONFLICT (tenant_id) DO UPDATE SET settings = $2::jsonb, teacher_frameworks = $3, course_settings = $4, jurisdictions = $5::text[], updated_by = $6, updated_at = now()`,
-    [ctx.tenantId, settings ? JSON.stringify(settings) : null, input.teacherFrameworks ?? cur.teacherFrameworks, input.courseSettings ?? cur.courseSettings, places, ctx.userId],
+    `INSERT INTO school_standards_settings (tenant_id, settings, teacher_frameworks, course_settings, jurisdictions, updated_by, updated_at, teacher_course_sets)
+     VALUES ($1, $2::jsonb, $3, $4, $5::text[], $6, now(), $7)
+     ON CONFLICT (tenant_id) DO UPDATE SET settings = $2::jsonb, teacher_frameworks = $3, course_settings = $4, jurisdictions = $5::text[], updated_by = $6, updated_at = now(), teacher_course_sets = $7`,
+    [ctx.tenantId, settings ? JSON.stringify(settings) : null, input.teacherFrameworks ?? cur.teacherFrameworks, input.courseSettings ?? cur.courseSettings, places, ctx.userId, input.teacherCourseSets ?? cur.teacherCourseSets],
   );
   return schoolStandards(ctx.tenantId, db);
 }
@@ -577,15 +580,20 @@ export async function addItemsToCourse(v: Viewer, courseId: string, itemIds: str
       [...vparams(v), want],
     );
     let added = 0;
-    const [{ n }] = await t.query<{ n: number }>("SELECT count(*)::int AS n FROM standards WHERE tenant_id = $1 AND course_id = $2", [v.tenantId, courseId]);
+    const [{ n }] = await t.query<{ n: number }>("SELECT count(*)::int AS n FROM standards WHERE tenant_id = $1 AND course_id = $2 AND NOT from_course", [v.tenantId, courseId]);
     let count = n;
     // In the order asked for (a tree's order when added from a list).
     const order = new Map(want.map((id, k) => [id, k]));
     items.sort((a, b) => order.get(String(a.id))! - order.get(String(b.id))!);
     for (const r of items) {
       const i = toItem(r);
-      const had = await t.query("UPDATE standards SET archived = false WHERE tenant_id = $1 AND course_id = $2 AND item_id = $3 RETURNING id", [v.tenantId, courseId, i.id]);
-      if (had.length) continue;
+      // Already in the class (its own, or from its course) = nothing to add; archived = back, and now the class's own.
+      const had = await t.query("SELECT id, archived FROM standards WHERE tenant_id = $1 AND course_id = $2 AND item_id = $3", [v.tenantId, courseId, i.id]);
+      if (had.length) {
+        const old = had.find((h) => h.archived);
+        if (old && !had.some((h) => !h.archived)) await t.query("UPDATE standards SET archived = false, from_course = false WHERE id = $1", [old.id]);
+        continue;
+      }
       if (count >= STANDARD_LIMITS.perCourse) break;
       await t.query(
         `INSERT INTO standards (tenant_id, course_id, code, description, external_id, item_id, position)
@@ -823,7 +831,8 @@ export async function standardOptions(ctx: Ctx, courseId: string): Promise<{ id:
   const [all, sources] = await Promise.all([listStandards(ctx, courseId), courseStandardSources(ctx.tenantId, courseId)]);
   // A standard from a set the school may not have (NAD, for a school that isn't) stays in the course but isn't offered.
   const list = all.filter((s) => audienceAllows(ctx, sources.get(s.id)?.audience ?? null))
-    .sort((a, b) => Number(!sources.get(a.id)?.followed) - Number(!sources.get(b.id)?.followed));
+    // The course's sets first (listStandards keeps their order), then the class's own, followed sets before others.
+    .sort((a, b) => Number(!a.fromCourse) - Number(!b.fromCourse) || Number(!sources.get(a.id)?.followed) - Number(!sources.get(b.id)?.followed));
   return list.map((s) => {
     const f = sources.get(s.id);
     return { id: s.id, name: s.code, description: s.description, ...(f && f.ownerKind !== "teacher" ? { source: f.version ? `${f.title} (${f.version})` : f.title } : {}) };

@@ -526,6 +526,43 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
 .plan-std li { overflow-wrap: anywhere; line-height: 1.35; }
 .plan-std li .muted { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .plan-std select { width: 100%; font-size: 12px; min-height: 30px; }
+.plan-std input[type="search"] { width: 100%; font-size: 12px; min-height: 30px; margin-top: 4px; }
+.plan-std-pick { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 2px; }
+.plan-std ul.plan-std-list { max-height: 220px; overflow-y: auto; gap: 2px; }
+.plan-std-add { display: block; width: 100%; text-align: left; font: inherit; font-size: 12px; background: none; border: 0; border-radius: 6px; padding: 4px; color: inherit; cursor: pointer; min-height: 28px; }
+.plan-std-add:hover, .plan-std-add:focus-visible { background: var(--desk); }
+.plan-std-add .muted { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cov-dot { display: inline-block; width: 1.2em; font-weight: 700; }
+.cov-dot-none { color: var(--bad); }
+.cov-dot-planned { color: var(--muted); }
+.cov-dot-covered { color: var(--good); }
+/* The coverage tracker (class Standards tab). */
+.cov-bar { display: flex; height: 14px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--bad) 18%, var(--surface)); overflow: hidden; }
+.cov-bar span { display: block; height: 100%; }
+.cov-bar-covered { background: var(--good); }
+.cov-bar-planned { background: color-mix(in srgb, var(--good) 40%, var(--surface)); }
+.cov-wrap { overflow-x: auto; }
+.cov-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cov-table th, .cov-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cov-table thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+.cov-table td:nth-child(4), .cov-table td:nth-child(5) { white-space: nowrap; }
+.cov-num { text-align: center !important; }
+.cov-strand th { background: var(--desk); font-size: 13px; color: var(--ink); }
+.cov-desc { color: var(--muted); }
+.cov-events summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.cov-events ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.cov-chip-covered { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: color-mix(in srgb, var(--good) 75%, var(--ink)); }
+.cov-chip-planned { background: var(--desk); }
+.cov-chip-none { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); color: color-mix(in srgb, var(--bad) 75%, var(--ink)); }
+@media (max-width: 640px) {
+  .cov-table thead th:nth-child(4), .cov-table td:nth-child(4), .cov-table thead th:nth-child(5), .cov-table td:nth-child(5) { display: none; }
+  .cov-table th, .cov-table td { padding: 6px; }
+  .cov-table td:first-child { width: 58%; }
+  .cov-table thead th { font-size: 10px; letter-spacing: 0; }
+  .cov-desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
+@media print { .cov-events { display: none; } .cov-table { font-size: 11px; } .cov-wrap { overflow: visible; } }
+.cal-std { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 .plan-unplanned summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
 .plan-unplanned-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 8px; margin-top: 8px; }
 .plan-unit label { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; }

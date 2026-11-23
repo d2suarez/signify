@@ -4,13 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireMe } from "@/lib/auth";
 import { academicAccess as courseAccess, ctx, lang } from "@/lib/access";
 import { addCategory, deleteCategory, isWeighted, listCategories, setWeighted, updateCategory, MAX_DROP } from "@/lib/grades";
-import {
-  addStandard, archiveStandard, courseGrading, listStandards, moveStandard, saveStandardsSettings, setGradingMode, teachersMayAdd, updateStandard, STANDARD_LIMITS,
-} from "@/lib/standards";
-import { courseStandardSources } from "@/lib/standards-library";
+import { courseGrading, saveStandardsSettings, setGradingMode } from "@/lib/standards";
 import { levelLabel, levelWords } from "@/lib/standards-math";
 import { letterFor } from "@/lib/grade-math";
-import { Notices } from "@/components/FrameworkInfo";
 import { dict } from "@/lib/i18n";
 import StandardsSettingsForm from "@/components/StandardsSettingsForm";
 import { courseSetup, setCoursePolicy } from "@/lib/school-grading";
@@ -33,12 +29,6 @@ async function act(formData: FormData) {
     await setGradingMode(c, courseId, m === "standards" ? "standards" : "points");
     if (m !== "standards") await setWeighted(c, courseId, m === "weighted");
   }
-  const sid = String(formData.get("standardId") || "");
-  if (op === "std-add") await addStandard(c, courseId, formData.get("code"), formData.get("description"));
-  if (op === "std-update") await updateStandard(c, courseId, sid, formData.get("code"), formData.get("description"));
-  if (op === "std-archive") await archiveStandard(c, courseId, sid, true);
-  if (op === "std-restore") await archiveStandard(c, courseId, sid, false);
-  if (op === "std-up" || op === "std-down") await moveStandard(c, courseId, sid, op === "std-up" ? -1 : 1);
   if (op === "sbg-settings") {
     let raw: unknown = null;
     try { raw = JSON.parse(String(formData.get("settings") || "null")); } catch { /* cleaned to the defaults */ }
@@ -68,21 +58,14 @@ export default async function SettingsPage({ params, searchParams }: {
   const access = await courseAccess(id);
   if (!access || access.course.role !== "teacher") notFound();
   const { me, course } = access;
-  const [weighted, categories, grading, standards, setup, sources, mayType] = await Promise.all([
-    isWeighted(ctx(me), course.id), listCategories(ctx(me), course.id), courseGrading(ctx(me), course.id),
-    listStandards(ctx(me), course.id, { withArchived: true }), courseSetup(ctx(me), course.id),
-    courseStandardSources(me.tenantId, course.id), teachersMayAdd(me.tenantId),
+  const [weighted, categories, grading, setup] = await Promise.all([
+    isWeighted(ctx(me), course.id), listCategories(ctx(me), course.id), courseGrading(ctx(me), course.id), courseSetup(ctx(me), course.id),
   ]);
   const own = setup.coursePolicy;
   const limits = setup.late.limits;
   // The school's policies that can apply in this band, in words.
   const schoolRules = setup.late.rules.filter((r) => !r.bands.length || r.bands.includes(setup.band.id));
-  const sourceName = (id: string) => {
-    const f = sources.get(id);
-    return f && f.ownerKind !== "teacher" ? (f.version ? `${f.title} (${f.version})` : f.title) : "";
-  };
   const sbg = grading.mode === "standards";
-  const live = standards.filter((s) => !s.archived), archived = standards.filter((s) => s.archived);
   const total = categories.reduce((n, c) => n + c.weight, 0);
 
   return (
@@ -110,63 +93,9 @@ export default async function SettingsPage({ params, searchParams }: {
         <section className="card" aria-labelledby="stds">
           <div className="row">
             <h2 className="label grow" id="stds">{d.standards}</h2>
-            <Link className="btn btn-sm" href={`/standards?course=${course.id}`}>{d.findInLibrary}</Link>
+            <Link className="btn btn-sm" href={`/courses/${course.id}/standards`}>{d.csOpenTab}</Link>
           </div>
-          <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>{sbg ? d.standardsHint : d.standardsHintPoints}</p>
-          <ul className="list" style={{ marginTop: 8 }}>
-            {live.map((s, i) => (
-              <li key={s.id}>
-                <form action={act} className="row grow">
-                  <input type="hidden" name="courseId" value={course.id} />
-                  <input type="hidden" name="standardId" value={s.id} />
-                  {s.editable ? (
-                    <>
-                      <input name="code" className="field" style={{ width: 120 }} defaultValue={s.code} maxLength={STANDARD_LIMITS.code} aria-label={d.standardCode} required />
-                      <input name="description" className="field" style={{ flex: "1 1 240px", width: "auto" }} defaultValue={s.description} maxLength={STANDARD_LIMITS.description} aria-label={d.standardDescription} />
-                      <button className="btn btn-sm" name="op" value="std-update">{d.save}</button>
-                    </>
-                  ) : (
-                    <span className="grow" style={{ flex: "1 1 300px" }}>
-                      <b>{s.code}</b>{s.description !== s.code ? <> · {s.description}</> : null}
-                      {sourceName(s.id) && <span className="muted" style={{ display: "block", fontSize: 12 }}>{sourceName(s.id)}</span>}
-                    </span>
-                  )}
-                  <button className="btn btn-sm" name="op" value="std-up" disabled={i === 0} aria-label={`${d.moveUp}: ${s.code}`}>↑</button>
-                  <button className="btn btn-sm" name="op" value="std-down" disabled={i === live.length - 1} aria-label={`${d.moveDown}: ${s.code}`}>↓</button>
-                  <button className="btn btn-sm" name="op" value="std-archive">{d.archive}</button>
-                </form>
-              </li>
-            ))}
-            {live.length === 0 && <li className="empty">{d.noStandardsInCourse}</li>}
-            {mayType && (
-              <li>
-                <form action={act} className="row grow">
-                  <input type="hidden" name="courseId" value={course.id} />
-                  <input name="code" className="field" style={{ width: 120 }} placeholder={d.standardCode} maxLength={STANDARD_LIMITS.code} aria-label={d.standardCode} required />
-                  <input name="description" className="field" style={{ flex: "1 1 240px", width: "auto" }} placeholder={d.standardDescription} maxLength={STANDARD_LIMITS.description} aria-label={d.standardDescription} />
-                  <button className="btn btn-primary btn-sm" name="op" value="std-add">{d.addStandard}</button>
-                </form>
-              </li>
-            )}
-          </ul>
-          {archived.length > 0 && (
-            <details style={{ marginTop: 10 }}>
-              <summary>{d.archivedStandards} ({archived.length})</summary>
-              <ul className="list">
-                {archived.map((s) => (
-                  <li key={s.id}>
-                    <form action={act} className="row grow">
-                      <input type="hidden" name="courseId" value={course.id} />
-                      <input type="hidden" name="standardId" value={s.id} />
-                      <span className="grow"><b>{s.code}</b> {s.description}</span>
-                      <button className="btn btn-sm" name="op" value="std-restore">{d.restore}</button>
-                    </form>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <Notices notices={[...sources.values()].map((f) => f.notice)} d={d} />
+          <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>{sbg ? d.standardsHint : d.standardsHintPoints} {d.csMovedHint}</p>
         </section>
         {sbg && (
           <p className="muted" style={{ margin: 0, fontSize: 14 }}>

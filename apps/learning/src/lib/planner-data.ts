@@ -4,7 +4,8 @@ import { listLessons } from "./lessons";
 import { listAssignments } from "./assignments";
 import { listUnits, subtreeIds } from "./units";
 import { listResources } from "./resources";
-import { listStandards } from "./standards";
+import { coverage } from "./course-standards";
+import { todayIn } from "./planner";
 import { weekPlan, plannable, presentationLessonIds } from "./week-plan";
 import type { Day } from "./calendar";
 import type { PlannerCourse } from "@/components/WeekPlanner";
@@ -21,7 +22,7 @@ export const SCHOOL_TZ = "America/New_York";
 export async function plannerCourse(c: ReturnType<typeof ctx>, course: { id: string; name: string }, days: Day[]): Promise<PlannerCourse> {
   const [lessons, assignments, units, resources, plan, pickable, standards] = await Promise.all([
     listLessons(c, course.id), listAssignments(c, course.id), listUnits(c, course.id), listResources({ ...c, role: "teacher" }, course.id),
-    weekPlan(c, course.id, days), plannable(c, course.id), listStandards(c, course.id),
+    weekPlan(c, course.id, days), plannable(c, course.id), coverage(c, course.id, todayIn(SCHOOL_TZ)),
   ]);
   // A day's presentation lesson shows on its day, not in "Not scheduled".
   const shows = await presentationLessonIds(c, course.id);
@@ -36,6 +37,7 @@ export async function plannerCourse(c: ReturnType<typeof ctx>, course: { id: str
     resources: resources.map((r) => ({ id: r.id, title: r.title })),
     plan: Object.fromEntries(plan.map((p) => [p.day, { materials: p.materials, standards: p.standards, presentation: p.presentation, lessons: p.lessons.length }])),
     pickable: pickable.map((m) => ({ key: `${m.kind}:${m.id}`, title: m.title, sub: m.sub, kind: m.kind, folder: m.unitId ? folder.get(m.unitId) ?? "" : "" })),
-    standards: standards.map((x) => ({ id: x.id, code: x.code, description: x.description })),
+    // Coverage status so the planner offers what is still to cover first.
+    standards: standards.rows.map((x) => ({ id: x.id, code: x.code, description: x.description, status: x.status, set: x.set, strand: x.strand })),
   };
 }

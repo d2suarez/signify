@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { lessonAccess, updatesViewer } from "@/lib/access";
+import { ctx, lessonAccess, updatesViewer } from "@/lib/access";
 import { afterClass } from "@/lib/organize";
+import { recordPresentation } from "@/lib/course-standards";
+import { todayIn } from "@/lib/planner";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +21,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!viewer) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const view = await afterClass(viewer, access.course.id, access.lesson.id, keep);
   if (!view) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  // Counts as taught today for the class's standards coverage (one school, its own day).
+  await recordPresentation(ctx(access.me), access.course.id, access.lesson.id, todayIn("America/New_York")).catch(() => {});
   return NextResponse.json({ view });
 }

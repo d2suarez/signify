@@ -30,9 +30,12 @@ export type Standard = {
   itemId: string | null;
   /** Only in the course's own framework (typed into the course): edited here. Library and school items are edited at their source. */
   editable: boolean;
+  /** The class has it because its course does (course-standards.ts): kept in step by the course, not archived here. */
+  fromCourse: boolean;
   archived: boolean;
 };
 
+/** perCourse: standards added to one class itself (those from its course's sets don't count; course-standards.ts has their limit). */
 export const STANDARD_LIMITS = { code: 60, description: 2000, externalId: 200, perCourse: 200 };
 
 function toStandard(r: Record<string, unknown>): Standard {
@@ -43,6 +46,7 @@ function toStandard(r: Record<string, unknown>): Standard {
     externalId: r.external_id ? String(r.external_id) : null,
     itemId: r.item_id ? String(r.item_id) : null,
     editable: !r.item_id || r.course_framework === true,
+    fromCourse: r.from_course === true,
     archived: !!r.archived,
   };
 }
@@ -82,7 +86,7 @@ export async function addStandard(ctx: Ctx, courseId: string, code: unknown, des
   const db = await getDb();
   if (!(await teachersMayAdd(ctx.tenantId, db))) return null;
   return db.tx(async (t) => {
-    const [{ n }] = await t.query<{ n: number }>("SELECT count(*)::int AS n FROM standards WHERE tenant_id = $1 AND course_id = $2", [ctx.tenantId, courseId]);
+    const [{ n }] = await t.query<{ n: number }>("SELECT count(*)::int AS n FROM standards WHERE tenant_id = $1 AND course_id = $2 AND NOT from_course", [ctx.tenantId, courseId]);
     if (n >= STANDARD_LIMITS.perCourse) return null;
     const course = await t.query<{ name: string }>("SELECT name FROM courses WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, courseId]);
     if (!course[0]) return null;
@@ -128,12 +132,12 @@ export async function updateStandard(ctx: Ctx, courseId: string, id: string, cod
   });
 }
 
-/** Archive (hidden from new alignments and summaries) or bring back. Scores are kept. */
+/** Archive (hidden from new alignments and summaries) or bring back. Scores are kept. Not one from the course's sets: the course decides those. */
 export async function archiveStandard(ctx: Ctx, courseId: string, id: string, archived = true): Promise<boolean> {
   if (!UUID.test(id)) return false;
   const db = await getDb();
   const rows = await db.query(
-    "UPDATE standards SET archived = $4 WHERE tenant_id = $1 AND course_id = $2 AND id = $3 RETURNING id",
+    "UPDATE standards SET archived = $4 WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND NOT from_course RETURNING id",
     [ctx.tenantId, courseId, id, archived],
   );
   return rows.length > 0;

@@ -23,9 +23,11 @@ export type PlannerCourse = {
   plan?: Record<Day, { materials: PlanMaterial[]; standards: PlanStandard[]; presentation?: { id: string; title: string } | null; lessons?: number }>;
   /** What can be picked onto a day ("assignment:id" / "resource:id"), with its folder path. */
   pickable?: { key: string; title: string; sub: string; kind: "assignment" | "resource"; folder: string }[];
-  /** The course's standards, to add to a day by hand. */
-  standards?: { id: string; code: string; description: string }[];
+  /** The class's standards (its course's sets first), to add to a day or to something on it; with coverage so "still to cover" comes first. */
+  standards?: PlannerStandard[];
 };
+
+export type PlannerStandard = { id: string; code: string; description: string; status?: "covered" | "planned" | "none"; set?: string; strand?: string };
 
 export type PlanAction = (formData: FormData) => Promise<{ error?: string }>;
 
@@ -340,31 +342,90 @@ function DayPlan({ course, day, days, d, busy, dayName, act, presentAction, back
       )}
 
       {(plan.standards.length > 0 || unused.length > 0) && (
-        <details className="plan-std">
-          <summary>{d.planStandards} ({plan.standards.length})</summary>
-          {plan.standards.length === 0 && <p className="muted" style={{ margin: "4px 0", fontSize: 12 }}>{d.planNoStandards}</p>}
-          <ul>
-            {plan.standards.map((s) => (
-              <li key={s.id} title={`${s.description}${s.from.length ? `\n${d.planFrom}: ${s.from.join(", ")}` : ""}`}>
-                <b>{s.code}</b> <span className="muted">{s.description}</span>
-                {s.byHand && (
-                  <button type="button" className="link-btn" disabled={busy} aria-label={`${d.remove}: ${s.code}, ${dayName(day)}`}
-                    onClick={() => send({ op: "unstd", standard: s.id })}>×</button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {unused.length > 0 && (
-            <form className="plan-add" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get("standard"); if (v) send({ op: "std", standard: String(v) }); }}>
-              <select name="standard" required aria-label={`${d.planAddStandard}: ${label}`} defaultValue="">
-                <option value="" disabled>{d.planAddStandard}…</option>
-                {unused.map((s) => <option key={s.id} value={s.id}>{s.code} {s.description.slice(0, 80)}</option>)}
-              </select>
-              <button className="btn btn-sm" disabled={busy}>{d.add}</button>
-            </form>
-          )}
-        </details>
+        <DayStandards course={course} day={day} standards={plan.standards} d={d} busy={busy} dayName={dayName} send={send} label={label} />
       )}
     </>
+  );
+}
+
+const STATUS_RANK = { none: 0, planned: 1, covered: 2 } as const;
+
+/**
+ * A day's standards (Desmond, 2026-11-23: "easily accessed and assigned from
+ * their lesson planning page"): what the day already covers, and the
+ * class's standards to add, still-to-cover first, to the day itself or
+ * straight onto a lesson or assignment that's on it.
+ */
+function DayStandards({ course, day, standards, d, busy, dayName, send, label }: {
+  course: PlannerCourse; day: Day; standards: PlanStandard[]; d: Dict; busy: boolean; dayName: (day: Day) => string;
+  send: (fields: Record<string, string>) => Promise<void>; label: string;
+}) {
+  const [q, setQ] = useState("");
+  const [target, setTarget] = useState("day");
+  const [todo, setTodo] = useState(false);
+  const on = new Set(standards.map((s) => s.id));
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const candidates = (course.standards ?? [])
+    .filter((s) => !on.has(s.id) && (!todo || (s.status ?? "none") === "none"))
+    .filter((s) => words.every((w) => `${s.code} ${s.description} ${s.strand ?? ""}`.toLowerCase().includes(w)))
+    .sort((a, b) => STATUS_RANK[a.status ?? "none"] - STATUS_RANK[b.status ?? "none"]);
+  const shown = candidates.slice(0, 40);
+  const lessons = course.lessons.filter((l) => l.plannedFor === day);
+  const work = new Map<string, string>();
+  for (const m of course.plan?.[day]?.materials ?? []) if (m.kind === "assignment") work.set(m.id, m.title);
+  for (const a of course.due) if (a.dueOn === day) work.set(a.id, a.title);
+  const targets = [
+    ...lessons.map((l) => ({ value: `lesson:${l.id}`, label: `${d.lesson}: ${l.title || d.untitled}` })),
+    ...[...work].map(([id, title]) => ({ value: `assignment:${id}`, label: `${d.assignment}: ${title || d.untitled}` })),
+  ];
+  const left = (course.standards ?? []).filter((s) => (s.status ?? "none") === "none").length;
+  const mark = (st?: string) => (st === "covered" ? "✓" : st === "planned" ? "◷" : "○");
+
+  return (
+    <details className="plan-std">
+      <summary>{d.planStandards} ({standards.length})</summary>
+      {standards.length === 0 && <p className="muted" style={{ margin: "4px 0", fontSize: 12 }}>{d.planNoStandards}</p>}
+      <ul>
+        {standards.map((s) => (
+          <li key={s.id} title={`${s.description}${s.from.length ? `\n${d.planFrom}: ${s.from.join(", ")}` : ""}`}>
+            <b>{s.code}</b> <span className="muted">{s.description}</span>
+            {s.byHand && (
+              <button type="button" className="link-btn" disabled={busy} aria-label={`${d.remove}: ${s.code}, ${dayName(day)}`}
+                onClick={() => send({ op: "unstd", standard: s.id })}>×</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {(course.standards ?? []).length > on.size && (
+        <div className="plan-std-pick">
+          <p className="label" style={{ margin: "6px 0 2px", fontSize: 11 }}>{d.csAddToDay}</p>
+          {targets.length > 0 && (
+            <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label={`${d.csAddTo}: ${label}`}>
+              <option value="day">{d.csTheDay}</option>
+              {targets.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          )}
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={d.filterStandards} aria-label={`${d.filterStandards}: ${label}`} />
+          <label className="check" style={{ fontSize: 12, minHeight: 28 }}>
+            <input type="checkbox" checked={todo} onChange={(e) => setTodo(e.target.checked)} /> {d.csOnlyToCover} ({left})
+          </label>
+          <ul className="plan-std-list">
+            {shown.map((s) => (
+              <li key={s.id}>
+                <button type="button" className="plan-std-add" disabled={busy} title={[s.description, s.strand, s.set].filter(Boolean).join("\n")}
+                  aria-label={`${d.add} ${s.code} (${s.status === "covered" ? d.csCovered : s.status === "planned" ? d.csPlanned : d.csNotYet}): ${label}`}
+                  onClick={() => send({ op: "std", standard: s.id, target })}>
+                  <span className={`cov-dot cov-dot-${s.status ?? "none"}`} aria-hidden="true">{mark(s.status)}</span>
+                  <b>{s.code}</b> <span className="muted">{s.description}</span>
+                </button>
+              </li>
+            ))}
+            {candidates.length > shown.length && <li className="muted">{d.csMoreFilter.replace("{n}", String(candidates.length - shown.length))}</li>}
+            {candidates.length === 0 && <li className="muted">{d.csNoMatch}</li>}
+          </ul>
+          <Link href={`/courses/${course.id}/standards`} style={{ fontSize: 12 }}>{d.csCoverageLink}</Link>
+        </div>
+      )}
+    </details>
   );
 }

@@ -28,7 +28,11 @@ export function localTime(iso: string | null | undefined): string {
  * teacher. The month grid is mirrored by a plain list underneath, which is
  * also what a phone or a screen reader reads most easily.
  */
-export default function CourseCalendar({ items, teacher, L, d }: { items: CalendarItem[]; teacher: boolean; L: Lang; d: Dict }) {
+export default function CourseCalendar({ items, teacher, L, d, standardsByDay }: {
+  items: CalendarItem[]; teacher: boolean; L: Lang; d: Dict;
+  /** When the teacher turns it on: each day's standards (taught, assessed or planned). */
+  standardsByDay?: Record<Day, { code: string; description: string }[]>;
+}) {
   // The month is the browser's, so it's chosen after the first paint.
   const [ym, setYm] = useState<{ year: number; month0: number } | null>(null);
   const [today, setToday] = useState("");
@@ -46,6 +50,18 @@ export default function CourseCalendar({ items, teacher, L, d }: { items: Calend
   const inMonth = items.filter((i) => i.day.startsWith(prefix)).sort((a, b) => a.day.localeCompare(b.day) || a.kind.localeCompare(b.kind));
   const byDay = new Map<Day, CalendarItem[]>();
   for (const i of inMonth) byDay.set(i.day, [...(byDay.get(i.day) || []), i]);
+  if (standardsByDay) for (const day of Object.keys(standardsByDay).filter((x) => x.startsWith(prefix)).sort()) if (!byDay.has(day)) byDay.set(day, []);
+  const Stds = ({ day, max }: { day: Day; max?: number }) => {
+    const list = standardsByDay?.[day] ?? [];
+    if (!list.length) return null;
+    const shown = max ? list.slice(0, max) : list;
+    return (
+      <span className="cal-std" title={list.map((s) => `${s.code} ${s.description}`).join("\n")}>
+        <span className="sr-only">{d.standards}: </span>
+        {shown.map((s) => s.code).join(" · ")}{list.length > shown.length ? ` +${list.length - shown.length}` : ""}
+      </span>
+    );
+  };
   const sabbath = (i: CalendarItem) => teacher && i.kind === "assignment" && onSabbath(i.day, localTime(i.dueAt));
   const sabbathCount = inMonth.filter(sabbath).length;
   const go = (by: number) => setYm(addMonths(ym.year, ym.month0, by));
@@ -87,6 +103,7 @@ export default function CourseCalendar({ items, teacher, L, d }: { items: Calend
                     {day && <>
                       <span className="cal-num">{Number(day.slice(8))}</span>
                       {(byDay.get(day) || []).map((i) => <Entry key={i.kind + i.id} i={i} />)}
+                      <Stds day={day} max={4} />
                     </>}
                   </td>
                 ))}
@@ -98,12 +115,12 @@ export default function CourseCalendar({ items, teacher, L, d }: { items: Calend
 
       <section className="card" aria-labelledby="cal-list">
         <p className="label" id="cal-list">{d.thisMonth}</p>
-        {inMonth.length === 0 ? <p className="empty">{teacher ? d.calendarEmptyTeacher : d.calendarEmpty}</p> : (
+        {byDay.size === 0 ? <p className="empty">{teacher ? d.calendarEmptyTeacher : d.calendarEmpty}</p> : (
           <ul className="list">
-            {[...byDay.entries()].map(([day, list]) => (
+            {[...byDay.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([day, list]) => (
               <li key={day} style={{ alignItems: "flex-start" }}>
                 <b style={{ flex: "0 0 180px" }}>{dayLabel(day)}</b>
-                <div className="grow stack" style={{ gap: 6 }}>{list.map((i) => <Entry key={i.kind + i.id} i={i} />)}</div>
+                <div className="grow stack" style={{ gap: 6 }}>{list.map((i) => <Entry key={i.kind + i.id} i={i} />)}<Stds day={day} /></div>
               </li>
             ))}
           </ul>

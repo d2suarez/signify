@@ -1,4 +1,5 @@
 import { getDb, type Queryable, type Row } from "./db";
+import { syncSection } from "./course-standards";
 import { orderTree, subtreeIds } from "./units";
 import { type Block, assignmentIdsIn, normalizeBlocks, remapAssignments } from "./blocks";
 
@@ -180,6 +181,8 @@ export async function moveSection(ctx: Ctx, sectionId: string, target: string | 
     }
     const from = s.catalog_id ? String(s.catalog_id) : null;
     await q.query("UPDATE courses SET catalog_id = $3 WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, sectionId, to]);
+    // The class now has its new course's standards (and not the old course's).
+    await syncSection(q, ctx.tenantId, sectionId);
     if (from && from !== to) {
       await q.query(
         "DELETE FROM catalog_courses k WHERE k.tenant_id = $1 AND k.id = $2 AND NOT EXISTS (SELECT 1 FROM courses c WHERE c.catalog_id = k.id)",

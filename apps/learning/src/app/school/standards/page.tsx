@@ -6,6 +6,7 @@ import { ctx, isSchoolAdmin, lang, standardsViewer } from "@/lib/access";
 import {
   createFramework, ensureLibrary, followAll, followSet, jurisdictionName, jurisdictionsOf, librarySets, listFrameworks, saveSchoolStandards, schoolStandards, setSchoolSet,
 } from "@/lib/standards-library";
+import { schoolCourseSets } from "@/lib/course-standards";
 import { defaultSettings } from "@/lib/standards-math";
 import { schoolScales } from "@/lib/school-grading";
 import { LEGACY_SCALE } from "@/lib/grade-scale";
@@ -30,7 +31,7 @@ async function act(formData: FormData) {
   }
   if (op === "sbg-reset") await saveSchoolStandards(v, { settings: null });
   if (op === "allow") {
-    await saveSchoolStandards(v, { teacherFrameworks: formData.get("teacherFrameworks") === "on", courseSettings: formData.get("courseSettings") === "on" });
+    await saveSchoolStandards(v, { teacherFrameworks: formData.get("teacherFrameworks") === "on", courseSettings: formData.get("courseSettings") === "on", teacherCourseSets: formData.get("teacherCourseSets") === "on" });
   }
   if (op === "places") await saveSchoolStandards(v, { jurisdictions: formData.getAll("place").map(String) });
   if (op === "follow" || op === "unfollow") {
@@ -71,7 +72,9 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
   }
   await ensureLibrary();
   const v = (await standardsViewer(me))!;
-  const [school, library, frameworks, scales] = await Promise.all([schoolStandards(me.tenantId), librarySets(ctx(me)), listFrameworks(v), schoolScales(me.tenantId)]);
+  const [school, library, frameworks, scales, courseSets] = await Promise.all([
+    schoolStandards(me.tenantId), librarySets(ctx(me)), listFrameworks(v), schoolScales(me.tenantId), schoolCourseSets(me.tenantId),
+  ]);
   const sets = library.filter((f) => f.distribution === "school");
   const places = jurisdictionsOf(library);
   // Sets to choose from: multi-state ones, the picked states' and any already followed.
@@ -150,11 +153,30 @@ export default async function SchoolStandardsPage({ searchParams }: { searchPara
           {places.includes("NAD") && <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.stdNadNote} {d.stdNadOnly}</p>}
         </section>
 
+        <section className="card stack" style={{ gap: 8 }} aria-labelledby="by-course">
+          <h2 id="by-course" className="label">{d.csByCourse}</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.csByCourseHint}</p>
+          {courseSets.length === 0 ? <p className="empty" style={{ margin: 0 }}>{d.csNoCourses}</p> : (
+            <ul className="list">
+              {courseSets.map((k) => (
+                <li key={k.id}>
+                  <span className="grow">
+                    <b>{k.name}</b> <span className="muted">· {(k.sections === 1 ? d.csOneClass : d.csClasses).replace("{n}", String(k.sections))}</span>
+                    <span className="muted" style={{ display: "block", fontSize: 13 }}>{k.sets.length ? k.sets.join(" · ") : d.csNoCourseSets}</span>
+                  </span>
+                  <Link className="btn btn-sm" href={`/catalog/${k.id}/standards`}>{d.csChooseCourseSets}</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <form action={act} className="card stack" style={{ gap: 8 }}>
           <input type="hidden" name="op" value="allow" />
           <h2 className="label">{d.stdWhatTeachersMay}</h2>
           <label className="check" style={{ whiteSpace: "normal" }}><input type="checkbox" name="teacherFrameworks" defaultChecked={school.teacherFrameworks} /> {d.stdAllowTeacherSets}</label>
           <label className="check" style={{ whiteSpace: "normal" }}><input type="checkbox" name="courseSettings" defaultChecked={school.courseSettings} /> {d.stdAllowCourseSettings}</label>
+          <label className="check" style={{ whiteSpace: "normal" }}><input type="checkbox" name="teacherCourseSets" defaultChecked={school.teacherCourseSets} /> {d.csAllowTeacherCourseSets}</label>
           <button className="btn btn-primary" style={{ alignSelf: "flex-start" }}>{d.save}</button>
         </form>
 
