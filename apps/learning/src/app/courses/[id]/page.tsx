@@ -34,6 +34,9 @@ import { SCHOOL_TZ } from "@/lib/school-grading";
 import { ClubEvents, ClubMembers, ClubSwitch } from "@/components/Club";
 import { itemPlaces, moveItem, moveItemsToUnit, setStudentView, setAssignmentThread, parseKey, asView, type Place } from "@/lib/organize";
 import { SelectAll, SelectedCount } from "@/components/Organize";
+import { listResources, updateResource, studentCanSee, type Resource } from "@/lib/resources";
+import { BLOCK_SHAPE } from "@/lib/block-kinds";
+import { materialKind } from "@/lib/material-kind";
 
 export const dynamic = "force-dynamic";
 
@@ -121,17 +124,20 @@ async function organize(formData: FormData) {
       const keys = picked.map(parseKey).filter((k) => !!k);
       await setStudentView(viewer, courseId, keys.filter((k) => k!.kind === "lesson").map((k) => k!.id), view);
       await setAssignmentThread(viewer, courseId, keys.filter((k) => k!.kind === "assignment").map((k) => k!.id), view === "thread");
+      // Materials: anything but "hidden" shows them (they have no Updates post of their own).
+      const who = { ...c, role: "teacher" as const };
+      for (const k of keys) if (k!.kind === "resource") await updateResource(who, courseId, k!.id, { visible: view !== "hidden" });
     }
   }
   revalidatePath(`/courses/${courseId}`);
 }
 
-type Item = { kind: "lesson"; lesson: LessonSummary } | { kind: "assignment"; assignment: Assignment };
+type Item = { kind: "lesson"; lesson: LessonSummary } | { kind: "assignment"; assignment: Assignment } | { kind: "resource"; resource: Resource };
 
 function itemDate(i: Item): string {
-  return (i.kind === "lesson" ? i.lesson.plannedFor : i.assignment.dueOn) || "9999";
+  return (i.kind === "lesson" ? i.lesson.plannedFor : i.kind === "assignment" ? i.assignment.dueOn : null) || "9999";
 }
-const itemKey = (i: Item) => (i.kind === "lesson" ? `lesson:${i.lesson.id}` : `assignment:${i.assignment.id}`);
+const itemKey = (i: Item) => (i.kind === "lesson" ? `lesson:${i.lesson.id}` : i.kind === "assignment" ? `assignment:${i.assignment.id}` : `resource:${i.resource.id}`);
 
 export default async function CoursePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updateError?: string; eventError?: string; organize?: string }> }) {
   await requireMe();
@@ -202,8 +208,9 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const d = dict(L);
   const c = ctx(me);
   const live = liveLessonId(course.id);
-  const [units, lessons, assignments, updates, places] = await Promise.all([
+  const [units, lessons, assignments, updates, places, resources] = await Promise.all([
     listUnits(c, course.id), listLessons(c, course.id), listAssignments(c, course.id), updatesSection(true), itemPlaces(c, course.id),
+    listResources({ ...c, role: "teacher" }, course.id),
   ]);
   const organizing = sp.organize === "1";
   const placeOf = (i: Item): Place => places.get(itemKey(i)) ?? { position: null, studentView: "hidden", threadPostId: null };
@@ -213,6 +220,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const loose = groups[groups.length - 1];
   for (const lesson of lessons) (byId.get(lesson.unitId || "") || loose).items.push({ kind: "lesson", lesson });
   for (const assignment of assignments) (byId.get(assignment.unitId || "") || loose).items.push({ kind: "assignment", assignment });
+  // Materials (migration 027) show only inside a folder; the rest are the Resources list's.
+  for (const resource of resources) if (resource.unitId && byId.has(resource.unitId)) byId.get(resource.unitId)!.items.push({ kind: "resource", resource });
   // Placed by hand first (organize.ts), then by date, as the course always sorted.
   for (const g of groups) g.items.sort((a, b) => {
     const pa = placeOf(a).position, pb = placeOf(b).position;
@@ -277,6 +286,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             <details className="menu">
               <summary className="btn btn-sm">{d.folderMenu}…</summary>
               <div className="menu-pop card">
+                <Link className="btn btn-sm" href={`/courses/${course.id}/resources?unit=${unit.id}#res-add`} style={{ marginBottom: 14 }}>+ {d.matAddHere}</Link>
                 <form action={unitAction} className="stack" style={{ gap: 8 }}>
                   <input type="hidden" name="courseId" value={course.id} />
                   <input type="hidden" name="unitId" value={unit.id} />
@@ -320,7 +330,9 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               const org = organizing ? { group: unit?.id || "loose", first: ii === 0, last: ii === items.length - 1 } : null;
               return i.kind === "lesson"
                 ? <LessonRow key={i.lesson.id} l={i.lesson} live={live === i.lesson.id} d={d} place={placeOf(i)} org={org} />
-                : <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} place={placeOf(i)} org={org} />;
+                : i.kind === "assignment"
+                  ? <AssignmentRow key={i.assignment.id} a={i.assignment} d={d} L={L} place={placeOf(i)} org={org} />
+                  : <MaterialRow key={i.resource.id} r={i.resource} courseId={course.id} d={d} org={org} />;
             })}
           </ul>
         )}
@@ -546,6 +558,26 @@ function AssignmentRow({ a, d, L, place, org }: { a: Assignment; d: Dict; L: Lan
       </div>
       {!org && <Link className="btn" href={`/assignments/${a.id}`}>{d.edit}</Link>}
       {!org && <Link className="btn btn-primary" href={`/assignments/${a.id}/grade`}>{d.openGrading}</Link>}
+    </li>
+  );
+}
+
+/** A class resource placed in a folder (migration 027): opens its own page; edited on the Resources tab. */
+function MaterialRow({ r, courseId, d, org }: { r: Resource; courseId: string; d: Dict; org: Org }) {
+  const kind = r.kind === "lesson" ? d.lesson : r.block ? materialKind(r.block, d) : d.matMaterial;
+  const shape = r.kind === "lesson" ? "s-arch" : r.block ? BLOCK_SHAPE[r.block.type] : "s-circle";
+  return (
+    <li>
+      {org ? <OrgControls k={`resource:${r.id}`} title={r.title} org={org} d={d} /> : <span className={`shape ${shape}`} aria-hidden="true" />}
+      <div className="grow">
+        <h3><Link href={`/courses/${courseId}/materials/${r.id}`} style={{ color: "inherit" }}>{r.title}</Link></h3>
+        <span className="muted material-kind">{kind}</span>
+        {studentCanSee(r)
+          ? <span className={`pill${r.visible ? "" : " pill-draft"}`} style={{ marginLeft: 6 }}>{r.visible ? d.resShown : d.resHidden}</span>
+          : <span className="pill pill-draft" style={{ marginLeft: 6 }}>{d.svPillHidden}</span>}
+      </div>
+      {!org && <Link className="btn" href={`/courses/${courseId}/resources`}>{d.edit}</Link>}
+      {!org && <Link className="btn btn-primary" href={`/courses/${courseId}/materials/${r.id}`}>{d.matOpen}</Link>}
     </li>
   );
 }

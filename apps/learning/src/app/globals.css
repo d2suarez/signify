@@ -777,3 +777,10 @@ html[data-size] .plan-week { grid-template-columns: repeat(auto-fill, minmax(min
 .subfolder .folder-title { font-size: 18px; }
 .subfolder .unit-head .shape { width: 12px; height: 12px; }
 html[data-contrast="high"] .subfolder { border-left-color: var(--ink); }
+
+/* Google Docs/Sheets/Forms in place (embeds.ts): taller than a slide, white page */
+.stage-doc { padding: 0; background: #fff; overflow: hidden; aspect-ratio: 4 / 5; max-height: 80vh; }
+.stage-doc iframe { width: 100%; height: 100%; border: 0; display: block; }
+@media (min-width: 900px) { .stage-doc { aspect-ratio: 4 / 3; } }
+/* A material row on the course page (migration 027) */
+.material-kind { font-size: 13px; }

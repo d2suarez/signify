@@ -2,9 +2,10 @@
 
 import { type Block, fileUrl, webLink } from "@/lib/blocks";
 import { videoFromUrl, videoSrc } from "@/lib/post-doc";
+import { googleEmbed } from "@/lib/embeds";
 import { boardLink } from "@/lib/boards";
 import type { Dict } from "@/lib/i18n";
-import { FileStage, VideoStage } from "./Presenter";
+import { FileStage, VideoStage, GoogleStage } from "./Presenter";
 
 /**
  * A lesson read as one page, top to bottom: what a student opens from the
@@ -50,6 +51,8 @@ function ReaderBlock({ b, d }: { b: Block; d: Dict }) {
       if (!url) return null;
       const v = videoFromUrl(url);
       if (v) return <VideoStage title={b.title} src={videoSrc(v)} url={url} provider={v.provider} d={d} />;
+      const g = googleEmbed(url);
+      if (g) return <GoogleStage title={b.title} embed={g} url={url} d={d} />;
       return (
         <a className="reader-link card" href={url} target="_blank" rel="noopener noreferrer">
           <span className="grow" style={{ minWidth: 0 }}>

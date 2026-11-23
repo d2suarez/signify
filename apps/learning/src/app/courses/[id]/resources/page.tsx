@@ -16,6 +16,7 @@ import { CourseNav } from "@/components/CourseNav";
 import { BLOCK_NAME as NAME, BLOCK_SHAPE as SHAPE } from "@/lib/block-kinds";
 import ResourceForm from "@/components/ResourceForm";
 import UploadFiles from "@/components/UploadFiles";
+import { listUnits } from "@/lib/units";
 
 export const dynamic = "force-dynamic";
 
@@ -73,11 +74,11 @@ function kindWord(r: Resource, d: Dict) {
 }
 
 export default async function ResourcesPage({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ none?: string }>;
+  params: Promise<{ id: string }>; searchParams: Promise<{ none?: string; unit?: string }>;
 }) {
   await requireMe();
   const { id } = await params;
-  const { none } = await searchParams;
+  const { none, unit: unitParam } = await searchParams;
   const L = await lang();
   const d = dict(L);
   const access = await courseAccess(id);
@@ -103,9 +104,12 @@ export default async function ResourcesPage({ params, searchParams }: {
     );
   }
 
-  const [list, archived, lessons] = await Promise.all([
-    listResources(who, course.id), listResources(who, course.id, { archived: true }), listLessons(who, course.id),
+  const [list, archived, lessons, units] = await Promise.all([
+    listResources(who, course.id), listResources(who, course.id, { archived: true }), listLessons(who, course.id), listUnits(who, course.id),
   ]);
+  // "Add material here" from a folder on the course page (migration 027): new resources go into it.
+  const folder = units.find((u) => u.id === unitParam) ?? null;
+  const pathOf = new Map(units.map((u) => [u.id, u.path]));
   const inLibrary = new Set(list.map((r) => r.lessonId).filter(Boolean));
   const today = new Date().toLocaleDateString(L === "es" ? "es" : "en-US", { month: "short", day: "numeric" });
 
@@ -122,7 +126,12 @@ export default async function ResourcesPage({ params, searchParams }: {
         <section className="card stack" aria-labelledby="res-title" style={{ gap: 12 }}>
           <h2 id="res-title" style={{ fontSize: 24 }}>{d.resTitle}</h2>
           <p className="muted" style={{ margin: 0 }}>{d.resIntro}</p>
-          <UploadFiles courseId={course.id} d={d} />
+          {folder && (
+            <p className="notice" style={{ margin: 0 }}>
+              <b>{d.matAddingTo.replace("{folder}", folder.path)}</b> · {d.matAddingHint} <Link href={`/courses/${course.id}`}>{d.matBack}</Link>
+            </p>
+          )}
+          <UploadFiles courseId={course.id} d={d} unitId={folder?.id} />
           {none && <p className="notice" role="alert" style={{ margin: 0 }}>{d.resNoneTicked}</p>}
           {list.length === 0 ? <p className="empty">{d.resEmpty}</p> : (
             <>
@@ -151,6 +160,7 @@ export default async function ResourcesPage({ params, searchParams }: {
                       {r.block && blockSummary(r.block) && blockSummary(r.block) !== r.title && <div className="muted" style={{ fontSize: 14 }}>{blockSummary(r.block)}</div>}
                       {r.note && <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{r.note}</div>}
                       <div style={{ marginTop: 4 }}>
+                        {r.unitId && pathOf.has(r.unitId) && <span className="pill" style={{ marginRight: 6 }}>{d.matInFolder.replace("{folder}", pathOf.get(r.unitId)!)}</span>}
                         {r.visible
                           ? <span className="pill">{d.resShown}</span>
                           : <span className="pill pill-draft">{d.resHidden}</span>}
@@ -195,8 +205,8 @@ export default async function ResourcesPage({ params, searchParams }: {
         </section>
 
         <section className="card stack" aria-labelledby="res-add" style={{ gap: 10 }}>
-          <h2 id="res-add" className="label">{d.resAdd}</h2>
-          <ResourceForm courseId={course.id} d={d} />
+          <h2 id="res-add" className="label">{folder ? d.matAddingTo.replace("{folder}", folder.path) : d.resAdd}</h2>
+          <ResourceForm courseId={course.id} d={d} unitId={folder?.id} />
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.resFromLessonHint}</p>
         </section>
 

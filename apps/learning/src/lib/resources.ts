@@ -3,6 +3,8 @@ import { type Block, type BlockType, forStudent, newId, normalizeBlocks, LIMITS 
 import { getLesson } from "./lessons";
 import type { CourseRole } from "./courses";
 import { fileInSchool } from "./files";
+import { unitInCourse } from "./units";
+import { moveItemsToUnit } from "./organize";
 
 /**
  * Class resources: a teacher's library for one course (= one Signify ID
@@ -30,6 +32,8 @@ export type Resource = {
   lesson: { title: string; blockCount: number } | null;
   visible: boolean;
   position: number;
+  /** The unit or folder it sits in (migration 027), null = only in the Resources list. */
+  unitId: string | null;
   archived: boolean;
   updatedAt: string;
 };
@@ -104,6 +108,7 @@ function toResource(r: Record<string, unknown>): Resource {
     lesson: r.lesson_title != null ? { title: String(r.lesson_title), blockCount: Number(r.lesson_n) } : null,
     visible: r.visible === true,
     position: Number(r.position),
+    unitId: r.unit_id ? String(r.unit_id) : null,
     archived: r.archived === true,
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };
@@ -151,6 +156,8 @@ export type ResourceInput = {
   title?: unknown;
   note?: unknown;
   visible?: unknown;
+  /** A unit or folder of this course to put it in, at the end (creating only). */
+  unitId?: unknown;
 };
 
 /**
@@ -190,6 +197,8 @@ export async function createResource(who: Who, courseId: string, input: Resource
     title ||= defaultTitle(block);
   }
   const visible = input.visible === true && block !== null && STUDENT_KINDS.includes(block.type);
+  const unitId = input.unitId ? await unitInCourse(who, courseId, input.unitId) : null;
+  if (input.unitId && !unitId) throw new ResourceError("That folder isn't in this class.");
   const rows = await db.query(
     `INSERT INTO class_resources (tenant_id, course_id, kind, title, note, block, lesson_id, visible, position, created_by, updated_by)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8,
@@ -198,6 +207,8 @@ export async function createResource(who: Who, courseId: string, input: Resource
     [who.tenantId, courseId, lessonId ? "lesson" : "block", title || "Untitled", para(input.note, RESOURCE_LIMITS.note),
       block ? JSON.stringify(block) : null, lessonId, visible, who.userId],
   );
+  // Into its folder at the end of what's shown there: the folder is numbered as a whole (organize.ts), so items never placed by hand keep their places.
+  if (unitId) await moveItemsToUnit(who, courseId, [`resource:${rows[0].id}`], unitId);
   return (await getResource(who, courseId, String(rows[0].id)))!;
 }
 

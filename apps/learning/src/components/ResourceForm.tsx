@@ -16,8 +16,10 @@ const STUDENT_KINDS: BlockType[] = ["text", "link", "board", "file"];
  * lesson editor's own fields, so a resource is exactly a lesson block. Saves
  * through /api/courses/[id]/resources, which runs normalizeBlocks.
  */
-export default function ResourceForm({ courseId, initial, d, idBase = "res" }: {
+export default function ResourceForm({ courseId, initial, d, idBase = "res", unitId }: {
   courseId: string;
+  /** New resources go into this folder too (migration 027). */
+  unitId?: string;
   initial?: { id: string; title: string; note: string; visible: boolean; block: Block | null };
   d: Dict; idBase?: string;
 }) {
@@ -39,7 +41,7 @@ export default function ResourceForm({ courseId, initial, d, idBase = "res" }: {
       const res = await fetch(initial ? `/api/courses/${courseId}/resources/${initial.id}` : `/api/courses/${courseId}/resources`, {
         method: initial ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ block, title, note, visible: canShow && visible }),
+        body: JSON.stringify({ block, title, note, visible: canShow && visible, ...(initial ? {} : { unitId }) }),
       });
       if (!res.ok) throw new Error(String(res.status));
       if (!initial) { setBlock(null); setTitle(""); setNote(""); setVisible(false); }

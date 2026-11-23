@@ -213,7 +213,8 @@ export async function deleteUnit(ctx: Ctx, courseId: string, id: string): Promis
     const [{ next }] = await t.query(
       `SELECT coalesce(max(p), -1) + 1 AS next FROM (
          SELECT max(position) AS p FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND unit_id IS NOT DISTINCT FROM $3::uuid AND archived = false
-         UNION ALL SELECT max(position) FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND unit_id IS NOT DISTINCT FROM $3::uuid AND archived = false) x`,
+         UNION ALL SELECT max(position) FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND unit_id IS NOT DISTINCT FROM $3::uuid AND archived = false
+         UNION ALL SELECT max(unit_position) FROM class_resources WHERE tenant_id = $1 AND course_id = $2 AND unit_id = $3::uuid AND archived = false) x`,
       [ctx.tenantId, courseId, up],
     );
     const items = await t.query(
@@ -221,11 +222,18 @@ export async function deleteUnit(ctx: Ctx, courseId: string, id: string): Promis
          SELECT 'lessons' AS kind, id, position, planned_for AS day, created_at FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND unit_id = $3
          UNION ALL
          SELECT 'assignments', id, position, due_on, created_at FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND unit_id = $3
+         UNION ALL
+         SELECT 'class_resources', id, unit_position, NULL::date, created_at FROM class_resources WHERE tenant_id = $1 AND course_id = $2 AND unit_id = $3
        ) x ORDER BY position NULLS LAST, coalesce(day::text, '9999'), created_at, kind, id`,
       [ctx.tenantId, courseId, id],
     );
     let n = Number(next);
     for (const it of items) {
+      // A material (migration 027) moved out of every unit keeps no folder place: it stays in the Resources list.
+      if (it.kind === "class_resources") {
+        await t.query("UPDATE class_resources SET unit_id = $3, unit_position = $4 WHERE tenant_id = $1 AND id = $2", [ctx.tenantId, String(it.id), up, up ? n++ : null]);
+        continue;
+      }
       const table = it.kind === "lessons" ? "lessons" : "assignments";
       await t.query(`UPDATE ${table} SET unit_id = $3, position = $4 WHERE tenant_id = $1 AND id = $2`, [ctx.tenantId, String(it.id), up, n++]);
     }

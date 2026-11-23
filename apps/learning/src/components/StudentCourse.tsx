@@ -14,6 +14,7 @@ import { StandardsList } from "./Work";
 import { Announcements } from "./Announcements";
 import { listResources } from "@/lib/resources";
 import { shownLessons, itemPlaces } from "@/lib/organize";
+import { materialKind } from "@/lib/material-kind";
 
 type Ctx = { tenantId: string; userId: string };
 
@@ -46,18 +47,26 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   const self = { id: person.id, name: person.name, sortKey: "", factsName: person.name };
   const gb = await buildGradebook(c, course.id, [self], null, { releasedOnly: true });
   // Class resources the teacher chose to show (never in a preview: that page isn't one of the preview's).
-  const shared = previewing ? 0 : (await listResources({ ...c, role: "student" }, course.id)).length;
+  // Shown materials (migration 027): in their folders here; the Resources page lists them all.
+  const visibleResources = await listResources({ ...c, role: "student" }, course.id);
+  const shared = previewing ? 0 : visibleResources.length;
   const row = gb.rows[0];
   const sv = standardsView(gb, row);
   const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
   const href = (a: Assignment) => previewing ? `${previewBase}/assignments/${a.id}` : `/assignments/${a.id}`;
 
-  type Shown = { kind: "assignment"; a: Assignment; pos: number | null; day: string } | { kind: "lesson"; id: string; title: string; pos: number | null; day: string };
+  type Shown = { kind: "assignment"; a: Assignment; pos: number | null; day: string }
+    | { kind: "lesson"; id: string; title: string; pos: number | null; day: string }
+    | { kind: "material"; id: string; title: string; pos: number | null; day: string; what: string };
   const groups = [...units.map((u) => ({ title: u.title, id: u.id, parentId: u.parentId, depth: u.depth, items: [] as Shown[] })), { title: d.noUnit, id: "", parentId: null as string | null, depth: 0, items: [] as Shown[] }];
   const groupOf = (unitId: string | null) => groups.find((g) => g.id && g.id === unitId) || groups[groups.length - 1];
   for (const a of assignments) groupOf(a.unitId).items.push({ kind: "assignment", a, pos: places.get(`assignment:${a.id}`)?.position ?? null, day: a.dueOn || "9999" });
   // Lessons the teacher shows students (organize.ts), read at /lessons/<id>.
   for (const l of lessons) groupOf(l.unitId).items.push({ kind: "lesson", id: l.id, title: l.title, pos: l.position, day: "9999" });
+  for (const r of visibleResources) {
+    if (!r.unitId || !r.block || !groups.some((g) => g.id === r.unitId)) continue;
+    groupOf(r.unitId).items.push({ kind: "material", id: r.id, title: r.title, pos: places.get(`resource:${r.id}`)?.position ?? null, day: "9999", what: materialKind(r.block, d) });
+  }
   for (const g of groups) g.items.sort((x, y) => (x.pos !== null || y.pos !== null) ? (x.pos === null ? 1 : y.pos === null ? -1 : x.pos - y.pos) : x.day.localeCompare(y.day));
 
   // Folders inside folders: shown only when something in them (at any depth) is shown.
@@ -78,6 +87,19 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
         {g.items.length > 0 && (
           <ul className="list">
             {g.items.map((it) => {
+              if (it.kind === "material") {
+                const href = previewing ? null : `/courses/${course.id}/materials/${it.id}`;
+                return (
+                  <li key={it.id}>
+                    <span className="shape s-circle" aria-hidden="true" />
+                    <div className="grow">
+                      <h3>{href ? <Link href={href} style={{ color: "inherit" }}>{it.title}</Link> : it.title}</h3>
+                      <span className="muted" style={{ fontSize: 13 }}>{it.what}</span>
+                    </div>
+                    {href && <Link className="btn btn-sm" href={href}>{d.readerOpen}</Link>}
+                  </li>
+                );
+              }
               if (it.kind === "lesson") {
                 return (
                   <li key={it.id}>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { type Block, type FileBlock, blockSummary, fileUrl, formatSeconds, webLink } from "@/lib/blocks";
 import { boardLink } from "@/lib/boards";
 import { videoFromUrl, videoSrc } from "@/lib/post-doc";
+import { googleEmbed, type GoogleEmbed } from "@/lib/embeds";
 import type { Dict } from "@/lib/i18n";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
@@ -329,6 +330,8 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
     const url = webLink(block.url);
     const video = url ? videoFromUrl(url) : null;
     if (video) return <VideoStage title={block.title} src={videoSrc(video)} url={url} provider={video.provider} d={d} />;
+    const google = url ? googleEmbed(url) : null;
+    if (google) return <GoogleStage title={block.title} embed={google} url={url} d={d} />;
     return (
       <div className="stage" style={{ background: "var(--p4)" }}>
         <h1>{block.title || d.blockLink}</h1>
@@ -454,6 +457,27 @@ export function VideoStage({ title, src, url, provider, d }: { title: string; sr
     </div>
   );
 }
+
+/** A Google file in place (embeds.ts): Slides at 16:9, documents, sheets and forms taller. Google decides who may see it. */
+export function GoogleStage({ title, embed, url, d }: { title: string; embed: GoogleEmbed; url: string; d: Dict }) {
+  const name = title || d.googleFile;
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <div className={`stage ${embed.kind === "slides" || embed.kind === "drive" ? "stage-video" : "stage-doc"}`}>
+        <iframe src={embed.src} title={`${name} (${d[GOOGLE_NAME[embed.kind]]})`} loading="lazy" allow="fullscreen; autoplay"
+          referrerPolicy="strict-origin-when-cross-origin"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation" />
+      </div>
+      <div className="row">
+        <b style={{ minWidth: 0 }}>{name}</b><span style={{ flex: 1 }} />
+        <a className="btn btn-sm" href={url} target="_blank" rel="noopener noreferrer">{d.googleOpen} ↗</a>
+      </div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.googleSignInHint}</p>
+    </div>
+  );
+}
+
+const GOOGLE_NAME = { slides: "googleSlides", doc: "googleDoc", sheet: "googleSheet", form: "googleForm", drive: "googleDrive" } as const;
 
 /** A file on the slide: a picture or PDF shown, sound and video played on each screen, anything else to download. */
 export function FileStage({ block: b, d }: { block: FileBlock; d: Dict }) {

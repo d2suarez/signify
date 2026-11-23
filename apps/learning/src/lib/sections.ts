@@ -314,6 +314,15 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
     for (const id of pickUnits) if (tree.some((u) => u.id === id)) for (const x of subtreeIds(tree, id)) picked.add(x);
     const units = tree.filter((u) => picked.has(u.id));
     const unitIds = units.map((u) => u.id);
+    // A copied folder brings the materials in it (migration 027), and the lessons they point at.
+    if (unitIds.length) {
+      const have = new Set(resources.map((r) => String(r.id)));
+      const inFolders = await q.query(
+        "SELECT * FROM class_resources WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND unit_id = ANY($3::uuid[]) ORDER BY position, created_at",
+        [T, sourceId, unitIds]);
+      for (const r of inFolders) if (!have.has(String(r.id))) resources.push(r);
+      pickLessons = [...new Set([...pickLessons, ...inFolders.filter((r) => r.lesson_id).map((r) => String(r.lesson_id))])];
+    }
     const lessons = await q.query(
       `SELECT * FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
          AND (id = ANY($3::uuid[]) OR unit_id = ANY($4::uuid[])) ORDER BY planned_for NULLS LAST, created_at`,
@@ -461,10 +470,11 @@ export async function copyContent(ctx: Ctx, sourceId: string, targetId: string, 
         block = remap(remap(block, linkMap), stdMap);
       }
       await q.query(
-        `INSERT INTO class_resources (tenant_id, course_id, kind, title, note, block, lesson_id, visible, position, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, false, $8, $9, $9)`,
+        `INSERT INTO class_resources (tenant_id, course_id, kind, title, note, block, lesson_id, visible, position, created_by, updated_by, unit_id, unit_position)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, false, $8, $9, $9, $10, $11)`,
         [T, targetId, r.kind, r.title, r.note, block == null ? null : JSON.stringify(block),
-          r.lesson_id ? lessonMap.get(String(r.lesson_id)) ?? null : null, Number(rpos) + i, ctx.userId],
+          r.lesson_id ? lessonMap.get(String(r.lesson_id)) ?? null : null, Number(rpos) + i, ctx.userId,
+          unitFor(r.unit_id), unitFor(r.unit_id) ? r.unit_position ?? null : null],
       );
     }
 

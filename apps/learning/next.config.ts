@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import { BOARD_ORIGINS } from "./src/lib/boards";
 import { VIDEO_ORIGINS } from "./src/lib/post-doc";
 import { DESK_ORIGIN } from "./src/lib/desk";
+import { GOOGLE_EMBED_ORIGINS } from "./src/lib/embeds";
 
 // Sent with every response. Students' work and names pass through this app,
 // so no external origin is allowed for scripts, styles, fonts or connections:
@@ -10,7 +11,8 @@ import { DESK_ORIGIN } from "./src/lib/desk";
 // router inlines its hydration payload. Frames: only Signify Boards' own
 // origins, for Board blocks (src/lib/boards.ts holds the list), and the
 // YouTube (no-cookie) and Vimeo players for videos in updates (post-doc.ts),
-// and Teacher's Desk for the left rail's tools (src/lib/desk.ts).
+// Teacher's Desk for the left rail's tools (src/lib/desk.ts), and Google's
+// embed pages for Slides/Docs/Sheets/Forms/Drive files (src/lib/embeds.ts).
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -18,7 +20,7 @@ const CSP = [
   "img-src 'self' data: blob: https://lh3.googleusercontent.com",
   "font-src 'self'",
   "connect-src 'self'",
-  `frame-src 'self' ${[...BOARD_ORIGINS, ...VIDEO_ORIGINS, DESK_ORIGIN].join(" ")}`,
+  `frame-src 'self' ${[...BOARD_ORIGINS, ...VIDEO_ORIGINS, DESK_ORIGIN, ...GOOGLE_EMBED_ORIGINS].join(" ")}`,
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",

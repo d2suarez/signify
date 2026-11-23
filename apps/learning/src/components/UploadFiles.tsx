@@ -12,7 +12,7 @@ const MAX = 25 * 1024 * 1024;
  * resource (teachers only; hidden from students until shown). Same upload
  * route as a lesson's File block.
  */
-export default function UploadFiles({ courseId, d }: { courseId: string; d: Dict }) {
+export default function UploadFiles({ courseId, d, unitId }: { courseId: string; d: Dict; unitId?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
@@ -36,7 +36,7 @@ export default function UploadFiles({ courseId, d }: { courseId: string; d: Dict
         const title = f.name.replace(/\.[^.]+$/, "");
         const made = await fetch(`/api/courses/${courseId}/resources`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ block: { type: "file", title, fileId: f.id, name: f.name, kind: f.kind } }),
+          body: JSON.stringify({ block: { type: "file", title, fileId: f.id, name: f.name, kind: f.kind }, unitId }),
         });
         out.push(made.ok ? `${file.name}: ${d.fileAdded}` : `${file.name}: ${d.fileFailed}`);
       } catch {

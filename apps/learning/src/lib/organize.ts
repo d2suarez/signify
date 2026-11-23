@@ -19,20 +19,26 @@ import { createPosts, moderatePost, type Viewer } from "./updates";
  *   a link to open it). Published assignments can be shown in Updates too.
  *   The update is the teacher's own post (`thread_post_id`); taking the item
  *   out of the thread deletes that post.
+ * - Materials (migration 027): a class resource placed in a unit is a third
+ *   kind of item ("resource:<id>", order in `unit_position`). Students see
+ *   it when the resource is `visible`. Out of every unit it is only in the
+ *   Resources list, never in the course page's "Not in a unit".
  */
 
 export type StudentView = "hidden" | "list" | "thread";
 export const STUDENT_VIEWS: StudentView[] = ["hidden", "list", "thread"];
-export type ItemKind = "lesson" | "assignment";
+export type ItemKind = "lesson" | "assignment" | "resource";
 export type ItemKey = `${ItemKind}:${string}`;
 export type Place = { position: number | null; studentView: StudentView; threadPostId: string | null };
 
 type Ctx = { tenantId: string; userId: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TABLE = { lesson: "lessons", assignment: "assignments" } as const;
+const TABLE = { lesson: "lessons", assignment: "assignments", resource: "class_resources" } as const;
+/** A material's place in its folder is `unit_position` (its `position` is its place in the Resources list). */
+const POS = { lesson: "position", assignment: "position", resource: "unit_position" } as const;
 
 export function parseKey(raw: unknown): { kind: ItemKind; id: string } | null {
-  const m = /^(lesson|assignment):([0-9a-f-]{36})$/i.exec(String(raw ?? ""));
+  const m = /^(lesson|assignment|resource):([0-9a-f-]{36})$/i.exec(String(raw ?? ""));
   return m && UUID.test(m[2]) ? { kind: m[1].toLowerCase() as ItemKind, id: m[2].toLowerCase() } : null;
 }
 
@@ -44,7 +50,10 @@ export async function itemPlaces(ctx: Ctx, courseId: string): Promise<Map<string
   const rows = await db.query(
     `SELECT 'lesson' AS kind, id, position, student_view, thread_post_id FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
      UNION ALL
-     SELECT 'assignment', id, position, 'list', thread_post_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false`,
+     SELECT 'assignment', id, position, 'list', thread_post_id FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
+     UNION ALL
+     SELECT 'resource', id, unit_position, CASE WHEN visible THEN 'list' ELSE 'hidden' END, NULL FROM class_resources
+      WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND unit_id IS NOT NULL`,
     [ctx.tenantId, courseId],
   );
   return new Map(rows.map((r) => [`${r.kind}:${r.id}`, {
@@ -61,6 +70,8 @@ async function unitItems(q: Queryable, ctx: Ctx, courseId: string, unitId: strin
        SELECT 'lesson' AS kind, id, unit_id, position, planned_for AS day, created_at FROM lessons WHERE tenant_id = $1 AND course_id = $2 AND archived = false
        UNION ALL
        SELECT 'assignment', id, unit_id, position, due_on, created_at FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false
+       UNION ALL
+       SELECT 'resource', id, unit_id, unit_position, NULL::date, created_at FROM class_resources WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND unit_id IS NOT NULL
      ) x WHERE unit_id IS NOT DISTINCT FROM $3::uuid
      ORDER BY position NULLS LAST, coalesce(day::text, '9999'), created_at, kind DESC, id`,
     [ctx.tenantId, courseId, unitId],
@@ -71,7 +82,7 @@ async function unitItems(q: Queryable, ctx: Ctx, courseId: string, unitId: strin
 async function numberUnit(q: Queryable, ctx: Ctx, courseId: string, order: string[]) {
   for (const [i, key] of order.entries()) {
     const k = parseKey(key)!;
-    await q.query(`UPDATE ${TABLE[k.kind]} SET position = $4 WHERE tenant_id = $1 AND course_id = $2 AND id = $3`, [ctx.tenantId, courseId, k.id, i]);
+    await q.query(`UPDATE ${TABLE[k.kind]} SET ${POS[k.kind]} = $4 WHERE tenant_id = $1 AND course_id = $2 AND id = $3`, [ctx.tenantId, courseId, k.id, i]);
   }
 }
 
@@ -98,7 +109,11 @@ export async function moveItem(ctx: Ctx, courseId: string, key: unknown, by: -1 
   });
 }
 
-/** Moves items (in the order given) to the end of a unit of this course, or out of any unit (null). */
+/**
+ * Moves items (in the order given) to the end of a unit of this course, or
+ * out of any unit (null). A material moved out of every unit stays in the
+ * class's Resources list only.
+ */
 export async function moveItemsToUnit(ctx: Ctx, courseId: string, keys: unknown[], unitId: string | null): Promise<number> {
   const items = keys.map(parseKey).filter((k): k is NonNullable<typeof k> => !!k);
   if (!items.length) return 0;
