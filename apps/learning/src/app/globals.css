@@ -15,6 +15,7 @@
 :root {
   --p1: #ec3013; --p1-ink: #fff;    /* red: circle, time */
   --p2: #1f4fd1; --p2-ink: #fff;    /* blue: square, class */
+  --link: var(--p2);                /* blue as text (links); lighter in dark mode */
   --p3: #f5c400; --p3-ink: #201e1d; /* yellow: triangle, questions */
   --p4: #0e7f89; --p4-ink: #fff;    /* teal: arch, content */
   --good: #1b7f4b;
@@ -40,6 +41,7 @@
     --ink: #f3f2f2; --muted: #bab6b6; --faint: #8a8686;
     --line: #444141; --bg: #161514; --surface: #2a2726; --desk: #221f1e;
     --good: #4cc38a; --bad: #ff8a73;
+    --link: #8fb0ff;
     --shadow-1: 0 1px 0 rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.5);
     --shadow-3: 0 1px 0 rgba(0,0,0,.5), 0 2px 3px rgba(0,0,0,.45), 0 10px 22px -8px rgba(0,0,0,.7);
     --shadow-island: 0 1px 0 rgba(0,0,0,.5), 0 10px 24px -8px rgba(0,0,0,.7);
@@ -51,7 +53,7 @@
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 400 15px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { font-family: var(--display); letter-spacing: -0.02em; line-height: 1.1; margin: 0; text-wrap: balance; overflow-wrap: break-word; min-width: 0; }
-a { color: var(--p2); }
+a { color: var(--link); }
 button, input, textarea, select { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--p2); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -94,6 +96,7 @@ textarea.field { resize: vertical; }
 .notice { padding: 12px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--p3) 25%, var(--surface)); font-size: 14px; }
 .preview-band { background: color-mix(in srgb, var(--p3) 32%, var(--surface)); border-top: 1px solid var(--line); }
 .preview-band .top-in { padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
+.preview-band .muted { color: var(--ink); } /* grey on the yellow band is under 4.5:1 in dark mode */
 .notice-bad { background: color-mix(in srgb, var(--p1) 14%, var(--surface)); }
 .empty { color: var(--muted); padding: 8px 0; }
 .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 16px; }
@@ -180,7 +183,7 @@ textarea.field { resize: vertical; }
 .cal-sat { background: color-mix(in srgb, var(--p3) 6%, var(--surface)); }
 .cal-today { box-shadow: inset 0 0 0 3px var(--p2); }
 .cal-num { display: block; font-weight: 700; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-.cal-today .cal-num { color: var(--p2); }
+.cal-today .cal-num { color: var(--link); }
 .cal-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 6px; border-radius: var(--r-sm); background: var(--desk); color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 600; margin-top: 4px; min-height: 28px; }
 .cal-item:hover { text-decoration: underline; }
 .cal-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -377,7 +380,7 @@ html[data-contrast="high"] .top { background: #fff; backdrop-filter: none; -webk
 }
 
 /* week planner */
-.link-btn { background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; font-weight: 600; color: var(--p2); cursor: pointer; text-decoration: underline; min-height: 24px; }
+.link-btn { background: none; border: 0; padding: 2px 4px; font: inherit; font-size: 12px; font-weight: 600; color: var(--link); cursor: pointer; text-decoration: underline; min-height: 24px; }
 .link-btn:disabled { color: var(--muted); cursor: default; }
 .plan-course { display: flex; flex-direction: column; gap: 12px; }
 .plan-week { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
