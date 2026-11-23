@@ -101,7 +101,9 @@ export default async function Home() {
       <TopBar crumbs={<span>{me.tenantName || me.name}</span>} right={<span className="muted" style={{ fontSize: 14 }}>{me.name}</span>} />
       <main className="page page-wide home">
         <div className="row home-top">
-          <h1 className="grow">{onlyParent ? d.yourChildren : d.homeTitle}</h1>
+          {/* The word "Home" isn't shown (Desmond, 2026-11-23); screen readers still get the page's heading. */}
+          <h1 className={onlyParent ? "grow" : "sr-only"}>{onlyParent ? d.yourChildren : d.homeTitle}</h1>
+          {!onlyParent && <span className="grow" />}
           {buttons.length > 0 && <nav className="row" aria-label={d.homeTools} style={{ gap: 6 }}>{buttons}</nav>}
         </div>
         {!ok && (
