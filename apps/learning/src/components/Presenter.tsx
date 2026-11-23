@@ -10,6 +10,9 @@ import { googleEmbed, type GoogleEmbed } from "@/lib/embeds";
 import type { Dict, Lang } from "@/lib/i18n";
 import { StudentAssignmentStage, TeacherAssignmentStage } from "./AssignmentSlide";
 import GroupsView from "./GroupsView";
+import SeatingDesk from "./SeatingDesk";
+import SeatingView from "./SeatingView";
+import type { ShownChart } from "@/lib/seating";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
 import { useLive, useTimerLeft, type Pace } from "./useLive";
@@ -28,7 +31,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri", groups: "s-square",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri", groups: "s-square", seating: "s-square",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -133,6 +136,14 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
     else fullRef.current?.requestFullscreen?.().catch(() => {});
   };
 
+  // ---------- seating chart ----------
+  // The slide's chart, as students may see it (seating.ts shownChart), sent
+  // to the live lesson whenever it is drawn, and again after a reconnect.
+  const [seatingShown, setSeatingShown] = useState<{ blockId: string; chart: ShownChart | null } | null>(null);
+  useEffect(() => {
+    if (connected && ours && seatingShown) emit("live:seating", seatingShown);
+  }, [connected, ours, seatingShown]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- noise meter ----------
   const noise = useNoiseMeter((level) => emit("live:noise", { level }));
   const stopNoise = noise.stop;
@@ -196,7 +207,8 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
             {block
               ? <Stage block={block} teacherView tally={tally} timerLeft={timerLeft} d={d}
                   pickName={pickedName} rolling={!!rolling} turnsLeft={block.type === "picker" && block.repeat === "turns" ? turnsLeft(pool, picked) : null}
-                  noise={noise.listening ? noise.level : null} onPublished={() => emit("live:published")} />
+                  noise={noise.listening ? noise.level : null} onPublished={() => emit("live:published")}
+                  courseId={courseId} onSeatingShown={(c) => setSeatingShown({ blockId: block.id, chart: c })} />
               : <div className="stage"><h1>{d.emptyLesson}</h1></div>}
             {full && (
               <div className="present-full-bar">
@@ -254,7 +266,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
               {blocks.map((b, i) => (
                 <button key={b.id} type="button" aria-current={i === index} onClick={() => go(i)}>
                   <small><span className={`shape ${KIND[b.type]}`} style={{ width: 8, height: 8, marginRight: 4 }} />{i + 1}</small>
-                  <b>{blockSummary(b) || "—"}</b>
+                  <b>{blockSummary(b) || (b.type === "seating" ? d.blockSeating : "—")}</b>
                   {pace !== "teacher" && onBlock(i) > 0 && <span className="strip-count" aria-label={`${onBlock(i)} ${d.studentsHere}`}>{onBlock(i)}</span>}
                 </button>
               ))}
@@ -287,7 +299,7 @@ export default function Presenter({ lesson, courseId, courseName, ticket, roster
   );
 }
 
-export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d, pickName, rolling, turnsLeft: left, pickState, noise, L, stamp, onPublished }: {
+export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d, pickName, rolling, turnsLeft: left, pickState, noise, L, stamp, onPublished, courseId, seating, onSeatingShown }: {
   block: Block;
   teacherView?: boolean;
   tally?: { counts: Record<string, number>; answered: number } | null;
@@ -308,7 +320,25 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
   stamp?: number;
   /** Assignment slide, presenter: shows Publish; called once it is published. */
   onPublished?: () => void;
+  /** Seating slide, presenter: the class whose chart (and attendance) it shows. */
+  courseId?: string;
+  /** Seating slide, students and projector: the room and the chairs' names from the live lesson. */
+  seating?: ShownChart | null;
+  /** Seating slide, presenter: hands the chart (no ids, no marks) to the live lesson. */
+  onSeatingShown?: (c: ShownChart | null) => void;
 }) {
+  if (block.type === "seating") {
+    if (courseId && onSeatingShown) return <SeatingDesk courseId={courseId} title={block.title} onShown={onSeatingShown} d={d} />;
+    return (
+      <div className="stage stage-seating" style={{ background: "var(--p2)" }}>
+        <div className="row" style={{ gap: 8 }}>
+          <span className="shape s-square" style={{ background: "#fff" }} />
+          <span className="stage-kicker">{block.title || d.blockSeating}</span>
+        </div>
+        {seating ? <SeatingView chart={seating} d={d} /> : <p className="stage-foot" role="status">{d.seatWaiting}</p>}
+      </div>
+    );
+  }
   if (block.type === "assignment") {
     return teacherView
       ? <TeacherAssignmentStage block={block} d={d} L={L} onPublished={onPublished} />

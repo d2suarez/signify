@@ -81,7 +81,7 @@ export function defaultTitle(b: Block): string {
     case "text": return b.title || b.body.split("\n")[0].slice(0, 80);
     case "poll": return b.question.split("\n")[0].slice(0, 80);
     case "timer": case "picker": case "noise": return b.label;
-    case "board": case "link": case "tool": case "assignment": case "groups": return b.title;
+    case "board": case "link": case "tool": case "assignment": case "groups": case "seating": return b.title;
     case "file": return b.title || b.name;
   }
 }

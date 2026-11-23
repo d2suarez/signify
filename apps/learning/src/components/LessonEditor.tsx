@@ -6,6 +6,7 @@ import { type Block, type BlockType, type FileBlock, newBlock, newId, webLink, f
 import { boardLink } from "@/lib/boards";
 import type { Lesson } from "@/lib/lessons";
 import { BLOCK_NAME, BLOCK_SHAPE } from "@/lib/block-kinds";
+import { DESK_ORIGIN } from "@/lib/desk";
 import type { Dict } from "@/lib/i18n";
 import ToolPicker, { type PlacedItem, type ToolChoice } from "./ToolPicker";
 
@@ -17,7 +18,7 @@ const SAVE_DELAY = 800;
 const SHAPE = BLOCK_SHAPE;
 const NAME = BLOCK_NAME;
 /** The add-a-block buttons, in order: content and questions, then the Desk tools, then Boards and links. */
-const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "file"];
+const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "seating", "board", "link", "file"];
 
 /** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
 export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
@@ -320,6 +321,21 @@ export function BlockFields({ block: b, d, onChange, idBase, courseId, assignmen
   /** The class's group sets (group slides). */
   groupSets?: GroupSetChoice[];
 }) {
+  if (b.type === "seating") {
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-t`}>{d.title}</label>
+          <input id={`${idBase}-t`} className="field" value={b.title} maxLength={LIMITS.title} placeholder={d.blockSeating}
+            onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          {d.seatSlideHint} <a href={DESK_ORIGIN} target="_blank" rel="noopener">{d.seatOpenDesk}</a>
+          {courseId && <> · <Link href={`/courses/${courseId}/attendance`}>{d.seatAttTab}</Link></>}
+        </p>
+      </>
+    );
+  }
   if (b.type === "groups") {
     const known = groupSets.some((g) => g.id === b.groupSetId);
     return (

@@ -186,6 +186,53 @@ html[data-contrast="high"] .group-card { border: 2px solid var(--ink); }
 .noise-track > i { display: block; height: 100%; border-radius: inherit; background: currentColor; transition: width .12s linear; }
 .noise-track > b { position: absolute; top: -8px; bottom: -8px; width: 4px; margin-left: -2px; border-radius: 2px; background: currentColor; }
 .stage-board { padding: 0; background: #fff; overflow: hidden; }
+/* Seating chart slide (story 01, D5/D6): Teacher's Desk's own plan, drawn in its room cells (SeatingView.tsx). */
+.stage-seating { padding: clamp(12px, 2vw, 24px); gap: 10px; overflow: hidden; }
+.seat-wrap { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; container-type: size; }
+.seat-room { position: relative; width: min(100cqw, calc(100cqh * var(--ratio))); aspect-ratio: var(--ratio); background: var(--surface); color: var(--ink); border-radius: var(--r-md); overflow: hidden; container-type: inline-size; }
+.seat-room.front-top { box-shadow: inset 0 5px 0 var(--ink); }
+.seat-room.front-bottom { box-shadow: inset 0 -5px 0 var(--ink); }
+.seat-room.front-left { box-shadow: inset 5px 0 0 var(--ink); }
+.seat-room.front-right { box-shadow: inset -5px 0 0 var(--ink); }
+.seat-front { position: absolute; z-index: 2; padding: 1px 8px; border-radius: 999px; background: var(--ink); color: var(--surface); font-size: clamp(8px, 1.3cqw, 12px); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; pointer-events: none; white-space: nowrap; }
+.front-top .seat-front { top: 0; left: 8px; }
+.front-bottom .seat-front { bottom: 0; left: 8px; }
+.front-left .seat-front { left: 0; bottom: 8px; writing-mode: vertical-rl; transform: rotate(180deg); }
+.front-right .seat-front { right: 0; top: 8px; writing-mode: vertical-rl; }
+.seat-object { position: absolute; display: flex; align-items: center; justify-content: center; background: var(--desk); border: 1px solid var(--line); border-radius: 4px; font-size: clamp(8px, 1.3cqw, 14px); font-weight: 600; color: var(--muted); overflow: hidden; text-align: center; }
+.seat-object-circle { border-radius: 50%; }
+.seat-object-strip { background: var(--line); color: var(--ink); }
+.seat-desk { position: absolute; }
+.seat-surface { position: absolute; background: var(--desk); border: 1px solid var(--line); border-radius: 3px; }
+.seat-surface-round { border-radius: 50%; }
+.seat { position: absolute; box-sizing: border-box; margin: 0; padding: 0 2px; display: flex; align-items: center; justify-content: center; gap: 2px; border: 1.5px dashed var(--line); border-radius: 6px; background: transparent; color: var(--ink); font: 700 clamp(8px, 1.7cqw, 22px)/1.1 var(--body); text-align: center; overflow: hidden; min-width: 0; }
+button.seat { cursor: pointer; }
+.seat.is-taken { border: 1.5px solid color-mix(in srgb, var(--p2) 45%, var(--line)); background: color-mix(in srgb, var(--p2) 12%, var(--surface)); }
+.seat.is-present { background: var(--p4); color: var(--p4-ink); border-color: var(--p4); }
+.seat.is-absent { background: color-mix(in srgb, var(--p1) 14%, var(--surface)); border-color: var(--p1); }
+.seat.is-tardy, .seat.is-excused { background: color-mix(in srgb, var(--p3) 24%, var(--surface)); border-color: var(--p3); }
+.seat.is-picked { background: var(--p3); color: var(--p3-ink); border-color: var(--ink); }
+.seat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat-mark { flex: none; }
+.seat-count { font-size: clamp(14px, 1.6vw, 20px); }
+.seat-tools { gap: 8px; }
+.seat-tools .btn-sm, .seat-tray .btn-sm { min-height: 44px; }
+.seat-list summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.seat-list ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.seat-list .btn { width: 100%; justify-content: flex-start; min-height: 44px; }
+.seat-list .btn.is-present { background: var(--p4); color: var(--p4-ink); }
+.seat-list-word { margin-left: auto; font-weight: 600; font-size: 13px; opacity: .85; }
+.seat-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.seat-tray > .stage-foot { flex: 1 1 220px; margin: 0; }
+@media (max-width: 640px) {
+  .stage-seating { aspect-ratio: auto; }
+  .seat-wrap { container-type: normal; }
+  .seat-room { width: 100%; }
+  .seat-hint { display: none; }
+}
+html[data-contrast="high"] .seat-room { background: #000; color: #fff; border: 2px solid #fff; }
+html[data-contrast="high"] .seat { border-color: #fff; color: #fff; background: #000; }
+html[data-contrast="high"] .seat.is-present, html[data-contrast="high"] .seat.is-picked { background: #fff; color: #000; }
 .stage-board iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

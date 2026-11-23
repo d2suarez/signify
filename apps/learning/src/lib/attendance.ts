@@ -92,6 +92,17 @@ export async function takeAttendance(ctx: Ctx, courseId: string, day: unknown, t
   return clean.length;
 }
 
+/**
+ * Takes back one student's mark for a class meeting (the seating slide's
+ * second tap: "not marked yet"). Same day rules as taking it.
+ */
+export async function clearMark(ctx: Ctx, courseId: string, day: unknown, today: Day, studentId: string): Promise<void> {
+  const d = checkAttendanceDay(day, today);
+  const db = await getDb();
+  await db.query("DELETE FROM attendance WHERE tenant_id = $1 AND course_id = $2 AND day = $3 AND student_id = $4",
+    [ctx.tenantId, courseId, d, String(studentId).slice(0, 80)]);
+}
+
 export type ClassAttendance = {
   courseId: string; name: string; teacher: string; taken: boolean;
   counts: Record<Status, number>;

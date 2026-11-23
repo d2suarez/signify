@@ -74,6 +74,7 @@ function publicState(s) {
     noise: s.noise,
     pace: s.pace,
     published: s.published || 0,
+    seating: s.seating || null,
     serverNow: Date.now(),
   };
 }
@@ -108,6 +109,32 @@ function teacherState(s, io, courseId) {
 }
 
 const PACES = new Set(['teacher', 'review', 'self']);
+
+// ---------- the seating slide ----------
+// The teacher's screen draws the class's chart (Teacher's Desk's, fetched by
+// Next) and sends the room with the names its chairs show: the one slide
+// that shows students classmates' names, because it is the classroom's own
+// seating chart. Never ids, never attendance: only numbers, short labels and
+// the three furniture shapes get through, capped.
+const FRONTS = new Set(['top', 'right', 'bottom', 'left']);
+const SHAPES = new Set(['rect', 'circle', 'strip']);
+const cell = (v, lo = -200, hi = 200) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : 0; };
+const label = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 40) : '');
+const rect = (o) => ({ x: cell(o && o.x), y: cell(o && o.y), w: cell(o && o.w, 0), h: cell(o && o.h, 0) });
+const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+function cleanSeating(c) {
+  if (!c || typeof c !== 'object') return null;
+  return {
+    cols: cell(c.cols, 1), rows: cell(c.rows, 1), front: FRONTS.has(c.front) ? c.front : 'top',
+    desks: list(c.desks, 80).map((d) => ({
+      ...rect(d),
+      surface: d && d.surface ? rect(d.surface) : null,
+      circle: d && d.circle ? { cx: cell(d.circle.cx), cy: cell(d.circle.cy), r: cell(d.circle.r, 0) } : null,
+      seats: list(d && d.seats, 12).map((x) => ({ ...rect(x), label: label(x && x.label) })),
+    })),
+    objects: list(c.objects, 40).map((o) => ({ shape: SHAPES.has(o && o.shape) ? o.shape : 'rect', ...rect(o), label: label(o && o.label) })),
+  };
+}
 
 /** May this student see (and answer) this block right now? */
 function canSee(s, blockId) {
@@ -192,6 +219,8 @@ function attach(server, { secret, whoIs }) {
           startedBy: t.sub,
           // Bumped when the teacher publishes an assignment from a slide.
           published: same ? prev.published || 0 : 0,
+          // The seating slide's chart, as students may see it.
+          seating: same ? prev.seating || null : null,
         });
         pushAll(courseId);
       });
@@ -289,6 +318,13 @@ function attach(server, { secret, whoIs }) {
         pushAll(courseId);
       });
 
+      socket.on('live:seating', (msg) => {
+        const s = sessions.get(courseId);
+        if (!s || s.lessonId !== t.lesson || !msg || typeof msg.blockId !== 'string') return;
+        s.seating = { blockId: msg.blockId.slice(0, 40), chart: cleanSeating(msg.chart) };
+        pushAll(courseId);
+      });
+
       socket.on('live:end', () => {
         const s = sessions.get(courseId);
         if (!s || s.lessonId !== t.lesson) return;
@@ -324,4 +360,4 @@ function attach(server, { secret, whoIs }) {
   return io;
 }
 
-module.exports = { attach, verifyTicket, publicState, sessions };
+module.exports = { attach, verifyTicket, publicState, sessions, cleanSeating };

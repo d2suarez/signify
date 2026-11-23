@@ -102,6 +102,7 @@ function liveName(b: Block, d: Dict): string {
     case "timer": return d.blockTimer;
     case "picker": return d.blockPicker;
     case "noise": return d.blockNoise;
+    case "seating": return b.title || d.blockSeating;
     case "tool": return b.title || d.blockTool;
     default: return "";
   }

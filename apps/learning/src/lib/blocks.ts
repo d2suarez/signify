@@ -84,10 +84,17 @@ export type AssignmentBlock = { id: string; type: "assignment"; title: string; a
  */
 export type GroupsBlock = { id: string; type: "groups"; title: string; groupSetId: string; shown?: GroupsShown };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock | GroupsBlock;
+/**
+ * The class's seating chart, on a slide (story 01, D4/D5/D6): Teacher's
+ * Desk's own plan for the lesson's class, never a copy (seating.ts). Holds
+ * nothing but a title: which chart is always "this class's".
+ */
+export type SeatingBlock = { id: string; type: "seating"; title: string };
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock | GroupsBlock | SeatingBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment", "groups"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment", "groups", "seating"];
 const FILE_KINDS = ["image", "pdf", "audio", "video", "doc"] as const;
 
 export const LIMITS = {
@@ -174,6 +181,8 @@ export function newBlock(type: BlockType): Block {
       return { id: newId(), type, title: "", assignmentId: "" };
     case "groups":
       return { id: newId(), type, title: "", groupSetId: "" };
+    case "seating":
+      return { id: newId(), type, title: "" };
   }
 }
 
@@ -263,6 +272,9 @@ export function normalizeBlocks(input: unknown): Block[] {
         out.push({ id: uniqueId(b.id, used), type: "groups", title: line(b.title, LIMITS.title), groupSetId });
         break;
       }
+      case "seating":
+        out.push({ id: uniqueId(b.id, used), type: "seating", title: line(b.title, LIMITS.title) });
+        break;
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -291,7 +303,7 @@ export function blockSummary(b: Block): string {
     case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
     case "file": return b.title || b.name;
-    case "assignment": case "groups": return b.title;
+    case "assignment": case "groups": case "seating": return b.title;
   }
 }
 
@@ -305,6 +317,7 @@ export function blockSpeech(b: Block): string {
     case "file": return [b.title || b.name, b.alt].filter(Boolean).join(".\n");
     case "assignment": return b.title;
     case "groups": return [b.title, ...(b.shown?.groups ?? []).map((g) => `${g.name}: ${g.members.join(", ")}`)].filter(Boolean).join(".\n");
+    case "seating": return b.title;
   }
 }
 

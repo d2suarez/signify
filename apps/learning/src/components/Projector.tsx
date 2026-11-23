@@ -53,7 +53,8 @@ export default function Projector({ lesson, courseId, ticket, roster, d }: {
         {block
           ? <Stage block={block} teacherView tally={tally} timerLeft={timerLeft} d={d}
               pickName={lastPick ? names.get(lastPick.studentId) ?? null : null}
-              noise={block.type === "noise" ? state.noise ?? null : null} />
+              noise={block.type === "noise" ? state.noise ?? null : null}
+              seating={state.seating && state.seating.blockId === block.id ? state.seating.chart : null} />
           : <div className="stage stage-center"><h1>{ours ? d.emptyLesson : d.projectorWaiting}</h1></div>}
       </div>
     </main>

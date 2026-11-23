@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import type { ShownChart } from "@/lib/seating";
 
 export type Tally = { blockId: string; counts: Record<string, number>; answered: number };
 export type Pace = "teacher" | "review" | "self";
@@ -24,6 +25,8 @@ export type LiveState = {
   pace?: Pace;
   /** Goes up each time the teacher publishes an assignment from a slide. */
   published?: number;
+  /** The seating slide's room and chairs' names (never ids or attendance), from the teacher's screen. */
+  seating?: { blockId: string; chart: ShownChart | null } | null;
   serverNow?: number;
 };
 

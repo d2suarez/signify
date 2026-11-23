@@ -95,7 +95,8 @@ export default function Follower({ courseId, courseName, teacherName, ticket, d,
         ) : (
           <Stage block={block} tally={tally} timerLeft={withTeacher ? timerLeft : null} mine={mine[block.id] ?? null} onAnswer={block.type === "poll" ? answer : undefined} d={d}
             pickState={pickState} noise={withTeacher && block.type === "noise" ? state.noise ?? null : null}
-            L={L} stamp={state.published ?? 0} />
+            L={L} stamp={state.published ?? 0}
+            seating={state.seating && state.seating.blockId === block.id ? state.seating.chart : null} />
         )}
       </section>
     </div>

@@ -8,7 +8,7 @@ import { BlockFields } from "./LessonEditor";
 import { BLOCK_NAME as NAME, BLOCK_SHAPE as SHAPE } from "@/lib/block-kinds";
 
 /** The kinds a teacher can make here; outside tools are saved from a lesson's block. */
-const KINDS: BlockType[] = ["link", "board", "file", "text", "timer", "picker", "noise", "poll"];
+const KINDS: BlockType[] = ["link", "board", "file", "text", "timer", "picker", "noise", "seating", "poll"];
 const STUDENT_KINDS: BlockType[] = ["text", "link", "board", "file"];
 
 /**

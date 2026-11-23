@@ -282,7 +282,8 @@ export async function presentationLessonIds(ctx: Ctx, courseId: string): Promise
 /**
  * The slides for a day, in order: each lesson planned for it (its blocks),
  * then each picked material (a class resource's block(s), as "Present
- * ticked" makes them; an assignment or quiz as its own assignment slide). Copies with fresh ids, so the day's lessons never change.
+ * ticked" makes them; an assignment or quiz as its own assignment slide),
+ * with a seating chart slide moved to the front. Copies with fresh ids, so the day's lessons never change.
  */
 export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{ blocks: Block[]; sources: number; onlyLesson: string | null }> {
   const [plan] = await weekPlan(ctx, courseId, [day]);
@@ -301,8 +302,12 @@ export async function dayBlocks(ctx: Ctx, courseId: string, day: Day): Promise<{
     if (blocks.length >= BLOCK_LIMITS.blocks) break;
   }
   const sources = plan.lessons.length + plan.materials.length;
+  // A seating chart starts the class (story 01: "always start with the seating
+  // assignments"), so it comes first, and once.
+  const seating = blocks.find((b) => b.type === "seating");
+  const ordered = seating ? [seating, ...blocks.filter((b) => b.type !== "seating")] : blocks;
   return {
-    blocks: normalizeBlocks(blocks.slice(0, BLOCK_LIMITS.blocks)),
+    blocks: normalizeBlocks(ordered.slice(0, BLOCK_LIMITS.blocks)),
     sources,
     onlyLesson: plan.lessons.length === 1 && plan.materials.length === 0 ? plan.lessons[0].id : null,
   };
