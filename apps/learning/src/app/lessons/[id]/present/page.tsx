@@ -4,6 +4,7 @@ import { requireMe } from "@/lib/auth";
 import { lessonAccess, lang, studentsOf } from "@/lib/access";
 import { dict, t } from "@/lib/i18n";
 import { signTicket } from "@/lib/live-ticket";
+import { teacherBlocks } from "@/lib/lesson-assignments";
 import { TopBar } from "@/components/TopBar";
 import Presenter from "@/components/Presenter";
 
@@ -26,7 +27,7 @@ export default async function PresentLesson({ params }: { params: Promise<{ id: 
       <TopBar crumbs={<><Link href="/">{t("myCourses", L)}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link></>} />
       <main className="page">
         <Presenter
-          lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: lesson.blocks }}
+          lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks) }}
           courseId={course.id} courseName={course.name} ticket={ticket} roster={roster}
           afterClass={{ view: lesson.studentView ?? "hidden", byHand: !!lesson.studentViewByHand }} d={dict(L)} />
       </main>

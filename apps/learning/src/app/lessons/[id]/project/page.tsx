@@ -3,6 +3,7 @@ import { requireMe } from "@/lib/auth";
 import { lessonAccess, lang, studentsOf } from "@/lib/access";
 import { dict } from "@/lib/i18n";
 import { signTicket } from "@/lib/live-ticket";
+import { teacherBlocks } from "@/lib/lesson-assignments";
 import Projector from "@/components/Projector";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function ProjectLesson({ params }: { params: Promise<{ id: 
     ? await studentsOf(access).then(({ students }) => students.map((s) => ({ id: s.id, name: s.name })))
     : [];
   return (
-    <Projector lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: lesson.blocks }}
+    <Projector lesson={{ id: lesson.id, title: lesson.title, version: lesson.version, blocks: await teacherBlocks(me.tenantId, course.id, lesson.blocks) }}
       courseId={course.id} ticket={ticket} roster={roster} d={dict(L)} />
   );
 }

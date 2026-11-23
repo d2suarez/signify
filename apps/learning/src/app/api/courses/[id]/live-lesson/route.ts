@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { courseAccess, ctx } from "@/lib/access";
 import { getLesson } from "@/lib/lessons";
-import { studentBlocks } from "@/lib/lesson-assignments";
+import { studentBlocks, teacherBlocks } from "@/lib/lesson-assignments";
 import { liveLessonId } from "@/lib/live-ticket";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!lessonId) return NextResponse.json({ live: false });
   const lesson = await getLesson(ctx(access.me), lessonId);
   if (!lesson || lesson.courseId !== id) return NextResponse.json({ live: false });
-  const blocks = access.course.role === "teacher" ? lesson.blocks : await studentBlocks(access.me.tenantId, id, lesson.blocks);
+  const blocks = access.course.role === "teacher" ? await teacherBlocks(access.me.tenantId, id, lesson.blocks) : await studentBlocks(access.me.tenantId, id, lesson.blocks, { studentId: access.me.id, live: true });
   return NextResponse.json(
     { live: true, lesson: { id: lesson.id, title: lesson.title, version: lesson.version, blocks } },
     { headers: { "Cache-Control": "no-store" } },

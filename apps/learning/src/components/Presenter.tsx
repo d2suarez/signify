@@ -9,6 +9,7 @@ import { videoFromUrl, videoSrc } from "@/lib/post-doc";
 import { googleEmbed, type GoogleEmbed } from "@/lib/embeds";
 import type { Dict, Lang } from "@/lib/i18n";
 import { StudentAssignmentStage, TeacherAssignmentStage } from "./AssignmentSlide";
+import GroupsView from "./GroupsView";
 import { noiseColour, noiseWord } from "@/lib/noise";
 import { choose, turnsLeft, type Person } from "@/lib/picker";
 import { useLive, useTimerLeft, type Pace } from "./useLive";
@@ -27,7 +28,7 @@ type Props = {
 };
 
 export const KIND: Record<Block["type"], string> = {
-  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri",
+  text: "s-arch", poll: "s-tri", timer: "s-circle", picker: "s-square", noise: "s-square", board: "s-arch", link: "s-arch", tool: "s-square", file: "s-arch", assignment: "s-tri", groups: "s-square",
 };
 
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -312,6 +313,17 @@ export function Stage({ block, teacherView, tally, timerLeft, mine, onAnswer, d,
     return teacherView
       ? <TeacherAssignmentStage block={block} d={d} L={L} onPublished={onPublished} />
       : <StudentAssignmentStage block={block} d={d} L={L ?? "en"} stamp={stamp ?? 0} />;
+  }
+  if (block.type === "groups") {
+    return (
+      <div className="stage" style={{ background: "var(--p2)" }}>
+        <div className="row" style={{ gap: 8 }}>
+          <span className="shape s-square" style={{ background: "#fff" }} />
+          <span className="stage-kicker">{block.title || d.blockGroups}</span>
+        </div>
+        <GroupsView shown={block.shown} title={block.title} d={d} stage />
+      </div>
+    );
   }
   if (block.type === "text") {
     return (

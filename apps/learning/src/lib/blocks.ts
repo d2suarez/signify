@@ -10,6 +10,7 @@
  */
 
 import { boardLink } from "./boards";
+import type { GroupsShown } from "./groups";
 
 export type TextBlock = { id: string; type: "text"; title: string; body: string };
 export type PollChoice = { id: string; text: string; correct: boolean };
@@ -74,10 +75,19 @@ export type FileBlock = {
  */
 export type AssignmentBlock = { id: string; type: "assignment"; title: string; assignmentId: string };
 
-export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock;
+/**
+ * One of the class's saved group sets, on a slide (story 01, D8). Points at
+ * the set by id (group-sets.ts); `title` is a copy of its name for the
+ * outline. `shown` is never stored: the server fills it for each viewer as it
+ * serves the lesson (every group for the teacher and a live class, a
+ * student's own group otherwise; lesson-assignments.ts).
+ */
+export type GroupsBlock = { id: string; type: "groups"; title: string; groupSetId: string; shown?: GroupsShown };
+
+export type Block = TextBlock | PollBlock | TimerBlock | PickerBlock | NoiseBlock | BoardBlock | LinkBlock | ToolBlock | FileBlock | AssignmentBlock | GroupsBlock;
 export type BlockType = Block["type"];
 
-export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment"];
+export const BLOCK_TYPES: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "link", "tool", "file", "assignment", "groups"];
 const FILE_KINDS = ["image", "pdf", "audio", "video", "doc"] as const;
 
 export const LIMITS = {
@@ -162,6 +172,8 @@ export function newBlock(type: BlockType): Block {
       return { id: newId(), type, title: "", fileId: "", name: "", kind: "", alt: "" };
     case "assignment":
       return { id: newId(), type, title: "", assignmentId: "" };
+    case "groups":
+      return { id: newId(), type, title: "", groupSetId: "" };
   }
 }
 
@@ -245,6 +257,12 @@ export function normalizeBlocks(input: unknown): Block[] {
         out.push({ id: uniqueId(b.id, used), type: "assignment", title: line(b.title, LIMITS.title), assignmentId });
         break;
       }
+      case "groups": {
+        // `shown` is the server's, per viewer: never kept from a browser. Saving drops another class's set (lessons.ts).
+        const groupSetId = typeof b.groupSetId === "string" && UUID_RE.test(b.groupSetId) ? b.groupSetId.toLowerCase() : "";
+        out.push({ id: uniqueId(b.id, used), type: "groups", title: line(b.title, LIMITS.title), groupSetId });
+        break;
+      }
       default:
         // An unknown type is dropped rather than refusing the whole save:
         // a newer browser tab must never make an older server lose a lesson.
@@ -259,6 +277,7 @@ export function normalizeBlocks(input: unknown): Block[] {
  * the server for a student, live or otherwise.
  */
 export function forStudent(b: Block): Block {
+  if (b.type === "groups") { const { shown: _s, ...rest } = b; return rest; }
   if (b.type !== "poll") return b;
   return { ...b, choices: b.choices.map((c) => ({ ...c, correct: false })) };
 }
@@ -272,7 +291,7 @@ export function blockSummary(b: Block): string {
     case "picker": case "noise": return b.label;
     case "board": case "link": case "tool": return b.title;
     case "file": return b.title || b.name;
-    case "assignment": return b.title;
+    case "assignment": case "groups": return b.title;
   }
 }
 
@@ -285,6 +304,7 @@ export function blockSpeech(b: Block): string {
     case "board": case "link": case "tool": return b.title;
     case "file": return [b.title || b.name, b.alt].filter(Boolean).join(".\n");
     case "assignment": return b.title;
+    case "groups": return [b.title, ...(b.shown?.groups ?? []).map((g) => `${g.name}: ${g.members.join(", ")}`)].filter(Boolean).join(".\n");
   }
 }
 
@@ -296,14 +316,21 @@ export function assignmentIdsIn(blocks: Block[]): string[] {
 /**
  * Assignment slides pointed at another assignment: `map` old id -> new id
  * (a copy into another course). A slide whose assignment has no new id is
- * dropped, never left pointing at the old course.
+ * dropped, never left pointing at the old course. Group slides are dropped
+ * too: groups belong to one class's students.
  */
 export function remapAssignments(blocks: Block[], map: Map<string, string>): Block[] {
   return blocks.flatMap((b) => {
+    if (b.type === "groups") return [];
     if (b.type !== "assignment" || !b.assignmentId) return [b];
     const to = map.get(b.assignmentId);
     return to ? [{ ...b, assignmentId: to }] : [];
   });
+}
+
+/** The group sets a lesson's slides point at, once each. */
+export function groupSetIdsIn(blocks: Block[]): string[] {
+  return [...new Set(blocks.flatMap((b) => (b.type === "groups" && b.groupSetId ? [b.groupSetId] : [])))];
 }
 
 /** Where a file block's file opens (the route checks who may). */

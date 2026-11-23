@@ -22,12 +22,17 @@ const ADD: BlockType[] = ["text", "poll", "timer", "picker", "noise", "board", "
 /** A class resource the editor can add: the blocks it becomes (src/lib/resources.ts, resourceChoices). */
 export type ResourceChoice = { id: string; title: string; kind: BlockType | "lesson"; blocks: Block[] };
 
+/** One of the class's saved group sets, for a group slide. */
+export type GroupSetChoice = { id: string; name: string };
+
 /** One of the course's assignments or quizzes, for an assignment slide. */
 export type AssignmentChoice = { id: string; title: string; kind: string; published: boolean };
 
-export default function LessonEditor({ initial, courseId, units = [], tools = [], resources = [], assignments = [], d }: {
+export default function LessonEditor({ initial, courseId, units = [], tools = [], resources = [], assignments = [], groupSets = [], d }: {
   initial: Lesson; courseId: string; units?: { id: string; title: string }[]; tools?: ToolChoice[]; resources?: ResourceChoice[];
-  assignments?: AssignmentChoice[]; d: Dict;
+  assignments?: AssignmentChoice[];
+  /** The class's saved group sets (group slides). */
+  groupSets?: GroupSetChoice[]; d: Dict;
 }) {
   const [title, setTitle] = useState(initial.title);
   const [blocks, setBlocks] = useState<Block[]>(initial.blocks);
@@ -207,7 +212,7 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
                 <button type="button" className="icon-btn" aria-label={d.moveDown} disabled={i === blocks.length - 1} onClick={() => move(i, 1)}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
                 </button>
-                {b.type !== "assignment" && (
+                {b.type !== "assignment" && b.type !== "groups" && (
                   <button type="button" className="icon-btn" aria-label={`${d.resSaveBlock}: ${i + 1}`} title={d.resSaveBlock} onClick={() => saveToResources(b)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
                   </button>
@@ -216,14 +221,14 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                 </button>
               </div>
-              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} courseId={courseId} assignments={assignments} />
+              <BlockFields block={b} d={d} onChange={(p) => update(i, p)} idBase={`b${i}`} courseId={courseId} assignments={assignments} groupSets={groupSets} />
             </section>
           ))}
 
           <div className="card" style={{ padding: "14px 16px" }}>
             <p className="label">{d.addBlock}</p>
             <div className="row" style={{ marginTop: 10 }}>
-              {(assignments.length ? [...ADD, "assignment" as const] : ADD).map((type) => (
+              {[...ADD, ...(assignments.length ? ["assignment" as const] : []), "groups" as const].map((type) => (
                 <button key={type} type="button" className="btn" onClick={() => add(type)}><span className={`shape ${SHAPE[type]}`} />{d[NAME[type]]}</button>
               ))}
             </div>
@@ -306,13 +311,34 @@ export default function LessonEditor({ initial, courseId, units = [], tools = []
   );
 }
 
-export function BlockFields({ block: b, d, onChange, idBase, courseId, assignments = [] }: {
+export function BlockFields({ block: b, d, onChange, idBase, courseId, assignments = [], groupSets = [] }: {
   block: Block; d: Dict; onChange: (p: Partial<Block>) => void; idBase: string;
   /** Where an uploaded file belongs (file blocks). */
   courseId?: string;
   /** The course's assignments and quizzes (assignment slides). */
   assignments?: AssignmentChoice[];
+  /** The class's group sets (group slides). */
+  groupSets?: GroupSetChoice[];
 }) {
+  if (b.type === "groups") {
+    const known = groupSets.some((g) => g.id === b.groupSetId);
+    return (
+      <>
+        <div className="fieldset">
+          <label htmlFor={`${idBase}-g`}>{d.grpSlideChoose}</label>
+          <select id={`${idBase}-g`} className="field" value={b.groupSetId}
+            onChange={(e) => onChange({ groupSetId: e.target.value, title: groupSets.find((g) => g.id === e.target.value)?.name ?? "" } as Partial<Block>)}>
+            <option value="">{d.grpSlidePick}</option>
+            {b.groupSetId && !known && <option value={b.groupSetId}>{b.title || d.blockGroups}</option>}
+            {groupSets.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          {d.grpSlideHint} {courseId && <Link href={`/courses/${courseId}/groups`}>{d.grpTitle}</Link>}
+        </p>
+      </>
+    );
+  }
   if (b.type === "assignment") {
     const known = assignments.some((a) => a.id === b.assignmentId);
     return (

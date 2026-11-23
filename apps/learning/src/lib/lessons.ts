@@ -1,5 +1,5 @@
 import { getDb, type Queryable } from "./db";
-import { type Block, assignmentIdsIn, normalizeBlocks } from "./blocks";
+import { type Block, assignmentIdsIn, groupSetIdsIn, normalizeBlocks } from "./blocks";
 import { unitInCourse } from "./units";
 import { standardsInCourse } from "./standards";
 
@@ -92,12 +92,22 @@ export async function listLessons(ctx: Ctx, courseId: string): Promise<LessonSum
  */
 export async function ownAssignments(q: Queryable, tenantId: string, courseId: string, blocks: Block[]): Promise<Block[]> {
   const want = assignmentIdsIn(blocks);
-  if (!want.length) return blocks;
-  const rows = await q.query(
+  const sets = groupSetIdsIn(blocks);
+  if (!want.length && !sets.length) return blocks;
+  const rows = want.length ? await q.query(
     "SELECT id, title FROM assignments WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND id = ANY($3::uuid[])",
-    [tenantId, courseId, want]);
+    [tenantId, courseId, want]) : [];
   const titles = new Map(rows.map((r) => [String(r.id), String(r.title)]));
+  // Group slides likewise: only this class's own sets (story 01, D8), titled with the set's name.
+  const setRows = sets.length ? await q.query(
+    "SELECT id, name FROM group_sets WHERE tenant_id = $1 AND course_id = $2 AND archived = false AND id = ANY($3::uuid[])",
+    [tenantId, courseId, sets]) : [];
+  const setNames = new Map(setRows.map((r) => [String(r.id), String(r.name)]));
   return blocks.flatMap((b) => {
+    if (b.type === "groups" && b.groupSetId) {
+      const name = setNames.get(b.groupSetId);
+      return name === undefined ? [] : [{ ...b, title: name.slice(0, 200) }];
+    }
     if (b.type !== "assignment" || !b.assignmentId) return [b];
     const title = titles.get(b.assignmentId);
     return title === undefined ? [] : [{ ...b, title: title.slice(0, 200) }];

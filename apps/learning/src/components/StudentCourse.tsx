@@ -13,6 +13,7 @@ import { When } from "./When";
 import { StandardsList } from "./Work";
 import { Announcements } from "./Announcements";
 import { listResources } from "@/lib/resources";
+import { myGroups } from "@/lib/group-sets";
 import { shownLessons, itemPlaces } from "@/lib/organize";
 import { materialKind } from "@/lib/material-kind";
 
@@ -50,6 +51,7 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
   // Shown materials (migration 027): in their folders here; the Resources page lists them all.
   const visibleResources = await listResources({ ...c, role: "student" }, course.id);
   const shared = previewing ? 0 : visibleResources.length;
+  const myGroupCount = previewing ? 0 : (await myGroups(c, course.id, person.id)).length;
   const row = gb.rows[0];
   const sv = standardsView(gb, row);
   const subBy = new Map(subs.map((s) => [s.assignmentId, s]));
@@ -159,6 +161,7 @@ export async function StudentCourse({ course, c, person, L, previewBase, updates
           {live && <Link className="btn btn-primary" href={`/courses/${course.id}/live`}><span className="live-dot" />{d.joinLive}</Link>}
           <Link className="btn" href={`/courses/${course.id}/calendar`}>{d.calendar}</Link>
           {shared > 0 && <Link className="btn" href={`/courses/${course.id}/resources`}>{d.resTitle} ({shared})</Link>}
+          {myGroupCount > 0 && <Link className="btn" href={`/courses/${course.id}/groups`}>{d.grpYourGroups} ({myGroupCount})</Link>}
         </div>
       )}
 

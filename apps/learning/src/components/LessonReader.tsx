@@ -7,6 +7,7 @@ import { googleEmbed } from "@/lib/embeds";
 import { boardLink } from "@/lib/boards";
 import type { Dict } from "@/lib/i18n";
 import { FileStage, VideoStage, GoogleStage } from "./Presenter";
+import GroupsView from "./GroupsView";
 
 /**
  * A lesson read as one page, top to bottom: what a student opens from the
@@ -73,6 +74,13 @@ function ReaderBlock({ b, d }: { b: Block; d: Dict }) {
         </a>
       );
     }
+    case "groups":
+      return (
+        <section className="card" style={{ padding: "12px 14px" }}>
+          <p className="label" style={{ marginTop: 0 }}><span className="shape s-square" aria-hidden="true" /> {b.title || d.blockGroups}</p>
+          <GroupsView shown={b.shown} title={b.title} d={d} />
+        </section>
+      );
     case "assignment":
       // A student's copy of a draft's slide has no assignment: nothing to show yet.
       if (!b.assignmentId) return null;

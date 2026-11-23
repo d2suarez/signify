@@ -16,6 +16,7 @@ let db: Db;
 const T = { tenantId: "school-a", userId: "t1" };
 const B = { tenantId: "school-b", userId: "t9" };
 let course = "", other = "", foreign = "";
+const SV = { studentId: "s1", live: true };
 const ID = "0b4c2a9e-1f00-4c3b-9a55-0d6e5b1f2a3c";
 
 before(async () => {
@@ -68,17 +69,17 @@ test("assignment block: students see a draft's slide empty, and the assignment o
     { type: "poll", question: "Ready?", choices: [{ text: "Yes", correct: true }, { text: "No" }] },
     { type: "assignment", assignmentId: quiz.id },
   ] as never);
-  let seen = await studentBlocks(T.tenantId, course, lesson.blocks);
+  let seen = await studentBlocks(T.tenantId, course, lesson.blocks, SV);
   assert.equal(seen.length, 2, "slide numbers stay the teacher's");
   assert.deepEqual(seen[1], { ...lesson.blocks[1], title: "", assignmentId: "" }, "a draft's title and id never reach students");
   assert.ok(!JSON.stringify(seen).includes("Secret quiz"));
   assert.ok((seen[0] as { choices: { correct: boolean }[] }).choices.every((c) => !c.correct), "no poll answer keys");
 
   await saveAssignment(T, quiz.id, { baseVersion: quiz.version, published: true, title: "Chapter quiz" });
-  seen = await studentBlocks(T.tenantId, course, lesson.blocks);
+  seen = await studentBlocks(T.tenantId, course, lesson.blocks, SV);
   assert.deepEqual(seen[1], { ...lesson.blocks[1], title: "Chapter quiz" }, "published: the assignment as it is now");
-  assert.equal((await studentBlocks(B.tenantId, course, lesson.blocks))[1].type, "assignment");
-  assert.equal(((await studentBlocks(B.tenantId, course, lesson.blocks))[1] as { assignmentId: string }).assignmentId, "", "another school learns nothing");
+  assert.equal((await studentBlocks(B.tenantId, course, lesson.blocks, SV))[1].type, "assignment");
+  assert.equal(((await studentBlocks(B.tenantId, course, lesson.blocks, SV))[1] as { assignmentId: string }).assignmentId, "", "another school learns nothing");
 });
 
 test("assignment block: in Updates the lesson links the assignment, its title filled per reader", () => {
