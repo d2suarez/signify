@@ -5,6 +5,7 @@ import { gradesFor } from "@/lib/grades";
 import { closeExpired, QUIZ_GRADER, studentQuiz, syncGrade } from "@/lib/quiz-store";
 import { passBack } from "@/lib/lti-passback";
 import { linkForAssignment } from "@/lib/lti-platform";
+import { groupState } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
 
@@ -30,16 +31,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (a.kind === "quiz" && (await closeExpired(c, a, me.id)).length) {
     if (await syncGrade({ tenantId: me.tenantId, userId: QUIZ_GRADER }, a, me.id, new Set([me.id]))) await passBack(access, me.id);
   }
-  const [submission, grades, toolLink, quiz] = await Promise.all([
+  const [submission, grades, toolLink, quiz, group] = await Promise.all([
     a.kind === "online" ? getSubmission(c, a.id, me.id) : Promise.resolve(null),
     gradesFor(c, a.id), linkForAssignment(me.tenantId, a.id),
     a.kind === "quiz" ? studentQuiz(c, a) : Promise.resolve(null),
+    a.kind === "online" ? groupState(c, a, me.id) : Promise.resolve(null),
   ]);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   return NextResponse.json({
     role: "student", ...base,
     instructions: a.instructions, instructionsDoc: a.instructionsDoc ?? null,
     quiz, submission, locked: !!mine && (mine.score !== null || mine.flag === "exempt"),
-    toolLinkId: toolLink?.id ?? null,
+    toolLinkId: toolLink?.id ?? null, group, me: me.id,
   }, noStore);
 }

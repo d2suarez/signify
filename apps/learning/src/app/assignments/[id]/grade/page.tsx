@@ -12,6 +12,7 @@ import { TopBar } from "@/components/TopBar";
 import GradeDesk, { type DeskStandards, type DeskStudent } from "@/components/GradeDesk";
 import { placements } from "@/lib/lti-dl";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
+import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +29,12 @@ export default async function GradePage({ params, searchParams }: {
   await closeQuizForTeacher(access);
   const { me, course, assignment: a } = access;
   const c = ctx(me);
-  const [{ ok, students }, subs, grades, placed, grading, allStandards] = await Promise.all([
+  const [{ ok, students }, subs, grades, placed, grading, allStandards, groups, work] = await Promise.all([
     studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), placements(me.tenantId, "assignment", a.id),
-    courseGrading(c, course.id), listStandards(c, course.id),
+    courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id),
   ]);
+  // Group work (story 01, F4): each student's group, and the group's shared text where they haven't handed in.
+  const groupOf = new Map((groups ?? []).flatMap((g) => g.members.map((m) => [m.id, g] as const)));
   let standards: DeskStandards | undefined;
   if (grading.mode === "standards") {
     const aligned = alignedStandards(a);
@@ -45,12 +48,17 @@ export default async function GradePage({ params, searchParams }: {
   const subBy = new Map(subs.map((s) => [s.studentId, s]));
   const gradeBy = new Map(grades.map((g) => [g.studentId, g]));
 
-  const desk: DeskStudent[] = students.map((s) => {
+  const order = groups ? [...students].sort((x, y) => {
+    const gx = groups.findIndex((g) => g.id === groupOf.get(x.id)?.id), gy = groups.findIndex((g) => g.id === groupOf.get(y.id)?.id);
+    return (gx < 0 ? 999 : gx) - (gy < 0 ? 999 : gy);
+  }) : students;
+  const desk: DeskStudent[] = order.map((s) => {
     const sub = subBy.get(s.id) || null;
     const g = gradeBy.get(s.id) || null;
     return {
       id: s.id, name: s.name,
-      body: sub?.body ?? null,
+      body: groupOf.has(s.id) ? workFor(sub, work.get(groupOf.get(s.id)!.id) ?? null) : sub?.body ?? null,
+      group: groupOf.has(s.id) ? { name: groupOf.get(s.id)!.name, ids: groupOf.get(s.id)!.members.map((m) => m.id) } : null,
       submittedAt: sub?.submittedAt ?? null,
       late: isLate(a, sub),
       score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null, levels: g?.levels ?? null,
@@ -62,6 +70,7 @@ export default async function GradePage({ params, searchParams }: {
     <>
       <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href={`/courses/${course.id}`}>{course.name}</Link> · <Link href={`/assignments/${a.id}`}>{a.title}</Link></>} />
       <main className="page stack">
+        {/* Sorted by group on a group assignment, so a group's members sit together. */}
         <div className="row">
           <h1 style={{ fontSize: 30 }} className="grow">{a.title}</h1>
           <span className="muted">{a.points} {d.pts}</span>

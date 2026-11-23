@@ -22,6 +22,8 @@ export type DeskStudent = {
   score: number | null; flag: Flag | null; comment: string; rubric: RubricSelection | null; levels: Levels | null;
   /** Days late by the hand-in time (null = not late by the clock), and the teacher's change to the penalty. */
   autoDays: number | null; lateOverride: LateOverride | null;
+  /** Group work (story 01, F4): the student's group and its members' ids, or null. */
+  group?: { name: string; ids: string[] } | null;
 };
 
 type History = { score: number | null; flag: Flag | null; comment: string; lateOverride: LateOverride | null; changedAt: string }[];
@@ -55,6 +57,8 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<History | null>(null);
   const [showWriting, setShowWriting] = useState(false);
+  // A group assignment: one grade for the whole group, unless the teacher changes just this member.
+  const [whole, setWhole] = useState(true);
   const scoreRef = useRef<HTMLInputElement>(null);
 
   // Load the chosen student's grade into the form.
@@ -70,6 +74,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setError("");
     setHistory(null);
     setShowWriting(false);
+    setWhole(true);
     scoreRef.current?.focus();
     // Only when moving to another student, not after each save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,19 +125,27 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     try {
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
+        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(out.error === "bad-score" ? d.badScore : out.error === "roster" ? d.rosterFailed : d.saveError);
         return;
       }
-      const g = out.grade;
+      // Every member a group grade reached (just this student otherwise).
+      const reached: Record<string, Grade | null> = out.grades ?? { [s.id]: out.grade };
       setSaves((n) => n + 1);
-      setStudents((all) => all.map((x, j) => j === i
-        ? { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null }
-        : x));
-      if (thenNext && i < students.length - 1) setI(i + 1);
+      setStudents((all) => all.map((x) => {
+        if (!(x.id in reached)) return x;
+        const g = reached[x.id];
+        return { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null };
+      }));
+      // Save · Next on a group grade moves past the group's other members.
+      if (thenNext) {
+        let k = i + 1;
+        while (k < students.length && s.group && whole && s.group.ids.includes(students[k].id)) k++;
+        if (k < students.length) setI(k);
+      }
     } catch {
       setError(d.saveError);
     } finally {
@@ -165,7 +178,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           {students.map((x, j) => (
             <li key={x.id}>
               <button type="button" aria-current={j === i ? "true" : undefined} onClick={() => setI(j)}>
-                <span className="grow">{x.name}</span>
+                <span className="grow">{x.name}{x.group && <span className="muted" style={{ display: "block", fontSize: 12 }}>{x.group.name}</span>}</span>
                 {x.score !== null
                   ? <b>{x.score}</b>
                   : x.flag ? <span className={`chip chip-${x.flag}`}>{flagLabel(x.flag)}</span>
@@ -179,7 +192,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
 
       <section className="card desk-work" aria-labelledby="desk-name">
         <div className="row">
-          <h2 id="desk-name" className="grow" style={{ fontSize: 22 }}>{s.name}</h2>
+          <h2 id="desk-name" className="grow" style={{ fontSize: 22 }}>{s.name}{s.group && <span className="muted" style={{ display: "block", fontSize: 14, fontWeight: 400 }}>{s.group.name} · {students.filter((x) => s.group!.ids.includes(x.id)).map((x) => x.name).join(", ")}</span>}</h2>
           {assignment.kind !== "offline" && (s.submittedAt
             ? <span className={`chip ${s.late ? "chip-late" : "chip-done"}`}>{d.handedIn} · <time suppressHydrationWarning>{new Date(s.submittedAt).toLocaleString()}</time>{s.late ? ` · ${d.late}` : ""}</span>
             : <span className="chip">{s.body ? d.workingOn : d.notHandedIn}</span>)}
@@ -276,6 +289,12 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           <label htmlFor="g-comment">{d.comment}</label>
           <textarea id="g-comment" className="field" rows={5} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} />
         </div>
+        {s.group && (
+          <label className="check" style={{ marginTop: 10, whiteSpace: "normal" }}>
+            <input type="checkbox" checked={whole} onChange={(e) => setWhole(e.target.checked)} />
+            {d.gaWholeGroup.replace("{group}", s.group.name)}
+          </label>
+        )}
         <p className="muted" style={{ fontSize: 13, margin: "8px 0 0" }}>{assignment.gradesReleased ? d.gradesReleasedNote : d.gradesHiddenNote}</p>
         {schoology && <SchoologyScores assignmentId={assignment.id} studentId={s.id} refresh={saves} d={d} />}
         {error && <p className="notice notice-bad" role="alert" style={{ marginTop: 10 }}>{error}</p>}

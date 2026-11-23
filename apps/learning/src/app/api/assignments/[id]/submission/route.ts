@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assignmentAccess, ctx } from "@/lib/access";
 import { saveDraft, setHandedIn } from "@/lib/assignments";
+import { groupFor } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ async function student(id: string) {
   const access = await assignmentAccess(id);
   if (!access) return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   if (access.course.role !== "student") return { error: NextResponse.json({ error: "Only students hand in work." }, { status: 403 }) };
+  // A member of a group on a group assignment works on the group's text (group-work route), never alone.
+  if (await groupFor(ctx(access.me), access.assignment, access.me.id)) return { error: NextResponse.json({ error: "group" }, { status: 409 }) };
   return { access };
 }
 

@@ -9,6 +9,8 @@ import type { StudentQuizView } from "@/lib/quiz-store";
 import Instructions from "./Instructions";
 import QuizTaker from "./QuizTaker";
 import SubmissionEditor from "./SubmissionEditor";
+import GroupWorkEditor from "./GroupWorkEditor";
+import type { GroupState } from "@/lib/group-work";
 import { When } from "./When";
 
 /*
@@ -23,6 +25,8 @@ type TeacherView = { role: "teacher"; id: string; title: string; kind: string; p
 type StudentView = {
   role: "student"; id: string; title: string; kind: string; points: number; dueAt: string | null;
   instructions: string; instructionsDoc: PostDoc | null; quiz: StudentQuizView | null; submission: Submission | null; locked: boolean; toolLinkId: string | null;
+  /** A group assignment: the student's group and its shared text (null when they work alone). */
+  group?: GroupState | null; me?: string;
 };
 type Loaded<T> = { at: string; view: T | null; missing: boolean };
 
@@ -125,6 +129,8 @@ export function StudentAssignmentStage({ block, d, L, stamp }: { block: Assignme
       {/* Keyed by assignment: moving to another slide starts fresh; publishing another never resets this one. */}
       {a.quiz
         ? <QuizTaker key={a.id} assignmentId={a.id} initial={a.quiz} points={a.points} d={d} />
+        : a.kind === "online" && a.group
+        ? <GroupWorkEditor key={a.id} assignmentId={a.id} initial={a.group} myId={a.me ?? ""} locked={a.locked} d={d} />
         : a.kind === "online"
         ? <SubmissionEditor key={a.id} assignmentId={a.id} initial={a.submission} locked={a.locked} d={d} />
         : a.toolLinkId

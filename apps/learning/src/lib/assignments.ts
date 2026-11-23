@@ -20,6 +20,8 @@ import { docFileIds, docIsEmpty, docText, filterDoc, normalizeDoc, type PostDoc 
  */
 
 export type AssignmentKind = "online" | "offline" | "quiz";
+export type GroupHandIn = "each" | "one";
+export type GroupSubmitter = "group" | "teacher";
 
 export type Assignment = {
   id: string;
@@ -46,6 +48,12 @@ export type Assignment = {
   standards: string[] | null;
   /** A quiz's questions and settings (kind "quiz"); its points are the questions' total. */
   quiz: Quiz | null;
+  /** Group work (migration 034): one of the class's saved group sets, or null. Never a quiz. */
+  groupSetId: string | null;
+  /** Every member hands in, or one hands in for the group. */
+  groupHandIn: GroupHandIn;
+  /** With "one": the group chooses who, or the teacher sets it. */
+  groupSubmitter: GroupSubmitter;
   version: number;
   updatedAt: string;
 };
@@ -88,6 +96,9 @@ function toAssignment(r: Record<string, unknown>): Assignment {
     rubric: r.rubric ? normalizeRubric(typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) : null,
     standards: cleanIdList(typeof r.standards === "string" ? JSON.parse(r.standards) : r.standards),
     quiz: r.kind === "quiz" ? normalizeQuiz(typeof r.quiz === "string" ? JSON.parse(r.quiz) : r.quiz) : null,
+    groupSetId: r.group_set_id ? String(r.group_set_id) : null,
+    groupHandIn: r.group_hand_in === "one" ? "one" : "each",
+    groupSubmitter: r.group_submitter === "teacher" ? "teacher" : "group",
     version: Number(r.version),
     updatedAt: iso(r.updated_at) as string,
   };
@@ -192,6 +203,10 @@ export type AssignmentInput = {
   standards?: unknown;
   /** A quiz's questions and settings (kind "quiz"). */
   quiz?: unknown;
+  /** One of the class's group sets, or null for individual work. */
+  groupSetId?: unknown;
+  groupHandIn?: unknown;
+  groupSubmitter?: unknown;
 };
 
 export type AssignmentSave =
@@ -199,7 +214,7 @@ export type AssignmentSave =
   | { ok: false; reason: "conflict"; assignment: Assignment }
   | { ok: false; reason: "missing" };
 
-const SNAPSHOT_KEYS = ["title", "instructions", "kind", "points", "dueOn", "dueAt", "unitId", "categoryId", "published", "gradesReleased"] as const;
+const SNAPSHOT_KEYS = ["title", "instructions", "kind", "points", "dueOn", "dueAt", "unitId", "categoryId", "published", "gradesReleased", "groupSetId", "groupHandIn", "groupSubmitter"] as const;
 
 export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInput): Promise<AssignmentSave> {
   if (!UUID.test(id)) return { ok: false, reason: "missing" };
@@ -247,6 +262,16 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     } else {
       next.quiz = null;
     }
+    // Group work (migration 034): only this class's own unarchived set (the one already chosen stays if archived since); never a quiz.
+    if (input.groupSetId !== undefined) {
+      const want = typeof input.groupSetId === "string" && UUID.test(input.groupSetId) ? input.groupSetId : null;
+      const ok = want === cur.groupSetId || (want && (await t.query(
+        "SELECT 1 FROM group_sets WHERE tenant_id = $1 AND course_id = $2 AND id = $3 AND archived = false", [ctx.tenantId, cur.courseId, want]))[0]);
+      next.groupSetId = ok ? want : cur.groupSetId;
+    }
+    if (input.groupHandIn !== undefined) next.groupHandIn = input.groupHandIn === "one" ? "one" : "each";
+    if (input.groupSubmitter !== undefined) next.groupSubmitter = input.groupSubmitter === "teacher" ? "teacher" : "group";
+    if (next.kind === "quiz") next.groupSetId = null;
     // With a rubric, the points are what it can give at most.
     if (next.rubric) next.points = Math.min(LIMITS.maxPoints, rubricMax(next.rubric));
     // Alignment: only this course's own standards (not archived) are kept.
@@ -283,12 +308,14 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
     const saved = await t.query(
       `UPDATE assignments SET title = $3, instructions = $4, kind = $5, points = $6, due_on = $7, due_at = $8,
               unit_id = $9, category_id = $10, published = $11, grades_released = $12, rubric = $14::jsonb, standards = $15::jsonb,
-              quiz = $16::jsonb, instructions_doc = $17::jsonb, version = version + 1, updated_by = $13, updated_at = now()
+              quiz = $16::jsonb, instructions_doc = $17::jsonb, group_set_id = $18, group_hand_in = $19, group_submitter = $20,
+              version = version + 1, updated_by = $13, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
       [ctx.tenantId, id, next.title, next.instructions, next.kind, next.points, next.dueOn, next.dueAt,
         next.unitId, next.categoryId, next.published, next.gradesReleased, ctx.userId,
         next.rubric ? JSON.stringify(next.rubric) : null, next.standards ? JSON.stringify(next.standards) : null,
-        next.quiz ? JSON.stringify(next.quiz) : null, next.instructionsDoc ? JSON.stringify(next.instructionsDoc) : null],
+        next.quiz ? JSON.stringify(next.quiz) : null, next.instructionsDoc ? JSON.stringify(next.instructionsDoc) : null,
+        next.groupSetId, next.groupHandIn, next.groupSubmitter],
     );
     return { ok: true, assignment: toAssignment(saved[0]), changed: true } as const;
   });

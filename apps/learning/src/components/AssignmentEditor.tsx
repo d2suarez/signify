@@ -27,14 +27,16 @@ function localTime(iso: string | null): string {
  * The teacher's form for one assignment. Saved with an explicit Save (it is
  * a form, not a document), version-checked like lessons.
  */
-export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, canUpload = false, d }: {
+export default function AssignmentEditor({ initial, units, categories, standards, attempted = 0, canUpload = false, groupSets = [], d }: {
   initial: Assignment; units: Option[]; categories: Option[];
   /** Whether pictures and files can be uploaded into the instructions (the file store is on). */
   canUpload?: boolean;
   /** The course's standards (any course may align work; only a standards course grades by them). */
   standards?: StandardOption[];
   /** A quiz: how many students have handed in an attempt. */
-  attempted?: number; d: Dict;
+  attempted?: number;
+  /** The class's saved group sets (group work, story 01 A10). */
+  groupSets?: Option[]; d: Dict;
 }) {
   const [a, setA] = useState(initial);
   const [time, setTime] = useState("23:59");
@@ -71,6 +73,7 @@ export default function AssignmentEditor({ initial, units, categories, standards
           published: next.published, gradesReleased: next.gradesReleased, rubric: next.kind === "quiz" ? null : next.rubric,
           ...(next.kind === "quiz" ? { quiz: next.quiz ?? { settings: DEFAULT_SETTINGS, items: [] } } : {}),
           ...(standards ? { standards: next.standards ?? [] } : {}),
+          groupSetId: next.kind === "quiz" ? null : next.groupSetId, groupHandIn: next.groupHandIn, groupSubmitter: next.groupSubmitter,
         }),
       });
       if (res.status === 409) { setStatus("conflict"); return; }
@@ -198,6 +201,40 @@ export default function AssignmentEditor({ initial, units, categories, standards
               </select>
             </div>
           </div>
+
+          {a.kind !== "quiz" && (
+            <div className="card">
+              <div className="fieldset" style={{ marginTop: 0 }}>
+                <label htmlFor="a-groups">{d.gaGroupWork}</label>
+                <select id="a-groups" className="field" value={a.groupSetId || ""} onChange={(e) => set({ groupSetId: e.target.value || null })}>
+                  <option value="">{d.gaAlone}</option>
+                  {a.groupSetId && !groupSets.some((g) => g.id === a.groupSetId) && <option value={a.groupSetId}>{d.gaArchivedSet}</option>}
+                  {groupSets.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+                  {groupSets.length ? d.gaHint : d.gaNoSets} <Link href={`/courses/${a.courseId}/groups`}>{d.grpTitle}</Link>
+                </p>
+              </div>
+              {a.groupSetId && a.kind === "online" && (
+                <>
+                  <fieldset className="fieldset" style={{ border: 0, padding: 0 }}>
+                    <legend className="flabel" style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{d.gaHandIn}</legend>
+                    <label className="check" style={{ whiteSpace: "normal" }}><input type="radio" name="ga-mode" checked={a.groupHandIn === "each"} onChange={() => set({ groupHandIn: "each" })} /> {d.gaEach}</label>
+                    <label className="check" style={{ whiteSpace: "normal" }}><input type="radio" name="ga-mode" checked={a.groupHandIn === "one"} onChange={() => set({ groupHandIn: "one" })} /> {d.gaOne}</label>
+                  </fieldset>
+                  {a.groupHandIn === "one" && (
+                    <fieldset className="fieldset" style={{ border: 0, padding: 0 }}>
+                      <legend className="flabel" style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{d.gaWho}</legend>
+                      <label className="check" style={{ whiteSpace: "normal" }}><input type="radio" name="ga-who" checked={a.groupSubmitter === "group"} onChange={() => set({ groupSubmitter: "group" })} /> {d.gaWhoGroup}</label>
+                      <label className="check" style={{ whiteSpace: "normal" }}><input type="radio" name="ga-who" checked={a.groupSubmitter === "teacher"} onChange={() => set({ groupSubmitter: "teacher" })} /> {d.gaWhoTeacher}</label>
+                    </fieldset>
+                  )}
+                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.gaSharedText}</p>
+                </>
+              )}
+              {a.groupSetId && <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>{d.gaGradeHint}</p>}
+            </div>
+          )}
 
           <button type="button" className="btn" style={{ alignSelf: "flex-start" }} onClick={archive}>{d.archive}</button>
         </aside>

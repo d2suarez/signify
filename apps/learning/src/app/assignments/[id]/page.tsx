@@ -4,7 +4,11 @@ import { finalScore } from "@/lib/late-policy";
 import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang } from "@/lib/access";
-import { getSubmission } from "@/lib/assignments";
+import { getSubmission, listSubmissions } from "@/lib/assignments";
+import { listGroupSets } from "@/lib/group-sets";
+import { assignmentGroups, groupState, listGroupWork } from "@/lib/group-work";
+import GroupHandIn from "@/components/GroupHandIn";
+import GroupWorkEditor from "@/components/GroupWorkEditor";
 import { gradesFor, listCategories } from "@/lib/grades";
 import { listUnits, unitChoices } from "@/lib/units";
 import { courseGrading, listStandards } from "@/lib/standards";
@@ -50,10 +54,12 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
     const toolLink = await linkForAssignment(me.tenantId, a.id);
     const tool = toolLink ? await getTool(me.tenantId, toolLink.toolId) : null;
     const sent = toolLink ? await toolScores(me.tenantId, a.id) : [];
-    const [units, categories, placed, options, attempts] = await Promise.all([
+    const [units, categories, placed, options, attempts, sets, groups, work, subs] = await Promise.all([
       listUnits(c, course.id), listCategories(c, course.id), placements(me.tenantId, "assignment", a.id),
       standardOptions(c, course.id), a.kind === "quiz" ? attemptsOf(c, a.id) : Promise.resolve([]),
+      listGroupSets(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listSubmissions(c, a.id),
     ]);
+    const handed = new Set(subs.filter((s) => s.submittedAt).map((s) => s.studentId));
     return (
       <>
         <TopBar crumbs={crumbs} />
@@ -62,7 +68,16 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
             units={unitChoices(units).map((u) => ({ id: u.id, name: u.label }))}
             categories={categories.map((k) => ({ id: k.id, name: k.name }))}
             standards={options}
-            attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size} />
+            attempted={new Set(attempts.filter((x) => x.submittedAt).map((x) => x.studentId)).size}
+            groupSets={sets.map((g) => ({ id: g.id, name: g.name }))} />
+          {groups && (
+            <GroupHandIn assignmentId={a.id} mode={a.kind === "online" ? a.groupHandIn : "each"} paper={a.kind !== "online"} submitterBy={a.groupSubmitter} d={d}
+              groups={groups.map((g) => ({
+                id: g.id, name: g.name,
+                members: g.members.map((m) => ({ id: m.id, name: m.name, handedIn: handed.has(m.id) })),
+                submitter: work.get(g.id)?.submitter ?? null, submittedAt: work.get(g.id)?.submittedAt ?? null,
+              }))} />
+          )}
           {toolLink && (
             <section className="card stack" style={{ marginTop: 24, gap: 8 }} aria-labelledby="tool-title">
               <h2 id="tool-title" className="label"><span className="shape s-square" style={{ marginRight: 8 }} />{d.toolFrom}: {tool?.name ?? d.toolRemovedShort}</h2>
@@ -88,8 +103,9 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
   await syncMyToolScore(access, a);
   const toolLink = await linkForAssignment(me.tenantId, a.id);
   const quizView = a.kind === "quiz" ? await studentQuiz(c, a) : null;
-  const [submission, grades, grading, allStandards] = await Promise.all([
+  const [submission, grades, grading, allStandards, group] = await Promise.all([
     getSubmission(c, a.id, me.id), gradesFor(c, a.id), courseGrading(c, course.id), listStandards(c, course.id),
+    a.groupSetId ? groupState(c, a, me.id) : Promise.resolve(null),
   ]);
   const mine = grades.find((g) => g.studentId === me.id) || null;
   const shown = a.gradesReleased ? mine : null;
@@ -158,12 +174,22 @@ export default async function AssignmentPage({ params }: { params: Promise<{ id:
 
         {quizView
           ? <QuizTaker assignmentId={a.id} initial={quizView} points={a.points} d={d} />
+          : a.kind === "online" && group
+          ? <section className="card"><GroupWorkEditor assignmentId={a.id} initial={group} myId={me.id} locked={locked} d={d} /></section>
           : a.kind === "online"
           ? <section className="card"><SubmissionEditor assignmentId={a.id} initial={submission} locked={locked} d={d} /></section>
           : toolLink
           ? <section className="card stack" style={{ gap: 8 }}><p style={{ margin: 0 }}>{d.toolStudentHint}</p>
               <div><a className="btn btn-primary" href={`/lti/tool/launch?link=${toolLink.id}&target=window`} target="_blank" rel="noopener">{d.toolOpen} ↗</a></div></section>
-          : <p className="notice">{d.paperAssignment}</p>}
+          : <>
+              {group && (
+                <section className="card">
+                  <p className="label" style={{ margin: 0 }}>{d.gaYourGroup}: {group.group.name}</p>
+                  <p className="muted" style={{ margin: "2px 0 0", fontSize: 14 }}>{group.group.members.map((m) => m.name).join(", ")}</p>
+                </section>
+              )}
+              <p className="notice">{d.paperAssignment}</p>
+            </>}
       </main>
     </>
   );

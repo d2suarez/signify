@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { assignmentAccess, ctx, studentsOf } from "@/lib/access";
 import { gradeHistory, setGrade } from "@/lib/grades";
 import { passBack } from "@/lib/lti-passback";
+import { gradeTargets } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late? }
+ * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late?, group? }
+ * (group: true = the same grade for every member of the student's group on a group assignment).
  * (late = the teacher's change to the late penalty: {waive}, {percent}, {days} or null).
  * The student must be in the class in Signify ID right now; if ID can't be
  * asked, nothing is written.
@@ -26,15 +28,27 @@ export async function PUT(req: Request) {
 
   const { ok, students } = await studentsOf(access);
   if (!ok) return NextResponse.json({ error: "roster" }, { status: 503 });
-  const r = await setGrade(ctx(access.me), access.assignment, String(body.studentId || ""), new Set(students.map((s) => s.id)), {
-    score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels, late: body.late,
-  });
-  if (r.ok) {
+  const roster = new Set(students.map((s) => s.id));
+  const studentId = String(body.studentId || "");
+  const input = { score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels, late: body.late };
+  // A group grade (story 01, F4): the same grade for every member of the student's group, each through setGrade
+  // (history, late policy per member, passback), the named student first so a bad score stops before anyone changes.
+  const targets = body.group === true ? await gradeTargets(ctx(access.me), access.assignment, studentId, roster) : [studentId];
+  const order = [studentId, ...targets.filter((id) => id !== studentId)];
+  const grades: Record<string, unknown> = {};
+  let first: { grade: unknown; changed: boolean } | null = null;
+  for (const id of order) {
+    const r = await setGrade(ctx(access.me), access.assignment, id, roster, input);
+    if (!r.ok) {
+      if (!first) return NextResponse.json({ error: r.reason }, { status: r.reason === "bad-score" ? 400 : 403 });
+      continue;
+    }
     // Schoology gets it in the background; this save never waits for it.
-    if (r.changed) await passBack(access, String(body.studentId));
-    return NextResponse.json({ grade: r.grade, changed: r.changed });
+    if (r.changed) await passBack(access, id);
+    grades[id] = r.grade;
+    if (!first) first = { grade: r.grade, changed: r.changed };
   }
-  return NextResponse.json({ error: r.reason }, { status: r.reason === "bad-score" ? 400 : 403 });
+  return NextResponse.json({ grade: first!.grade, changed: first!.changed, grades });
 }
 
 /** A grade's history. ?assignmentId=&studentId= */
