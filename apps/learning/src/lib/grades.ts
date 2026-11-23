@@ -20,7 +20,7 @@ type Ctx = { tenantId: string; userId: string };
 const UUID = /^[0-9a-f-]{36}$/i;
 
 import { FLAGS, MAX_DROP, type Flag } from "./grade-math";
-import { cleanSelection, type RubricSelection } from "./rubric";
+import { cleanNotes, cleanParts, cleanSelection, isParts, type PartMarks, type PartNotes, type RubricSelection } from "./rubric";
 import { alignedStandards, cleanLevels, topLevel } from "./standards-math";
 import { courseGrading } from "./standards";
 import { normalizeOverride, type LateOverride } from "./late-policy";
@@ -38,10 +38,14 @@ export type Grade = {
   rubric: RubricSelection | null;
   /** The level reached per standard (standards courses only): standard id → level. */
   levels: Record<string, number> | null;
+  /** A sections-and-parts rubric: each part's score and message to the student (shown once released). */
+  parts: PartMarks | null;
   /** The teacher waived or changed this grade's late penalty. */
   lateOverride: LateOverride | null;
   gradedAt: string;
 };
+
+const json = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v);
 
 function toGrade(r: Record<string, unknown>): Grade {
   return {
@@ -52,9 +56,19 @@ function toGrade(r: Record<string, unknown>): Grade {
     comment: String(r.comment ?? ""),
     rubric: r.rubric ? (typeof r.rubric === "string" ? JSON.parse(r.rubric) : r.rubric) as RubricSelection : null,
     levels: r.levels ? (typeof r.levels === "string" ? JSON.parse(r.levels) : r.levels) as Record<string, number> : null,
+    // Never part_notes: those are the teacher's own (partNotesFor).
+    parts: r.parts ? json(r.parts) as PartMarks : null,
     lateOverride: normalizeOverride(typeof r.late_override === "string" ? JSON.parse(r.late_override) : r.late_override),
     gradedAt: r.graded_at instanceof Date ? r.graded_at.toISOString() : String(r.graded_at),
   };
+}
+
+/** The teacher's own notes per part, by student: for the grading desk only, never a student or parent. */
+export async function partNotesFor(ctx: Ctx, assignmentId: string): Promise<Map<string, PartNotes>> {
+  if (!UUID.test(assignmentId)) return new Map();
+  const db = await getDb();
+  const rows = await db.query("SELECT student_id, part_notes FROM grades WHERE tenant_id = $1 AND assignment_id = $2 AND part_notes IS NOT NULL", [ctx.tenantId, assignmentId]);
+  return new Map(rows.map((r) => [String(r.student_id), json(r.part_notes) as PartNotes]));
 }
 
 export async function courseGrades(ctx: Ctx, courseId: string): Promise<Grade[]> {
@@ -74,7 +88,7 @@ export async function gradesFor(ctx: Ctx, assignmentId: string): Promise<Grade[]
   return rows.map(toGrade);
 }
 
-export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown; levels?: unknown; late?: unknown };
+export type GradeInput = { score?: unknown; flag?: unknown; comment?: unknown; rubric?: unknown; levels?: unknown; late?: unknown; parts?: unknown; notes?: unknown };
 
 export type GradeSave =
   | { ok: true; grade: Grade | null; changed: boolean }
@@ -113,6 +127,11 @@ export async function setGrade(
     const cur = rows[0] ? toGrade(rows[0]) : null;
     const rubric = sentRubric ? cleanSelection(a.rubric, input.rubric) : a.rubric ? cleanSelection(a.rubric, cur?.rubric) : null;
     const sameRubric = JSON.stringify(rubric) === JSON.stringify(cur?.rubric ?? null);
+    // A parts rubric's marks and notes: unchanged when not sent (the grid sends none); only this rubric's own parts.
+    const curNotes = rows[0]?.part_notes ? json(rows[0].part_notes) as PartNotes : null;
+    const parts = !isParts(a.rubric) ? null : input.parts !== undefined ? cleanParts(a.rubric, input.parts) : cleanParts(a.rubric, cur?.parts);
+    const notes = !isParts(a.rubric) ? null : input.notes !== undefined ? cleanNotes(a.rubric, input.notes) : cleanNotes(a.rubric, curNotes);
+    const sameParts = JSON.stringify(parts) === JSON.stringify(cur?.parts ?? null) && JSON.stringify(notes) === JSON.stringify(curNotes);
     // Levels only in a standards course, and only for standards this assignment measures.
     // A points course never changes them (nor reads them).
     let levels = cur?.levels ?? null;
@@ -126,29 +145,30 @@ export async function setGrade(
     const late = input.late !== undefined ? normalizeOverride(input.late) : cur?.lateOverride ?? null;
     const sameLate = JSON.stringify(late) === JSON.stringify(cur?.lateOverride ?? null);
     const same = cur
-      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric && sameLevels && sameLate
-      : score === null && flag === null && comment === "" && rubric === null && levels === null;
+      ? cur.score === score && cur.flag === flag && cur.comment === comment && sameRubric && sameLevels && sameLate && sameParts
+      : score === null && flag === null && comment === "" && rubric === null && levels === null && parts === null && notes === null;
     if (same) return { ok: true, grade: cur, changed: false } as const;
 
     await t.query(
-      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, changed_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7)`,
+      `INSERT INTO grade_history (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, changed_by, parts, part_notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7, $11::jsonb, $12::jsonb)`,
       [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null,
-        late ? JSON.stringify(late) : null],
+        late ? JSON.stringify(late) : null, parts ? JSON.stringify(parts) : null, notes ? JSON.stringify(notes) : null],
     );
-    if (score === null && flag === null && comment === "" && rubric === null && levels === null) {
+    if (score === null && flag === null && comment === "" && rubric === null && levels === null && parts === null && notes === null) {
       await t.query("DELETE FROM grades WHERE tenant_id = $1 AND assignment_id = $2 AND student_id = $3", [ctx.tenantId, a.id, studentId]);
       return { ok: true, grade: null, changed: true } as const;
     }
     const saved = await t.query(
-      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, graded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7)
+      `INSERT INTO grades (tenant_id, assignment_id, student_id, score, flag, comment, rubric, levels, late_override, graded_by, parts, part_notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $8::jsonb, $9::jsonb, $10::jsonb, $7, $11::jsonb, $12::jsonb)
        ON CONFLICT (assignment_id, student_id)
        DO UPDATE SET score = EXCLUDED.score, flag = EXCLUDED.flag, comment = EXCLUDED.comment, rubric = EXCLUDED.rubric,
-                     levels = EXCLUDED.levels, late_override = EXCLUDED.late_override, graded_by = EXCLUDED.graded_by, graded_at = now()
+                     levels = EXCLUDED.levels, late_override = EXCLUDED.late_override, graded_by = EXCLUDED.graded_by, graded_at = now(),
+                     parts = EXCLUDED.parts, part_notes = EXCLUDED.part_notes
        RETURNING *`,
       [ctx.tenantId, a.id, studentId, score, flag, comment, ctx.userId, rubric ? JSON.stringify(rubric) : null, levels ? JSON.stringify(levels) : null,
-        late ? JSON.stringify(late) : null],
+        late ? JSON.stringify(late) : null, parts ? JSON.stringify(parts) : null, notes ? JSON.stringify(notes) : null],
     );
     return { ok: true, grade: toGrade(saved[0]), changed: true } as const;
   });

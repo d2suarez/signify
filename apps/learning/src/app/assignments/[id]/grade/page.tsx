@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireMe } from "@/lib/auth";
 import { assignmentAccess, ctx, lang, studentsOf } from "@/lib/access";
 import { isLate, listSubmissions } from "@/lib/assignments";
-import { gradesFor } from "@/lib/grades";
+import { gradesFor, partNotesFor } from "@/lib/grades";
 import { assignmentPenalties } from "@/lib/gradebook";
 import { dict } from "@/lib/i18n";
 import { courseGrading, listStandards } from "@/lib/standards";
@@ -14,6 +14,7 @@ import { placements } from "@/lib/lti-dl";
 import { closeQuizForTeacher } from "@/lib/quiz-sync";
 import GradingMaterials from "@/components/GradingMaterials";
 import { listMaterials } from "@/lib/grading-materials";
+import { isParts } from "@/lib/rubric";
 import { assignmentGroups, listGroupWork, workFor } from "@/lib/group-work";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export default async function GradePage({ params, searchParams }: {
     studentsOf(access), listSubmissions(c, a.id), gradesFor(c, a.id), placements(me.tenantId, "assignment", a.id),
     courseGrading(c, course.id), listStandards(c, course.id), assignmentGroups(c, a), listGroupWork(c, a.id), listMaterials(c, a.id),
   ]);
+  const notesBy = isParts(a.rubric) ? await partNotesFor(c, a.id) : new Map();
   // Group work (story 01, F4): each student's group, and the group's shared text where they haven't handed in.
   const groupOf = new Map((groups ?? []).flatMap((g) => g.members.map((m) => [m.id, g] as const)));
   let standards: DeskStandards | undefined;
@@ -65,6 +67,7 @@ export default async function GradePage({ params, searchParams }: {
       late: isLate(a, sub),
       score: g?.score ?? null, flag: g?.flag ?? null, comment: g?.comment ?? "", rubric: g?.rubric ?? null, levels: g?.levels ?? null,
       autoDays: late.byStudent.get(s.id)?.autoDays ?? null, lateOverride: g?.lateOverride ?? null,
+      parts: g?.parts ?? null, notes: notesBy.get(s.id) ?? null,
     };
   });
 

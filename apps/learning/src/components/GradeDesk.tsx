@@ -8,7 +8,8 @@ import RubricView from "./RubricView";
 import SchoologyScores from "./SchoologyScores";
 import QuizReview from "./QuizReview";
 import type { Grade } from "@/lib/grades";
-import { rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
+import { feedbackFromParts, isParts, partsScore, rubricScore, type PartMarks, type PartNotes, type Rubric, type RubricSelection } from "@/lib/rubric";
+import PartsGrader from "./PartsGrader";
 import { levelsFromRubric } from "@/lib/standards-math";
 import { finalScore, normalizeOverride, penaltyFor, ruleText, type Applied, type LateOverride } from "@/lib/late-policy";
 
@@ -24,6 +25,8 @@ export type DeskStudent = {
   autoDays: number | null; lateOverride: LateOverride | null;
   /** Group work (story 01, F4): the student's group and its members' ids, or null. */
   group?: { name: string; ids: string[] } | null;
+  /** A sections-and-parts rubric: part scores and messages, and the teacher's own notes. */
+  parts?: PartMarks | null; notes?: PartNotes | null;
 };
 
 type History = { score: number | null; flag: Flag | null; comment: string; lateOverride: LateOverride | null; changedAt: string }[];
@@ -49,6 +52,9 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   const [flag, setFlag] = useState<Flag | "">(s.flag || "");
   const [comment, setComment] = useState(s.comment);
   const [sel, setSel] = useState<RubricSelection | null>(s.rubric);
+  const parts = isParts(assignment.rubric);
+  const [marks, setMarks] = useState<PartMarks | null>(s.parts ?? null);
+  const [notes, setNotes] = useState<PartNotes | null>(s.notes ?? null);
   const [levels, setLevels] = useState<Levels | null>(s.levels);
   const [lateMode, setLateMode] = useState<LateMode>(modeOf(s.lateOverride));
   const [lateAmount, setLateAmount] = useState(amountOf(s.lateOverride));
@@ -68,6 +74,8 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     setFlag(cur.flag || "");
     setComment(cur.comment);
     setSel(cur.rubric);
+    setMarks(cur.parts ?? null);
+    setNotes(cur.notes ?? null);
     setLevels(cur.levels);
     setLateMode(modeOf(cur.lateOverride));
     setLateAmount(amountOf(cur.lateOverride));
@@ -91,6 +99,7 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
   const dirty = (score === "" ? null : Number(score)) !== s.score || (flag || null) !== s.flag || comment.trim() !== s.comment
     || JSON.stringify(override) !== JSON.stringify(s.lateOverride ?? null)
     || JSON.stringify(sel ?? null) !== JSON.stringify(s.rubric ?? null)
+    || JSON.stringify(marks ?? null) !== JSON.stringify(s.parts ?? null) || JSON.stringify(notes ?? null) !== JSON.stringify(s.notes ?? null)
     || JSON.stringify(levels ?? null) !== JSON.stringify(s.levels ?? null);
 
   const setLevel = (standardId: string, level: number | null) => {
@@ -119,13 +128,26 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
     }
   };
 
+  // Scoring a part fills in the total (the teacher can still change it).
+  const mark = (next: PartMarks | null) => {
+    setMarks(next);
+    if (!assignment.rubric) return;
+    const { score: total } = partsScore(assignment.rubric, next);
+    setScore(total === null ? "" : String(total));
+  };
+  const built = parts ? feedbackFromParts(assignment.rubric!, marks) : "";
+  const buildFeedback = () => {
+    if (comment.trim() && comment.trim() !== built && !confirm(d.prReplaceFeedback)) return;
+    setComment(built);
+  };
+
   const save = async (thenNext: boolean) => {
     setSaving(true);
     setError("");
     try {
       const res = await fetch("/api/grades", {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(assignment.rubric ? { rubric: sel } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
+        body: JSON.stringify({ assignmentId: assignment.id, studentId: s.id, group: !!s.group && whole, score, flag: flag || null, comment, ...(assignment.rubric && !parts ? { rubric: sel } : {}), ...(parts ? { parts: marks ?? {}, notes: notes ?? {} } : {}), ...(standards ? { levels: levels ?? {} } : {}), ...(lateRule ? { late: override } : {}) }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -138,7 +160,8 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
       setStudents((all) => all.map((x) => {
         if (!(x.id in reached)) return x;
         const g = reached[x.id];
-        return { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null };
+        return { ...x, score: g ? g.score : null, flag: g ? g.flag : null, comment: g ? g.comment : "", rubric: g ? g.rubric : null, levels: g ? g.levels : null, lateOverride: g ? g.lateOverride : null,
+          parts: g ? g.parts : null, notes: g && parts ? notes : null };
       }));
       // Save · Next on a group grade moves past the group's other members.
       if (thenNext) {
@@ -215,7 +238,9 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
         {assignment.rubric && (
           <div className="fieldset" style={{ marginTop: 0 }}>
             <p className="flabel" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>{d.rubric}</p>
-            <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />
+            {parts
+              ? <PartsGrader key={s.id} rubric={assignment.rubric} marks={marks} notes={notes} onMarks={mark} onNotes={setNotes} d={d} />
+              : <RubricView rubric={assignment.rubric} selection={sel} onPick={pick} d={d} />}
           </div>
         )}
         {standards && standards.list.length > 0 && (
@@ -286,7 +311,11 @@ export default function GradeDesk({ assignment, students: initial, startWith, sc
           </fieldset>
         )}
         <div className="fieldset">
-          <label htmlFor="g-comment">{d.comment}</label>
+          <div className="row" style={{ gap: 8 }}>
+            <label htmlFor="g-comment" className="grow">{parts ? d.prFeedback : d.comment}</label>
+            {parts && <button type="button" className="btn btn-sm" disabled={!built || built === comment} onClick={buildFeedback}>{d.prBuild}</button>}
+          </div>
+          {parts && <p className="muted" style={{ fontSize: 12, margin: "2px 0 4px" }}>{d.prFeedbackHint}</p>}
           <textarea id="g-comment" className="field" rows={5} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} />
         </div>
         {s.group && (

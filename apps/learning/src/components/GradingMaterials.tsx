@@ -80,7 +80,7 @@ export default function GradingMaterials({ assignmentId, courseId, initial, edit
                 href={m.fileId ? `/files/${m.fileId}` : m.url!}>
                 {m.title || m.fileName || m.url}{m.url ? " ↗" : ""}
               </a>
-              {editable && <button type="button" className="btn" onClick={() => remove(m)} aria-label={`${d.gmRemove}: ${m.title || m.fileName || m.url}`}>{d.gmRemove}</button>}
+              {editable && <button type="button" className="btn btn-sm" onClick={() => remove(m)} aria-label={`${d.gmRemove}: ${m.title || m.fileName || m.url}`}>{d.gmRemove}</button>}
             </li>
           ))}
         </ul>

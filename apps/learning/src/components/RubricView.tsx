@@ -1,16 +1,19 @@
 "use client";
 
 import type { Dict } from "@/lib/i18n";
-import { rubricMax, rubricScore, type Rubric, type RubricSelection } from "@/lib/rubric";
+import { isParts, partsScore, rubricMax, rubricScore, sectionPoints, type PartMarks, type Rubric, type RubricSelection } from "@/lib/rubric";
 
 /**
  * A rubric. For a student, a table: one row per criterion, its levels across,
  * the chosen level marked with a tick and a word, never colour alone. With
  * `onPick` (grading), each criterion stacked with its levels as toggle buttons.
  */
-export default function RubricView({ rubric, selection, onPick, d }: {
-  rubric: Rubric; selection: RubricSelection | null; onPick?: (criterionId: string, levelId: string | null) => void; d: Dict;
+export default function RubricView({ rubric, selection, onPick, marks, d }: {
+  rubric: Rubric; selection: RubricSelection | null; onPick?: (criterionId: string, levelId: string | null) => void;
+  /** A sections-and-parts rubric: the student's part scores and messages, once released. */
+  marks?: PartMarks | null; d: Dict;
 }) {
+  if (isParts(rubric)) return <PartsView rubric={rubric} marks={marks ?? null} d={d} />;
   const { score, complete } = rubricScore(rubric, selection);
   const total = (
     <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
@@ -72,6 +75,54 @@ export default function RubricView({ rubric, selection, onPick, d }: {
         </tbody>
       </table>
       {total}
+    </div>
+  );
+}
+
+/**
+ * A sections-and-parts rubric, read-only: each section with its parts'
+ * questions and points; with marks, the part's score (in words as well as
+ * colour) and the teacher's message about it.
+ */
+function PartsView({ rubric, marks, d }: { rubric: Rubric; marks: PartMarks | null; d: Dict }) {
+  const { score, complete } = partsScore(rubric, marks);
+  return (
+    <div className="parts-view stack" style={{ gap: 12 }}>
+      {rubric.sections!.map((s, i) => {
+        const got = s.parts.reduce((n, p) => n + (marks?.[p.id]?.score ?? 0), 0);
+        return (
+          <section key={s.id} className="parts-section" aria-label={s.title || `${d.prSection} ${i + 1}`}>
+            <p className="row" style={{ margin: 0 }}>
+              <b className="grow">{s.title || `${d.prSection} ${i + 1}`}</b>
+              <span className="muted" style={{ fontSize: 13 }}>{marks ? `${Math.round(got * 100) / 100} / ` : ""}{sectionPoints(s)} {d.pts}</span>
+            </p>
+            <ul className="parts-list">
+              {s.parts.map((p) => {
+                const m = marks?.[p.id];
+                const full = m && m.score !== null && m.score >= p.points;
+                const lost = m && m.score !== null && m.score < p.points;
+                return (
+                  <li key={p.id} className={full ? "is-full" : lost ? "is-lost" : undefined}>
+                    <div className="row" style={{ alignItems: "baseline", gap: 8 }}>
+                      {p.label && <span className="part-tag">{p.label}</span>}
+                      <span className="grow" style={{ whiteSpace: "pre-wrap" }}>{p.question}</span>
+                      <span className="part-score">
+                        {m && m.score !== null ? `${m.score} / ${p.points}` : `${p.points} ${d.pts}`}
+                        {full && <span className="sr-only"> {d.prFull}</span>}
+                        {lost && <span className="sr-only"> {d.prLost}</span>}
+                      </span>
+                    </div>
+                    {m?.message && <p className="part-message">{m.message}</p>}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        {d.rubricTotal}: <b>{marks ? score ?? "—" : "—"}</b> / {rubricMax(rubric)}{marks && score !== null && !complete ? ` · ${d.rubricIncomplete}` : ""}
+      </p>
     </div>
   );
 }

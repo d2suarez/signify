@@ -284,7 +284,7 @@ export async function saveAssignment(ctx: Ctx, id: string, input: AssignmentInpu
       const list = wanted.filter((id) => ok.has(id));
       next.standards = list.length ? list : null;
       if (next.rubric) {
-        next.rubric = { criteria: next.rubric.criteria.map(({ standardId, ...c }) => (standardId && ok.has(standardId) ? { ...c, standardId } : c)) };
+        next.rubric = { ...next.rubric, criteria: next.rubric.criteria.map(({ standardId, ...c }) => (standardId && ok.has(standardId) ? { ...c, standardId } : c)) };
       }
     }
     const rubricChanged = JSON.stringify(next.rubric) !== JSON.stringify(cur.rubric);

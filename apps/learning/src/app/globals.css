@@ -465,6 +465,27 @@ html[data-contrast="high"] .plan-lesson, html[data-contrast="high"] .plan-due, h
 .rubric-pick-levels button { min-height: 44px; min-width: 44px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: inherit; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
 .rubric-pick-levels button .rubric-pts { font-size: 16px; }
 .rubric-pick-levels button[aria-pressed="true"] { border: 3px solid currentColor; background: color-mix(in srgb, var(--p3) 22%, var(--surface)); }
+/* Sections-and-parts rubric (story 01, grade assistant): green when a part is full, red when points are lost, always with words too. */
+.parts-section { border: 0; padding: 0; margin: 0; }
+.parts-section legend { padding: 0; margin-bottom: 6px; font-size: 14px; }
+.parts-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.parts-list li, .part-grade { border: 1px solid var(--line); border-left-width: 5px; border-radius: var(--r-md); padding: 8px 10px; background: var(--surface); }
+.parts-list li.is-full, .part-grade.is-full { border-left-color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
+.parts-list li.is-lost, .part-grade.is-lost { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
+.part-grade { display: grid; gap: 6px; margin-bottom: 8px; }
+.part-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--desk); font-weight: 800; font-size: 13px; }
+.part-step { min-width: 44px; min-height: 44px; font-size: 20px; font-weight: 800; padding: 0; }
+.part-score { font-variant-numeric: tabular-nums; font-weight: 800; min-width: 64px; text-align: center; }
+.part-state { font-size: 13px; font-weight: 700; color: var(--muted); }
+.is-full .part-state, .is-full .part-score { color: color-mix(in srgb, var(--good) 80%, var(--ink)); }
+.is-lost .part-state, .is-lost .part-score { color: color-mix(in srgb, var(--bad) 85%, var(--ink)); }
+.part-question { margin: 0; font-size: 14px; white-space: pre-wrap; }
+.part-message { margin: 6px 0 0; font-size: 14px; white-space: pre-wrap; }
+.part-field { display: grid; gap: 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.part-field .field { font-weight: 400; color: var(--ink); font-size: 14px; }
+.part-edit { display: grid; gap: 4px; }
+.part-label { width: 64px; }
+.part-points { width: 88px; }
 .rubric td.is-on { border: 3px solid currentColor; background: color-mix(in srgb, var(--p3) 22%, var(--surface)); }
 .rubric-pts { font-family: var(--display); font-weight: 800; font-size: 18px; display: block; }
 .rubric-desc { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; white-space: pre-wrap; }

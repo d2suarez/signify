@@ -3,7 +3,8 @@
 import { newId } from "@/lib/blocks";
 import type { Dict } from "@/lib/i18n";
 import { StandardOptionList, type StandardOption } from "./StandardsPicker";
-import { newCriterion, rubricMax, RUBRIC_LIMITS, type Rubric, type RubricCriterion, type RubricLevel } from "@/lib/rubric";
+import PartsRubricEditor from "./PartsRubricEditor";
+import { isParts, newCriterion, newSection, rubricMax, RUBRIC_LIMITS, type Rubric, type RubricCriterion, type RubricLevel } from "@/lib/rubric";
 
 /** Writing an assignment's rubric: criteria down, levels across, each level worth points. */
 export default function RubricEditor({ rubric, onChange, standards, d }: {
@@ -16,10 +17,15 @@ export default function RubricEditor({ rubric, onChange, standards, d }: {
       <div className="card stack" style={{ gap: 8 }}>
         <p className="label">{d.rubric}</p>
         <p className="muted" style={{ margin: 0, fontSize: 14 }}>{d.rubricHint}</p>
-        <button type="button" className="btn" style={{ alignSelf: "flex-start" }} onClick={() => onChange({ criteria: [newCriterion()] })}>{d.rubricAdd}</button>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn" onClick={() => onChange({ criteria: [newCriterion()] })}>{d.rubricAdd}</button>
+          <button type="button" className="btn" onClick={() => onChange({ kind: "parts", criteria: [], sections: [newSection(1)] })}>{d.prAdd}</button>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.prAddHint}</p>
       </div>
     );
   }
+  if (isParts(rubric)) return <PartsRubricEditor rubric={rubric} onChange={onChange} d={d} />;
 
   const setCriterion = (i: number, patch: Partial<RubricCriterion>) =>
     onChange({ criteria: rubric.criteria.map((c, j) => (j === i ? { ...c, ...patch } : c)) });

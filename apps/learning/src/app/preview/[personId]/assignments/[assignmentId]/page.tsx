@@ -102,8 +102,8 @@ export default async function PreviewAssignment({ params }: { params: Promise<{ 
 
       {a.rubric && (
         <section className="card stack" style={{ gap: 8 }} aria-labelledby="rubric-title">
-          <p className="label" id="rubric-title">{shown?.rubric ? d.rubricYours : d.rubricHowGraded}</p>
-          <RubricView rubric={a.rubric} selection={shown?.rubric ?? null} d={d} />
+          <p className="label" id="rubric-title">{shown?.rubric || shown?.parts ? d.rubricYours : d.rubricHowGraded}</p>
+          <RubricView rubric={a.rubric} selection={shown?.rubric ?? null} marks={shown?.parts ?? null} d={d} />
         </section>
       )}
 

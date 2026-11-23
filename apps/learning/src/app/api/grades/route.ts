@@ -7,7 +7,7 @@ import { gradeTargets } from "@/lib/group-work";
 export const dynamic = "force-dynamic";
 
 /**
- * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late?, group? }
+ * Set one grade. Body: { assignmentId, studentId, score?, flag?, comment?, rubric?, levels?, late?, parts?, notes?, group? }
  * (group: true = the same grade for every member of the student's group on a group assignment).
  * (late = the teacher's change to the late penalty: {waive}, {percent}, {days} or null).
  * The student must be in the class in Signify ID right now; if ID can't be
@@ -17,7 +17,7 @@ export async function PUT(req: Request) {
   let body: Record<string, unknown>;
   try {
     const text = await req.text();
-    if (text.length > 20_000) return NextResponse.json({ error: "Too long." }, { status: 413 });
+    if (text.length > 400_000) return NextResponse.json({ error: "Too long." }, { status: 413 });
     body = JSON.parse(text);
   } catch {
     return NextResponse.json({ error: "That wasn't a grade." }, { status: 400 });
@@ -30,7 +30,7 @@ export async function PUT(req: Request) {
   if (!ok) return NextResponse.json({ error: "roster" }, { status: 503 });
   const roster = new Set(students.map((s) => s.id));
   const studentId = String(body.studentId || "");
-  const input = { score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels, late: body.late };
+  const input = { score: body.score, flag: body.flag, comment: body.comment, rubric: body.rubric, levels: body.levels, late: body.late, parts: body.parts, notes: body.notes };
   // A group grade (story 01, F4): the same grade for every member of the student's group, each through setGrade
   // (history, late policy per member, passback), the named student first so a bad score stops before anyone changes.
   const targets = body.group === true ? await gradeTargets(ctx(access.me), access.assignment, studentId, roster) : [studentId];
