@@ -798,3 +798,25 @@ html[data-contrast="high"] .subfolder { border-left-color: var(--ink); }
 @media (min-width: 900px) { .stage-doc { aspect-ratio: 4 / 3; } }
 /* A material row on the course page (migration 027) */
 .material-kind { font-size: 13px; }
+
+/* ---------- principal's weekly plans (story 01, B4) ---------- */
+.table-scroll { overflow-x: auto; }
+.plans-table { min-width: 560px; }
+.plans-table th[scope="row"] { white-space: nowrap; font-weight: 700; width: 1%; }
+.plans-table td:last-child { width: 38%; }
+.plans-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.plans-items .shape { width: 9px; height: 9px; display: inline-block; }
+.print-only { display: none; }
+@media print {
+  .top, .rail, .rail-jump, .no-print, nextjs-portal { display: none !important; }
+  .shell, .shell.has-rail { display: block !important; }
+  body, .page { background: #fff !important; color: #000 !important; }
+  .page { padding: 0 !important; max-width: none !important; }
+  .print-only { display: block; }
+  .plans-page .card { box-shadow: none !important; border: 0 !important; padding: 0 !important; }
+  .plans-teacher + .plans-teacher { break-before: page; }
+  .plans-table { min-width: 0; font-size: 11pt; }
+  .plans-table tr { break-inside: avoid; }
+  .plans-page a { color: #000 !important; text-decoration: none !important; }
+  .muted { color: #333 !important; }
+}

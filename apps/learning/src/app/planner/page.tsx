@@ -12,6 +12,7 @@ import { listStandards } from "@/lib/standards";
 import { weekPlan, plannable, presentDay, presentationLessonIds, planMaterial, unplanMaterial, movePlanItem, addDayStandard, removeDayStandard, PlanError } from "@/lib/week-plan";
 import { addDays, isSchoolDay, parseDay, schoolWeek, todayIn } from "@/lib/planner";
 import { dict } from "@/lib/i18n";
+import { noteTeacherName } from "@/lib/school-plans";
 import { TopBar } from "@/components/TopBar";
 import WeekPlanner, { type PlannerCourse } from "@/components/WeekPlanner";
 
@@ -104,6 +105,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
   const days = schoolWeek(parseDay(week) ?? today);
   const { ok, classes } = await myClasses();
   const teaching = (await myCourses(me.tenantId, classes, me.id)).filter((c) => c.role === "teacher");
+  if (teaching.length) await noteTeacherName(me.tenantId, me.id, me.name).catch(() => {});
   const c = ctx(me);
 
   const courses: PlannerCourse[] = await Promise.all(teaching.map(async (course) => {

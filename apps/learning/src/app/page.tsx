@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { noteTeacherName } from "@/lib/school-plans";
 import { requireMe, myClasses, myChildren } from "@/lib/auth";
 import { myCourses } from "@/lib/courses";
 import { lang, isSchoolAdmin, ctx, updatesViewer } from "@/lib/access";
@@ -34,6 +35,8 @@ export default async function Home() {
   const children = family.children;
   const isParent = me.role === "guardian" || children.length > 0;
   const courses = await myCourses(me.tenantId, classes, me.id);
+  // The principal's weekly plans name teachers by their own display name (story 01, B4).
+  if (courses.some((c) => c.role === "teacher")) await noteTeacherName(me.tenantId, me.id, me.name).catch(() => {});
   const onlyParent = isParent && courses.length === 0;
   const clubs = courses.filter((c) => c.kind === "club");
   const teaching = courses.filter((c) => c.role === "teacher" && c.kind !== "club");
@@ -68,6 +71,7 @@ export default async function Home() {
     teaching.length > 0 && <Link key="p" className="btn btn-sm" href="/planner">{d.planner}</Link>,
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="c" className="btn btn-sm" href="/catalog">{d.secCatalogTitle}</Link>,
     (teaching.length > 0 || isSchoolAdmin(me)) && <Link key="s" className="btn btn-sm" href="/standards">{d.standardsLibrary}</Link>,
+    isSchoolAdmin(me) && <Link key="sp" className="btn btn-sm" href="/school/plans">{d.spTitle}</Link>,
     isSchoolAdmin(me) && <a key="pe" className="btn btn-sm" href="/school/periods">{d.periods}</a>,
     isSchoolAdmin(me) && <a key="g" className="btn btn-sm" href="/school/grading">{d.gradingSetupLink}</a>,
     isSchoolAdmin(me) && <a key="l" className="btn btn-sm" href="/school/lti">{d.ltiTitle}</a>,

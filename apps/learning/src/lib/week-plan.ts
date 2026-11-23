@@ -134,7 +134,7 @@ export async function weekPlan(ctx: Ctx, courseId: string, days: Day[], q?: Quer
         materials.push({
           itemId: String(r.item_id), kind: "resource", id: String(r.ref_id), title: String(r.r_title || r.l_title || ""),
           sub: r.r_kind === "lesson" ? "lesson" : String(r.r_type ?? "text"), hidden: !r.visible,
-          href: `/courses/${courseId}/resources/${r.ref_id}`,
+          href: `/courses/${courseId}/materials/${r.ref_id}`,
         });
       }
       // A plan item whose material was archived is simply not shown.
