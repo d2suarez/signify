@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { updatesViewer } from "@/lib/access";
 import { createPost, createPosts, editPost, addComment, moderatePost, moderateComment, setCourseRules, markRead, UpdateError, type ModOp } from "@/lib/updates";
 
-const back = (f: FormData, fallback: string) => {
-  const b = String(f.get("back") || "");
+const back = (f: FormData, fallback: string, field = "back") => {
+  const b = String(f.get(field) || "");
   return b.startsWith("/") && !b.startsWith("//") ? b : fallback;
 };
 const op = (f: FormData): ModOp | null => {
@@ -18,7 +18,7 @@ const withError = (path: string, code: string) => `${path}${path.includes("?") ?
 export async function postUpdate(f: FormData) {
   const v = await updatesViewer();
   if (!v) return;
-  const to = back(f, "/updates");
+  const to = back(f, "/");
   try {
     await createPost(v, { courseId: f.get("courseId"), title: f.get("title"), body: f.get("body") });
   } catch (e) {
@@ -83,9 +83,10 @@ export async function moderate(f: FormData) {
   const commentId = String(f.get("commentId") || "");
   if (commentId) await moderateComment(v, commentId, o);
   else await moderatePost(v, String(f.get("postId") || ""), o);
-  const to = back(f, "/updates");
+  const to = back(f, "/");
   revalidatePath(to);
-  if (o === "delete" && !commentId && to.startsWith("/updates/")) redirect("/updates");
+  // A post deleted from its own page: go where it lived (its class, or home for a whole-school post).
+  if (o === "delete" && !commentId && to.startsWith("/updates/")) redirect(back(f, "/", "afterDelete"));
 }
 
 export async function courseRulesAction(f: FormData) {
@@ -100,5 +101,5 @@ export async function markAllRead(f: FormData) {
   const v = await updatesViewer();
   if (!v) return;
   await markRead(v, f.getAll("postId").map(String));
-  revalidatePath(back(f, "/updates"));
+  revalidatePath(back(f, "/"));
 }

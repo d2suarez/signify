@@ -126,7 +126,7 @@ export default async function Home() {
           </aside>
 
           <section className="home-feed stack" aria-labelledby="home-updates" style={{ gap: 14 }}>
-            {/* No "All updates" button: this IS every update (Desmond, 2026-11-23); /updates stays for a class's "see all". */}
+            {/* This IS every update: there is no separate Updates page (Desmond, 2026-11-23). */}
             <h2 id="home-updates" className="label">{d.updTitle}</h2>
             {setup && setup.places.length > 0 && (
               <div className="card composer-card">

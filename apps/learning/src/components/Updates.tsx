@@ -39,7 +39,7 @@ export function UpdateErrorNote({ code, d }: { code?: string; d: Dict }) {
 /**
  * A list of posts, newest activity first: each one whole (pictures, videos,
  * Learning links), unread marked with a word, not colour alone. `cards`:
- * each post its own card (the home page and /updates); otherwise rows
+ * each post its own card (the home page); otherwise rows
  * inside the caller's card (a class page).
  */
 export function Feed({ posts, back, L, d, showWhere = true, empty, cards = false }: {

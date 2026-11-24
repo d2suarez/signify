@@ -27,6 +27,8 @@ export default async function UpdateThread({ params, searchParams }: { params: P
   await markRead(v, [t.post.id]);
   const { post, comments } = t;
   const here = `/updates/${post.id}`;
+  // Where the post lives: its class page, or home for a whole-school post (no separate Updates page).
+  const home = post.courseId ? `/courses/${post.courseId}` : "/";
   const where = post.courseId ? post.courseName : d.updWholeSchool;
   // The author changing it: the editor, filled with the post, in place of the post.
   const editing = sp.edit === "1" && post.canEdit;
@@ -37,6 +39,7 @@ export default async function UpdateThread({ params, searchParams }: { params: P
       <input type="hidden" name="postId" value={post.id} />
       {commentId && <input type="hidden" name="commentId" value={commentId} />}
       <input type="hidden" name="back" value={here} />
+      {!commentId && <input type="hidden" name="afterDelete" value={home} />}
       {(post.canModerate) && (
         <button className="btn btn-sm" name="op" value={status === "hidden" ? "unhide" : "hide"} aria-label={`${status === "hidden" ? d.updUnhide : d.updHide}: ${label}`}>
           {status === "hidden" ? d.updUnhide : d.updHide}
@@ -47,7 +50,7 @@ export default async function UpdateThread({ params, searchParams }: { params: P
   );
   return (
     <>
-      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link> · <Link href="/updates">{d.updTitle}</Link>{post.courseId && <> · <Link href={`/courses/${post.courseId}`}>{post.courseName}</Link></>}</>} />
+      <TopBar crumbs={<><Link href="/">{d.myCourses}</Link>{post.courseId && <> · <Link href={`/courses/${post.courseId}`}>{post.courseName}</Link></>}</>} />
       <main className="page stack updates-page">
         <UpdateErrorNote code={sp.updateError} d={d} />
         {setup && (

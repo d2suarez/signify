@@ -148,7 +148,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
     const setup = canPost ? await composerSetup(viewer, mine, dd.updWholeSchool) : null;
     return (
       <section className="card stack" aria-labelledby="upd-title" style={{ gap: 10 }}>
-        <div className="row"><h2 id="upd-title" className="label grow">{dd.updTitle}</h2><Link href="/updates" className="btn btn-sm">{dd.updAll}</Link></div>
+        <h2 id="upd-title" className="label">{dd.updTitle}</h2>
         <UpdateErrorNote code={sp.updateError} d={dd} />
         {setup && (
           <PostComposer places={setup.places} preselected={[access.course.id]} materials={setup.materials} canUpload={setup.canUpload}
